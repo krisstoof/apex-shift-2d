@@ -32,7 +32,7 @@ func setup(kind: String) -> void:
 
 func interact(player: Node) -> void:
 	player.inventory.add_item(item_name, amount)
-	get_node("/root/EventBus").post_message("Gathered %s x%s" % [item_name, amount])
+	get_node("/root/EventBus").post_message("Collected %s" % item_name)
 	queue_free()
 
 

@@ -14,10 +14,18 @@ func _process(delta: float) -> void:
 	night_amount = clamp(sin(phase * TAU - PI * 0.5) * 0.5 + 0.5, 0.0, 1.0)
 	if time_of_day >= day_length_seconds:
 		time_of_day -= day_length_seconds
-		day += 1
-		get_node("/root/EventBus").emit_game_event("day_ended", {"day": day})
-		get_node("/root/EventBus").post_message("Day %s started" % day)
-		day_changed.emit(day)
+		_start_new_day("night_passed")
+
+
+func sleep_until_morning() -> bool:
+	if not is_night():
+		get_node("/root/EventBus").post_message("You can sleep when night falls")
+		return false
+	time_of_day = 0.0
+	night_amount = 0.0
+	_start_new_day("slept_in_tent")
+	get_node("/root/EventBus").post_message("Slept until morning")
+	return true
 
 
 func get_day() -> int:
@@ -26,3 +34,10 @@ func get_day() -> int:
 
 func is_night() -> bool:
 	return night_amount > 0.55
+
+
+func _start_new_day(reason: String) -> void:
+	day += 1
+	get_node("/root/EventBus").emit_game_event("day_ended", {"day": day, "reason": reason})
+	get_node("/root/EventBus").post_message("Day %s started" % day)
+	day_changed.emit(day)

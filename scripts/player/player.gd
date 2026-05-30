@@ -14,6 +14,7 @@ const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
 const WALL_SCENE := preload("res://scenes/buildings/wall.tscn")
 const STORAGE_BOX_SCENE := preload("res://scenes/buildings/storage_box.tscn")
+const TENT_SCENE := preload("res://scenes/buildings/tent.tscn")
 
 @onready var interaction_area: Area2D = $InteractionArea
 @onready var attack_area: Area2D = $AttackArea
@@ -40,7 +41,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_accept") or (event is InputEventKey and event.pressed and event.keycode == KEY_E):
+	if event is InputEventKey and event.pressed and event.keycode == KEY_E:
 		_interact()
 	if event is InputEventKey and event.pressed:
 		match event.keycode:
@@ -59,6 +60,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_craft("wall")
 			KEY_5:
 				_craft("storage_box")
+			KEY_6:
+				_craft("tent")
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		_attack()
 
@@ -105,7 +108,7 @@ func _craft(item_name: String) -> void:
 		return
 	var missing := _get_missing_ingredients(recipe)
 	if not missing.is_empty():
-		get_node("/root/EventBus").post_message("Need %s for %s" % [", ".join(missing), item_name])
+		get_node("/root/EventBus").post_message("Not enough resources for %s: %s" % [item_name, ", ".join(missing)])
 		return
 	for ingredient in recipe.keys():
 		inventory.remove_item(ingredient, int(recipe[ingredient]))
@@ -117,7 +120,8 @@ func _craft(item_name: String) -> void:
 		"campfire": CAMPFIRE_SCENE,
 		"trap": TRAP_SCENE,
 		"wall": WALL_SCENE,
-		"storage_box": STORAGE_BOX_SCENE
+		"storage_box": STORAGE_BOX_SCENE,
+		"tent": TENT_SCENE
 	}[item_name]
 	var building := scene.instantiate()
 	building.global_position = global_position + Vector2(56, 0).rotated(rotation)

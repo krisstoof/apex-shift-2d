@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/ui/skill_icon_bar.gd" id="2"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1")
@@ -9,28 +10,35 @@ script = ExtResource("1")
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 760.0
-offset_bottom = 172.0
+offset_bottom = 250.0
 
 [node name="StatsLabel" type="Label" parent="Panel"]
 offset_left = 12.0
 offset_top = 8.0
 offset_right = 734.0
-offset_bottom = 96.0
+offset_bottom = 118.0
 theme_override_font_sizes/font_size = 16
 text = "Loading..."
 
 [node name="PromptLabel" type="Label" parent="Panel"]
 offset_left = 12.0
-offset_top = 102.0
+offset_top = 124.0
 offset_right = 734.0
-offset_bottom = 128.0
+offset_bottom = 150.0
 theme_override_font_sizes/font_size = 16
 text = ""
 
 [node name="MessageLabel" type="Label" parent="Panel"]
 offset_left = 12.0
-offset_top = 132.0
+offset_top = 154.0
 offset_right = 734.0
-offset_bottom = 158.0
+offset_bottom = 236.0
 theme_override_font_sizes/font_size = 16
 text = ""
+
+[node name="SkillIconBar" type="Control" parent="."]
+offset_left = 12.0
+offset_top = 262.0
+offset_right = 560.0
+offset_bottom = 322.0
+script = ExtResource("2")

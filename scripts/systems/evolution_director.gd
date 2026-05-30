@@ -41,12 +41,15 @@ func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 
 func _change_generation(reason: String) -> void:
 	species_profile["generation"] = int(species_profile.get("generation", 1)) + 1
-	if trap_kills >= 2:
+	var adapted_to_traps := trap_kills >= 1
+	var adapted_to_fire := fire_scares >= 1
+	var adapted_to_player := player_kills >= 1
+	if adapted_to_traps:
 		species_profile["trap_awareness"] = _clamp_profile("trap_awareness", 0.15)
-	if fire_scares >= 2:
+	if adapted_to_fire:
 		species_profile["fire_fear"] = _clamp_profile("fire_fear", -0.10)
 		species_profile["stalk_tendency"] = _clamp_profile("stalk_tendency", 0.10)
-	if player_kills >= 2:
+	if adapted_to_player:
 		species_profile["aggression"] = _clamp_profile("aggression", 0.10)
 		species_profile["pack_coordination"] = _clamp_profile("pack_coordination", 0.10)
 	if wall_attacks >= 1:
@@ -58,7 +61,13 @@ func _change_generation(reason: String) -> void:
 	days_since_generation = 0
 	print("[Evolution] Generation changed (%s): %s" % [reason, species_profile])
 	get_node("/root/EventBus").emit_game_event("generation_changed", {"profile": get_profile(), "reason": reason})
-	get_node("/root/EventBus").post_message("Generation %s: Varnaks adapted" % species_profile["generation"])
+	get_node("/root/EventBus").post_message("Generation changed")
+	if adapted_to_traps:
+		get_node("/root/EventBus").post_message("Varnaks adapted to traps")
+	if adapted_to_fire:
+		get_node("/root/EventBus").post_message("Varnaks are less afraid of fire")
+	if adapted_to_player:
+		get_node("/root/EventBus").post_message("Varnaks became more aggressive")
 	profile_changed.emit(get_profile())
 
 
