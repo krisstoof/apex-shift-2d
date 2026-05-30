@@ -1,0 +1,86 @@
+extends Node
+
+signal profile_changed(profile: Dictionary)
+
+var species_profile: Dictionary = {}
+var trap_kills := 0
+var player_kills := 0
+var fire_scares := 0
+var wall_attacks := 0
+var days_since_generation := 0
+
+func _ready() -> void:
+	species_profile = _load_default_profile()
+	get_node("/root/EventBus").game_event.connect(_on_game_event)
+	print("[Evolution] Initial profile: %s" % species_profile)
+
+
+func get_profile() -> Dictionary:
+	return species_profile.duplicate(true)
+
+
+func force_generation_change() -> void:
+	_change_generation("manual")
+
+
+func _on_game_event(event_name: String, _payload: Dictionary) -> void:
+	match event_name:
+		"varnak_killed_by_trap":
+			trap_kills += 1
+		"varnak_killed_by_player":
+			player_kills += 1
+		"varnak_scared_by_fire":
+			fire_scares += 1
+		"varnak_attacked_wall":
+			wall_attacks += 1
+		"day_ended":
+			days_since_generation += 1
+			if days_since_generation >= 2:
+				_change_generation("two_days")
+
+
+func _change_generation(reason: String) -> void:
+	species_profile["generation"] = int(species_profile.get("generation", 1)) + 1
+	if trap_kills >= 2:
+		species_profile["trap_awareness"] = _clamp_profile("trap_awareness", 0.15)
+	if fire_scares >= 2:
+		species_profile["fire_fear"] = _clamp_profile("fire_fear", -0.10)
+		species_profile["stalk_tendency"] = _clamp_profile("stalk_tendency", 0.10)
+	if player_kills >= 2:
+		species_profile["aggression"] = _clamp_profile("aggression", 0.10)
+		species_profile["pack_coordination"] = _clamp_profile("pack_coordination", 0.10)
+	if wall_attacks >= 1:
+		species_profile["base_curiosity"] = _clamp_profile("base_curiosity", 0.10)
+	trap_kills = 0
+	player_kills = 0
+	fire_scares = 0
+	wall_attacks = 0
+	days_since_generation = 0
+	print("[Evolution] Generation changed (%s): %s" % [reason, species_profile])
+	get_node("/root/EventBus").emit_game_event("generation_changed", {"profile": get_profile(), "reason": reason})
+	get_node("/root/EventBus").post_message("Generation %s: Varnaks adapted" % species_profile["generation"])
+	profile_changed.emit(get_profile())
+
+
+func _clamp_profile(key: String, delta: float) -> float:
+	return clamp(float(species_profile.get(key, 0.0)) + delta, 0.0, 1.0)
+
+
+func _load_default_profile() -> Dictionary:
+	var path := "res://data/species_varnak.json"
+	if FileAccess.file_exists(path):
+		var text := FileAccess.get_file_as_string(path)
+		var parsed = JSON.parse_string(text)
+		if typeof(parsed) == TYPE_DICTIONARY:
+			return parsed
+	return {
+		"species_name": "Varnak",
+		"generation": 1,
+		"aggression": 0.45,
+		"fire_fear": 0.85,
+		"trap_awareness": 0.10,
+		"pack_coordination": 0.20,
+		"night_activity": 0.25,
+		"base_curiosity": 0.10,
+		"stalk_tendency": 0.15
+	}

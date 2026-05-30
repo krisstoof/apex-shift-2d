@@ -1,0 +1,36 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1"]
+
+[node name="HUD" type="CanvasLayer"]
+script = ExtResource("1")
+
+[node name="Panel" type="Panel" parent="."]
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 760.0
+offset_bottom = 172.0
+
+[node name="StatsLabel" type="Label" parent="Panel"]
+offset_left = 12.0
+offset_top = 8.0
+offset_right = 734.0
+offset_bottom = 96.0
+theme_override_font_sizes/font_size = 16
+text = "Loading..."
+
+[node name="PromptLabel" type="Label" parent="Panel"]
+offset_left = 12.0
+offset_top = 102.0
+offset_right = 734.0
+offset_bottom = 128.0
+theme_override_font_sizes/font_size = 16
+text = ""
+
+[node name="MessageLabel" type="Label" parent="Panel"]
+offset_left = 12.0
+offset_top = 132.0
+offset_right = 734.0
+offset_bottom = 158.0
+theme_override_font_sizes/font_size = 16
+text = ""

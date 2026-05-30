@@ -1,0 +1,11 @@
+{
+  "species_name": "Varnak",
+  "generation": 1,
+  "aggression": 0.45,
+  "fire_fear": 0.85,
+  "trap_awareness": 0.10,
+  "pack_coordination": 0.20,
+  "night_activity": 0.25,
+  "base_curiosity": 0.10,
+  "stalk_tendency": 0.15
+}
