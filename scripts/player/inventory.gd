@@ -2,9 +2,9 @@ extends RefCounted
 class_name Inventory
 
 var items := {
-	"wood": 8,
-	"stone": 5,
-	"fiber": 5,
+	"wood": 0,
+	"stone": 0,
+	"fiber": 0,
 	"meat": 0,
 	"hide": 0,
 	"bone": 0

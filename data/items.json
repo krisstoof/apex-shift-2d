@@ -4,5 +4,6 @@
   "fiber": {"display_name": "Fiber"},
   "meat": {"display_name": "Meat"},
   "hide": {"display_name": "Hide"},
-  "bone": {"display_name": "Bone"}
+  "bone": {"display_name": "Bone"},
+  "tent": {"display_name": "Tent"}
 }

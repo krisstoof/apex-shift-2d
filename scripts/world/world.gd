@@ -2,6 +2,7 @@ extends Node2D
 
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
+const VARNAK_SPAWN_POINTS := [Vector2(220, 0), Vector2(-470, -300), Vector2(420, 330)]
 
 var evolution_director: Node
 var day_night_system: Node
@@ -11,6 +12,8 @@ func _ready() -> void:
 	evolution_director = get_parent().get_node("EvolutionDirector")
 	day_night_system = get_parent().get_node("DayNightSystem")
 	evolution_director.profile_changed.connect(_on_profile_changed)
+	day_night_system.day_changed.connect(_on_day_changed)
+	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	_spawn_resources()
 	_spawn_varnaks()
 	queue_redraw()
@@ -22,6 +25,7 @@ func _process(_delta: float) -> void:
 
 func _spawn_resources() -> void:
 	var placements := [
+		["tree", Vector2(-40, -20)], ["rock", Vector2(42, -16)], ["bush", Vector2(0, 50)],
 		["tree", Vector2(-360, -210)], ["tree", Vector2(-270, 130)], ["tree", Vector2(360, -190)],
 		["tree", Vector2(450, 180)], ["tree", Vector2(90, -330)], ["tree", Vector2(-520, 260)],
 		["tree", Vector2(580, -50)], ["tree", Vector2(-120, 360)], ["tree", Vector2(240, 310)],
@@ -37,17 +41,45 @@ func _spawn_resources() -> void:
 
 
 func _spawn_varnaks() -> void:
-	for pos in [Vector2(460, -260), Vector2(-470, -300), Vector2(420, 330)]:
-		var varnak := VARNAK_SCENE.instantiate()
-		add_child(varnak)
-		varnak.global_position = pos
-		varnak.apply_profile(evolution_director.get_profile())
-		varnak.day_night_system = day_night_system
+	for pos in VARNAK_SPAWN_POINTS:
+		_spawn_varnak_at(pos)
+
+
+func respawn_varnaks() -> void:
+	for varnak in get_tree().get_nodes_in_group("varnak"):
+		if is_instance_valid(varnak):
+			varnak.queue_free()
+	await get_tree().process_frame
+	_spawn_varnaks()
+	get_node("/root/EventBus").post_message("Varnaks respawned with current profile")
+
+
+func _spawn_varnak_at(pos: Vector2) -> void:
+	var varnak := VARNAK_SCENE.instantiate()
+	add_child(varnak)
+	varnak.global_position = pos
+	varnak.apply_profile(evolution_director.get_profile())
+	varnak.day_night_system = day_night_system
 
 
 func _on_profile_changed(profile: Dictionary) -> void:
 	for varnak in get_tree().get_nodes_in_group("varnak"):
 		varnak.apply_profile(profile)
+
+
+func _on_day_changed(_day: int) -> void:
+	var existing := get_tree().get_nodes_in_group("varnak").size()
+	var spawned := 0
+	while existing + spawned < VARNAK_SPAWN_POINTS.size():
+		_spawn_varnak_at(VARNAK_SPAWN_POINTS[existing + spawned])
+		spawned += 1
+	if spawned > 0:
+		get_node("/root/EventBus").post_message("Varnaks returned after the night")
+
+
+func _on_game_event(event_name: String, _payload: Dictionary) -> void:
+	if event_name == "generation_changed":
+		call_deferred("respawn_varnaks")
 
 
 func _draw() -> void:

@@ -61,6 +61,7 @@ func _update_state() -> void:
 		state = State.FLEE
 		if randf() < 0.012:
 			get_node("/root/EventBus").emit_game_event("varnak_scared_by_fire", {"position": global_position})
+			get_node("/root/EventBus").post_message("Varnak scared by fire")
 		return
 	var distance := global_position.distance_to(player.global_position)
 	var night_bonus := night_activity * 70.0 if day_night_system and day_night_system.is_night() else 0.0
@@ -129,6 +130,7 @@ func _pick_wander_target() -> void:
 func _die(source: String) -> void:
 	var event_name := "varnak_killed_by_trap" if source == "trap" else "varnak_killed_by_player"
 	get_node("/root/EventBus").emit_game_event(event_name, {"position": global_position})
+	get_node("/root/EventBus").post_message("Varnak killed by %s" % source)
 	if is_instance_valid(player) and global_position.distance_to(player.global_position) < 90.0:
 		player.inventory.add_item("meat", 1)
 		player.inventory.add_item("hide", 1)
