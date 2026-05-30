@@ -1,0 +1,8 @@
+{
+  "wood": {"display_name": "Wood"},
+  "stone": {"display_name": "Stone"},
+  "fiber": {"display_name": "Fiber"},
+  "meat": {"display_name": "Meat"},
+  "hide": {"display_name": "Hide"},
+  "bone": {"display_name": "Bone"}
+}

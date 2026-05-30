@@ -1,0 +1,25 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/world/world.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="3"]
+[ext_resource type="Script" path="res://scripts/systems/evolution_director.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/systems/day_night_system.gd" id="5"]
+[ext_resource type="PackedScene" path="res://scenes/systems/game_manager.tscn" id="6"]
+
+[node name="Main" type="Node2D"]
+
+[node name="EvolutionDirector" type="Node" parent="."]
+script = ExtResource("4")
+
+[node name="DayNightSystem" type="Node" parent="."]
+script = ExtResource("5")
+
+[node name="World" parent="." instance=ExtResource("2")]
+
+[node name="Player" parent="." instance=ExtResource("1")]
+position = Vector2(0, 0)
+
+[node name="HUD" parent="." instance=ExtResource("3")]
+
+[node name="GameManager" parent="." instance=ExtResource("6")]
