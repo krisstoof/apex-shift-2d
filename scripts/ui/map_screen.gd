@@ -1,12 +1,13 @@
 extends Control
 
+const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const PADDING := 24.0
 const PANEL_GAP := 20.0
 
 var player: Node2D
 var evolution_director: Node
 var day_night_system: Node
-var world_rect := Rect2(-2160, -1320, 4320, 2640)
+var world_rect := WORLD_CONFIG.WORLD_RECT
 var biome_zones: Array[Dictionary] = []
 
 

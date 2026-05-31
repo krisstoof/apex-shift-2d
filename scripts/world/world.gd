@@ -2,130 +2,7 @@ extends Node2D
 
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
-const WORLD_SCALE := 1.5
-const WORLD_RECT := Rect2(-2160, -1320, 4320, 2640)
-const BIOME_ZONES := [
-	{
-		"name": "Westwood",
-		"points": [
-			Vector2(-1440, -880),
-			Vector2(-690, -880),
-			Vector2(-560, -620),
-			Vector2(-720, -260),
-			Vector2(-560, 130),
-			Vector2(-700, 520),
-			Vector2(-610, 880),
-			Vector2(-1440, 880)
-		],
-		"color": Color(0.10, 0.24, 0.13),
-		"tree_weight": 7.0,
-		"rock_weight": 1.0,
-		"bush_weight": 3.0,
-		"dangerous": false
-	},
-	{
-		"name": "Stoneback Ridge",
-		"points": [
-			Vector2(-690, -880),
-			Vector2(540, -880),
-			Vector2(680, -710),
-			Vector2(470, -470),
-			Vector2(560, -250),
-			Vector2(120, -300),
-			Vector2(-120, -230),
-			Vector2(-560, -360),
-			Vector2(-720, -620)
-		],
-		"color": Color(0.22, 0.25, 0.23),
-		"tree_weight": 1.0,
-		"rock_weight": 7.0,
-		"bush_weight": 1.0,
-		"dangerous": false
-	},
-	{
-		"name": "Hearth Meadow",
-		"points": [
-			Vector2(-560, -360),
-			Vector2(-120, -230),
-			Vector2(120, -300),
-			Vector2(560, -250),
-			Vector2(650, 60),
-			Vector2(470, 290),
-			Vector2(130, 330),
-			Vector2(-80, 250),
-			Vector2(-430, 340),
-			Vector2(-560, 130),
-			Vector2(-720, -260)
-		],
-		"color": Color(0.16, 0.30, 0.14),
-		"tree_weight": 3.0,
-		"rock_weight": 2.0,
-		"bush_weight": 4.0,
-		"dangerous": false
-	},
-	{
-		"name": "South Thicket",
-		"points": [
-			Vector2(-560, 130),
-			Vector2(-430, 340),
-			Vector2(-80, 250),
-			Vector2(130, 330),
-			Vector2(470, 290),
-			Vector2(610, 540),
-			Vector2(540, 880),
-			Vector2(-610, 880),
-			Vector2(-700, 520)
-		],
-		"color": Color(0.20, 0.34, 0.12),
-		"tree_weight": 2.0,
-		"rock_weight": 1.0,
-		"bush_weight": 7.0,
-		"dangerous": false
-	},
-	{
-		"name": "Redfang Wilds",
-		"points": [
-			Vector2(540, -880),
-			Vector2(1440, -880),
-			Vector2(1440, 880),
-			Vector2(540, 880),
-			Vector2(610, 540),
-			Vector2(470, 290),
-			Vector2(650, 60),
-			Vector2(560, -250),
-			Vector2(470, -470),
-			Vector2(680, -710)
-		],
-		"color": Color(0.26, 0.18, 0.13),
-		"tree_weight": 3.0,
-		"rock_weight": 4.0,
-		"bush_weight": 2.0,
-		"dangerous": true
-	}
-]
-const RESOURCE_SPAWN_MARGIN := 70.0
-const RESOURCE_MIN_DISTANCE := 70.0
-const RESOURCE_PLAYER_SAFE_DISTANCE := 180.0
-const RESOURCE_SPAWN_ATTEMPTS := 80
-const VARNAK_PLAYER_SAFE_DISTANCE := 360.0
-const VARNAK_SPAWN_ATTEMPTS := 20
-const VARNAK_SPAWN_POINTS := [
-	Vector2(220, 0),
-	Vector2(-470, -300),
-	Vector2(420, 330),
-	Vector2(-980, -560),
-	Vector2(1040, 520),
-	Vector2(760, -680),
-	Vector2(980, -120),
-	Vector2(1220, -420),
-	Vector2(1160, 760),
-	Vector2(-1140, 580)
-]
-
-@export var tree_count := 29
-@export var rock_count := 14
-@export var bush_count := 19
-@export var varnak_target_count := 6
+const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 
 var evolution_director: Node
 var day_night_system: Node
@@ -150,25 +27,20 @@ func _process(_delta: float) -> void:
 
 
 func get_world_rect() -> Rect2:
-	return WORLD_RECT
+	return WORLD_CONFIG.WORLD_RECT
 
 
 func get_biome_zones() -> Array[Dictionary]:
-	var scaled_biomes: Array[Dictionary] = []
-	for biome_value in BIOME_ZONES:
-		var biome := Dictionary(biome_value).duplicate(true)
-		biome["points"] = _get_biome_points(biome)
-		scaled_biomes.append(biome)
-	return scaled_biomes
+	return WORLD_CONFIG.get_biome_zones()
 
 
 func _spawn_resources() -> void:
 	var used_positions: Array[Vector2] = []
 	var player_position := _get_player_position()
 
-	_spawn_resource_kind("tree", tree_count, used_positions, player_position)
-	_spawn_resource_kind("rock", rock_count, used_positions, player_position)
-	_spawn_resource_kind("bush", bush_count, used_positions, player_position)
+	_spawn_resource_kind("tree", WORLD_CONFIG.TREE_COUNT, used_positions, player_position)
+	_spawn_resource_kind("rock", WORLD_CONFIG.ROCK_COUNT, used_positions, player_position)
+	_spawn_resource_kind("bush", WORLD_CONFIG.BUSH_COUNT, used_positions, player_position)
 
 
 func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -185,9 +57,9 @@ func _spawn_resource_at(resource_kind: String, pos: Vector2) -> void:
 
 
 func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
-	for _attempt in RESOURCE_SPAWN_ATTEMPTS:
+	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
 		var biome := _pick_resource_biome(resource_kind)
-		var spawn_area := _get_biome_bounds(biome).grow(-RESOURCE_SPAWN_MARGIN)
+		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
 		var candidate := Vector2(
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
@@ -201,20 +73,20 @@ func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], 
 
 func _pick_resource_biome(resource_kind: String) -> Dictionary:
 	var total_weight := 0.0
-	for biome_value in BIOME_ZONES:
+	for biome_value in WORLD_CONFIG.BIOME_ZONES:
 		var biome := Dictionary(biome_value)
 		total_weight += _get_biome_resource_weight(biome, resource_kind)
 	if total_weight <= 0.0:
-		return Dictionary(BIOME_ZONES[0])
+		return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
 
 	var roll := resource_rng.randf_range(0.0, total_weight)
 	var cursor := 0.0
-	for biome_value in BIOME_ZONES:
+	for biome_value in WORLD_CONFIG.BIOME_ZONES:
 		var biome := Dictionary(biome_value)
 		cursor += _get_biome_resource_weight(biome, resource_kind)
 		if roll <= cursor:
 			return biome
-	return Dictionary(BIOME_ZONES[0])
+	return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
 
 
 func _get_biome_resource_weight(biome: Dictionary, resource_kind: String) -> float:
@@ -242,10 +114,7 @@ func _is_point_in_biome(point: Vector2, biome: Dictionary) -> bool:
 
 
 func _get_biome_points(biome: Dictionary) -> Array[Vector2]:
-	var scaled_points: Array[Vector2] = []
-	for point_value in biome["points"]:
-		scaled_points.append(Vector2(point_value) * WORLD_SCALE)
-	return scaled_points
+	return WORLD_CONFIG.get_biome_points(biome)
 
 
 func _draw_biome_outline(points: PackedVector2Array) -> void:
@@ -256,10 +125,10 @@ func _draw_biome_outline(points: PackedVector2Array) -> void:
 
 
 func _is_valid_resource_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
-	if candidate.distance_to(player_position) < RESOURCE_PLAYER_SAFE_DISTANCE:
+	if candidate.distance_to(player_position) < WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE:
 		return false
 	for used_position in used_positions:
-		if candidate.distance_to(used_position) < RESOURCE_MIN_DISTANCE:
+		if candidate.distance_to(used_position) < WORLD_CONFIG.RESOURCE_MIN_DISTANCE:
 			return false
 	return true
 
@@ -306,13 +175,13 @@ func restore_resources(resources: Array) -> void:
 
 
 func _spawn_varnaks() -> void:
-	for _i in varnak_target_count:
+	for _i in WORLD_CONFIG.VARNAK_TARGET_COUNT:
 		if not _try_spawn_missing_varnak():
 			push_warning("Could not find a safe initial Varnak spawn point")
 
 
 func respawn_missing_varnaks() -> void:
-	var missing_count := varnak_target_count - get_tree().get_nodes_in_group("varnak").size()
+	var missing_count := WORLD_CONFIG.VARNAK_TARGET_COUNT - get_tree().get_nodes_in_group("varnak").size()
 	if missing_count <= 0:
 		return
 	var spawned := 0
@@ -374,7 +243,7 @@ func _restore_varnak_from_data(data: Dictionary) -> void:
 
 func _try_spawn_missing_varnak() -> bool:
 	var player_position := _get_player_position()
-	for _attempt in VARNAK_SPAWN_ATTEMPTS:
+	for _attempt in WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS:
 		var point := _pick_varnak_spawn_point()
 		if _is_valid_varnak_spawn_position(point, player_position):
 			_spawn_varnak_at(point)
@@ -384,20 +253,20 @@ func _try_spawn_missing_varnak() -> bool:
 
 func _pick_varnak_spawn_point() -> Vector2:
 	var total_weight := 0.0
-	for point_value in VARNAK_SPAWN_POINTS:
+	for point_value in WORLD_CONFIG.VARNAK_SPAWN_POINTS:
 		total_weight += _get_varnak_spawn_weight(_scale_world_point(Vector2(point_value)))
 	var roll := varnak_rng.randf_range(0.0, total_weight)
 	var cursor := 0.0
-	for point_value in VARNAK_SPAWN_POINTS:
+	for point_value in WORLD_CONFIG.VARNAK_SPAWN_POINTS:
 		var point := _scale_world_point(Vector2(point_value))
 		cursor += _get_varnak_spawn_weight(point)
 		if roll <= cursor:
 			return point
-	return _scale_world_point(Vector2(VARNAK_SPAWN_POINTS[0]))
+	return _scale_world_point(Vector2(WORLD_CONFIG.VARNAK_SPAWN_POINTS[0]))
 
 
 func _scale_world_point(point: Vector2) -> Vector2:
-	return point * WORLD_SCALE
+	return WORLD_CONFIG.scale_world_point(point)
 
 
 func _get_varnak_spawn_weight(point: Vector2) -> float:
@@ -405,7 +274,7 @@ func _get_varnak_spawn_weight(point: Vector2) -> float:
 
 
 func _is_point_in_dangerous_biome(point: Vector2) -> bool:
-	for biome_value in BIOME_ZONES:
+	for biome_value in WORLD_CONFIG.BIOME_ZONES:
 		var biome := Dictionary(biome_value)
 		if bool(biome.get("dangerous", false)) and _is_point_in_biome(point, biome):
 			return true
@@ -413,7 +282,7 @@ func _is_point_in_dangerous_biome(point: Vector2) -> bool:
 
 
 func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2) -> bool:
-	if point.distance_to(player_position) < VARNAK_PLAYER_SAFE_DISTANCE:
+	if point.distance_to(player_position) < WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE:
 		return false
 	for varnak in get_tree().get_nodes_in_group("varnak"):
 		if is_instance_valid(varnak) and varnak.global_position.distance_to(point) < 80.0:
@@ -445,12 +314,12 @@ func _data_to_vector(data: Variant) -> Vector2:
 
 
 func _draw() -> void:
-	draw_rect(WORLD_RECT, Color(0.14, 0.22, 0.13), true)
-	for biome_value in BIOME_ZONES:
+	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.14, 0.22, 0.13), true)
+	for biome_value in WORLD_CONFIG.BIOME_ZONES:
 		var biome := Dictionary(biome_value)
 		var biome_points := PackedVector2Array(_get_biome_points(biome))
 		draw_colored_polygon(biome_points, Color(biome["color"]))
 		_draw_biome_outline(biome_points)
-	draw_rect(WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
+	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
 	if day_night_system and day_night_system.night_amount > 0.0:
-		draw_rect(WORLD_RECT, Color(0.02, 0.03, 0.09, day_night_system.night_amount * 0.45), true)
+		draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.02, 0.03, 0.09, day_night_system.night_amount * 0.45), true)

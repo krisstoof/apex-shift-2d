@@ -1,9 +1,10 @@
 extends Control
 
+const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const PADDING := 10.0
 
 var player: Node2D
-var world_rect := Rect2(-2160, -1320, 4320, 2640)
+var world_rect := WORLD_CONFIG.WORLD_RECT
 var biome_zones: Array[Dictionary] = []
 
 

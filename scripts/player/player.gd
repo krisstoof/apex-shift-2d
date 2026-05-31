@@ -1,10 +1,9 @@
 extends CharacterBody2D
 
+const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+
 @export var walk_speed := 180.0
 @export var run_speed := 290.0
-
-const WORLD_LIMIT_X := 2130.0
-const WORLD_LIMIT_Y := 1290.0
 
 var stats := PlayerStats.new()
 var inventory := Inventory.new()
@@ -12,6 +11,7 @@ var has_spear := false
 var evolution_director: Node
 var nearby_interactables: Array[Node] = []
 var recipes := {}
+var world_limits := WORLD_CONFIG.get_player_limits()
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -38,8 +38,8 @@ func _physics_process(delta: float) -> void:
 	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier()
 	velocity = input_vector * speed
 	move_and_slide()
-	global_position.x = clamp(global_position.x, -WORLD_LIMIT_X, WORLD_LIMIT_X)
-	global_position.y = clamp(global_position.y, -WORLD_LIMIT_Y, WORLD_LIMIT_Y)
+	global_position.x = clamp(global_position.x, -world_limits.x, world_limits.x)
+	global_position.y = clamp(global_position.y, -world_limits.y, world_limits.y)
 	stats.tick(delta, wants_run)
 
 
