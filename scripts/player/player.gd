@@ -5,6 +5,10 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 @export var walk_speed := 180.0
 @export var run_speed := 290.0
 
+const ATTACK_RANGE := 72.0
+const ATTACK_ARC := deg_to_rad(82.0)
+const ATTACK_VISUAL_DURATION := 0.16
+
 var stats := PlayerStats.new()
 var inventory := Inventory.new()
 var has_spear := false
@@ -12,6 +16,7 @@ var evolution_director: Node
 var nearby_interactables: Array[Node] = []
 var recipes := {}
 var world_limits := WORLD_CONFIG.get_player_limits()
+var attack_visual_time := 0.0
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -32,7 +37,15 @@ func _ready() -> void:
 	queue_redraw()
 
 
+func _process(delta: float) -> void:
+	_face_mouse()
+	if attack_visual_time > 0.0:
+		attack_visual_time = max(attack_visual_time - delta, 0.0)
+		queue_redraw()
+
+
 func _physics_process(delta: float) -> void:
+	_face_mouse()
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var wants_run := Input.is_key_pressed(KEY_SHIFT) and stats.can_run() and input_vector.length() > 0.0
 	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier()
@@ -101,13 +114,39 @@ func _attack() -> void:
 	if not stats.spend_stamina(12.0):
 		get_node("/root/EventBus").post_message("Too tired to attack")
 		return
+	attack_visual_time = ATTACK_VISUAL_DURATION
+	queue_redraw()
 	var damage := 38.0 if has_spear else 18.0
-	for body in attack_area.get_overlapping_bodies():
-		if body.is_in_group("varnak") and body.has_method("take_damage"):
-			body.take_damage(damage, "player")
-			get_node("/root/EventBus").post_message("Hit Varnak")
-			return
+	var target := _get_attack_target()
+	if target:
+		target.take_damage(damage, "player")
+		get_node("/root/EventBus").post_message("Hit Varnak")
+		return
 	get_node("/root/EventBus").post_message("Attack missed")
+
+
+func _get_attack_target() -> Node:
+	var best_target: Node
+	var best_distance := INF
+	for body in attack_area.get_overlapping_bodies():
+		if not body.is_in_group("varnak") or not body.has_method("take_damage"):
+			continue
+		if not _is_in_attack_arc(body.global_position):
+			continue
+		var distance := global_position.distance_to(body.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best_target = body
+	return best_target
+
+
+func _is_in_attack_arc(target_position: Vector2) -> bool:
+	var to_target := target_position - global_position
+	var distance := to_target.length()
+	if distance <= 0.0 or distance > ATTACK_RANGE:
+		return false
+	var forward := Vector2.RIGHT.rotated(rotation)
+	return abs(forward.angle_to(to_target.normalized())) <= ATTACK_ARC * 0.5
 
 
 func _craft(item_name: String) -> void:
@@ -173,6 +212,29 @@ func _load_recipes() -> Dictionary:
 	return parsed if typeof(parsed) == TYPE_DICTIONARY else {}
 
 
+func _face_mouse() -> void:
+	var direction := get_global_mouse_position() - global_position
+	if direction.length_squared() > 1.0:
+		rotation = direction.angle()
+
+
 func _draw() -> void:
+	_draw_attack_visual()
 	draw_circle(Vector2.ZERO, 14.0, Color(0.2, 0.48, 1.0))
 	draw_line(Vector2.ZERO, Vector2(18, 0), Color.WHITE, 3.0)
+
+
+func _draw_attack_visual() -> void:
+	if attack_visual_time <= 0.0:
+		return
+	var progress := attack_visual_time / ATTACK_VISUAL_DURATION
+	var alpha := 0.18 + progress * 0.34
+	var points := PackedVector2Array([Vector2.ZERO])
+	var start_angle := -ATTACK_ARC * 0.5
+	var steps := 9
+	for i in range(steps + 1):
+		var t := float(i) / float(steps)
+		var angle: float = lerp(start_angle, -start_angle, t)
+		points.append(Vector2.RIGHT.rotated(angle) * ATTACK_RANGE)
+	draw_colored_polygon(points, Color(1.0, 0.86, 0.30, alpha))
+	draw_arc(Vector2.ZERO, ATTACK_RANGE, start_angle, -start_angle, steps, Color(1.0, 0.92, 0.48, alpha + 0.25), 4.0)
