@@ -9,6 +9,7 @@ const MORNING_HOUR := 6.0
 const NIGHT_HOUR := 20.0
 const DAWN_START_HOUR := 5.0
 const DUSK_END_HOUR := 21.0
+const DEBUG_PHASE_HOURS := [MORNING_HOUR, NIGHT_HOUR, DUSK_END_HOUR, DAWN_START_HOUR]
 
 var day := 1
 var time_of_day := 0.0
@@ -39,6 +40,25 @@ func sleep_until_morning() -> bool:
 	return true
 
 
+func debug_next_phase() -> void:
+	var current_hour := get_hour_float()
+	for phase_hour in DEBUG_PHASE_HOURS:
+		if current_hour < float(phase_hour):
+			time_of_day = _hour_to_time(float(phase_hour))
+			night_amount = _calculate_night_amount()
+			get_node("/root/EventBus").post_message("Debug phase: %s" % get_phase_label())
+			return
+	time_of_day = _hour_to_time(float(DEBUG_PHASE_HOURS[0]))
+	night_amount = _calculate_night_amount()
+	_start_new_day("debug_next_phase")
+
+
+func debug_next_day() -> void:
+	time_of_day = _hour_to_time(START_HOUR)
+	night_amount = _calculate_night_amount()
+	_start_new_day("debug_next_day")
+
+
 func get_day() -> int:
 	return day
 
@@ -52,6 +72,17 @@ func get_clock_time() -> String:
 
 func get_time_label() -> String:
 	return "Night" if is_night() else "Day"
+
+
+func get_phase_label() -> String:
+	var hour := get_hour_float()
+	if hour >= DUSK_END_HOUR or hour < DAWN_START_HOUR:
+		return "Night"
+	if hour >= NIGHT_HOUR:
+		return "Dusk"
+	if hour < MORNING_HOUR:
+		return "Dawn"
+	return "Day"
 
 
 func is_night() -> bool:

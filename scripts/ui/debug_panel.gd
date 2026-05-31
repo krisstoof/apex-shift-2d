@@ -5,13 +5,18 @@ var evolution_director: Node
 var day_night_system: Node
 
 @onready var title_label: Label = $Panel/TitleLabel
-@onready var state_label: Label = $Panel/StateLabel
+@onready var state_label: Label = $Panel/StateScroll/StateLabel
 @onready var add_wood_button: Button = $Panel/AddWoodButton
 @onready var add_stone_button: Button = $Panel/AddStoneButton
 @onready var add_fiber_button: Button = $Panel/AddFiberButton
 @onready var add_meat_button: Button = $Panel/AddMeatButton
 @onready var add_torch_button: Button = $Panel/AddTorchButton
 @onready var add_spear_button: Button = $Panel/AddSpearButton
+@onready var next_phase_button: Button = $Panel/NextPhaseButton
+@onready var next_day_button: Button = $Panel/NextDayButton
+@onready var increase_adaptation_button: Button = $Panel/IncreaseAdaptationButton
+@onready var spawn_aggressive_button: Button = $Panel/SpawnAggressiveButton
+@onready var spawn_neutral_button: Button = $Panel/SpawnNeutralButton
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -23,6 +28,11 @@ func _ready() -> void:
 	add_meat_button.pressed.connect(_on_add_meat_pressed)
 	add_torch_button.pressed.connect(_on_add_torch_pressed)
 	add_spear_button.pressed.connect(_on_add_spear_pressed)
+	next_phase_button.pressed.connect(_on_next_phase_pressed)
+	next_day_button.pressed.connect(_on_next_day_pressed)
+	increase_adaptation_button.pressed.connect(_on_increase_adaptation_pressed)
+	spawn_aggressive_button.pressed.connect(_on_spawn_aggressive_pressed)
+	spawn_neutral_button.pressed.connect(_on_spawn_neutral_pressed)
 
 
 func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node) -> void:
@@ -52,14 +62,19 @@ func _build_state_text() -> String:
 		return "Waiting for game state..."
 	var profile: Dictionary = evolution_director.get_profile() if evolution_director.has_method("get_profile") else {}
 	var lines: Array[String] = []
-	lines.append("Day: %d  Phase: %s  Night: %.2f" % [_get_day(), _get_day_phase(), _get_night_amount()])
-	lines.append("Adaptation: generation %d  pressure %.2f" % [int(profile.get("generation", 1)), _get_adaptation_pressure(profile)])
-	lines.append("Health: %d  Hunger: %d  Stamina: %d  Rest: %d" % [int(player.stats.health), int(player.stats.hunger), int(player.stats.stamina), int(player.stats.rest)])
-	lines.append("Resources: wood %d  stone %d  fiber %d  meat %d" % [_get_item_count("wood"), _get_item_count("stone"), _get_item_count("fiber"), _get_item_count("meat")])
-	lines.append("Crafted: torch %d  spear %s  traps %d" % [_get_item_count("torch"), "yes" if player.has_spear else "no", get_tree().get_nodes_in_group("traps").size()])
-	lines.append("Campfire: %s" % _get_campfire_state())
-	lines.append("Torch: %s" % _get_torch_state())
-	lines.append("Animals: Varnaks %d" % get_tree().get_nodes_in_group("varnak").size())
+	lines.append("Day %d | %s | night %.2f" % [_get_day(), _get_day_phase(), _get_night_amount()])
+	lines.append("Player HP %d | H %d | Sta %d | Rest %d" % [int(player.stats.health), int(player.stats.hunger), int(player.stats.stamina), int(player.stats.rest)])
+	lines.append("Inv W%d S%d F%d M%d | Torch %d %s | Spear %s" % [
+		_get_item_count("wood"),
+		_get_item_count("stone"),
+		_get_item_count("fiber"),
+		_get_item_count("meat"),
+		_get_item_count("torch"),
+		_get_torch_state(),
+		"yes" if player.has_spear else "no"
+	])
+	lines.append("Campfire %s | Traps %d" % [_get_campfire_state(), get_tree().get_nodes_in_group("traps").size()])
+	lines.append_array(_get_varnak_debug_lines(profile))
 	return "\n".join(lines)
 
 
@@ -68,6 +83,8 @@ func _get_day() -> int:
 
 
 func _get_day_phase() -> String:
+	if day_night_system.has_method("get_phase_label"):
+		return day_night_system.get_phase_label()
 	if day_night_system.has_method("get_time_label"):
 		return day_night_system.get_time_label()
 	return "Night" if day_night_system.has_method("is_night") and day_night_system.is_night() else "Day"
@@ -87,6 +104,94 @@ func _get_adaptation_pressure(profile: Dictionary) -> float:
 	for key in keys:
 		total += float(profile.get(key, 0.0))
 	return total / float(keys.size())
+
+
+func _get_varnak_debug_lines(profile: Dictionary) -> Array[String]:
+	var lines: Array[String] = []
+	var varnaks := get_tree().get_nodes_in_group("varnak")
+	lines.append("")
+	lines.append("Varnaks %d | %s" % [varnaks.size(), _get_varnak_state_summary(varnaks)])
+	lines.append("Gen %d | pressure %.2f | days %d/%d" % [
+		int(profile.get("generation", 1)),
+		_get_adaptation_pressure(profile),
+		evolution_director.days_since_generation,
+		evolution_director.days_until_next_generation
+	])
+	lines.append("Adapt aggr %.2f fire %.2f trap %.2f pack %.2f" % [
+		float(profile.get("aggression", 0.0)),
+		float(profile.get("fire_fear", 0.0)),
+		float(profile.get("trap_awareness", 0.0)),
+		float(profile.get("pack_coordination", 0.0))
+	])
+	lines.append("Traits night %.2f curious %.2f stalk %.2f" % [
+		float(profile.get("night_activity", 0.0)),
+		float(profile.get("base_curiosity", 0.0)),
+		float(profile.get("stalk_tendency", 0.0))
+	])
+	lines.append("Events trap %d player %d fire %d wall %d" % [
+		evolution_director.trap_kills,
+		evolution_director.player_kills,
+		evolution_director.fire_scares,
+		evolution_director.wall_attacks
+	])
+	lines.append("Avg HP %s | nearest %s" % [
+		_get_average_varnak_health_text(varnaks),
+		_get_nearest_varnak_text(varnaks)
+	])
+	return lines
+
+
+func _get_varnak_state_summary(varnaks: Array) -> String:
+	if varnaks.is_empty():
+		return "none"
+	var counts := {}
+	for varnak in varnaks:
+		if not is_instance_valid(varnak):
+			continue
+		var state_name := "unknown"
+		if varnak.has_method("get_debug_data"):
+			var data: Dictionary = varnak.get_debug_data()
+			state_name = str(data.get("state", state_name)).to_lower()
+		counts[state_name] = int(counts.get(state_name, 0)) + 1
+	var parts: Array[String] = []
+	for key in counts.keys():
+		parts.append("%s:%d" % [key, int(counts[key])])
+	return ", ".join(parts)
+
+
+func _get_average_varnak_health_text(varnaks: Array) -> String:
+	var total := 0.0
+	var count := 0
+	for varnak in varnaks:
+		if not is_instance_valid(varnak) or not varnak.has_method("get_debug_data"):
+			continue
+		var data: Dictionary = varnak.get_debug_data()
+		total += float(data.get("health", 0.0)) / max(float(data.get("max_health", 1.0)), 1.0)
+		count += 1
+	if count <= 0:
+		return "n/a"
+	return "%d%%" % int(round(total / float(count) * 100.0))
+
+
+func _get_nearest_varnak_text(varnaks: Array) -> String:
+	var nearest_data: Dictionary = {}
+	var nearest_distance := INF
+	for varnak in varnaks:
+		if not is_instance_valid(varnak) or not varnak.has_method("get_debug_data"):
+			continue
+		var data: Dictionary = varnak.get_debug_data()
+		var distance := float(data.get("distance_to_player", INF))
+		if distance >= 0.0 and distance < nearest_distance:
+			nearest_distance = distance
+			nearest_data = data
+	if nearest_data.is_empty():
+		return "n/a"
+	return "%s %.0fpx hp %d/%d" % [
+		str(nearest_data.get("state", "unknown")).to_lower(),
+		nearest_distance,
+		int(nearest_data.get("health", 0.0)),
+		int(nearest_data.get("max_health", 0.0))
+	]
 
 
 func _get_campfire_state() -> String:
@@ -137,3 +242,36 @@ func _on_add_torch_pressed() -> void:
 
 func _on_add_spear_pressed() -> void:
 	_add_debug_item("spear")
+
+
+func _on_next_phase_pressed() -> void:
+	if day_night_system and day_night_system.has_method("debug_next_phase"):
+		day_night_system.debug_next_phase()
+	state_label.text = _build_state_text()
+
+
+func _on_next_day_pressed() -> void:
+	if day_night_system and day_night_system.has_method("debug_next_day"):
+		day_night_system.debug_next_day()
+	state_label.text = _build_state_text()
+
+
+func _on_increase_adaptation_pressed() -> void:
+	if evolution_director and evolution_director.has_method("debug_increase_adaptation"):
+		evolution_director.debug_increase_adaptation()
+	state_label.text = _build_state_text()
+
+
+func _on_spawn_aggressive_pressed() -> void:
+	_debug_spawn_animal(true)
+
+
+func _on_spawn_neutral_pressed() -> void:
+	_debug_spawn_animal(false)
+
+
+func _debug_spawn_animal(aggressive: bool) -> void:
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("debug_spawn_animal"):
+		world.debug_spawn_animal(aggressive)
+	state_label.text = _build_state_text()

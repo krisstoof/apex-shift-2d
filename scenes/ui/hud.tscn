@@ -108,10 +108,10 @@ visible = false
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -332.0
-offset_top = 190.0
+offset_left = -420.0
+offset_top = 18.0
 offset_right = -12.0
-offset_bottom = 550.0
+offset_bottom = 590.0
 mouse_filter = 2
 script = ExtResource("6")
 
@@ -125,57 +125,97 @@ grow_vertical = 2
 [node name="TitleLabel" type="Label" parent="DebugPanel/Panel"]
 offset_left = 12.0
 offset_top = 10.0
-offset_right = 300.0
+offset_right = 396.0
 offset_bottom = 36.0
 theme_override_font_sizes/font_size = 18
 text = "Debug"
 
-[node name="StateLabel" type="Label" parent="DebugPanel/Panel"]
+[node name="StateScroll" type="ScrollContainer" parent="DebugPanel/Panel"]
 offset_left = 12.0
 offset_top = 42.0
-offset_right = 304.0
-offset_bottom = 210.0
-theme_override_font_sizes/font_size = 14
+offset_right = 396.0
+offset_bottom = 286.0
+horizontal_scroll_mode = 0
+
+[node name="StateLabel" type="Label" parent="DebugPanel/Panel/StateScroll"]
+offset_right = 370.0
+offset_bottom = 330.0
+theme_override_font_sizes/font_size = 13
 text = "Waiting for game state..."
 
 [node name="AddWoodButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 12.0
-offset_top = 226.0
-offset_right = 148.0
-offset_bottom = 256.0
+offset_top = 302.0
+offset_right = 196.0
+offset_bottom = 332.0
 text = "Add wood"
 
 [node name="AddStoneButton" type="Button" parent="DebugPanel/Panel"]
-offset_left = 160.0
-offset_top = 226.0
-offset_right = 304.0
-offset_bottom = 256.0
+offset_left = 208.0
+offset_top = 302.0
+offset_right = 396.0
+offset_bottom = 332.0
 text = "Add stone"
 
 [node name="AddFiberButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 12.0
-offset_top = 264.0
-offset_right = 148.0
-offset_bottom = 294.0
+offset_top = 340.0
+offset_right = 196.0
+offset_bottom = 370.0
 text = "Add plant fiber"
 
 [node name="AddMeatButton" type="Button" parent="DebugPanel/Panel"]
-offset_left = 160.0
-offset_top = 264.0
-offset_right = 304.0
-offset_bottom = 294.0
+offset_left = 208.0
+offset_top = 340.0
+offset_right = 396.0
+offset_bottom = 370.0
 text = "Add meat"
 
 [node name="AddTorchButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 12.0
-offset_top = 302.0
-offset_right = 148.0
-offset_bottom = 332.0
+offset_top = 378.0
+offset_right = 196.0
+offset_bottom = 408.0
 text = "Add torch"
 
 [node name="AddSpearButton" type="Button" parent="DebugPanel/Panel"]
-offset_left = 160.0
-offset_top = 302.0
-offset_right = 304.0
-offset_bottom = 332.0
+offset_left = 208.0
+offset_top = 378.0
+offset_right = 396.0
+offset_bottom = 408.0
 text = "Add spear"
+
+[node name="NextPhaseButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 12.0
+offset_top = 424.0
+offset_right = 196.0
+offset_bottom = 454.0
+text = "Next phase"
+
+[node name="NextDayButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 208.0
+offset_top = 424.0
+offset_right = 396.0
+offset_bottom = 454.0
+text = "Next day"
+
+[node name="IncreaseAdaptationButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 12.0
+offset_top = 462.0
+offset_right = 396.0
+offset_bottom = 492.0
+text = "Increase adaptation"
+
+[node name="SpawnAggressiveButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 12.0
+offset_top = 500.0
+offset_right = 396.0
+offset_bottom = 530.0
+text = "Spawn aggressive animal"
+
+[node name="SpawnNeutralButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 12.0
+offset_top = 538.0
+offset_right = 396.0
+offset_bottom = 568.0
+text = "Spawn neutral animal"

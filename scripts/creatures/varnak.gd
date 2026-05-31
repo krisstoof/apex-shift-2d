@@ -64,6 +64,25 @@ func get_save_data() -> Dictionary:
 	}
 
 
+func get_debug_data() -> Dictionary:
+	return {
+		"state": State.keys()[state],
+		"health": health,
+		"max_health": max_health,
+		"aggression": aggression,
+		"fire_fear": fire_fear,
+		"trap_awareness": trap_awareness,
+		"pack_coordination": pack_coordination,
+		"night_activity": night_activity,
+		"base_curiosity": base_curiosity,
+		"stalk_tendency": stalk_tendency,
+		"speed": speed,
+		"attack_cooldown": attack_cooldown,
+		"night_health_bonus_active": night_health_bonus_active,
+		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
+	}
+
+
 func restore_from_data(data: Dictionary) -> void:
 	global_position = _data_to_vector(data.get("position", {}))
 	facing_angle = float(data.get("facing_angle", data.get("rotation", facing_angle)))

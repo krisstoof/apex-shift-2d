@@ -52,6 +52,14 @@ func force_generation_change() -> void:
 	_change_generation("manual")
 
 
+func debug_increase_adaptation() -> void:
+	for key in ["aggression", "trap_awareness", "pack_coordination", "night_activity", "base_curiosity", "stalk_tendency"]:
+		species_profile[key] = _clamp_profile(key, 0.05)
+	get_node("/root/EventBus").emit_game_event("debug_adaptation_increased", {"profile": get_profile()})
+	get_node("/root/EventBus").post_message("Debug adaptation increased")
+	profile_changed.emit(get_profile())
+
+
 func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 	match event_name:
 		"varnak_killed_by_trap":
