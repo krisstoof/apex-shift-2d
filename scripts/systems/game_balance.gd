@@ -8,7 +8,10 @@ const CRAFTING_COSTS := {
 	"torch": {"wood": 1, "fiber": 1},
 	"cooked_meat": {"meat": 1},
 	"basic_trap": {"wood": 2, "fiber": 2},
-	"trap": {"wood": 2, "fiber": 2}
+	"trap": {"wood": 2, "fiber": 2},
+	"wall": {"wood": 3},
+	"storage_box": {"wood": 4},
+	"tent": {"wood": 4, "fiber": 3}
 }
 
 const TORCH_DURATION_SECONDS := 45.0
