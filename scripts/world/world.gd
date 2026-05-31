@@ -328,4 +328,4 @@ func _draw() -> void:
 		_draw_biome_outline(biome_points)
 	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
 	if day_night_system and day_night_system.night_amount > 0.0:
-		draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.02, 0.03, 0.09, day_night_system.night_amount * 0.45), true)
+		draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.02, 0.03, 0.09, day_night_system.night_amount * 0.62), true)

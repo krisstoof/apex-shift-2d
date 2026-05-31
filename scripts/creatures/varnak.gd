@@ -5,8 +5,11 @@ enum State { IDLE, WANDER, STALK, CHASE, ATTACK, FLEE }
 const ATTACK_RANGE := 42.0
 const ATTACK_ARC := deg_to_rad(78.0)
 const ATTACK_VISUAL_DURATION := 0.14
+const BASE_HEALTH := 90.0
+const NIGHT_HEALTH_MULTIPLIER := 1.2
 
-var health := 90.0
+var health := BASE_HEALTH
+var max_health := BASE_HEALTH
 var speed := 105.0
 var aggression := 0.45
 var fire_fear := 0.85
@@ -23,6 +26,7 @@ var facing_angle := 0.0
 var facing_side := 1.0
 var attack_cooldown := 0.0
 var attack_visual_time := 0.0
+var night_health_bonus_active := false
 var scared_fire: Node2D
 
 func _ready() -> void:
@@ -50,6 +54,8 @@ func get_save_data() -> Dictionary:
 		"facing_angle": facing_angle,
 		"facing_side": facing_side,
 		"health": health,
+		"max_health": max_health,
+		"night_health_bonus_active": night_health_bonus_active,
 		"state": int(state),
 		"wander_target": _vector_to_data(wander_target),
 		"attack_cooldown": attack_cooldown
@@ -60,7 +66,9 @@ func restore_from_data(data: Dictionary) -> void:
 	global_position = _data_to_vector(data.get("position", {}))
 	facing_angle = float(data.get("facing_angle", data.get("rotation", facing_angle)))
 	facing_side = float(data.get("facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0))
-	health = float(data.get("health", health))
+	max_health = max(float(data.get("max_health", max_health)), 1.0)
+	health = clamp(float(data.get("health", health)), 0.0, max_health)
+	night_health_bonus_active = bool(data.get("night_health_bonus_active", night_health_bonus_active))
 	state = int(data.get("state", State.WANDER))
 	wander_target = _data_to_vector(data.get("wander_target", _vector_to_data(wander_target)))
 	attack_cooldown = float(data.get("attack_cooldown", attack_cooldown))
@@ -71,6 +79,7 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
 		return
+	_update_night_health_bonus()
 	attack_cooldown = max(attack_cooldown - delta, 0.0)
 	if attack_visual_time > 0.0:
 		attack_visual_time = max(attack_visual_time - delta, 0.0)
@@ -81,11 +90,26 @@ func _physics_process(delta: float) -> void:
 
 
 func take_damage(amount: float, source: String) -> void:
-	health -= amount
+	health = max(health - amount, 0.0)
 	if health <= 0.0:
 		_die(source)
 	else:
 		state = State.CHASE
+
+
+func _update_night_health_bonus() -> void:
+	var has_bonus := false
+	if day_night_system:
+		has_bonus = day_night_system.is_night()
+	var target_max: float = BASE_HEALTH * (NIGHT_HEALTH_MULTIPLIER if has_bonus else 1.0)
+	if is_equal_approx(max_health, target_max):
+		night_health_bonus_active = has_bonus
+		return
+	var health_ratio: float = clamp(health / max(max_health, 1.0), 0.0, 1.0)
+	max_health = target_max
+	health = clamp(health_ratio * max_health, 0.0, max_health)
+	night_health_bonus_active = has_bonus
+	queue_redraw()
 
 
 func _update_state() -> void:

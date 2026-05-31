@@ -8,8 +8,12 @@ var player_kills := 0
 var fire_scares := 0
 var wall_attacks := 0
 var days_since_generation := 0
+var days_until_next_generation := 0
+var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
+	rng.randomize()
+	days_until_next_generation = _roll_generation_interval()
 	species_profile = _load_default_profile()
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	print("[Evolution] Initial profile: %s" % species_profile)
@@ -26,7 +30,8 @@ func get_save_data() -> Dictionary:
 		"player_kills": player_kills,
 		"fire_scares": fire_scares,
 		"wall_attacks": wall_attacks,
-		"days_since_generation": days_since_generation
+		"days_since_generation": days_since_generation,
+		"days_until_next_generation": days_until_next_generation
 	}
 
 
@@ -39,6 +44,7 @@ func restore_from_data(data: Dictionary) -> void:
 	fire_scares = int(data.get("fire_scares", fire_scares))
 	wall_attacks = int(data.get("wall_attacks", wall_attacks))
 	days_since_generation = int(data.get("days_since_generation", days_since_generation))
+	days_until_next_generation = int(data.get("days_until_next_generation", max(days_until_next_generation, 2)))
 	profile_changed.emit(get_profile())
 
 
@@ -58,8 +64,8 @@ func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 			wall_attacks += 1
 		"day_ended":
 			days_since_generation += 1
-			if days_since_generation >= 2:
-				_change_generation("two_days")
+			if days_since_generation >= days_until_next_generation:
+				_change_generation("natural_cycle")
 
 
 func _change_generation(reason: String) -> void:
@@ -82,8 +88,10 @@ func _change_generation(reason: String) -> void:
 	fire_scares = 0
 	wall_attacks = 0
 	days_since_generation = 0
+	days_until_next_generation = _roll_generation_interval()
 	print("[Evolution] Generation changed (%s): %s" % [reason, species_profile])
 	get_node("/root/EventBus").emit_game_event("generation_changed", {"profile": get_profile(), "reason": reason})
+	get_node("/root/EventBus").emit_game_event("center_notification", {"text": "Generation %d evolved" % int(species_profile.get("generation", 1))})
 	get_node("/root/EventBus").post_message("Generation changed")
 	if adapted_to_traps:
 		get_node("/root/EventBus").post_message("Varnaks adapted to traps")
@@ -92,6 +100,10 @@ func _change_generation(reason: String) -> void:
 	if adapted_to_player:
 		get_node("/root/EventBus").post_message("Varnaks became more aggressive")
 	profile_changed.emit(get_profile())
+
+
+func _roll_generation_interval() -> int:
+	return rng.randi_range(2, 5)
 
 
 func _clamp_profile(key: String, delta: float) -> float:
