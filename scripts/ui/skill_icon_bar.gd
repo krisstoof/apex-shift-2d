@@ -13,7 +13,8 @@ var slots := [
 	{"key": "4", "name": "Wall", "kind": "wall"},
 	{"key": "5", "name": "Box", "kind": "storage_box"},
 	{"key": "6", "name": "Tent", "kind": "tent"},
-	{"key": "7", "name": "Eat", "kind": "eat"}
+	{"key": "7", "name": "Eat", "kind": "eat"},
+	{"key": "8/T", "name": "Torch", "kind": "torch"}
 ]
 
 func bind(p_player: Node) -> void:
@@ -59,6 +60,8 @@ func _is_available(kind: String) -> bool:
 			return _has_recipe_items("tent")
 		"eat":
 			return player.inventory.has_item("meat", 1)
+		"torch":
+			return player.inventory.has_item("torch", 1) or player.is_torch_active() or _has_recipe_items("torch")
 		_:
 			return true
 
@@ -120,3 +123,7 @@ func _draw_icon(kind: String, rect: Rect2, available: bool) -> void:
 		"eat":
 			draw_circle(center, 13.0, color)
 			draw_circle(center + Vector2(5, -4), 5.0, Color(0.09, 0.10, 0.11))
+		"torch":
+			draw_line(center + Vector2(-10, 15), center + Vector2(8, -13), color, 4.0)
+			draw_circle(center + Vector2(9, -15), 8.0, Color(0.92, 0.28, 0.08) if available else color)
+			draw_circle(center + Vector2(9, -17), 4.0, Color(1.0, 0.82, 0.22) if available else Color(0.09, 0.10, 0.11))
