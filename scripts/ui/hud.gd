@@ -20,6 +20,7 @@ var center_notification_time := 0.0
 @onready var clock_label: Label = $ClockLabel
 @onready var map_screen: Control = $MapScreen
 @onready var pause_menu: Control = $PauseMenu
+@onready var debug_panel: Control = $DebugPanel
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -42,6 +43,7 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node) 
 	var biome_zones: Array[Dictionary] = world.get_biome_zones() if world and world.has_method("get_biome_zones") else WORLD_CONFIG.get_biome_zones()
 	minimap.bind(player, world_rect, biome_zones)
 	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones)
+	debug_panel.bind(player, evolution_director, day_night_system)
 
 
 func _process(delta: float) -> void:
@@ -87,6 +89,9 @@ func _show_center_notification(text: String) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F3:
+		debug_panel.toggle()
+		get_viewport().set_input_as_handled()
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_M:
 		_set_pause_menu_open(false)
 		_set_map_screen_open(not map_screen_open)
