@@ -111,7 +111,7 @@ anchor_right = 1.0
 offset_left = -420.0
 offset_top = 18.0
 offset_right = -12.0
-offset_bottom = 590.0
+offset_bottom = 744.0
 mouse_filter = 2
 script = ExtResource("6")
 
@@ -219,3 +219,31 @@ offset_top = 538.0
 offset_right = 396.0
 offset_bottom = 568.0
 text = "Spawn neutral animal"
+
+[node name="DamagePlayerButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 12.0
+offset_top = 584.0
+offset_right = 196.0
+offset_bottom = 614.0
+text = "Damage player"
+
+[node name="HealPlayerButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 208.0
+offset_top = 584.0
+offset_right = 396.0
+offset_bottom = 614.0
+text = "Heal player"
+
+[node name="ReduceHungerEnergyButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 12.0
+offset_top = 622.0
+offset_right = 196.0
+offset_bottom = 652.0
+text = "Reduce h/energy"
+
+[node name="RestoreHungerEnergyButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 208.0
+offset_top = 622.0
+offset_right = 396.0
+offset_bottom = 652.0
+text = "Restore h/energy"

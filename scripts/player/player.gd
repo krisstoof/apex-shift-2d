@@ -133,6 +133,29 @@ func debug_add_item(item_name: String, amount := 1) -> void:
 	get_node("/root/EventBus").post_message("Debug added %s" % item_name)
 
 
+func debug_damage_player() -> void:
+	receive_damage(GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT)
+	get_node("/root/EventBus").emit_game_event("debug_player_damaged", {"amount": GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT})
+
+
+func debug_heal_player() -> void:
+	stats.heal(GAME_BALANCE.DEBUG_PLAYER_HEAL_AMOUNT)
+	get_node("/root/EventBus").emit_game_event("debug_player_healed", {"amount": GAME_BALANCE.DEBUG_PLAYER_HEAL_AMOUNT})
+	get_node("/root/EventBus").post_message("Debug healed player")
+
+
+func debug_reduce_hunger_energy() -> void:
+	stats.reduce_hunger_energy(GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT)
+	get_node("/root/EventBus").emit_game_event("debug_player_hunger_energy_reduced", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
+	get_node("/root/EventBus").post_message("Debug reduced hunger/energy")
+
+
+func debug_restore_hunger_energy() -> void:
+	stats.restore_hunger_energy(GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT)
+	get_node("/root/EventBus").emit_game_event("debug_player_hunger_energy_restored", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
+	get_node("/root/EventBus").post_message("Debug restored hunger/energy")
+
+
 func deactivate_torch(reason := "manual") -> void:
 	if not torch_active and torch_remaining_seconds <= 0.0:
 		return
