@@ -3,6 +3,9 @@ extends CharacterBody2D
 @export var walk_speed := 180.0
 @export var run_speed := 290.0
 
+const WORLD_LIMIT_X := 1410.0
+const WORLD_LIMIT_Y := 850.0
+
 var stats := PlayerStats.new()
 var inventory := Inventory.new()
 var has_spear := false
@@ -35,8 +38,8 @@ func _physics_process(delta: float) -> void:
 	var speed := run_speed if wants_run else walk_speed
 	velocity = input_vector * speed
 	move_and_slide()
-	global_position.x = clamp(global_position.x, -690.0, 690.0)
-	global_position.y = clamp(global_position.y, -410.0, 410.0)
+	global_position.x = clamp(global_position.x, -WORLD_LIMIT_X, WORLD_LIMIT_X)
+	global_position.y = clamp(global_position.y, -WORLD_LIMIT_Y, WORLD_LIMIT_Y)
 	stats.tick(delta, wants_run)
 
 
