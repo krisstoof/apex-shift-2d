@@ -63,6 +63,8 @@ func _update_state() -> void:
 			get_node("/root/EventBus").emit_game_event("varnak_scared_by_fire", {"position": global_position})
 			get_node("/root/EventBus").post_message("Varnak scared by fire")
 		return
+	if state == State.FLEE:
+		state = State.WANDER
 	var distance := global_position.distance_to(player.global_position)
 	var night_bonus := night_activity * 70.0 if day_night_system and day_night_system.is_night() else 0.0
 	var detect_range := 210.0 + base_curiosity * 120.0 + night_bonus
@@ -93,6 +95,11 @@ func _act(delta: float) -> void:
 				get_node("/root/EventBus").emit_game_event("varnak_attacked_player", {"damage": 10.0 + aggression * 8.0})
 				attack_cooldown = 1.2
 		State.FLEE:
+			if not is_instance_valid(scared_fire):
+				state = State.WANDER
+				_pick_wander_target()
+				_move_toward(wander_target, speed * 0.42)
+				return
 			var away := (global_position - scared_fire.global_position).normalized()
 			velocity = away * speed * (1.1 + fire_fear)
 
@@ -114,6 +121,8 @@ func _nearest_active_campfire() -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := INF
 	for campfire in get_tree().get_nodes_in_group("campfires"):
+		if not is_instance_valid(campfire):
+			continue
 		if not campfire.active:
 			continue
 		var distance := global_position.distance_to(campfire.global_position)
