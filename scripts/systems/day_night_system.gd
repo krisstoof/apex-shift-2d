@@ -32,6 +32,18 @@ func get_day() -> int:
 	return day
 
 
+func get_clock_time() -> String:
+	var phase := fposmod(time_of_day / day_length_seconds, 1.0)
+	var total_minutes := int(phase * 24.0 * 60.0)
+	var hour := total_minutes / 60
+	var minute := total_minutes % 60
+	return "%02d:%02d" % [hour, minute]
+
+
+func get_time_label() -> String:
+	return "Night" if is_night() else "Day"
+
+
 func is_night() -> bool:
 	return night_amount > 0.55
 

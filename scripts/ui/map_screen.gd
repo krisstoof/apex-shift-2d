@@ -68,7 +68,7 @@ func _draw_info_panel(rect: Rect2) -> void:
 		"Field Map",
 		"",
 		"Zone: %s" % zone_name,
-		"Day: %d  %s" % [day_night_system.get_day() if day_night_system else 1, time_label],
+		"Day: %d  Time: %s %s" % [day_night_system.get_day() if day_night_system else 1, _get_clock_time(), time_label],
 		"Live Varnaks: %d" % live_varnaks,
 		"",
 		"Player",
@@ -178,10 +178,16 @@ func _get_player_zone_name() -> String:
 
 func _get_time_label() -> String:
 	if not day_night_system:
-		return "daylight"
-	if day_night_system.is_night():
-		return "night"
-	return "daylight"
+		return "Day"
+	if day_night_system.has_method("get_time_label"):
+		return day_night_system.get_time_label()
+	return "Night" if day_night_system.is_night() else "Day"
+
+
+func _get_clock_time() -> String:
+	if day_night_system and day_night_system.has_method("get_clock_time"):
+		return day_night_system.get_clock_time()
+	return "--:--"
 
 
 func _get_resource_color(resource: Node) -> Color:
