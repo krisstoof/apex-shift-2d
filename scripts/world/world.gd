@@ -2,7 +2,15 @@ extends Node2D
 
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
-const VARNAK_SPAWN_POINTS := [Vector2(220, 0), Vector2(-470, -300), Vector2(420, 330)]
+const WORLD_RECT := Rect2(-1440, -880, 2880, 1760)
+const VARNAK_SPAWN_POINTS := [
+	Vector2(220, 0),
+	Vector2(-470, -300),
+	Vector2(420, 330),
+	Vector2(-980, -560),
+	Vector2(1040, 520),
+	Vector2(760, -680)
+]
 
 var evolution_director: Node
 var day_night_system: Node
@@ -31,7 +39,14 @@ func _spawn_resources() -> void:
 		["tree", Vector2(580, -50)], ["tree", Vector2(-120, 360)], ["tree", Vector2(240, 310)],
 		["tree", Vector2(-610, -120)], ["rock", Vector2(-190, -150)], ["rock", Vector2(240, -240)],
 		["rock", Vector2(520, 290)], ["rock", Vector2(-430, 70)], ["bush", Vector2(160, 140)],
-		["bush", Vector2(-80, -260)], ["bush", Vector2(330, 70)], ["bush", Vector2(-330, 310)]
+		["bush", Vector2(-80, -260)], ["bush", Vector2(330, 70)], ["bush", Vector2(-330, 310)],
+		["tree", Vector2(-1180, -620)], ["tree", Vector2(-1040, 380)], ["tree", Vector2(-820, 700)],
+		["tree", Vector2(-760, -520)], ["tree", Vector2(850, -540)], ["tree", Vector2(960, 690)],
+		["tree", Vector2(1210, -260)], ["tree", Vector2(1320, 430)], ["tree", Vector2(680, 610)],
+		["rock", Vector2(-1290, 120)], ["rock", Vector2(-930, -760)], ["rock", Vector2(-700, 540)],
+		["rock", Vector2(720, -770)], ["rock", Vector2(1120, -610)], ["rock", Vector2(1260, 120)],
+		["bush", Vector2(-1320, -260)], ["bush", Vector2(-980, 650)], ["bush", Vector2(-650, -680)],
+		["bush", Vector2(760, 430)], ["bush", Vector2(1040, -80)], ["bush", Vector2(1340, 720)]
 	]
 	for placement in placements:
 		var node := RESOURCE_SCENE.instantiate()
@@ -83,7 +98,7 @@ func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 
 
 func _draw() -> void:
-	draw_rect(Rect2(-720, -440, 1440, 880), Color(0.14, 0.22, 0.13), true)
-	draw_rect(Rect2(-720, -440, 1440, 880), Color(0.07, 0.09, 0.07), false, 5.0)
+	draw_rect(WORLD_RECT, Color(0.14, 0.22, 0.13), true)
+	draw_rect(WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
 	if day_night_system and day_night_system.night_amount > 0.0:
-		draw_rect(Rect2(-720, -440, 1440, 880), Color(0.02, 0.03, 0.09, day_night_system.night_amount * 0.45), true)
+		draw_rect(WORLD_RECT, Color(0.02, 0.03, 0.09, day_night_system.night_amount * 0.45), true)
