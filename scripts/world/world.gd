@@ -3,22 +3,10 @@ extends Node2D
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const WORLD_RECT := Rect2(-1440, -880, 2880, 1760)
-const RESOURCE_PLACEMENTS := [
-	["tree", Vector2(-40, -20)], ["rock", Vector2(42, -16)], ["bush", Vector2(0, 50)],
-	["tree", Vector2(-360, -210)], ["tree", Vector2(-270, 130)], ["tree", Vector2(360, -190)],
-	["tree", Vector2(450, 180)], ["tree", Vector2(90, -330)], ["tree", Vector2(-520, 260)],
-	["tree", Vector2(580, -50)], ["tree", Vector2(-120, 360)], ["tree", Vector2(240, 310)],
-	["tree", Vector2(-610, -120)], ["rock", Vector2(-190, -150)], ["rock", Vector2(240, -240)],
-	["rock", Vector2(520, 290)], ["rock", Vector2(-430, 70)], ["bush", Vector2(160, 140)],
-	["bush", Vector2(-80, -260)], ["bush", Vector2(330, 70)], ["bush", Vector2(-330, 310)],
-	["tree", Vector2(-1180, -620)], ["tree", Vector2(-1040, 380)], ["tree", Vector2(-820, 700)],
-	["tree", Vector2(-760, -520)], ["tree", Vector2(850, -540)], ["tree", Vector2(960, 690)],
-	["tree", Vector2(1210, -260)], ["tree", Vector2(1320, 430)], ["tree", Vector2(680, 610)],
-	["rock", Vector2(-1290, 120)], ["rock", Vector2(-930, -760)], ["rock", Vector2(-700, 540)],
-	["rock", Vector2(720, -770)], ["rock", Vector2(1120, -610)], ["rock", Vector2(1260, 120)],
-	["bush", Vector2(-1320, -260)], ["bush", Vector2(-980, 650)], ["bush", Vector2(-650, -680)],
-	["bush", Vector2(760, 430)], ["bush", Vector2(1040, -80)], ["bush", Vector2(1340, 720)]
-]
+const RESOURCE_SPAWN_MARGIN := 70.0
+const RESOURCE_MIN_DISTANCE := 70.0
+const RESOURCE_PLAYER_SAFE_DISTANCE := 180.0
+const RESOURCE_SPAWN_ATTEMPTS := 80
 const VARNAK_SPAWN_POINTS := [
 	Vector2(220, 0),
 	Vector2(-470, -300),
@@ -28,11 +16,17 @@ const VARNAK_SPAWN_POINTS := [
 	Vector2(760, -680)
 ]
 
+@export var tree_count := 24
+@export var rock_count := 12
+@export var bush_count := 16
+
 var evolution_director: Node
 var day_night_system: Node
+var resource_rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	await get_tree().process_frame
+	resource_rng.randomize()
 	evolution_director = get_parent().get_node("EvolutionDirector")
 	day_night_system = get_parent().get_node("DayNightSystem")
 	evolution_director.profile_changed.connect(_on_profile_changed)
@@ -48,11 +42,56 @@ func _process(_delta: float) -> void:
 
 
 func _spawn_resources() -> void:
-	for placement in RESOURCE_PLACEMENTS:
-		var node := RESOURCE_SCENE.instantiate()
-		add_child(node)
-		node.position = placement[1]
-		node.setup(placement[0])
+	var resource_counts := {
+		"tree": tree_count,
+		"rock": rock_count,
+		"bush": bush_count
+	}
+	var used_positions: Array[Vector2] = []
+	var player_position := _get_player_position()
+
+	for resource_key in resource_counts.keys():
+		var resource_kind := String(resource_key)
+		for _i in int(resource_counts[resource_key]):
+			if not _try_spawn_resource(resource_kind, used_positions, player_position):
+				push_warning("Could not find a valid spawn position for %s" % resource_kind)
+
+
+func _spawn_resource_at(resource_kind: String, pos: Vector2) -> void:
+	var node := RESOURCE_SCENE.instantiate()
+	add_child(node)
+	node.position = pos
+	node.setup(resource_kind)
+
+
+func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	var spawn_area := WORLD_RECT.grow(-RESOURCE_SPAWN_MARGIN)
+	for _attempt in RESOURCE_SPAWN_ATTEMPTS:
+		var candidate := Vector2(
+			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
+			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
+		)
+		if _is_valid_resource_position(candidate, used_positions, player_position):
+			used_positions.append(candidate)
+			_spawn_resource_at(resource_kind, candidate)
+			return true
+	return false
+
+
+func _is_valid_resource_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	if candidate.distance_to(player_position) < RESOURCE_PLAYER_SAFE_DISTANCE:
+		return false
+	for used_position in used_positions:
+		if candidate.distance_to(used_position) < RESOURCE_MIN_DISTANCE:
+			return false
+	return true
+
+
+func _get_player_position() -> Vector2:
+	var player := get_tree().get_first_node_in_group("player")
+	if player:
+		return player.global_position
+	return Vector2.ZERO
 
 
 func respawn_resources() -> void:
