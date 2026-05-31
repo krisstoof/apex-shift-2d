@@ -209,6 +209,17 @@ func respawn_varnaks() -> void:
 	get_node("/root/EventBus").post_message("Varnaks respawned with current profile")
 
 
+func debug_spawn_animal(aggressive: bool) -> void:
+	var spawn_position := _get_debug_animal_spawn_position()
+	var varnak := _spawn_varnak_at(spawn_position)
+	if aggressive:
+		varnak.apply_profile(_get_debug_aggressive_profile())
+		get_node("/root/EventBus").post_message("Debug spawned aggressive animal")
+	else:
+		varnak.apply_profile(_get_debug_neutral_profile())
+		get_node("/root/EventBus").post_message("Debug spawned neutral animal")
+
+
 func get_varnak_save_data() -> Array[Dictionary]:
 	var varnaks: Array[Dictionary] = []
 	for varnak in get_tree().get_nodes_in_group("varnak"):
@@ -230,12 +241,13 @@ func restore_varnaks(varnaks: Array) -> void:
 		_restore_varnak_from_data(Dictionary(varnak_data))
 
 
-func _spawn_varnak_at(pos: Vector2) -> void:
+func _spawn_varnak_at(pos: Vector2) -> Node:
 	var varnak := VARNAK_SCENE.instantiate()
 	add_child(varnak)
 	varnak.global_position = pos
 	varnak.apply_profile(evolution_director.get_profile())
 	varnak.day_night_system = day_night_system
+	return varnak
 
 
 func _restore_varnak_from_data(data: Dictionary) -> void:
@@ -269,6 +281,34 @@ func _pick_varnak_spawn_point() -> Vector2:
 		if roll <= cursor:
 			return point
 	return _scale_world_point(Vector2(WORLD_CONFIG.VARNAK_SPAWN_POINTS[0]))
+
+
+func _get_debug_animal_spawn_position() -> Vector2:
+	var player_position := _get_player_position()
+	var offset := Vector2(180.0, 0.0)
+	var candidate := player_position + offset
+	var player_limits := WORLD_CONFIG.get_player_limits()
+	candidate.x = clamp(candidate.x, -player_limits.x, player_limits.x)
+	candidate.y = clamp(candidate.y, -player_limits.y, player_limits.y)
+	return candidate
+
+
+func _get_debug_aggressive_profile() -> Dictionary:
+	var profile: Dictionary = evolution_director.get_profile()
+	profile["aggression"] = 1.0
+	profile["base_curiosity"] = 0.8
+	profile["night_activity"] = 0.8
+	return profile
+
+
+func _get_debug_neutral_profile() -> Dictionary:
+	var profile: Dictionary = evolution_director.get_profile()
+	profile["aggression"] = 0.0
+	profile["base_curiosity"] = 0.0
+	profile["night_activity"] = 0.0
+	profile["pack_coordination"] = 0.0
+	profile["stalk_tendency"] = 0.0
+	return profile
 
 
 func _scale_world_point(point: Vector2) -> Vector2:
