@@ -10,6 +10,7 @@ var message_history: Array[String] = []
 @onready var prompt_label: Label = $Panel/PromptLabel
 @onready var message_label: Label = $Panel/MessageLabel
 @onready var skill_icon_bar: Control = $SkillIconBar
+@onready var minimap: Control = $Minimap
 
 func _ready() -> void:
 	get_node("/root/EventBus").message_posted.connect(_on_message)
@@ -20,6 +21,9 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node) 
 	evolution_director = p_evolution_director
 	day_night_system = p_day_night_system
 	skill_icon_bar.bind(player)
+	var world := get_tree().current_scene.get_node_or_null("World")
+	var world_rect: Rect2 = world.get_world_rect() if world and world.has_method("get_world_rect") else Rect2(-1440, -880, 2880, 1760)
+	minimap.bind(player, world_rect)
 
 
 func _process(_delta: float) -> void:

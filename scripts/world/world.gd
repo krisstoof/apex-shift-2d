@@ -41,6 +41,10 @@ func _process(_delta: float) -> void:
 	queue_redraw()
 
 
+func get_world_rect() -> Rect2:
+	return WORLD_RECT
+
+
 func _spawn_resources() -> void:
 	var resource_counts := {
 		"tree": tree_count,
