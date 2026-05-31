@@ -34,8 +34,8 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	var wants_run := Input.is_key_pressed(KEY_SHIFT) and stats.stamina > 0.0 and input_vector.length() > 0.0
-	var speed := run_speed if wants_run else walk_speed
+	var wants_run := Input.is_key_pressed(KEY_SHIFT) and stats.can_run() and input_vector.length() > 0.0
+	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier()
 	velocity = input_vector * speed
 	move_and_slide()
 	global_position.x = clamp(global_position.x, -WORLD_LIMIT_X, WORLD_LIMIT_X)
@@ -65,6 +65,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_craft("storage_box")
 			KEY_6:
 				_craft("tent")
+			KEY_7:
+				_eat("meat")
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		_attack()
 
@@ -72,6 +74,10 @@ func _unhandled_input(event: InputEvent) -> void:
 func receive_damage(amount: float) -> void:
 	stats.damage(amount)
 	get_node("/root/EventBus").post_message("Player hit for %s" % int(amount))
+
+
+func recover_from_sleep() -> void:
+	stats.sleep_recover()
 
 
 func _interact() -> void:
@@ -131,6 +137,16 @@ func _craft(item_name: String) -> void:
 	get_tree().current_scene.add_child(building)
 	get_node("/root/EventBus").emit_game_event("player_crafted_%s" % item_name, {"position": building.global_position})
 	get_node("/root/EventBus").post_message("Crafted %s" % item_name)
+
+
+func _eat(item_name: String) -> void:
+	if item_name != "meat":
+		return
+	if not inventory.remove_item(item_name, 1):
+		get_node("/root/EventBus").post_message("No meat to eat")
+		return
+	stats.eat_food(32.0)
+	get_node("/root/EventBus").post_message("Ate meat")
 
 
 func _get_missing_ingredients(recipe: Dictionary) -> Array[String]:
