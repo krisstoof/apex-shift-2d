@@ -274,7 +274,7 @@ func _eat(item_name: String) -> void:
 	if not inventory.remove_item(item_name, 1):
 		get_node("/root/EventBus").post_message("No meat to eat")
 		return
-	stats.eat_food(32.0)
+	stats.eat_food(GAME_BALANCE.PLAYER_MEAT_NUTRITION)
 	get_node("/root/EventBus").post_message("Ate meat")
 
 

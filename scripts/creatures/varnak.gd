@@ -8,7 +8,6 @@ const ATTACK_RANGE := 42.0
 const ATTACK_ARC := deg_to_rad(78.0)
 const ATTACK_VISUAL_DURATION := 0.14
 const BASE_HEALTH := 90.0
-const NIGHT_HEALTH_MULTIPLIER := 1.2
 
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
@@ -122,7 +121,7 @@ func _update_night_health_bonus() -> void:
 	var has_bonus := false
 	if day_night_system:
 		has_bonus = day_night_system.is_night()
-	var target_max: float = BASE_HEALTH * (NIGHT_HEALTH_MULTIPLIER if has_bonus else 1.0)
+	var target_max: float = BASE_HEALTH * (GAME_BALANCE.NIGHT_DANGER_MULTIPLIER if has_bonus else 1.0)
 	if is_equal_approx(max_health, target_max):
 		night_health_bonus_active = has_bonus
 		return

@@ -2,6 +2,8 @@ extends Node
 
 signal profile_changed(profile: Dictionary)
 
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+
 var species_profile: Dictionary = {}
 var trap_kills := 0
 var player_kills := 0
@@ -54,7 +56,7 @@ func force_generation_change() -> void:
 
 func debug_increase_adaptation() -> void:
 	for key in ["aggression", "trap_awareness", "pack_coordination", "night_activity", "base_curiosity", "stalk_tendency"]:
-		species_profile[key] = _clamp_profile(key, 0.05)
+		species_profile[key] = _clamp_profile(key, GAME_BALANCE.ADAPTATION_DEBUG_GROWTH)
 	get_node("/root/EventBus").emit_game_event("debug_adaptation_increased", {"profile": get_profile()})
 	get_node("/root/EventBus").post_message("Debug adaptation increased")
 	profile_changed.emit(get_profile())
@@ -82,15 +84,15 @@ func _change_generation(reason: String) -> void:
 	var adapted_to_fire := fire_scares >= 1
 	var adapted_to_player := player_kills >= 1
 	if adapted_to_traps:
-		species_profile["trap_awareness"] = _clamp_profile("trap_awareness", 0.15)
+		species_profile["trap_awareness"] = _clamp_profile("trap_awareness", GAME_BALANCE.ADAPTATION_TRAP_AWARENESS_GROWTH)
 	if adapted_to_fire:
-		species_profile["fire_fear"] = _clamp_profile("fire_fear", -0.10)
-		species_profile["stalk_tendency"] = _clamp_profile("stalk_tendency", 0.10)
+		species_profile["fire_fear"] = _clamp_profile("fire_fear", GAME_BALANCE.ADAPTATION_FIRE_FEAR_DELTA)
+		species_profile["stalk_tendency"] = _clamp_profile("stalk_tendency", GAME_BALANCE.ADAPTATION_STALK_TENDENCY_GROWTH)
 	if adapted_to_player:
-		species_profile["aggression"] = _clamp_profile("aggression", 0.10)
-		species_profile["pack_coordination"] = _clamp_profile("pack_coordination", 0.10)
+		species_profile["aggression"] = _clamp_profile("aggression", GAME_BALANCE.ADAPTATION_PLAYER_AGGRESSION_GROWTH)
+		species_profile["pack_coordination"] = _clamp_profile("pack_coordination", GAME_BALANCE.ADAPTATION_PACK_COORDINATION_GROWTH)
 	if wall_attacks >= 1:
-		species_profile["base_curiosity"] = _clamp_profile("base_curiosity", 0.10)
+		species_profile["base_curiosity"] = _clamp_profile("base_curiosity", GAME_BALANCE.ADAPTATION_WALL_CURIOSITY_GROWTH)
 	trap_kills = 0
 	player_kills = 0
 	fire_scares = 0

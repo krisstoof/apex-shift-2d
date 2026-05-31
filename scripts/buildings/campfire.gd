@@ -1,7 +1,9 @@
 extends Area2D
 
-@export var fear_radius := 150.0
-@export var light_radius := 165.0
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+
+@export var fear_radius := GAME_BALANCE.CAMPFIRE_SAFE_RADIUS
+@export var light_radius := GAME_BALANCE.CAMPFIRE_LIGHT_RADIUS
 
 var active := true
 var day_night_system: Node
