@@ -81,3 +81,19 @@ func _get_stamina_regen() -> float:
 	if rest < EXHAUSTED_REST:
 		regen *= 0.55
 	return regen
+
+
+func get_save_data() -> Dictionary:
+	return {
+		"health": health,
+		"hunger": hunger,
+		"stamina": stamina,
+		"rest": rest
+	}
+
+
+func restore_from_data(data: Dictionary) -> void:
+	health = clamp(float(data.get("health", health)), 0.0, MAX_HEALTH)
+	hunger = clamp(float(data.get("hunger", hunger)), 0.0, MAX_HUNGER)
+	stamina = clamp(float(data.get("stamina", stamina)), 0.0, MAX_STAMINA)
+	rest = clamp(float(data.get("rest", rest)), 0.0, MAX_REST)

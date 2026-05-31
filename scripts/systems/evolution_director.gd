@@ -19,6 +19,29 @@ func get_profile() -> Dictionary:
 	return species_profile.duplicate(true)
 
 
+func get_save_data() -> Dictionary:
+	return {
+		"species_profile": species_profile.duplicate(true),
+		"trap_kills": trap_kills,
+		"player_kills": player_kills,
+		"fire_scares": fire_scares,
+		"wall_attacks": wall_attacks,
+		"days_since_generation": days_since_generation
+	}
+
+
+func restore_from_data(data: Dictionary) -> void:
+	var profile = data.get("species_profile", species_profile)
+	if typeof(profile) == TYPE_DICTIONARY:
+		species_profile = Dictionary(profile).duplicate(true)
+	trap_kills = int(data.get("trap_kills", trap_kills))
+	player_kills = int(data.get("player_kills", player_kills))
+	fire_scares = int(data.get("fire_scares", fire_scares))
+	wall_attacks = int(data.get("wall_attacks", wall_attacks))
+	days_since_generation = int(data.get("days_since_generation", days_since_generation))
+	profile_changed.emit(get_profile())
+
+
 func force_generation_change() -> void:
 	_change_generation("manual")
 

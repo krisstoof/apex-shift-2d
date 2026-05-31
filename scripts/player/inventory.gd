@@ -27,3 +27,12 @@ func has_item(item_name: String, amount: int) -> bool:
 
 func get_amount(item_name: String) -> int:
 	return int(items.get(item_name, 0))
+
+
+func get_save_data() -> Dictionary:
+	return items.duplicate(true)
+
+
+func restore_from_data(data: Dictionary) -> void:
+	for item_name in items.keys():
+		items[item_name] = int(data.get(item_name, 0))

@@ -280,6 +280,31 @@ func respawn_resources() -> void:
 	get_node("/root/EventBus").post_message("Resources regrew after sleep")
 
 
+func get_resource_save_data() -> Array[Dictionary]:
+	var resources: Array[Dictionary] = []
+	for resource in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(resource):
+			continue
+		resources.append({
+			"kind": str(resource.get("resource_kind")),
+			"position": _vector_to_data(resource.global_position)
+		})
+	return resources
+
+
+func restore_resources(resources: Array) -> void:
+	for resource in get_tree().get_nodes_in_group("resources"):
+		if is_instance_valid(resource):
+			resource.queue_free()
+	await get_tree().process_frame
+	for resource_data in resources:
+		if typeof(resource_data) != TYPE_DICTIONARY:
+			continue
+		var kind := str(resource_data.get("kind", "tree"))
+		var pos := _data_to_vector(resource_data.get("position", {}))
+		_spawn_resource_at(kind, pos)
+
+
 func _spawn_varnaks() -> void:
 	for _i in varnak_target_count:
 		if not _try_spawn_missing_varnak():
@@ -377,6 +402,16 @@ func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 	elif event_name == "day_ended" and _payload.get("reason", "") == "slept_in_tent":
 		call_deferred("respawn_resources")
 		call_deferred("respawn_missing_varnaks")
+
+
+func _vector_to_data(value: Vector2) -> Dictionary:
+	return {"x": value.x, "y": value.y}
+
+
+func _data_to_vector(data: Variant) -> Vector2:
+	if typeof(data) != TYPE_DICTIONARY:
+		return Vector2.ZERO
+	return Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
 
 
 func _draw() -> void:

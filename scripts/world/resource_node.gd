@@ -4,6 +4,7 @@ extends StaticBody2D
 @export var amount := 2
 @export var color := Color.FOREST_GREEN
 @export var radius := 15.0
+var resource_kind := "tree"
 
 func _ready() -> void:
 	add_to_group("resources")
@@ -11,6 +12,7 @@ func _ready() -> void:
 
 
 func setup(kind: String) -> void:
+	resource_kind = kind
 	match kind:
 		"tree":
 			item_name = "wood"
