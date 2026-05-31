@@ -80,6 +80,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_craft("tent")
 			KEY_7:
 				_eat("meat")
+			KEY_8:
+				_craft("torch")
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		_attack()
 
@@ -160,6 +162,11 @@ func _craft(item_name: String) -> void:
 		return
 	for ingredient in recipe.keys():
 		inventory.remove_item(ingredient, int(recipe[ingredient]))
+	if item_name == "torch":
+		inventory.add_item("torch", 1)
+		get_node("/root/EventBus").emit_game_event("player_crafted_torch", {"count": inventory.get_amount("torch")})
+		get_node("/root/EventBus").post_message("Crafted torch")
+		return
 	if item_name == "spear":
 		has_spear = true
 		get_node("/root/EventBus").post_message("Crafted spear")

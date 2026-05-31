@@ -57,7 +57,7 @@ func _process(delta: float) -> void:
 	clock_label.text = "%s\n%s" % [clock_text, time_label]
 	stats_label.text = "\n".join([
 		"Health: %3d  Hunger: %3d  Stamina: %3d  Rest: %3d  %s" % [player.stats.health, player.stats.hunger, player.stats.stamina, player.stats.rest, player.stats.get_condition_text()],
-		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Spear: %s" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber"), player.inventory.get_amount("meat"), "yes" if player.has_spear else "no"],
+		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Torch: %d  Spear: %s" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber"), player.inventory.get_amount("meat"), player.inventory.get_amount("torch"), "yes" if player.has_spear else "no"],
 		"Day: %d  Generation: %d  Live Varnaks: %d" % [day_night_system.get_day(), profile.get("generation", 1), live_varnaks],
 		"Events trap:%d player:%d fire:%d" % [evolution_director.trap_kills, evolution_director.player_kills, evolution_director.fire_scares],
 		"Varnak aggression %.2f  fire_fear %.2f  trap_awareness %.2f  pack %.2f" % [profile.get("aggression", 0.0), profile.get("fire_fear", 0.0), profile.get("trap_awareness", 0.0), profile.get("pack_coordination", 0.0)]
