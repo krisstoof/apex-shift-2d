@@ -124,6 +124,15 @@ func get_torch_remaining_seconds() -> float:
 	return torch_remaining_seconds if is_torch_active() else 0.0
 
 
+func debug_add_item(item_name: String, amount := 1) -> void:
+	if item_name == "spear":
+		has_spear = true
+	else:
+		inventory.add_item(item_name, amount)
+	get_node("/root/EventBus").emit_game_event("debug_item_added", {"item": item_name, "amount": amount})
+	get_node("/root/EventBus").post_message("Debug added %s" % item_name)
+
+
 func deactivate_torch(reason := "manual") -> void:
 	if not torch_active and torch_remaining_seconds <= 0.0:
 		return

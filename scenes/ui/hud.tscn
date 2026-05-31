@@ -111,7 +111,7 @@ anchor_right = 1.0
 offset_left = -332.0
 offset_top = 190.0
 offset_right = -12.0
-offset_bottom = 412.0
+offset_bottom = 550.0
 mouse_filter = 2
 script = ExtResource("6")
 
@@ -137,3 +137,45 @@ offset_right = 304.0
 offset_bottom = 210.0
 theme_override_font_sizes/font_size = 14
 text = "Waiting for game state..."
+
+[node name="AddWoodButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 12.0
+offset_top = 226.0
+offset_right = 148.0
+offset_bottom = 256.0
+text = "Add wood"
+
+[node name="AddStoneButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 160.0
+offset_top = 226.0
+offset_right = 304.0
+offset_bottom = 256.0
+text = "Add stone"
+
+[node name="AddFiberButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 12.0
+offset_top = 264.0
+offset_right = 148.0
+offset_bottom = 294.0
+text = "Add plant fiber"
+
+[node name="AddMeatButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 160.0
+offset_top = 264.0
+offset_right = 304.0
+offset_bottom = 294.0
+text = "Add meat"
+
+[node name="AddTorchButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 12.0
+offset_top = 302.0
+offset_right = 148.0
+offset_bottom = 332.0
+text = "Add torch"
+
+[node name="AddSpearButton" type="Button" parent="DebugPanel/Panel"]
+offset_left = 160.0
+offset_top = 302.0
+offset_right = 304.0
+offset_bottom = 332.0
+text = "Add spear"
