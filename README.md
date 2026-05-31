@@ -53,6 +53,10 @@ Apex Shift 2D is a small Godot 4.x top-down survival prototype. The current buil
 6. Press `R` if you want a fresh test group using the current profile.
 7. Watch the HUD debug values for `fire_fear`, `trap_awareness`, `aggression`, and `pack_coordination`.
 
+## Manual Test Checklists
+
+- [Torch manual test](docs/torch-manual-test.md)
+
 ## Known Limitations
 
 - Placeholder graphics only.
