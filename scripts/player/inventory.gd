@@ -7,7 +7,8 @@ var items := {
 	"fiber": 0,
 	"meat": 0,
 	"hide": 0,
-	"bone": 0
+	"bone": 0,
+	"torch": 0
 }
 
 func add_item(item_name: String, amount: int) -> void:
