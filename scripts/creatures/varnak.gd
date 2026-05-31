@@ -1,5 +1,7 @@
 extends CharacterBody2D
 
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+
 enum State { IDLE, WANDER, STALK, CHASE, ATTACK, FLEE }
 
 const ATTACK_RANGE := 42.0
@@ -125,10 +127,20 @@ func _update_state() -> void:
 	var distance := global_position.distance_to(player.global_position)
 	var night_bonus := night_activity * 70.0 if day_night_system and day_night_system.is_night() else 0.0
 	var detect_range := 210.0 + base_curiosity * 120.0 + night_bonus
+	var close_chase_range := 115.0
+	var effective_aggression := aggression
+	var torch_protecting := _is_torch_protecting_player(distance)
+	if torch_protecting:
+		detect_range *= GAME_BALANCE.TORCH_DETECTION_RANGE_MULTIPLIER
+		effective_aggression *= GAME_BALANCE.TORCH_AGGRESSION_MULTIPLIER
+		close_chase_range *= GAME_BALANCE.TORCH_CLOSE_CHASE_RANGE_MULTIPLIER
+		if distance > ATTACK_RANGE:
+			state = State.FLEE
+			return
 	if distance < 34.0:
 		state = State.ATTACK
 	elif distance < detect_range:
-		state = State.CHASE if aggression > 0.5 or distance < 115.0 else State.STALK
+		state = State.CHASE if effective_aggression > 0.5 or distance < close_chase_range else State.STALK
 	elif global_position.distance_to(wander_target) < 20.0:
 		state = State.WANDER
 		_pick_wander_target()
@@ -153,15 +165,17 @@ func _act(delta: float) -> void:
 				get_node("/root/EventBus").emit_game_event("varnak_attacked_player", {"damage": 10.0 + aggression * 8.0})
 				attack_visual_time = ATTACK_VISUAL_DURATION
 				queue_redraw()
-				attack_cooldown = 1.2
+				attack_cooldown = 1.2 * (GAME_BALANCE.TORCH_ATTACK_COOLDOWN_MULTIPLIER if _is_torch_protecting_player(global_position.distance_to(player.global_position)) else 1.0)
 		State.FLEE:
-			if not is_instance_valid(scared_fire):
+			var flee_origin := _get_flee_origin()
+			if flee_origin == Vector2.INF:
 				state = State.WANDER
 				_pick_wander_target()
 				_move_toward(wander_target, speed * 0.42)
 				return
-			var away := (global_position - scared_fire.global_position).normalized()
-			velocity = away * speed * (1.1 + fire_fear)
+			var away := (global_position - flee_origin).normalized()
+			var flee_multiplier := 1.1 + fire_fear if is_instance_valid(scared_fire) else GAME_BALANCE.TORCH_FLEE_SPEED_MULTIPLIER
+			velocity = away * speed * flee_multiplier
 			_face_target(global_position + away)
 
 
@@ -219,6 +233,26 @@ func _nearest_active_campfire() -> Node2D:
 			nearest = campfire
 			nearest_distance = distance
 	return nearest
+
+
+func _is_torch_protecting_player(distance_to_player: float) -> bool:
+	if not _is_dusk_or_night():
+		return false
+	if distance_to_player > GAME_BALANCE.TORCH_SAFE_RADIUS:
+		return false
+	return is_instance_valid(player) and player.has_method("is_torch_active") and player.is_torch_active()
+
+
+func _is_dusk_or_night() -> bool:
+	return day_night_system and day_night_system.night_amount > 0.0
+
+
+func _get_flee_origin() -> Vector2:
+	if is_instance_valid(scared_fire):
+		return scared_fire.global_position
+	if is_instance_valid(player) and _is_torch_protecting_player(global_position.distance_to(player.global_position)):
+		return player.global_position
+	return Vector2.INF
 
 
 func _pick_wander_target() -> void:
