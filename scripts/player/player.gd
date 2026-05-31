@@ -334,12 +334,14 @@ func _draw_torch_light() -> void:
 	if not is_torch_active():
 		return
 	var night_amount := _get_night_amount()
-	var flicker := 0.9 + sin(Time.get_ticks_msec() * 0.018) * 0.08 + sin(Time.get_ticks_msec() * 0.031) * 0.02
-	var strength := (0.22 + night_amount * 0.58) * GAME_BALANCE.TORCH_LIGHT_INTENSITY * flicker
+	var flicker := GAME_BALANCE.TORCH_LIGHT_FLICKER_BASE
+	flicker += sin(Time.get_ticks_msec() * GAME_BALANCE.TORCH_LIGHT_FLICKER_PRIMARY_SPEED) * GAME_BALANCE.TORCH_LIGHT_FLICKER_PRIMARY_AMOUNT
+	flicker += sin(Time.get_ticks_msec() * GAME_BALANCE.TORCH_LIGHT_FLICKER_SECONDARY_SPEED) * GAME_BALANCE.TORCH_LIGHT_FLICKER_SECONDARY_AMOUNT
+	var strength := (GAME_BALANCE.TORCH_LIGHT_BASE_STRENGTH + night_amount * GAME_BALANCE.TORCH_LIGHT_NIGHT_STRENGTH) * GAME_BALANCE.TORCH_LIGHT_INTENSITY * flicker
 	var radius := GAME_BALANCE.TORCH_LIGHT_RADIUS
-	draw_circle(Vector2.ZERO, radius, Color(1.0, 0.48, 0.08, strength * 0.10))
-	draw_circle(Vector2.ZERO, radius * 0.58, Color(1.0, 0.62, 0.12, strength * 0.16))
-	draw_circle(Vector2(18, 0), radius * 0.24, Color(1.0, 0.86, 0.28, strength * 0.24))
+	draw_circle(Vector2.ZERO, radius, Color(1.0, 0.48, 0.08, strength * GAME_BALANCE.TORCH_LIGHT_OUTER_ALPHA))
+	draw_circle(Vector2.ZERO, radius * GAME_BALANCE.TORCH_LIGHT_MID_RADIUS_MULTIPLIER, Color(1.0, 0.62, 0.12, strength * GAME_BALANCE.TORCH_LIGHT_MID_ALPHA))
+	draw_circle(GAME_BALANCE.TORCH_LIGHT_OFFSET, radius * GAME_BALANCE.TORCH_LIGHT_CORE_RADIUS_MULTIPLIER, Color(1.0, 0.86, 0.28, strength * GAME_BALANCE.TORCH_LIGHT_CORE_ALPHA))
 
 
 func _get_night_amount() -> float:
