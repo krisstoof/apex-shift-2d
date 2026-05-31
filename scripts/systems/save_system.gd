@@ -117,6 +117,8 @@ func _restore_player_data(player: Node, data: Dictionary) -> void:
 	player.has_spear = bool(data.get("has_spear", player.has_spear))
 	player.torch_active = bool(data.get("torch_active", player.torch_active))
 	player.torch_remaining_seconds = float(data.get("torch_remaining_seconds", player.torch_remaining_seconds))
+	if player.torch_active and player.torch_remaining_seconds <= 0.0:
+		player.clear_inactive_torch_state()
 
 
 func _restore_buildings(buildings: Array) -> void:

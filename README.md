@@ -22,7 +22,7 @@ Apex Shift 2D is a small Godot 4.x top-down survival prototype. The current buil
 - 5: craft storage box
 - 6: craft tent
 - 8: craft torch
-- T: activate torch
+- T: activate/deactivate torch
 
 ## Prototype Notes
 
