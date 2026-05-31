@@ -314,8 +314,7 @@ func _on_interactable_exited(node: Node) -> void:
 
 
 func _load_recipes() -> Dictionary:
-	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/recipes.json"))
-	return parsed if typeof(parsed) == TYPE_DICTIONARY else {}
+	return GAME_BALANCE.CRAFTING_COSTS.duplicate(true)
 
 
 func _face_mouse() -> void:
