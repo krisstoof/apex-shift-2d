@@ -1,6 +1,7 @@
 extends CharacterBody2D
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
 @export var walk_speed := 180.0
 @export var run_speed := 290.0
@@ -13,6 +14,7 @@ var stats := PlayerStats.new()
 var inventory := Inventory.new()
 var has_spear := false
 var torch_active := false
+var torch_remaining_seconds := 0.0
 var evolution_director: Node
 var nearby_interactables: Array[Node] = []
 var recipes := {}
@@ -39,6 +41,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_tick_torch(delta)
 	_face_mouse()
 	if attack_visual_time > 0.0:
 		attack_visual_time = max(attack_visual_time - delta, 0.0)
@@ -102,13 +105,18 @@ func activate_torch() -> bool:
 		get_node("/root/EventBus").post_message("No torch to activate")
 		return false
 	torch_active = true
-	get_node("/root/EventBus").emit_game_event("torch_activated", {"active": torch_active})
+	torch_remaining_seconds = GAME_BALANCE.TORCH_DURATION_SECONDS
+	get_node("/root/EventBus").emit_game_event("torch_activated", {"active": torch_active, "remaining_seconds": torch_remaining_seconds})
 	get_node("/root/EventBus").post_message("Torch activated")
 	return true
 
 
 func is_torch_active() -> bool:
 	return torch_active
+
+
+func get_torch_remaining_seconds() -> float:
+	return torch_remaining_seconds if torch_active else 0.0
 
 
 func recover_from_sleep() -> void:
@@ -217,6 +225,17 @@ func _eat(item_name: String) -> void:
 
 func _activate_torch() -> void:
 	activate_torch()
+
+
+func _tick_torch(delta: float) -> void:
+	if not torch_active:
+		return
+	torch_remaining_seconds = max(torch_remaining_seconds - delta, 0.0)
+	if torch_remaining_seconds > 0.0:
+		return
+	torch_active = false
+	get_node("/root/EventBus").emit_game_event("torch_expired", {"active": torch_active, "remaining_seconds": 0.0})
+	get_node("/root/EventBus").post_message("Torch burned out")
 
 
 func _get_missing_ingredients(recipe: Dictionary) -> Array[String]:
