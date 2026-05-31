@@ -22,8 +22,9 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node) 
 	day_night_system = p_day_night_system
 	skill_icon_bar.bind(player)
 	var world := get_tree().current_scene.get_node_or_null("World")
-	var world_rect: Rect2 = world.get_world_rect() if world and world.has_method("get_world_rect") else Rect2(-1440, -880, 2880, 1760)
-	minimap.bind(player, world_rect)
+	var world_rect: Rect2 = world.get_world_rect() if world and world.has_method("get_world_rect") else Rect2(-2160, -1320, 4320, 2640)
+	var biome_zones: Array[Dictionary] = world.get_biome_zones() if world and world.has_method("get_biome_zones") else []
+	minimap.bind(player, world_rect, biome_zones)
 
 
 func _process(_delta: float) -> void:

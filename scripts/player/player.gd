@@ -3,8 +3,8 @@ extends CharacterBody2D
 @export var walk_speed := 180.0
 @export var run_speed := 290.0
 
-const WORLD_LIMIT_X := 1410.0
-const WORLD_LIMIT_Y := 850.0
+const WORLD_LIMIT_X := 2130.0
+const WORLD_LIMIT_Y := 1290.0
 
 var stats := PlayerStats.new()
 var inventory := Inventory.new()

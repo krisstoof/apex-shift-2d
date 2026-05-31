@@ -2,7 +2,107 @@ extends Node2D
 
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
-const WORLD_RECT := Rect2(-1440, -880, 2880, 1760)
+const WORLD_SCALE := 1.5
+const WORLD_RECT := Rect2(-2160, -1320, 4320, 2640)
+const BIOME_ZONES := [
+	{
+		"name": "Westwood",
+		"points": [
+			Vector2(-1440, -880),
+			Vector2(-690, -880),
+			Vector2(-560, -620),
+			Vector2(-720, -260),
+			Vector2(-560, 130),
+			Vector2(-700, 520),
+			Vector2(-610, 880),
+			Vector2(-1440, 880)
+		],
+		"color": Color(0.10, 0.24, 0.13),
+		"tree_weight": 7.0,
+		"rock_weight": 1.0,
+		"bush_weight": 3.0,
+		"dangerous": false
+	},
+	{
+		"name": "Stoneback Ridge",
+		"points": [
+			Vector2(-690, -880),
+			Vector2(540, -880),
+			Vector2(680, -710),
+			Vector2(470, -470),
+			Vector2(560, -250),
+			Vector2(120, -300),
+			Vector2(-120, -230),
+			Vector2(-560, -360),
+			Vector2(-720, -620)
+		],
+		"color": Color(0.22, 0.25, 0.23),
+		"tree_weight": 1.0,
+		"rock_weight": 7.0,
+		"bush_weight": 1.0,
+		"dangerous": false
+	},
+	{
+		"name": "Hearth Meadow",
+		"points": [
+			Vector2(-560, -360),
+			Vector2(-120, -230),
+			Vector2(120, -300),
+			Vector2(560, -250),
+			Vector2(650, 60),
+			Vector2(470, 290),
+			Vector2(130, 330),
+			Vector2(-80, 250),
+			Vector2(-430, 340),
+			Vector2(-560, 130),
+			Vector2(-720, -260)
+		],
+		"color": Color(0.16, 0.30, 0.14),
+		"tree_weight": 3.0,
+		"rock_weight": 2.0,
+		"bush_weight": 4.0,
+		"dangerous": false
+	},
+	{
+		"name": "South Thicket",
+		"points": [
+			Vector2(-560, 130),
+			Vector2(-430, 340),
+			Vector2(-80, 250),
+			Vector2(130, 330),
+			Vector2(470, 290),
+			Vector2(610, 540),
+			Vector2(540, 880),
+			Vector2(-610, 880),
+			Vector2(-700, 520)
+		],
+		"color": Color(0.20, 0.34, 0.12),
+		"tree_weight": 2.0,
+		"rock_weight": 1.0,
+		"bush_weight": 7.0,
+		"dangerous": false
+	},
+	{
+		"name": "Redfang Wilds",
+		"points": [
+			Vector2(540, -880),
+			Vector2(1440, -880),
+			Vector2(1440, 880),
+			Vector2(540, 880),
+			Vector2(610, 540),
+			Vector2(470, 290),
+			Vector2(650, 60),
+			Vector2(560, -250),
+			Vector2(470, -470),
+			Vector2(680, -710)
+		],
+		"color": Color(0.26, 0.18, 0.13),
+		"tree_weight": 3.0,
+		"rock_weight": 4.0,
+		"bush_weight": 2.0,
+		"dangerous": true
+	}
+]
 const RESOURCE_SPAWN_MARGIN := 70.0
 const RESOURCE_MIN_DISTANCE := 70.0
 const RESOURCE_PLAYER_SAFE_DISTANCE := 180.0
@@ -15,12 +115,17 @@ const VARNAK_SPAWN_POINTS := [
 	Vector2(420, 330),
 	Vector2(-980, -560),
 	Vector2(1040, 520),
-	Vector2(760, -680)
+	Vector2(760, -680),
+	Vector2(980, -120),
+	Vector2(1220, -420),
+	Vector2(1160, 760),
+	Vector2(-1140, 580)
 ]
 
-@export var tree_count := 24
-@export var rock_count := 12
-@export var bush_count := 16
+@export var tree_count := 29
+@export var rock_count := 14
+@export var bush_count := 19
+@export var varnak_target_count := 6
 
 var evolution_director: Node
 var day_night_system: Node
@@ -48,20 +153,28 @@ func get_world_rect() -> Rect2:
 	return WORLD_RECT
 
 
+func get_biome_zones() -> Array[Dictionary]:
+	var scaled_biomes: Array[Dictionary] = []
+	for biome_value in BIOME_ZONES:
+		var biome := Dictionary(biome_value).duplicate(true)
+		biome["points"] = _get_biome_points(biome)
+		scaled_biomes.append(biome)
+	return scaled_biomes
+
+
 func _spawn_resources() -> void:
-	var resource_counts := {
-		"tree": tree_count,
-		"rock": rock_count,
-		"bush": bush_count
-	}
 	var used_positions: Array[Vector2] = []
 	var player_position := _get_player_position()
 
-	for resource_key in resource_counts.keys():
-		var resource_kind := String(resource_key)
-		for _i in int(resource_counts[resource_key]):
-			if not _try_spawn_resource(resource_kind, used_positions, player_position):
-				push_warning("Could not find a valid spawn position for %s" % resource_kind)
+	_spawn_resource_kind("tree", tree_count, used_positions, player_position)
+	_spawn_resource_kind("rock", rock_count, used_positions, player_position)
+	_spawn_resource_kind("bush", bush_count, used_positions, player_position)
+
+
+func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
+	for _i in count:
+		if not _try_spawn_resource(resource_kind, used_positions, player_position):
+			push_warning("Could not find a valid spawn position for %s" % resource_kind)
 
 
 func _spawn_resource_at(resource_kind: String, pos: Vector2) -> void:
@@ -72,17 +185,74 @@ func _spawn_resource_at(resource_kind: String, pos: Vector2) -> void:
 
 
 func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
-	var spawn_area := WORLD_RECT.grow(-RESOURCE_SPAWN_MARGIN)
 	for _attempt in RESOURCE_SPAWN_ATTEMPTS:
+		var biome := _pick_resource_biome(resource_kind)
+		var spawn_area := _get_biome_bounds(biome).grow(-RESOURCE_SPAWN_MARGIN)
 		var candidate := Vector2(
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
-		if _is_valid_resource_position(candidate, used_positions, player_position):
+		if _is_point_in_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
 			used_positions.append(candidate)
 			_spawn_resource_at(resource_kind, candidate)
 			return true
 	return false
+
+
+func _pick_resource_biome(resource_kind: String) -> Dictionary:
+	var total_weight := 0.0
+	for biome_value in BIOME_ZONES:
+		var biome := Dictionary(biome_value)
+		total_weight += _get_biome_resource_weight(biome, resource_kind)
+	if total_weight <= 0.0:
+		return Dictionary(BIOME_ZONES[0])
+
+	var roll := resource_rng.randf_range(0.0, total_weight)
+	var cursor := 0.0
+	for biome_value in BIOME_ZONES:
+		var biome := Dictionary(biome_value)
+		cursor += _get_biome_resource_weight(biome, resource_kind)
+		if roll <= cursor:
+			return biome
+	return Dictionary(BIOME_ZONES[0])
+
+
+func _get_biome_resource_weight(biome: Dictionary, resource_kind: String) -> float:
+	match resource_kind:
+		"tree":
+			return float(biome.get("tree_weight", 0.0))
+		"rock":
+			return float(biome.get("rock_weight", 0.0))
+		"bush":
+			return float(biome.get("bush_weight", 0.0))
+		_:
+			return 0.0
+
+
+func _get_biome_bounds(biome: Dictionary) -> Rect2:
+	var points := _get_biome_points(biome)
+	var bounds := Rect2(points[0], Vector2.ZERO)
+	for point in points:
+		bounds = bounds.expand(point)
+	return bounds
+
+
+func _is_point_in_biome(point: Vector2, biome: Dictionary) -> bool:
+	return Geometry2D.is_point_in_polygon(point, PackedVector2Array(_get_biome_points(biome)))
+
+
+func _get_biome_points(biome: Dictionary) -> Array[Vector2]:
+	var scaled_points: Array[Vector2] = []
+	for point_value in biome["points"]:
+		scaled_points.append(Vector2(point_value) * WORLD_SCALE)
+	return scaled_points
+
+
+func _draw_biome_outline(points: PackedVector2Array) -> void:
+	for i in points.size():
+		var start := points[i]
+		var end := points[(i + 1) % points.size()]
+		draw_line(start, end, Color(0.05, 0.06, 0.05, 0.45), 2.0)
 
 
 func _is_valid_resource_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
@@ -111,12 +281,13 @@ func respawn_resources() -> void:
 
 
 func _spawn_varnaks() -> void:
-	for pos in VARNAK_SPAWN_POINTS:
-		_spawn_varnak_at(pos)
+	for _i in varnak_target_count:
+		if not _try_spawn_missing_varnak():
+			push_warning("Could not find a safe initial Varnak spawn point")
 
 
 func respawn_missing_varnaks() -> void:
-	var missing_count := VARNAK_SPAWN_POINTS.size() - get_tree().get_nodes_in_group("varnak").size()
+	var missing_count := varnak_target_count - get_tree().get_nodes_in_group("varnak").size()
 	if missing_count <= 0:
 		return
 	var spawned := 0
@@ -148,17 +319,40 @@ func _spawn_varnak_at(pos: Vector2) -> void:
 
 func _try_spawn_missing_varnak() -> bool:
 	var player_position := _get_player_position()
-	var shuffled_points := VARNAK_SPAWN_POINTS.duplicate()
-	shuffled_points.shuffle()
-	for point_value in shuffled_points:
-		var point := Vector2(point_value)
+	for _attempt in VARNAK_SPAWN_ATTEMPTS:
+		var point := _pick_varnak_spawn_point()
 		if _is_valid_varnak_spawn_position(point, player_position):
 			_spawn_varnak_at(point)
 			return true
-	for _attempt in VARNAK_SPAWN_ATTEMPTS:
-		var point := Vector2(VARNAK_SPAWN_POINTS[varnak_rng.randi_range(0, VARNAK_SPAWN_POINTS.size() - 1)])
-		if _is_valid_varnak_spawn_position(point, player_position):
-			_spawn_varnak_at(point)
+	return false
+
+
+func _pick_varnak_spawn_point() -> Vector2:
+	var total_weight := 0.0
+	for point_value in VARNAK_SPAWN_POINTS:
+		total_weight += _get_varnak_spawn_weight(_scale_world_point(Vector2(point_value)))
+	var roll := varnak_rng.randf_range(0.0, total_weight)
+	var cursor := 0.0
+	for point_value in VARNAK_SPAWN_POINTS:
+		var point := _scale_world_point(Vector2(point_value))
+		cursor += _get_varnak_spawn_weight(point)
+		if roll <= cursor:
+			return point
+	return _scale_world_point(Vector2(VARNAK_SPAWN_POINTS[0]))
+
+
+func _scale_world_point(point: Vector2) -> Vector2:
+	return point * WORLD_SCALE
+
+
+func _get_varnak_spawn_weight(point: Vector2) -> float:
+	return 4.0 if _is_point_in_dangerous_biome(point) else 1.0
+
+
+func _is_point_in_dangerous_biome(point: Vector2) -> bool:
+	for biome_value in BIOME_ZONES:
+		var biome := Dictionary(biome_value)
+		if bool(biome.get("dangerous", false)) and _is_point_in_biome(point, biome):
 			return true
 	return false
 
@@ -187,6 +381,11 @@ func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 
 func _draw() -> void:
 	draw_rect(WORLD_RECT, Color(0.14, 0.22, 0.13), true)
+	for biome_value in BIOME_ZONES:
+		var biome := Dictionary(biome_value)
+		var biome_points := PackedVector2Array(_get_biome_points(biome))
+		draw_colored_polygon(biome_points, Color(biome["color"]))
+		_draw_biome_outline(biome_points)
 	draw_rect(WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
 	if day_night_system and day_night_system.night_amount > 0.0:
 		draw_rect(WORLD_RECT, Color(0.02, 0.03, 0.09, day_night_system.night_amount * 0.45), true)
