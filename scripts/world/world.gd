@@ -7,6 +7,8 @@ const RESOURCE_SPAWN_MARGIN := 70.0
 const RESOURCE_MIN_DISTANCE := 70.0
 const RESOURCE_PLAYER_SAFE_DISTANCE := 180.0
 const RESOURCE_SPAWN_ATTEMPTS := 80
+const VARNAK_PLAYER_SAFE_DISTANCE := 360.0
+const VARNAK_SPAWN_ATTEMPTS := 20
 const VARNAK_SPAWN_POINTS := [
 	Vector2(220, 0),
 	Vector2(-470, -300),
@@ -23,14 +25,15 @@ const VARNAK_SPAWN_POINTS := [
 var evolution_director: Node
 var day_night_system: Node
 var resource_rng := RandomNumberGenerator.new()
+var varnak_rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	await get_tree().process_frame
 	resource_rng.randomize()
+	varnak_rng.randomize()
 	evolution_director = get_parent().get_node("EvolutionDirector")
 	day_night_system = get_parent().get_node("DayNightSystem")
 	evolution_director.profile_changed.connect(_on_profile_changed)
-	day_night_system.day_changed.connect(_on_day_changed)
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	_spawn_resources()
 	_spawn_varnaks()
@@ -112,6 +115,20 @@ func _spawn_varnaks() -> void:
 		_spawn_varnak_at(pos)
 
 
+func respawn_missing_varnaks() -> void:
+	var missing_count := VARNAK_SPAWN_POINTS.size() - get_tree().get_nodes_in_group("varnak").size()
+	if missing_count <= 0:
+		return
+	var spawned := 0
+	for _i in missing_count:
+		if not _try_spawn_missing_varnak():
+			push_warning("Could not find a safe Varnak spawn point")
+			continue
+		spawned += 1
+	if spawned > 0:
+		get_node("/root/EventBus").post_message("%d Varnak%s returned after sleep" % [spawned, "" if spawned == 1 else "s"])
+
+
 func respawn_varnaks() -> void:
 	for varnak in get_tree().get_nodes_in_group("varnak"):
 		if is_instance_valid(varnak):
@@ -129,19 +146,35 @@ func _spawn_varnak_at(pos: Vector2) -> void:
 	varnak.day_night_system = day_night_system
 
 
+func _try_spawn_missing_varnak() -> bool:
+	var player_position := _get_player_position()
+	var shuffled_points := VARNAK_SPAWN_POINTS.duplicate()
+	shuffled_points.shuffle()
+	for point_value in shuffled_points:
+		var point := Vector2(point_value)
+		if _is_valid_varnak_spawn_position(point, player_position):
+			_spawn_varnak_at(point)
+			return true
+	for _attempt in VARNAK_SPAWN_ATTEMPTS:
+		var point := Vector2(VARNAK_SPAWN_POINTS[varnak_rng.randi_range(0, VARNAK_SPAWN_POINTS.size() - 1)])
+		if _is_valid_varnak_spawn_position(point, player_position):
+			_spawn_varnak_at(point)
+			return true
+	return false
+
+
+func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2) -> bool:
+	if point.distance_to(player_position) < VARNAK_PLAYER_SAFE_DISTANCE:
+		return false
+	for varnak in get_tree().get_nodes_in_group("varnak"):
+		if is_instance_valid(varnak) and varnak.global_position.distance_to(point) < 80.0:
+			return false
+	return true
+
+
 func _on_profile_changed(profile: Dictionary) -> void:
 	for varnak in get_tree().get_nodes_in_group("varnak"):
 		varnak.apply_profile(profile)
-
-
-func _on_day_changed(_day: int) -> void:
-	var existing := get_tree().get_nodes_in_group("varnak").size()
-	var spawned := 0
-	while existing + spawned < VARNAK_SPAWN_POINTS.size():
-		_spawn_varnak_at(VARNAK_SPAWN_POINTS[existing + spawned])
-		spawned += 1
-	if spawned > 0:
-		get_node("/root/EventBus").post_message("Varnaks returned after the night")
 
 
 func _on_game_event(event_name: String, _payload: Dictionary) -> void:
@@ -149,6 +182,7 @@ func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 		call_deferred("respawn_varnaks")
 	elif event_name == "day_ended" and _payload.get("reason", "") == "slept_in_tent":
 		call_deferred("respawn_resources")
+		call_deferred("respawn_missing_varnaks")
 
 
 func _draw() -> void:
