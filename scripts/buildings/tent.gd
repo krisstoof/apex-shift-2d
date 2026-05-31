@@ -5,12 +5,14 @@ func _ready() -> void:
 	queue_redraw()
 
 
-func interact(_player: Node) -> void:
+func interact(player: Node) -> void:
 	var day_night_system := get_tree().current_scene.get_node_or_null("DayNightSystem")
 	if not day_night_system or not day_night_system.has_method("sleep_until_morning"):
 		get_node("/root/EventBus").post_message("No safe place to sleep")
 		return
-	day_night_system.sleep_until_morning()
+	if day_night_system.sleep_until_morning() and player and player.has_method("recover_from_sleep"):
+		player.recover_from_sleep()
+		get_node("/root/EventBus").post_message("Rested and recovered")
 
 
 func get_prompt() -> String:

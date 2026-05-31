@@ -6,10 +6,14 @@ var slots := [
 	{"key": "Shift", "name": "Run", "kind": "run"},
 	{"key": "E", "name": "Use", "kind": "use"},
 	{"key": "Space", "name": "Attack", "kind": "attack"},
+	{"key": "G", "name": "Gen", "kind": "generation"},
 	{"key": "1", "name": "Fire", "kind": "fire"},
 	{"key": "2", "name": "Spear", "kind": "spear"},
 	{"key": "3", "name": "Trap", "kind": "trap"},
-	{"key": "6", "name": "Tent", "kind": "tent"}
+	{"key": "4", "name": "Wall", "kind": "wall"},
+	{"key": "5", "name": "Box", "kind": "storage_box"},
+	{"key": "6", "name": "Tent", "kind": "tent"},
+	{"key": "7", "name": "Eat", "kind": "eat"}
 ]
 
 func bind(p_player: Node) -> void:
@@ -47,8 +51,14 @@ func _is_available(kind: String) -> bool:
 			return _has_recipe_items("campfire")
 		"trap":
 			return _has_recipe_items("trap")
+		"wall":
+			return _has_recipe_items("wall")
+		"storage_box":
+			return _has_recipe_items("storage_box")
 		"tent":
 			return _has_recipe_items("tent")
+		"eat":
+			return player.inventory.has_item("meat", 1)
 		_:
 			return true
 
@@ -77,6 +87,12 @@ func _draw_icon(kind: String, rect: Rect2, available: bool) -> void:
 		"attack":
 			draw_line(center + Vector2(-14, 12), center + Vector2(14, -14), color, 4.0)
 			draw_polygon([center + Vector2(14, -14), center + Vector2(10, -2), center + Vector2(2, -10)], [color])
+		"generation":
+			draw_circle(center, 13.0, color, false, 3.0)
+			draw_line(center + Vector2(9, -9), center + Vector2(17, -9), color, 2.0)
+			draw_line(center + Vector2(17, -9), center + Vector2(17, -1), color, 2.0)
+			draw_line(center + Vector2(-9, 9), center + Vector2(-17, 9), color, 2.0)
+			draw_line(center + Vector2(-17, 9), center + Vector2(-17, 1), color, 2.0)
 		"fire":
 			draw_circle(center + Vector2(0, 7), 9.0, Color(0.85, 0.26, 0.08) if available else color)
 			draw_circle(center + Vector2(0, 3), 5.0, Color(1.0, 0.82, 0.18) if available else color)
@@ -87,6 +103,20 @@ func _draw_icon(kind: String, rect: Rect2, available: bool) -> void:
 			draw_rect(Rect2(center - Vector2(13, 13), Vector2(26, 26)), color, false, 2.0)
 			draw_line(center + Vector2(-12, -12), center + Vector2(12, 12), color, 2.0)
 			draw_line(center + Vector2(12, -12), center + Vector2(-12, 12), color, 2.0)
+		"wall":
+			draw_rect(Rect2(center - Vector2(18, 9), Vector2(36, 9)), color, true)
+			draw_rect(Rect2(center - Vector2(18, 3), Vector2(36, 9)), color.darkened(0.18), true)
+			draw_rect(Rect2(center - Vector2(18, 15), Vector2(36, 9)), color.lightened(0.12), true)
+			draw_line(center + Vector2(-6, -15), center + Vector2(-6, 18), Color(0.09, 0.10, 0.11), 1.0)
+			draw_line(center + Vector2(8, -15), center + Vector2(8, 18), Color(0.09, 0.10, 0.11), 1.0)
+		"storage_box":
+			draw_rect(Rect2(center - Vector2(16, 12), Vector2(32, 24)), color, true)
+			draw_rect(Rect2(center - Vector2(16, 12), Vector2(32, 24)), Color(0.09, 0.10, 0.11), false, 2.0)
+			draw_line(center + Vector2(-16, -3), center + Vector2(16, -3), Color(0.09, 0.10, 0.11), 2.0)
+			draw_circle(center + Vector2(0, 4), 2.0, Color(0.09, 0.10, 0.11))
 		"tent":
 			draw_polygon([center + Vector2(-18, 14), center + Vector2(0, -16), center + Vector2(18, 14)], [color])
 			draw_line(center + Vector2(0, -16), center + Vector2(0, 14), Color(0.09, 0.10, 0.11), 2.0)
+		"eat":
+			draw_circle(center, 13.0, color)
+			draw_circle(center + Vector2(5, -4), 5.0, Color(0.09, 0.10, 0.11))
