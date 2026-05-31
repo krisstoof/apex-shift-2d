@@ -37,10 +37,16 @@ func get_biome_zones() -> Array[Dictionary]:
 func _spawn_resources() -> void:
 	var used_positions: Array[Vector2] = []
 	var player_position := _get_player_position()
+	var conifer_count := int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.6))
+	var leafy_count := WORLD_CONFIG.TREE_COUNT - conifer_count
+	var dry_bush_count := int(ceil(float(WORLD_CONFIG.BUSH_COUNT) * 0.35))
+	var green_bush_count := WORLD_CONFIG.BUSH_COUNT - dry_bush_count
 
-	_spawn_resource_kind("tree", WORLD_CONFIG.TREE_COUNT, used_positions, player_position)
+	_spawn_resource_kind("conifer_tree", conifer_count, used_positions, player_position)
+	_spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
 	_spawn_resource_kind("rock", WORLD_CONFIG.ROCK_COUNT, used_positions, player_position)
-	_spawn_resource_kind("bush", WORLD_CONFIG.BUSH_COUNT, used_positions, player_position)
+	_spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
+	_spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
 
 
 func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -91,11 +97,11 @@ func _pick_resource_biome(resource_kind: String) -> Dictionary:
 
 func _get_biome_resource_weight(biome: Dictionary, resource_kind: String) -> float:
 	match resource_kind:
-		"tree":
+		"tree", "conifer_tree", "leafy_tree":
 			return float(biome.get("tree_weight", 0.0))
 		"rock":
 			return float(biome.get("rock_weight", 0.0))
-		"bush":
+		"bush", "dry_bush":
 			return float(biome.get("bush_weight", 0.0))
 		_:
 			return 0.0
