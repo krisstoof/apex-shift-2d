@@ -5,6 +5,7 @@ extends Node
 @onready var hud: CanvasLayer = get_parent().get_node("HUD")
 @onready var player: Node = get_parent().get_node("Player")
 @onready var world: Node = get_parent().get_node("World")
+@onready var save_system: Node = get_parent().get_node("SaveSystem")
 
 func _ready() -> void:
 	player.evolution_director = evolution_director
@@ -15,3 +16,7 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
 		world.respawn_varnaks()
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F5:
+		save_system.save_game()
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F9:
+		save_system.load_game()

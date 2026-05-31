@@ -41,3 +41,18 @@ func _start_new_day(reason: String) -> void:
 	get_node("/root/EventBus").emit_game_event("day_ended", {"day": day, "reason": reason})
 	get_node("/root/EventBus").post_message("Day %s started" % day)
 	day_changed.emit(day)
+
+
+func get_save_data() -> Dictionary:
+	return {
+		"day": day,
+		"time_of_day": time_of_day,
+		"night_amount": night_amount
+	}
+
+
+func restore_from_data(data: Dictionary) -> void:
+	day = int(data.get("day", day))
+	time_of_day = float(data.get("time_of_day", time_of_day))
+	night_amount = float(data.get("night_amount", night_amount))
+	day_changed.emit(day)
