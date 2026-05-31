@@ -56,6 +56,7 @@ Apex Shift 2D is a small Godot 4.x top-down survival prototype. The current buil
 ## Manual Test Checklists
 
 - [Torch manual test](docs/torch-manual-test.md)
+- [Debug panel manual test](docs/debug-panel-manual-test.md)
 
 ## Known Limitations
 
