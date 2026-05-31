@@ -14,29 +14,29 @@ script = ExtResource("1")
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 760.0
-offset_bottom = 250.0
+offset_bottom = 170.0
 
 [node name="StatsLabel" type="Label" parent="Panel"]
 offset_left = 12.0
 offset_top = 8.0
 offset_right = 734.0
-offset_bottom = 118.0
+offset_bottom = 62.0
 theme_override_font_sizes/font_size = 16
 text = "Loading..."
 
 [node name="PromptLabel" type="Label" parent="Panel"]
 offset_left = 12.0
-offset_top = 124.0
+offset_top = 68.0
 offset_right = 734.0
-offset_bottom = 150.0
+offset_bottom = 94.0
 theme_override_font_sizes/font_size = 16
 text = ""
 
 [node name="MessageLabel" type="Label" parent="Panel"]
 offset_left = 12.0
-offset_top = 154.0
+offset_top = 98.0
 offset_right = 734.0
-offset_bottom = 236.0
+offset_bottom = 156.0
 theme_override_font_sizes/font_size = 16
 text = ""
 
@@ -57,9 +57,9 @@ text = ""
 
 [node name="SkillIconBar" type="Control" parent="."]
 offset_left = 12.0
-offset_top = 262.0
+offset_top = 182.0
 offset_right = 872.0
-offset_bottom = 322.0
+offset_bottom = 242.0
 script = ExtResource("2")
 
 [node name="Minimap" type="Control" parent="."]
@@ -111,7 +111,7 @@ anchor_right = 1.0
 offset_left = -332.0
 offset_top = 190.0
 offset_right = -12.0
-offset_bottom = 308.0
+offset_bottom = 412.0
 mouse_filter = 2
 script = ExtResource("6")
 
@@ -129,3 +129,11 @@ offset_right = 300.0
 offset_bottom = 36.0
 theme_override_font_sizes/font_size = 18
 text = "Debug"
+
+[node name="StateLabel" type="Label" parent="DebugPanel/Panel"]
+offset_left = 12.0
+offset_top = 42.0
+offset_right = 304.0
+offset_bottom = 210.0
+theme_override_font_sizes/font_size = 14
+text = "Waiting for game state..."
