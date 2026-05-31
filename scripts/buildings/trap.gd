@@ -1,6 +1,8 @@
 extends Area2D
 
-@export var damage := 120.0
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+
+@export var damage := GAME_BALANCE.TRAP_DAMAGE
 var armed := true
 
 func _ready() -> void:

@@ -1,29 +1,31 @@
 extends RefCounted
 class_name PlayerStats
 
-var health := 100.0
-var hunger := 100.0
-var stamina := 100.0
-var rest := 100.0
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
-const MAX_HEALTH := 100.0
-const MAX_HUNGER := 100.0
-const MAX_STAMINA := 100.0
-const MAX_REST := 100.0
-const LOW_HUNGER := 25.0
-const EXHAUSTED_REST := 20.0
+const MAX_HEALTH := GAME_BALANCE.PLAYER_MAX_HEALTH
+const MAX_HUNGER := GAME_BALANCE.PLAYER_MAX_HUNGER
+const MAX_STAMINA := GAME_BALANCE.PLAYER_MAX_STAMINA
+const MAX_REST := GAME_BALANCE.PLAYER_MAX_REST
+const LOW_HUNGER := GAME_BALANCE.PLAYER_LOW_HUNGER
+const EXHAUSTED_REST := GAME_BALANCE.PLAYER_EXHAUSTED_REST
+
+var health := MAX_HEALTH
+var hunger := MAX_HUNGER
+var stamina := MAX_STAMINA
+var rest := MAX_REST
 
 func tick(delta: float, running: bool) -> void:
-	hunger = max(hunger - 0.9 * delta, 0.0)
-	rest = max(rest - (0.9 if running else 0.35) * delta, 0.0)
+	hunger = max(hunger - GAME_BALANCE.PLAYER_HUNGER_DECAY_RATE * delta, 0.0)
+	rest = max(rest - (GAME_BALANCE.PLAYER_RUNNING_REST_DECAY_RATE if running else GAME_BALANCE.PLAYER_REST_DECAY_RATE) * delta, 0.0)
 	if running:
-		stamina = max(stamina - 18.0 * delta, 0.0)
+		stamina = max(stamina - GAME_BALANCE.PLAYER_RUNNING_STAMINA_DECAY_RATE * delta, 0.0)
 	else:
 		stamina = min(stamina + _get_stamina_regen() * delta, MAX_STAMINA)
 	if hunger <= 0.0:
-		health = max(health - 3.0 * delta, 0.0)
+		health = max(health - GAME_BALANCE.PLAYER_STARVATION_DAMAGE_PER_SECOND * delta, 0.0)
 	elif hunger >= LOW_HUNGER and rest >= EXHAUSTED_REST:
-		health = min(health + 0.45 * delta, MAX_HEALTH)
+		health = min(health + GAME_BALANCE.PLAYER_HEALTH_REGEN_RATE * delta, MAX_HEALTH)
 
 
 func spend_stamina(amount: float) -> bool:
@@ -60,9 +62,9 @@ func eat_food(nutrition: float) -> void:
 func sleep_recover() -> void:
 	rest = MAX_REST
 	stamina = MAX_STAMINA
-	hunger = max(hunger - 8.0, 0.0)
+	hunger = max(hunger - GAME_BALANCE.PLAYER_SLEEP_HUNGER_COST, 0.0)
 	if hunger >= LOW_HUNGER:
-		health = min(health + 35.0, MAX_HEALTH)
+		health = min(health + GAME_BALANCE.PLAYER_SLEEP_HEALTH_RESTORE, MAX_HEALTH)
 
 
 func can_run() -> bool:
@@ -72,9 +74,9 @@ func can_run() -> bool:
 func get_speed_multiplier() -> float:
 	var multiplier := 1.0
 	if hunger < LOW_HUNGER:
-		multiplier *= 0.82
+		multiplier *= GAME_BALANCE.PLAYER_LOW_HUNGER_SPEED_MULTIPLIER
 	if rest < EXHAUSTED_REST:
-		multiplier *= 0.85
+		multiplier *= GAME_BALANCE.PLAYER_EXHAUSTED_REST_SPEED_MULTIPLIER
 	return multiplier
 
 
@@ -91,11 +93,11 @@ func get_condition_text() -> String:
 
 
 func _get_stamina_regen() -> float:
-	var regen := 16.0
+	var regen := GAME_BALANCE.PLAYER_BASE_STAMINA_REGEN
 	if hunger < LOW_HUNGER:
-		regen *= 0.45
+		regen *= GAME_BALANCE.PLAYER_LOW_HUNGER_STAMINA_REGEN_MULTIPLIER
 	if rest < EXHAUSTED_REST:
-		regen *= 0.55
+		regen *= GAME_BALANCE.PLAYER_EXHAUSTED_REST_STAMINA_REGEN_MULTIPLIER
 	return regen
 
 
