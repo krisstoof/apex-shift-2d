@@ -52,17 +52,12 @@ func _process(delta: float) -> void:
 	if center_notification_time > 0.0:
 		center_notification_time = max(center_notification_time - delta, 0.0)
 		center_notification_label.visible = center_notification_time > 0.0
-	var profile: Dictionary = evolution_director.get_profile()
-	var live_varnaks := get_tree().get_nodes_in_group("varnak").size()
 	var clock_text: String = day_night_system.get_clock_time() if day_night_system.has_method("get_clock_time") else "--:--"
 	var time_label: String = day_night_system.get_time_label() if day_night_system.has_method("get_time_label") else ""
 	clock_label.text = "%s\n%s" % [clock_text, time_label]
 	stats_label.text = "\n".join([
 		"Health: %3d  Hunger: %3d  Stamina: %3d  Rest: %3d  %s" % [player.stats.health, player.stats.hunger, player.stats.stamina, player.stats.rest, player.stats.get_condition_text()],
-		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Torch: %d  Spear: %s" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber"), player.inventory.get_amount("meat"), player.inventory.get_amount("torch"), "yes" if player.has_spear else "no"],
-		"Day: %d  Generation: %d  Live Varnaks: %d" % [day_night_system.get_day(), profile.get("generation", 1), live_varnaks],
-		"Events trap:%d player:%d fire:%d" % [evolution_director.trap_kills, evolution_director.player_kills, evolution_director.fire_scares],
-		"Varnak aggression %.2f  fire_fear %.2f  trap_awareness %.2f  pack %.2f" % [profile.get("aggression", 0.0), profile.get("fire_fear", 0.0), profile.get("trap_awareness", 0.0), profile.get("pack_coordination", 0.0)]
+		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Torch: %d  Spear: %s" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber"), player.inventory.get_amount("meat"), player.inventory.get_amount("torch"), "yes" if player.has_spear else "no"]
 	])
 	prompt_label.text = player.get_interaction_prompt() if player.has_method("get_interaction_prompt") else ""
 	message_label.text = "\n".join(message_history)
