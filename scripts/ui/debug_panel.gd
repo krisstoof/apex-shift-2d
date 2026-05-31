@@ -17,6 +17,10 @@ var day_night_system: Node
 @onready var increase_adaptation_button: Button = $Panel/IncreaseAdaptationButton
 @onready var spawn_aggressive_button: Button = $Panel/SpawnAggressiveButton
 @onready var spawn_neutral_button: Button = $Panel/SpawnNeutralButton
+@onready var damage_player_button: Button = $Panel/DamagePlayerButton
+@onready var heal_player_button: Button = $Panel/HealPlayerButton
+@onready var reduce_hunger_energy_button: Button = $Panel/ReduceHungerEnergyButton
+@onready var restore_hunger_energy_button: Button = $Panel/RestoreHungerEnergyButton
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -33,6 +37,10 @@ func _ready() -> void:
 	increase_adaptation_button.pressed.connect(_on_increase_adaptation_pressed)
 	spawn_aggressive_button.pressed.connect(_on_spawn_aggressive_pressed)
 	spawn_neutral_button.pressed.connect(_on_spawn_neutral_pressed)
+	damage_player_button.pressed.connect(_on_damage_player_pressed)
+	heal_player_button.pressed.connect(_on_heal_player_pressed)
+	reduce_hunger_energy_button.pressed.connect(_on_reduce_hunger_energy_pressed)
+	restore_hunger_energy_button.pressed.connect(_on_restore_hunger_energy_pressed)
 
 
 func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node) -> void:
@@ -274,4 +282,26 @@ func _debug_spawn_animal(aggressive: bool) -> void:
 	var world := get_tree().current_scene.get_node_or_null("World")
 	if world and world.has_method("debug_spawn_animal"):
 		world.debug_spawn_animal(aggressive)
+	state_label.text = _build_state_text()
+
+
+func _on_damage_player_pressed() -> void:
+	_call_player_debug_method("debug_damage_player")
+
+
+func _on_heal_player_pressed() -> void:
+	_call_player_debug_method("debug_heal_player")
+
+
+func _on_reduce_hunger_energy_pressed() -> void:
+	_call_player_debug_method("debug_reduce_hunger_energy")
+
+
+func _on_restore_hunger_energy_pressed() -> void:
+	_call_player_debug_method("debug_restore_hunger_energy")
+
+
+func _call_player_debug_method(method_name: String) -> void:
+	if player and player.has_method(method_name):
+		player.call(method_name)
 	state_label.text = _build_state_text()

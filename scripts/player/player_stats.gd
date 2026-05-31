@@ -37,6 +37,22 @@ func damage(amount: float) -> void:
 	health = max(health - amount, 0.0)
 
 
+func heal(amount: float) -> void:
+	health = min(health + amount, MAX_HEALTH)
+
+
+func reduce_hunger_energy(amount: float) -> void:
+	hunger = max(hunger - amount, 0.0)
+	stamina = max(stamina - amount, 0.0)
+	rest = max(rest - amount, 0.0)
+
+
+func restore_hunger_energy(amount: float) -> void:
+	hunger = min(hunger + amount, MAX_HUNGER)
+	stamina = min(stamina + amount, MAX_STAMINA)
+	rest = min(rest + amount, MAX_REST)
+
+
 func eat_food(nutrition: float) -> void:
 	hunger = min(hunger + nutrition, MAX_HUNGER)
 
