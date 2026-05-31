@@ -61,7 +61,8 @@ func _get_player_data(player: Node) -> Dictionary:
 		"position": _vector_to_data(player.global_position),
 		"stats": player.stats.get_save_data(),
 		"inventory": player.inventory.get_save_data(),
-		"has_spear": player.has_spear
+		"has_spear": player.has_spear,
+		"torch_active": player.torch_active
 	}
 
 
@@ -113,6 +114,7 @@ func _restore_player_data(player: Node, data: Dictionary) -> void:
 	player.stats.restore_from_data(Dictionary(data.get("stats", {})))
 	player.inventory.restore_from_data(Dictionary(data.get("inventory", {})))
 	player.has_spear = bool(data.get("has_spear", player.has_spear))
+	player.torch_active = bool(data.get("torch_active", player.torch_active))
 
 
 func _restore_buildings(buildings: Array) -> void:

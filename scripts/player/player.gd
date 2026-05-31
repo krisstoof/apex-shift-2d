@@ -12,6 +12,7 @@ const ATTACK_VISUAL_DURATION := 0.16
 var stats := PlayerStats.new()
 var inventory := Inventory.new()
 var has_spear := false
+var torch_active := false
 var evolution_director: Node
 var nearby_interactables: Array[Node] = []
 var recipes := {}
@@ -82,6 +83,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_eat("meat")
 			KEY_8:
 				_craft("torch")
+			KEY_T:
+				_activate_torch()
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		_attack()
 
@@ -89,6 +92,23 @@ func _unhandled_input(event: InputEvent) -> void:
 func receive_damage(amount: float) -> void:
 	stats.damage(amount)
 	get_node("/root/EventBus").post_message("Player hit for %s" % int(amount))
+
+
+func activate_torch() -> bool:
+	if torch_active:
+		get_node("/root/EventBus").post_message("Torch already active")
+		return false
+	if not inventory.remove_item("torch", 1):
+		get_node("/root/EventBus").post_message("No torch to activate")
+		return false
+	torch_active = true
+	get_node("/root/EventBus").emit_game_event("torch_activated", {"active": torch_active})
+	get_node("/root/EventBus").post_message("Torch activated")
+	return true
+
+
+func is_torch_active() -> bool:
+	return torch_active
 
 
 func recover_from_sleep() -> void:
@@ -193,6 +213,10 @@ func _eat(item_name: String) -> void:
 		return
 	stats.eat_food(32.0)
 	get_node("/root/EventBus").post_message("Ate meat")
+
+
+func _activate_torch() -> void:
+	activate_torch()
 
 
 func _get_missing_ingredients(recipe: Dictionary) -> Array[String]:
