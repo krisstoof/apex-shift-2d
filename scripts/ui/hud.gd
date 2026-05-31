@@ -15,6 +15,7 @@ var pause_menu_open := false
 @onready var message_label: Label = $Panel/MessageLabel
 @onready var skill_icon_bar: Control = $SkillIconBar
 @onready var minimap: Control = $Minimap
+@onready var clock_label: Label = $ClockLabel
 @onready var map_screen: Control = $MapScreen
 @onready var pause_menu: Control = $PauseMenu
 
@@ -44,6 +45,9 @@ func _process(_delta: float) -> void:
 		return
 	var profile: Dictionary = evolution_director.get_profile()
 	var live_varnaks := get_tree().get_nodes_in_group("varnak").size()
+	var clock_text: String = day_night_system.get_clock_time() if day_night_system.has_method("get_clock_time") else "--:--"
+	var time_label: String = day_night_system.get_time_label() if day_night_system.has_method("get_time_label") else ""
+	clock_label.text = "%s\n%s" % [clock_text, time_label]
 	stats_label.text = "\n".join([
 		"Health: %3d  Hunger: %3d  Stamina: %3d  Rest: %3d  %s" % [player.stats.health, player.stats.hunger, player.stats.stamina, player.stats.rest, player.stats.get_condition_text()],
 		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Spear: %s" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber"), player.inventory.get_amount("meat"), "yes" if player.has_spear else "no"],
