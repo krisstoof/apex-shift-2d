@@ -46,6 +46,8 @@ func _process(delta: float) -> void:
 	if attack_visual_time > 0.0:
 		attack_visual_time = max(attack_visual_time - delta, 0.0)
 		queue_redraw()
+	if is_torch_active():
+		queue_redraw()
 
 
 func _physics_process(delta: float) -> void:
@@ -98,7 +100,9 @@ func receive_damage(amount: float) -> void:
 
 
 func activate_torch() -> bool:
-	if torch_active:
+	if torch_active and torch_remaining_seconds <= 0.0:
+		deactivate_torch("expired")
+	if is_torch_active():
 		get_node("/root/EventBus").post_message("Torch already active")
 		return false
 	if not inventory.remove_item("torch", 1):
@@ -108,15 +112,34 @@ func activate_torch() -> bool:
 	torch_remaining_seconds = GAME_BALANCE.TORCH_DURATION_SECONDS
 	get_node("/root/EventBus").emit_game_event("torch_activated", {"active": torch_active, "remaining_seconds": torch_remaining_seconds})
 	get_node("/root/EventBus").post_message("Torch activated")
+	queue_redraw()
 	return true
 
 
 func is_torch_active() -> bool:
-	return torch_active
+	return torch_active and torch_remaining_seconds > 0.0
 
 
 func get_torch_remaining_seconds() -> float:
-	return torch_remaining_seconds if torch_active else 0.0
+	return torch_remaining_seconds if is_torch_active() else 0.0
+
+
+func deactivate_torch(reason := "manual") -> void:
+	if not torch_active and torch_remaining_seconds <= 0.0:
+		return
+	torch_active = false
+	torch_remaining_seconds = 0.0
+	if reason == "expired":
+		get_node("/root/EventBus").emit_game_event("torch_expired", {"active": false, "remaining_seconds": 0.0})
+	get_node("/root/EventBus").emit_game_event("torch_deactivated", {"active": false, "remaining_seconds": 0.0, "reason": reason})
+	get_node("/root/EventBus").post_message("Torch burned out" if reason == "expired" else "Torch deactivated")
+	queue_redraw()
+
+
+func clear_inactive_torch_state() -> void:
+	torch_active = false
+	torch_remaining_seconds = 0.0
+	queue_redraw()
 
 
 func recover_from_sleep() -> void:
@@ -224,6 +247,9 @@ func _eat(item_name: String) -> void:
 
 
 func _activate_torch() -> void:
+	if is_torch_active():
+		deactivate_torch("manual")
+		return
 	activate_torch()
 
 
@@ -233,9 +259,7 @@ func _tick_torch(delta: float) -> void:
 	torch_remaining_seconds = max(torch_remaining_seconds - delta, 0.0)
 	if torch_remaining_seconds > 0.0:
 		return
-	torch_active = false
-	get_node("/root/EventBus").emit_game_event("torch_expired", {"active": torch_active, "remaining_seconds": 0.0})
-	get_node("/root/EventBus").post_message("Torch burned out")
+	deactivate_torch("expired")
 
 
 func _get_missing_ingredients(recipe: Dictionary) -> Array[String]:
@@ -269,9 +293,32 @@ func _face_mouse() -> void:
 
 
 func _draw() -> void:
+	_draw_torch_light()
 	_draw_attack_visual()
 	draw_circle(Vector2.ZERO, 14.0, Color(0.2, 0.48, 1.0))
 	draw_line(Vector2.ZERO, Vector2(18, 0), Color.WHITE, 3.0)
+
+
+func _draw_torch_light() -> void:
+	if not is_torch_active():
+		return
+	var night_amount := _get_night_amount()
+	var flicker := 0.9 + sin(Time.get_ticks_msec() * 0.018) * 0.08 + sin(Time.get_ticks_msec() * 0.031) * 0.02
+	var strength := (0.22 + night_amount * 0.58) * GAME_BALANCE.TORCH_LIGHT_INTENSITY * flicker
+	var radius := GAME_BALANCE.TORCH_LIGHT_RADIUS
+	draw_circle(Vector2.ZERO, radius, Color(1.0, 0.48, 0.08, strength * 0.10))
+	draw_circle(Vector2.ZERO, radius * 0.58, Color(1.0, 0.62, 0.12, strength * 0.16))
+	draw_circle(Vector2(18, 0), radius * 0.24, Color(1.0, 0.86, 0.28, strength * 0.24))
+
+
+func _get_night_amount() -> float:
+	var scene := get_tree().current_scene
+	if not scene:
+		return 0.0
+	var day_night_system := scene.get_node_or_null("DayNightSystem")
+	if day_night_system:
+		return float(day_night_system.night_amount)
+	return 0.0
 
 
 func _draw_attack_visual() -> void:
