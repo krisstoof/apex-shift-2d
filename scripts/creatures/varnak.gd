@@ -37,6 +37,25 @@ func apply_profile(profile: Dictionary) -> void:
 	queue_redraw()
 
 
+func get_save_data() -> Dictionary:
+	return {
+		"position": _vector_to_data(global_position),
+		"health": health,
+		"state": int(state),
+		"wander_target": _vector_to_data(wander_target),
+		"attack_cooldown": attack_cooldown
+	}
+
+
+func restore_from_data(data: Dictionary) -> void:
+	global_position = _data_to_vector(data.get("position", {}))
+	health = float(data.get("health", health))
+	state = int(data.get("state", State.WANDER))
+	wander_target = _data_to_vector(data.get("wander_target", _vector_to_data(wander_target)))
+	attack_cooldown = float(data.get("attack_cooldown", attack_cooldown))
+	queue_redraw()
+
+
 func _physics_process(delta: float) -> void:
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
@@ -155,3 +174,13 @@ func _draw() -> void:
 		body_color = Color(0.95, 0.05, 0.03)
 	draw_circle(Vector2.ZERO, 15.0, body_color)
 	draw_circle(Vector2(7, -5), 3.0, Color.BLACK)
+
+
+func _vector_to_data(value: Vector2) -> Dictionary:
+	return {"x": value.x, "y": value.y}
+
+
+func _data_to_vector(data: Variant) -> Vector2:
+	if typeof(data) != TYPE_DICTIONARY:
+		return Vector2.ZERO
+	return Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))

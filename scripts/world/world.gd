@@ -334,12 +334,42 @@ func respawn_varnaks() -> void:
 	get_node("/root/EventBus").post_message("Varnaks respawned with current profile")
 
 
+func get_varnak_save_data() -> Array[Dictionary]:
+	var varnaks: Array[Dictionary] = []
+	for varnak in get_tree().get_nodes_in_group("varnak"):
+		if not is_instance_valid(varnak):
+			continue
+		if varnak.has_method("get_save_data"):
+			varnaks.append(varnak.get_save_data())
+	return varnaks
+
+
+func restore_varnaks(varnaks: Array) -> void:
+	for varnak in get_tree().get_nodes_in_group("varnak"):
+		if is_instance_valid(varnak):
+			varnak.queue_free()
+	await get_tree().process_frame
+	for varnak_data in varnaks:
+		if typeof(varnak_data) != TYPE_DICTIONARY:
+			continue
+		_restore_varnak_from_data(Dictionary(varnak_data))
+
+
 func _spawn_varnak_at(pos: Vector2) -> void:
 	var varnak := VARNAK_SCENE.instantiate()
 	add_child(varnak)
 	varnak.global_position = pos
 	varnak.apply_profile(evolution_director.get_profile())
 	varnak.day_night_system = day_night_system
+
+
+func _restore_varnak_from_data(data: Dictionary) -> void:
+	var varnak := VARNAK_SCENE.instantiate()
+	add_child(varnak)
+	varnak.apply_profile(evolution_director.get_profile())
+	varnak.day_night_system = day_night_system
+	if varnak.has_method("restore_from_data"):
+		varnak.restore_from_data(data)
 
 
 func _try_spawn_missing_varnak() -> bool:
