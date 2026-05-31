@@ -9,10 +9,12 @@ var message := ""
 var message_history: Array[String] = []
 var map_screen_open := false
 var pause_menu_open := false
+var center_notification_time := 0.0
 
 @onready var stats_label: Label = $Panel/StatsLabel
 @onready var prompt_label: Label = $Panel/PromptLabel
 @onready var message_label: Label = $Panel/MessageLabel
+@onready var center_notification_label: Label = $CenterNotificationLabel
 @onready var skill_icon_bar: Control = $SkillIconBar
 @onready var minimap: Control = $Minimap
 @onready var clock_label: Label = $ClockLabel
@@ -21,7 +23,9 @@ var pause_menu_open := false
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	center_notification_label.visible = false
 	get_node("/root/EventBus").message_posted.connect(_on_message)
+	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	pause_menu.resume_requested.connect(_on_pause_menu_resume)
 	pause_menu.save_requested.connect(_on_pause_menu_save)
 	pause_menu.load_requested.connect(_on_pause_menu_load)
@@ -40,9 +44,12 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node) 
 	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not player or not evolution_director or not day_night_system:
 		return
+	if center_notification_time > 0.0:
+		center_notification_time = max(center_notification_time - delta, 0.0)
+		center_notification_label.visible = center_notification_time > 0.0
 	var profile: Dictionary = evolution_director.get_profile()
 	var live_varnaks := get_tree().get_nodes_in_group("varnak").size()
 	var clock_text: String = day_night_system.get_clock_time() if day_night_system.has_method("get_clock_time") else "--:--"
@@ -64,6 +71,19 @@ func _on_message(new_message: String) -> void:
 	message_history.append(new_message)
 	if message_history.size() > 4:
 		message_history.pop_front()
+
+
+func _on_game_event(event_name: String, payload: Dictionary) -> void:
+	if event_name == "center_notification":
+		_show_center_notification(str(payload.get("text", "")))
+
+
+func _show_center_notification(text: String) -> void:
+	if text.is_empty():
+		return
+	center_notification_label.text = text
+	center_notification_label.visible = true
+	center_notification_time = 2.0
 
 
 func _unhandled_input(event: InputEvent) -> void:
