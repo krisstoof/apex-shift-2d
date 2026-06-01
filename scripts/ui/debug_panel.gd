@@ -313,6 +313,7 @@ func _build_world_text() -> String:
 		get_tree().get_nodes_in_group("rocks").size()
 	])
 	lines.append("Landmarks: %s" % _get_landmark_summary_text())
+	lines.append("Hill markers: %d" % get_tree().get_nodes_in_group("hill_landmarks").size())
 	lines.append("Growth: %s" % _get_resource_growth_text())
 	return "\n".join(lines)
 

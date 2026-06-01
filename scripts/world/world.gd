@@ -24,6 +24,7 @@ const BIOME_DEPLETED_TINT := Color(0.42, 0.33, 0.18)
 const PLANT_RESOURCE_KINDS := ["conifer_tree", "leafy_tree", "bush", "dry_bush"]
 const CREATURE_BOUND_GROUPS := ["varnak", "small_prey", "grazer"]
 const CREATURE_BOUND_TELEPORT_PADDING := 36.0
+const HILL_RESOURCE_BLOCK_RADIUS_FACTOR := 0.72
 
 var evolution_director: Node
 var day_night_system: Node
@@ -34,6 +35,7 @@ var small_prey_rng := RandomNumberGenerator.new()
 var grazer_rng := RandomNumberGenerator.new()
 var small_prey_spawn_timer := 0.0
 var landmarks: Array[Dictionary] = []
+var hill_landmarks: Array[Dictionary] = []
 
 func _ready() -> void:
 	await get_tree().process_frame
@@ -98,6 +100,33 @@ func debug_teleport_out_of_bounds_creatures() -> void:
 
 func _create_landmarks() -> void:
 	landmarks = WORLD_CONFIG.get_landmarks()
+	hill_landmarks.clear()
+	for landmark in landmarks:
+		if str(landmark.get("type", "")) == "hill":
+			hill_landmarks.append(landmark)
+			_create_hill_area(landmark)
+
+
+func _create_hill_area(landmark: Dictionary) -> void:
+	var area := Area2D.new()
+	area.name = str(landmark.get("id", "hill"))
+	area.global_position = Vector2(landmark.get("position", Vector2.ZERO))
+	area.collision_layer = 0
+	area.collision_mask = 0
+	area.monitoring = false
+	area.monitorable = false
+	area.set_meta("landmark_id", str(landmark.get("id", "")))
+	area.set_meta("landmark_type", "hill")
+	area.set_meta("biome_id", str(landmark.get("biome_id", "")))
+	area.set_meta("gameplay_tags", landmark.get("gameplay_tags", []))
+	area.add_to_group("landmarks")
+	area.add_to_group("hill_landmarks")
+	var shape := CollisionShape2D.new()
+	var circle := CircleShape2D.new()
+	circle.radius = float(landmark.get("radius", 120.0))
+	shape.shape = circle
+	area.add_child(shape)
+	add_child(area)
 
 
 func _spawn_resources() -> void:
@@ -138,6 +167,8 @@ func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], 
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
+		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			continue
 		if _is_point_in_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
 			used_positions.append(candidate)
 			_spawn_resource_at(resource_kind, candidate)
@@ -205,6 +236,21 @@ func _is_valid_resource_position(candidate: Vector2, used_positions: Array[Vecto
 		if candidate.distance_to(used_position) < WORLD_CONFIG.RESOURCE_MIN_DISTANCE:
 			return false
 	return true
+
+
+func _is_resource_blocked_by_hill(resource_kind: String, candidate: Vector2) -> bool:
+	if not _is_plant_resource_kind(resource_kind):
+		return false
+	for hill in hill_landmarks:
+		var center := Vector2(hill.get("position", Vector2.ZERO))
+		var blocked_radius := float(hill.get("radius", 0.0)) * HILL_RESOURCE_BLOCK_RADIUS_FACTOR
+		if candidate.distance_to(center) < blocked_radius:
+			return true
+	return false
+
+
+func _is_plant_resource_kind(resource_kind: String) -> bool:
+	return resource_kind in PLANT_RESOURCE_KINDS
 
 
 func _get_player_position() -> Vector2:
@@ -511,6 +557,8 @@ func _try_spawn_resource_in_biome(resource_kind: String, biome: Dictionary, used
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
+		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			continue
 		if _is_point_in_scaled_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
 			used_positions.append(candidate)
 			_spawn_resource_at(resource_kind, candidate)
@@ -909,8 +957,10 @@ func _draw_hill_landmark(landmark: Dictionary) -> void:
 	var base_color := Color(0.28, 0.31, 0.20, 0.72)
 	var ridge_color := Color(0.43, 0.43, 0.29, 0.58)
 	_draw_filled_ellipse(Rect2(center - Vector2(radius, radius * 0.55), Vector2(radius * 2.0, radius * 1.1)), base_color)
+	_draw_filled_ellipse(Rect2(center - Vector2(radius * 0.62, radius * 0.34), Vector2(radius * 1.24, radius * 0.68)), Color(0.35, 0.37, 0.24, 0.38))
 	draw_arc(center, radius * 0.76, deg_to_rad(196.0), deg_to_rad(344.0), 28, ridge_color, 5.0)
 	draw_arc(center + Vector2(radius * 0.10, -radius * 0.08), radius * 0.46, deg_to_rad(200.0), deg_to_rad(330.0), 24, ridge_color.darkened(0.15), 3.0)
+	draw_line(center + Vector2(-radius * 0.44, radius * 0.12), center + Vector2(radius * 0.38, -radius * 0.10), Color(0.18, 0.20, 0.13, 0.28), 3.0)
 
 
 func _draw_pond_landmark(landmark: Dictionary) -> void:
