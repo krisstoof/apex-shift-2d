@@ -228,10 +228,12 @@ func _get_attack_target() -> Node:
 func _is_attackable_creature(body: Node) -> bool:
 	if not body.has_method("take_damage"):
 		return false
-	return body.is_in_group("varnak") or body.is_in_group("small_prey")
+	return body.is_in_group("varnak") or body.is_in_group("small_prey") or body.is_in_group("grazer")
 
 
 func _get_attack_target_label(target: Node) -> String:
+	if target.is_in_group("grazer"):
+		return "Grazer"
 	if target.is_in_group("small_prey"):
 		return "SmallPrey"
 	return "Varnak"

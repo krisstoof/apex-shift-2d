@@ -1,0 +1,18 @@
+{
+  "id": "grazer",
+  "display_name": "Grazer",
+  "tier": 2,
+  "base_traits": {
+    "health": 45,
+    "speed": 70,
+    "fear": 0.7,
+    "aggression": 0.15,
+    "hunger_rate": 0.3,
+    "plant_consumption_rate": 1.2,
+    "plant_diet": 0.85,
+    "meat_diet": 0.05,
+    "scavenger_diet": 0.1,
+    "size": 1.35,
+    "reproduction_rate": 0.35
+  }
+}

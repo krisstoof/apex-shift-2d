@@ -1,40 +1,50 @@
 extends CharacterBody2D
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
-const SPECIES_PATH := "res://data/species/small_prey.json"
+const SPECIES_PATH := "res://data/species/grazer.json"
 
-enum State { IDLE, WANDER, EAT, FLEE, DEAD }
+enum State { IDLE, WANDER, EAT_PLANTS, SEEK_FOOD, FLEE, SCAVENGE, HUNT_SMALL_PREY, DEAD }
 
-const WANDER_RADIUS := 140.0
-const WANDER_REACHED_DISTANCE := 18.0
-const PLAYER_FLEE_RANGE := 130.0
-const VARNAK_FLEE_RANGE := 180.0
-const EAT_INTERVAL_SECONDS := 6.0
-const EAT_DURATION_SECONDS := 1.1
-const IDLE_DURATION_SECONDS := 0.8
+const WANDER_RADIUS := 190.0
+const WANDER_REACHED_DISTANCE := 22.0
+const PLAYER_FLEE_RANGE := 105.0
+const VARNAK_FLEE_RANGE := 220.0
+const LOW_BIOMASS_PERCENT := 35.0
+const EAT_DURATION_SECONDS := 1.4
+const SCAVENGE_DURATION_SECONDS := 1.8
+const IDLE_DURATION_SECONDS := 0.9
+const SMALL_PREY_DETECT_RANGE := 220.0
+const SMALL_PREY_ATTACK_RANGE := 28.0
+const PLANT_EAT_HUNGER_DROP := 0.45
+const MEAT_HUNGER_DROP := 0.65
 
-var health := 20.0
-var max_health := 20.0
-var speed := 90.0
-var fear := 0.9
+var health := 45.0
+var max_health := 45.0
+var speed := 70.0
+var fear := 0.7
+var aggression := 0.15
 var hunger := 0.0
-var hunger_rate := 0.2
-var plant_consumption_rate := 0.4
-var reproduction_value := 0.6
+var hunger_rate := 0.3
+var plant_consumption_rate := 1.2
+var plant_diet := 0.85
+var meat_diet := 0.05
+var scavenger_diet := 0.10
+var size := 1.35
+var reproduction_rate := 0.35
 var state := State.WANDER
 var biome_id := ""
 var wander_target := Vector2.ZERO
 var state_time := 0.0
-var eat_cooldown := 0.0
 var facing_angle := 0.0
 var facing_side := 1.0
 var player: Node2D
 var flee_origin := Vector2.INF
+var prey_target: Node2D
 var rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
-	add_to_group("small_prey")
+	add_to_group("grazer")
 	rng.randomize()
 	player = get_tree().get_first_node_in_group("player")
 	_load_species_data()
@@ -57,8 +67,10 @@ func get_debug_data() -> Dictionary:
 		"hunger": hunger,
 		"speed": speed,
 		"fear": fear,
-		"plant_consumption_rate": plant_consumption_rate,
-		"reproduction_value": reproduction_value,
+		"aggression": aggression,
+		"plant_diet": plant_diet,
+		"meat_diet": meat_diet,
+		"scavenger_diet": scavenger_diet,
 		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
 	}
 
@@ -80,7 +92,6 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
 	state_time = max(state_time - delta, 0.0)
-	eat_cooldown = max(eat_cooldown - delta, 0.0)
 	hunger = clamp(hunger + hunger_rate * delta, 0.0, 1.0)
 	_update_state()
 	_act(delta)
@@ -95,38 +106,81 @@ func _update_state() -> void:
 	if state == State.FLEE:
 		_set_state(State.WANDER)
 		_pick_wander_target()
-	if eat_cooldown <= 0.0 and hunger > 0.25:
-		_set_state(State.EAT)
+	var biomass_percent := _get_current_biomass_percent()
+	if state == State.EAT_PLANTS and state_time <= 0.0:
+		_consume_plants()
+		_set_state(State.WANDER)
+		_pick_wander_target()
+		return
+	if state == State.SCAVENGE and state_time <= 0.0:
+		_scavenge_food()
+		_set_state(State.WANDER)
+		_pick_wander_target()
+		return
+	if state == State.HUNT_SMALL_PREY:
+		if not is_instance_valid(prey_target):
+			_set_state(State.SEEK_FOOD)
+		return
+	if hunger > 0.28 and biomass_percent >= LOW_BIOMASS_PERCENT:
+		_set_state(State.EAT_PLANTS)
 		state_time = EAT_DURATION_SECONDS
+		return
+	if hunger > 0.55 and biomass_percent < LOW_BIOMASS_PERCENT:
+		var prey := _find_nearest_small_prey()
+		if hunger > 0.82 and meat_diet + aggression > 0.12 and is_instance_valid(prey):
+			prey_target = prey
+			_set_state(State.HUNT_SMALL_PREY)
+			return
+		if scavenger_diet > 0.0:
+			_set_state(State.SCAVENGE)
+			state_time = SCAVENGE_DURATION_SECONDS
+			return
+		_set_state(State.SEEK_FOOD)
 		return
 	match state:
 		State.IDLE:
 			if state_time <= 0.0:
 				_set_state(State.WANDER)
 				_pick_wander_target()
-		State.WANDER:
+		State.WANDER, State.SEEK_FOOD:
 			if global_position.distance_to(wander_target) < WANDER_REACHED_DISTANCE:
 				_set_state(State.IDLE)
 				state_time = IDLE_DURATION_SECONDS
-		State.EAT:
-			if state_time <= 0.0:
-				_consume_plants()
-				_set_state(State.WANDER)
-				_pick_wander_target()
 
 
 func _act(_delta: float) -> void:
 	match state:
-		State.IDLE:
+		State.IDLE, State.EAT_PLANTS, State.SCAVENGE:
 			velocity = Vector2.ZERO
 		State.WANDER:
 			_move_toward(wander_target, speed * 0.55)
-		State.EAT:
-			velocity = Vector2.ZERO
+		State.SEEK_FOOD:
+			_move_toward(wander_target, speed * 0.72)
 		State.FLEE:
 			var away := (global_position - flee_origin).normalized()
 			velocity = away * speed * (1.0 + fear)
 			_face_target(global_position + away)
+		State.HUNT_SMALL_PREY:
+			_hunt_small_prey()
+
+
+func _hunt_small_prey() -> void:
+	if not is_instance_valid(prey_target):
+		velocity = Vector2.ZERO
+		return
+	var distance := global_position.distance_to(prey_target.global_position)
+	if distance <= SMALL_PREY_ATTACK_RANGE and prey_target.has_method("take_damage"):
+		prey_target.take_damage(999.0, "grazer")
+		hunger = max(hunger - MEAT_HUNGER_DROP, 0.0)
+		get_node("/root/EventBus").emit_game_event("grazer_hunted_small_prey", {
+			"biome_id": _get_current_biome_id(),
+			"position": global_position
+		})
+		prey_target = null
+		_set_state(State.WANDER)
+		_pick_wander_target()
+		return
+	_move_toward(prey_target.global_position, speed * (0.9 + aggression))
 
 
 func _move_toward(target: Vector2, move_speed: float) -> void:
@@ -148,12 +202,29 @@ func _face_target(target: Vector2) -> void:
 	queue_redraw()
 
 
+func _consume_plants() -> void:
+	hunger = max(hunger - PLANT_EAT_HUNGER_DROP * plant_diet, 0.0)
+	get_node("/root/EventBus").emit_game_event("grazer_consumed_plants", {
+		"biome_id": _get_current_biome_id(),
+		"position": global_position,
+		"plant_consumption_rate": plant_consumption_rate
+	})
+
+
+func _scavenge_food() -> void:
+	hunger = max(hunger - MEAT_HUNGER_DROP * scavenger_diet, 0.0)
+	get_node("/root/EventBus").emit_game_event("grazer_scavenged", {
+		"biome_id": _get_current_biome_id(),
+		"position": global_position
+	})
+
+
 func _get_flee_origin() -> Vector2:
 	var nearest_origin := Vector2.INF
 	var nearest_distance := INF
 	if is_instance_valid(player):
 		var player_distance := global_position.distance_to(player.global_position)
-		if player_distance < PLAYER_FLEE_RANGE * fear:
+		if player_distance < PLAYER_FLEE_RANGE * fear and aggression < 0.45:
 			nearest_origin = player.global_position
 			nearest_distance = player_distance
 	for varnak in get_tree().get_nodes_in_group("varnak"):
@@ -166,15 +237,17 @@ func _get_flee_origin() -> Vector2:
 	return nearest_origin
 
 
-func _consume_plants() -> void:
-	hunger = max(hunger - 0.5, 0.0)
-	eat_cooldown = EAT_INTERVAL_SECONDS
-	var current_biome_id := _get_current_biome_id()
-	get_node("/root/EventBus").emit_game_event("small_prey_consumed_plants", {
-		"biome_id": current_biome_id,
-		"position": global_position,
-		"plant_consumption_rate": plant_consumption_rate
-	})
+func _find_nearest_small_prey() -> Node2D:
+	var nearest: Node2D
+	var nearest_distance := INF
+	for small_prey in get_tree().get_nodes_in_group("small_prey"):
+		if not is_instance_valid(small_prey):
+			continue
+		var distance := global_position.distance_to(small_prey.global_position)
+		if distance < SMALL_PREY_DETECT_RANGE and distance < nearest_distance:
+			nearest = small_prey
+			nearest_distance = distance
+	return nearest
 
 
 func _pick_wander_target() -> void:
@@ -203,17 +276,13 @@ func _set_state(next_state: State) -> void:
 
 func _die(source: String) -> void:
 	state = State.DEAD
-	var event_name := "small_prey_killed_by_player"
-	if source == "varnak":
-		event_name = "small_prey_killed_by_varnak"
-	elif source == "grazer":
-		event_name = "small_prey_killed_by_grazer"
+	var event_name := "grazer_killed_by_varnak" if source == "varnak" else "grazer_killed_by_player"
 	get_node("/root/EventBus").emit_game_event(event_name, {
 		"biome_id": _get_current_biome_id(),
 		"position": global_position,
 		"source": source
 	})
-	get_node("/root/EventBus").post_message("Small prey killed")
+	get_node("/root/EventBus").post_message("Grazer killed")
 	queue_free()
 
 
@@ -231,9 +300,14 @@ func _load_species_data() -> void:
 	health = max_health
 	speed = float(base_traits.get("speed", speed))
 	fear = float(base_traits.get("fear", fear))
+	aggression = float(base_traits.get("aggression", aggression))
 	hunger_rate = float(base_traits.get("hunger_rate", hunger_rate))
 	plant_consumption_rate = float(base_traits.get("plant_consumption_rate", plant_consumption_rate))
-	reproduction_value = float(base_traits.get("reproduction_value", reproduction_value))
+	plant_diet = float(base_traits.get("plant_diet", plant_diet))
+	meat_diet = float(base_traits.get("meat_diet", meat_diet))
+	scavenger_diet = float(base_traits.get("scavenger_diet", scavenger_diet))
+	size = float(base_traits.get("size", size))
+	reproduction_rate = float(base_traits.get("reproduction_rate", reproduction_rate))
 
 
 func _get_current_biome_id() -> String:
@@ -241,6 +315,14 @@ func _get_current_biome_id() -> String:
 	if not current_biome_id.is_empty():
 		biome_id = current_biome_id
 	return biome_id
+
+
+func _get_current_biomass_percent() -> float:
+	var ecosystem := get_tree().current_scene.get_node_or_null("EcosystemDirector")
+	if not ecosystem or not ecosystem.has_method("get_biome_state"):
+		return 100.0
+	var state_data: Dictionary = ecosystem.get_biome_state(_get_current_biome_id())
+	return float(state_data.get("plant_biomass_percent", 100.0))
 
 
 func _get_biome_id_for_position(position: Vector2) -> String:
@@ -264,19 +346,31 @@ func _get_biome_id(biome: Dictionary) -> String:
 
 
 func _draw() -> void:
-	var body_color := Color(0.68, 0.58, 0.36)
-	var ear_color := Color(0.78, 0.66, 0.42)
-	if state == State.EAT:
-		body_color = Color(0.62, 0.70, 0.36)
-	elif state == State.FLEE:
-		body_color = Color(0.86, 0.50, 0.28)
-	draw_set_transform(Vector2.ZERO, clamp(sin(facing_angle), -1.0, 1.0) * 0.12, Vector2(facing_side, 1.0))
-	draw_circle(Vector2(-5, 0), 10.0, body_color)
-	draw_circle(Vector2(7, -2), 7.0, body_color.lightened(0.12))
-	draw_polygon([Vector2(2, -8), Vector2(4, -20), Vector2(9, -7)], [ear_color])
-	draw_polygon([Vector2(10, -7), Vector2(16, -18), Vector2(16, -4)], [ear_color.lightened(0.08)])
-	draw_circle(Vector2(10, -4), 1.8, Color(0.03, 0.02, 0.01))
-	draw_line(Vector2(-12, 5), Vector2(-22, 10), Color(0.28, 0.20, 0.11), 3.0)
-	draw_line(Vector2(-4, 8), Vector2(-8, 16), Color(0.22, 0.15, 0.08), 2.0)
-	draw_line(Vector2(4, 7), Vector2(8, 15), Color(0.22, 0.15, 0.08), 2.0)
+	var body_color := Color(0.44, 0.50, 0.30)
+	var horn_color := Color(0.72, 0.66, 0.48)
+	if state == State.FLEE:
+		body_color = Color(0.67, 0.46, 0.25)
+	elif state == State.SEEK_FOOD or state == State.SCAVENGE:
+		body_color = Color(0.50, 0.42, 0.28)
+	elif state == State.HUNT_SMALL_PREY:
+		body_color = Color(0.58, 0.30, 0.24)
+	draw_set_transform(Vector2.ZERO, clamp(sin(facing_angle), -1.0, 1.0) * 0.10, Vector2(facing_side, 1.0) * size)
+	_draw_filled_ellipse(Rect2(-22, -12, 42, 24), body_color)
+	_draw_filled_ellipse(Rect2(8, -14, 24, 22), body_color.lightened(0.12))
+	draw_polygon([Vector2(17, -12), Vector2(16, -27), Vector2(23, -13)], [horn_color])
+	draw_polygon([Vector2(27, -10), Vector2(34, -22), Vector2(32, -6)], [horn_color.lightened(0.08)])
+	draw_circle(Vector2(22, -5), 2.2, Color(0.03, 0.02, 0.01))
+	draw_line(Vector2(-14, 10), Vector2(-19, 25), Color(0.18, 0.13, 0.08), 4.0)
+	draw_line(Vector2(8, 10), Vector2(6, 25), Color(0.18, 0.13, 0.08), 4.0)
+	draw_line(Vector2(-24, -1), Vector2(-38, 4), Color(0.24, 0.17, 0.09), 4.0)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_filled_ellipse(rect: Rect2, ellipse_color: Color) -> void:
+	var points := PackedVector2Array()
+	var center := rect.get_center()
+	var radii := rect.size * 0.5
+	for i in range(24):
+		var angle := TAU * float(i) / 24.0
+		points.append(center + Vector2(cos(angle) * radii.x, sin(angle) * radii.y))
+	draw_colored_polygon(points, ellipse_color)
