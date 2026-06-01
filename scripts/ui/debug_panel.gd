@@ -312,6 +312,7 @@ func _build_world_text() -> String:
 		get_tree().get_nodes_in_group("grass").size(),
 		get_tree().get_nodes_in_group("rocks").size()
 	])
+	lines.append("Landmarks: %s" % _get_landmark_summary_text())
 	lines.append("Growth: %s" % _get_resource_growth_text())
 	return "\n".join(lines)
 
@@ -508,6 +509,20 @@ func _get_resource_growth_text() -> String:
 		int(summary.get("young", 0)),
 		int(summary.get("mature", 0))
 	]
+
+
+func _get_landmark_summary_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_landmarks"):
+		return "unavailable"
+	var counts := {}
+	for landmark in world.get_landmarks():
+		var landmark_type := str(Dictionary(landmark).get("type", "unknown"))
+		counts[landmark_type] = int(counts.get(landmark_type, 0)) + 1
+	var parts: Array[String] = []
+	for landmark_type in counts.keys():
+		parts.append("%s:%d" % [landmark_type, int(counts[landmark_type])])
+	return "none" if parts.is_empty() else ", ".join(parts)
 
 
 func _get_adaptation_pressure(profile: Dictionary) -> float:

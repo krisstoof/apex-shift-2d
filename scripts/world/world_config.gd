@@ -37,6 +37,97 @@ const VARNAK_SPAWN_POINTS := [
 	Vector2(1360, 110)
 ]
 
+const LANDMARKS := [
+	{
+		"id": "westwood_old_hill",
+		"type": "hill",
+		"position": Vector2(-1120, -430),
+		"radius": 170.0,
+		"biome_id": "westwood",
+		"gameplay_tags": ["high_ground", "navigation"]
+	},
+	{
+		"id": "westwood_shade_pond",
+		"type": "pond",
+		"position": Vector2(-980, 360),
+		"radius": 145.0,
+		"biome_id": "westwood",
+		"gameplay_tags": ["water_source", "vegetation_bonus"]
+	},
+	{
+		"id": "stoneback_spine",
+		"type": "hill",
+		"position": Vector2(-180, -640),
+		"radius": 210.0,
+		"biome_id": "stoneback_ridge",
+		"gameplay_tags": ["high_ground", "rocky"]
+	},
+	{
+		"id": "stoneback_basin",
+		"type": "pond",
+		"position": Vector2(300, -540),
+		"radius": 115.0,
+		"biome_id": "stoneback_ridge",
+		"gameplay_tags": ["water_source", "rare"]
+	},
+	{
+		"id": "hearth_watch_hill",
+		"type": "hill",
+		"position": Vector2(-260, 40),
+		"radius": 150.0,
+		"biome_id": "hearth_meadow",
+		"gameplay_tags": ["high_ground", "safe_landmark"]
+	},
+	{
+		"id": "hearth_mirror_pond",
+		"type": "pond",
+		"position": Vector2(230, 120),
+		"radius": 130.0,
+		"biome_id": "hearth_meadow",
+		"gameplay_tags": ["water_source", "vegetation_bonus", "safe_landmark"]
+	},
+	{
+		"id": "south_thicket_mound",
+		"type": "hill",
+		"position": Vector2(-180, 600),
+		"radius": 165.0,
+		"biome_id": "south_thicket",
+		"gameplay_tags": ["high_ground", "dense_cover"]
+	},
+	{
+		"id": "south_thicket_pool",
+		"type": "pond",
+		"position": Vector2(310, 620),
+		"radius": 150.0,
+		"biome_id": "south_thicket",
+		"gameplay_tags": ["water_source", "vegetation_bonus", "dense_cover"]
+	},
+	{
+		"id": "redfang_lookout",
+		"type": "hill",
+		"position": Vector2(940, -520),
+		"radius": 190.0,
+		"biome_id": "redfang_wilds",
+		"gameplay_tags": ["high_ground", "danger"]
+	},
+	{
+		"id": "redfang_teeth",
+		"type": "hill",
+		"position": Vector2(1050, 460),
+		"radius": 230.0,
+		"biome_id": "redfang_wilds",
+		"gameplay_tags": ["high_ground", "danger", "navigation"]
+	},
+	{
+		"id": "redfang_darkwater",
+		"type": "pond",
+		"position": Vector2(910, 60),
+		"radius": 135.0,
+		"biome_id": "redfang_wilds",
+		"gameplay_tags": ["water_source", "danger"]
+	}
+]
+
 const BIOME_ZONES := [
 	{
 		"name": "Westwood",
@@ -160,3 +251,13 @@ static func get_biome_zones() -> Array[Dictionary]:
 		biome["points"] = get_biome_points(biome)
 		scaled_biomes.append(biome)
 	return scaled_biomes
+
+
+static func get_landmarks() -> Array[Dictionary]:
+	var scaled_landmarks: Array[Dictionary] = []
+	for landmark_value in LANDMARKS:
+		var landmark := Dictionary(landmark_value).duplicate(true)
+		landmark["position"] = scale_world_point(Vector2(landmark["position"]))
+		landmark["radius"] = float(landmark["radius"]) * WORLD_SCALE
+		scaled_landmarks.append(landmark)
+	return scaled_landmarks
