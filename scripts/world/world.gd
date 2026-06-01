@@ -33,6 +33,7 @@ var varnak_rng := RandomNumberGenerator.new()
 var small_prey_rng := RandomNumberGenerator.new()
 var grazer_rng := RandomNumberGenerator.new()
 var small_prey_spawn_timer := 0.0
+var landmarks: Array[Dictionary] = []
 
 func _ready() -> void:
 	await get_tree().process_frame
@@ -45,6 +46,7 @@ func _ready() -> void:
 	ecosystem_director = get_parent().get_node("EcosystemDirector")
 	evolution_director.profile_changed.connect(_on_profile_changed)
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
+	_create_landmarks()
 	_spawn_resources()
 	_sync_visible_small_prey()
 	_spawn_initial_grazers()
@@ -68,6 +70,10 @@ func get_biome_zones() -> Array[Dictionary]:
 	return WORLD_CONFIG.get_biome_zones()
 
 
+func get_landmarks() -> Array[Dictionary]:
+	return landmarks.duplicate(true)
+
+
 func get_creatures_out_of_bounds_count() -> int:
 	return _get_out_of_bounds_creatures().size()
 
@@ -88,6 +94,10 @@ func debug_teleport_out_of_bounds_creatures() -> void:
 		])
 	else:
 		get_node("/root/EventBus").post_message("No out-of-bounds creatures")
+
+
+func _create_landmarks() -> void:
+	landmarks = WORLD_CONFIG.get_landmarks()
 
 
 func _spawn_resources() -> void:
@@ -866,6 +876,7 @@ func _draw() -> void:
 		var biome_points := PackedVector2Array(_get_biome_points(biome))
 		draw_colored_polygon(biome_points, _get_biome_visual_color(biome))
 		_draw_biome_outline(biome_points)
+	_draw_landmarks()
 	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
 	if day_night_system and day_night_system.night_amount > 0.0:
 		draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.02, 0.03, 0.09, day_night_system.night_amount * 0.62), true)
@@ -881,3 +892,40 @@ func _get_biome_visual_color(biome: Dictionary) -> Color:
 	var biomass_percent: float = clamp(float(biome_state.get("plant_biomass_percent", 100.0)), 0.0, 100.0)
 	var stress := 1.0 - biomass_percent / 100.0
 	return base_color.lerp(BIOME_DEPLETED_TINT, stress * 0.75).darkened(stress * 0.18)
+
+
+func _draw_landmarks() -> void:
+	for landmark in landmarks:
+		match str(landmark.get("type", "")):
+			"hill":
+				_draw_hill_landmark(landmark)
+			"pond":
+				_draw_pond_landmark(landmark)
+
+
+func _draw_hill_landmark(landmark: Dictionary) -> void:
+	var center := Vector2(landmark.get("position", Vector2.ZERO))
+	var radius := float(landmark.get("radius", 120.0))
+	var base_color := Color(0.28, 0.31, 0.20, 0.72)
+	var ridge_color := Color(0.43, 0.43, 0.29, 0.58)
+	_draw_filled_ellipse(Rect2(center - Vector2(radius, radius * 0.55), Vector2(radius * 2.0, radius * 1.1)), base_color)
+	draw_arc(center, radius * 0.76, deg_to_rad(196.0), deg_to_rad(344.0), 28, ridge_color, 5.0)
+	draw_arc(center + Vector2(radius * 0.10, -radius * 0.08), radius * 0.46, deg_to_rad(200.0), deg_to_rad(330.0), 24, ridge_color.darkened(0.15), 3.0)
+
+
+func _draw_pond_landmark(landmark: Dictionary) -> void:
+	var center := Vector2(landmark.get("position", Vector2.ZERO))
+	var radius := float(landmark.get("radius", 100.0))
+	_draw_filled_ellipse(Rect2(center - Vector2(radius, radius * 0.62), Vector2(radius * 2.0, radius * 1.24)), Color(0.08, 0.25, 0.33, 0.76))
+	_draw_filled_ellipse(Rect2(center - Vector2(radius * 0.72, radius * 0.40), Vector2(radius * 1.44, radius * 0.80)), Color(0.12, 0.39, 0.47, 0.52))
+	draw_arc(center, radius * 0.78, deg_to_rad(12.0), deg_to_rad(168.0), 28, Color(0.52, 0.78, 0.75, 0.34), 4.0)
+
+
+func _draw_filled_ellipse(rect: Rect2, ellipse_color: Color) -> void:
+	var points := PackedVector2Array()
+	var center := rect.get_center()
+	var radii := rect.size * 0.5
+	for i in range(32):
+		var angle := TAU * float(i) / 32.0
+		points.append(center + Vector2(cos(angle) * radii.x, sin(angle) * radii.y))
+	draw_colored_polygon(points, ellipse_color)
