@@ -16,6 +16,12 @@ const INITIAL_GRAZER_VISIBLE_COUNT := 2
 const GRAZER_VISIBLE_SPAWN_RADIUS := 700.0
 const GRAZER_PLAYER_SAFE_DISTANCE := 250.0
 const GRAZER_MIN_DISTANCE := 240.0
+const DEBUG_SMALL_PREY_VISIBLE_COUNT := 3
+const DEBUG_GRAZER_VISIBLE_COUNT := 2
+const DEBUG_SMALL_PREY_SPAWN_RADIUS := 130.0
+const DEBUG_GRAZER_SPAWN_RADIUS := 170.0
+const BIOME_DEPLETED_TINT := Color(0.42, 0.33, 0.18)
+const PLANT_RESOURCE_KINDS := ["conifer_tree", "leafy_tree", "bush", "dry_bush"]
 
 var evolution_director: Node
 var day_night_system: Node
@@ -73,6 +79,7 @@ func _spawn_resources() -> void:
 	_spawn_resource_kind("rock", WORLD_CONFIG.ROCK_COUNT, used_positions, player_position)
 	_spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
 	_spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
+	call_deferred("_sync_all_biome_vegetation")
 
 
 func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -303,6 +310,139 @@ func _get_biome_id_for_position(position: Vector2) -> String:
 	return _get_biome_id(biome)
 
 
+func _sync_all_biome_vegetation() -> void:
+	for biome in WORLD_CONFIG.get_biome_zones():
+		_sync_biome_vegetation(_get_biome_id(biome))
+
+
+func _sync_biome_vegetation(biome_id: String) -> void:
+	var biome := _get_biome_for_id(biome_id)
+	if biome.is_empty():
+		return
+	var used_positions := _get_existing_resource_positions()
+	var changed := false
+	for resource_kind in PLANT_RESOURCE_KINDS:
+		var kind := str(resource_kind)
+		var target_count := _get_biome_resource_target_count(biome, kind)
+		var current_resources := _get_plant_resources_in_biome(biome_id, kind)
+		var current_count := current_resources.size()
+		if current_count > target_count:
+			_remove_plant_resources(current_resources, current_count - target_count)
+			changed = true
+		elif current_count < target_count:
+			for _i in target_count - current_count:
+				if _try_spawn_resource_in_biome(kind, biome, used_positions, _get_player_position()):
+					changed = true
+	if changed:
+		queue_redraw()
+
+
+func _get_biome_for_id(biome_id: String) -> Dictionary:
+	for biome in WORLD_CONFIG.get_biome_zones():
+		if _get_biome_id(biome) == biome_id:
+			return biome
+	return {}
+
+
+func _get_biome_resource_target_count(biome: Dictionary, resource_kind: String) -> int:
+	var base_count := _get_base_resource_count(resource_kind)
+	if base_count <= 0:
+		return 0
+	var total_weight := 0.0
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		total_weight += _get_biome_resource_weight(Dictionary(biome_value), resource_kind)
+	if total_weight <= 0.0:
+		return 0
+	var biome_id := _get_biome_id(biome)
+	var weight := _get_biome_resource_weight(biome, resource_kind)
+	var full_biomass_count := int(round(float(base_count) * weight / total_weight))
+	var biomass_factor := _get_biome_biomass_factor(biome_id)
+	return int(round(float(full_biomass_count) * biomass_factor))
+
+
+func _get_base_resource_count(resource_kind: String) -> int:
+	match resource_kind:
+		"conifer_tree":
+			return int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.6))
+		"leafy_tree":
+			return WORLD_CONFIG.TREE_COUNT - int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.6))
+		"bush":
+			return WORLD_CONFIG.BUSH_COUNT - int(ceil(float(WORLD_CONFIG.BUSH_COUNT) * 0.35))
+		"dry_bush":
+			return int(ceil(float(WORLD_CONFIG.BUSH_COUNT) * 0.35))
+	return 0
+
+
+func _get_biome_biomass_factor(biome_id: String) -> float:
+	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
+		return 1.0
+	var biome_state: Dictionary = ecosystem_director.get_biome_state(biome_id)
+	if biome_state.is_empty():
+		return 1.0
+	return clamp(float(biome_state.get("plant_biomass_percent", 100.0)) / 100.0, 0.0, 1.0)
+
+
+func _get_plant_resources_in_biome(biome_id: String, resource_kind: String) -> Array[Node2D]:
+	var resources: Array[Node2D] = []
+	for resource in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(resource) or resource.is_queued_for_deletion():
+			continue
+		if str(resource.get("resource_kind")) != resource_kind:
+			continue
+		if _get_biome_id_for_position(resource.global_position) == biome_id:
+			resources.append(resource)
+	return resources
+
+
+func _get_existing_resource_positions() -> Array[Vector2]:
+	var positions: Array[Vector2] = []
+	for resource in get_tree().get_nodes_in_group("resources"):
+		if is_instance_valid(resource) and not resource.is_queued_for_deletion():
+			positions.append(resource.global_position)
+	return positions
+
+
+func _remove_plant_resources(resources: Array[Node2D], count: int) -> void:
+	var player_position := _get_player_position()
+	resources.sort_custom(func(a: Node2D, b: Node2D) -> bool:
+		return a.global_position.distance_squared_to(player_position) < b.global_position.distance_squared_to(player_position)
+	)
+	var removed := 0
+	for resource in resources:
+		if removed >= count:
+			break
+		if not is_instance_valid(resource):
+			continue
+		resource.queue_free()
+		removed += 1
+
+
+func _try_spawn_resource_in_biome(resource_kind: String, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	var spawn_area := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+		var candidate := Vector2(
+			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
+			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
+		)
+		if _is_point_in_scaled_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
+			used_positions.append(candidate)
+			_spawn_resource_at(resource_kind, candidate)
+			return true
+	return false
+
+
+func _get_scaled_biome_bounds(biome: Dictionary) -> Rect2:
+	var points := PackedVector2Array(biome["points"])
+	var bounds := Rect2(points[0], Vector2.ZERO)
+	for point in points:
+		bounds = bounds.expand(point)
+	return bounds
+
+
+func _is_point_in_scaled_biome(point: Vector2, biome: Dictionary) -> bool:
+	return Geometry2D.is_point_in_polygon(point, PackedVector2Array(biome["points"]))
+
+
 func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
 	var small_prey := SMALL_PREY_SCENE.instantiate()
 	add_child(small_prey)
@@ -404,6 +544,46 @@ func debug_spawn_animal(aggressive: bool) -> void:
 		get_node("/root/EventBus").post_message("Debug spawned neutral animal")
 
 
+func debug_spawn_small_prey_near_player() -> void:
+	var biome := _get_biome_for_position(_get_player_position())
+	if biome.is_empty():
+		return
+	var biome_id := _get_biome_id(biome)
+	var spawned := 0
+	for i in DEBUG_SMALL_PREY_VISIBLE_COUNT:
+		var spawn_position := _get_debug_creature_spawn_position(biome, DEBUG_SMALL_PREY_SPAWN_RADIUS, i, DEBUG_SMALL_PREY_VISIBLE_COUNT)
+		_spawn_small_prey_at(spawn_position, biome_id)
+		spawned += 1
+	if spawned > 0:
+		get_node("/root/EventBus").post_message("Debug spawned %d SmallPrey" % spawned)
+
+
+func debug_remove_small_prey_near_player() -> void:
+	var removed := _debug_remove_nearest_creatures("small_prey", DEBUG_SMALL_PREY_VISIBLE_COUNT)
+	if removed > 0:
+		get_node("/root/EventBus").post_message("Debug removed %d SmallPrey" % removed)
+
+
+func debug_spawn_grazers_near_player() -> void:
+	var biome := _get_biome_for_position(_get_player_position())
+	if biome.is_empty():
+		return
+	var biome_id := _get_biome_id(biome)
+	var spawned := 0
+	for i in DEBUG_GRAZER_VISIBLE_COUNT:
+		var spawn_position := _get_debug_creature_spawn_position(biome, DEBUG_GRAZER_SPAWN_RADIUS, i, DEBUG_GRAZER_VISIBLE_COUNT)
+		_spawn_grazer_at(spawn_position, biome_id)
+		spawned += 1
+	if spawned > 0:
+		get_node("/root/EventBus").post_message("Debug spawned %d Grazers" % spawned)
+
+
+func debug_remove_grazers_near_player() -> void:
+	var removed := _debug_remove_nearest_creatures("grazer", DEBUG_GRAZER_VISIBLE_COUNT)
+	if removed > 0:
+		get_node("/root/EventBus").post_message("Debug removed %d Grazers" % removed)
+
+
 func get_varnak_save_data() -> Array[Dictionary]:
 	var varnaks: Array[Dictionary] = []
 	for varnak in get_tree().get_nodes_in_group("varnak"):
@@ -477,6 +657,40 @@ func _get_debug_animal_spawn_position() -> Vector2:
 	return candidate
 
 
+func _get_debug_creature_spawn_position(biome: Dictionary, radius: float, index: int, total: int) -> Vector2:
+	var player_position := _get_player_position()
+	var player_limits := WORLD_CONFIG.get_player_limits()
+	for attempt in 12:
+		var angle := TAU * float(index + attempt) / float(max(total, 1)) + float(attempt) * 0.35
+		var candidate := player_position + Vector2.RIGHT.rotated(angle) * (radius + float(attempt) * 18.0)
+		candidate.x = clamp(candidate.x, -player_limits.x, player_limits.x)
+		candidate.y = clamp(candidate.y, -player_limits.y, player_limits.y)
+		if _is_point_in_biome(candidate, biome):
+			return candidate
+	return player_position
+
+
+func _debug_remove_nearest_creatures(group_name: String, count: int) -> int:
+	var player_position := _get_player_position()
+	var nodes := get_tree().get_nodes_in_group(group_name)
+	nodes.sort_custom(func(a: Node, b: Node) -> bool:
+		if not is_instance_valid(a):
+			return false
+		if not is_instance_valid(b):
+			return true
+		return a.global_position.distance_squared_to(player_position) < b.global_position.distance_squared_to(player_position)
+	)
+	var removed := 0
+	for creature in nodes:
+		if removed >= count:
+			break
+		if not is_instance_valid(creature):
+			continue
+		creature.queue_free()
+		removed += 1
+	return removed
+
+
 func _get_debug_aggressive_profile() -> Dictionary:
 	var profile: Dictionary = evolution_director.get_profile()
 	profile["aggression"] = 1.0
@@ -531,6 +745,10 @@ func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 	elif event_name == "day_ended" and _payload.get("reason", "") == "slept_in_tent":
 		call_deferred("respawn_resources")
 		call_deferred("respawn_missing_varnaks")
+	elif event_name == "ecosystem_vegetation_changed" or event_name == "plant_resource_harvested":
+		var biome_id := str(_payload.get("biome_id", ""))
+		if not biome_id.is_empty():
+			call_deferred("_sync_biome_vegetation", biome_id)
 
 
 func _vector_to_data(value: Vector2) -> Dictionary:
@@ -548,8 +766,20 @@ func _draw() -> void:
 	for biome_value in WORLD_CONFIG.BIOME_ZONES:
 		var biome := Dictionary(biome_value)
 		var biome_points := PackedVector2Array(_get_biome_points(biome))
-		draw_colored_polygon(biome_points, Color(biome["color"]))
+		draw_colored_polygon(biome_points, _get_biome_visual_color(biome))
 		_draw_biome_outline(biome_points)
 	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
 	if day_night_system and day_night_system.night_amount > 0.0:
 		draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.02, 0.03, 0.09, day_night_system.night_amount * 0.62), true)
+
+
+func _get_biome_visual_color(biome: Dictionary) -> Color:
+	var base_color := Color(biome["color"])
+	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
+		return base_color
+	var biome_state: Dictionary = ecosystem_director.get_biome_state(_get_biome_id(biome))
+	if biome_state.is_empty():
+		return base_color
+	var biomass_percent: float = clamp(float(biome_state.get("plant_biomass_percent", 100.0)), 0.0, 100.0)
+	var stress := 1.0 - biomass_percent / 100.0
+	return base_color.lerp(BIOME_DEPLETED_TINT, stress * 0.75).darkened(stress * 0.18)

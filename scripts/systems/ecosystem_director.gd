@@ -69,6 +69,79 @@ func get_grazer_traits(biome_id: String) -> Dictionary:
 	}
 
 
+func debug_reduce_plant_biomass(position: Vector2) -> void:
+	var biome_id := _get_debug_biome_id(position)
+	if not biome_states.has(biome_id):
+		return
+	_debug_set_plant_biomass(
+		biome_id,
+		float(biome_states[biome_id].get("plant_biomass", 0.0)) - _ecosystem_value("debug_plant_biomass_delta")
+	)
+	_post_debug_message("Reduced plant biomass", biome_id)
+
+
+func debug_restore_plant_biomass(position: Vector2) -> void:
+	var biome_id := _get_debug_biome_id(position)
+	if not biome_states.has(biome_id):
+		return
+	_debug_set_plant_biomass(biome_id, float(biome_states[biome_id].get("max_plant_biomass", _ecosystem_value("max_plant_biomass"))))
+	_post_debug_message("Restored plant biomass", biome_id)
+
+
+func debug_add_small_prey(position: Vector2) -> void:
+	_debug_adjust_population(position, "small_prey_population", _ecosystem_value("debug_small_prey_population_delta"), _ecosystem_value("max_small_prey_population"), "Added SmallPrey")
+
+
+func debug_remove_small_prey(position: Vector2) -> void:
+	_debug_adjust_population(position, "small_prey_population", -_ecosystem_value("debug_small_prey_population_delta"), _ecosystem_value("max_small_prey_population"), "Removed SmallPrey")
+
+
+func debug_add_grazers(position: Vector2) -> void:
+	_debug_adjust_population(position, "grazer_population", _ecosystem_value("debug_grazer_population_delta"), _ecosystem_value("max_grazer_population"), "Added Grazers")
+
+
+func debug_remove_grazers(position: Vector2) -> void:
+	_debug_adjust_population(position, "grazer_population", -_ecosystem_value("debug_grazer_population_delta"), _ecosystem_value("max_grazer_population"), "Removed Grazers")
+
+
+func debug_force_grazer_food_stress(position: Vector2) -> void:
+	var biome_id := _get_debug_biome_id(position)
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
+	var stress_percent: float = max(_ecosystem_value("grazer_food_stress_threshold") - _ecosystem_value("debug_forced_food_stress_margin"), 0.0)
+	_debug_set_plant_biomass(biome_id, max_biomass * stress_percent / 100.0)
+	_post_debug_message("Forced grazer food stress", biome_id)
+
+
+func debug_force_grazer_niche_shift_check(position: Vector2) -> void:
+	var biome_id := _get_debug_biome_id(position)
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
+	var stress_percent: float = max(_ecosystem_value("grazer_food_stress_threshold") - _ecosystem_value("debug_forced_food_stress_margin"), 0.0)
+	state["plant_biomass"] = max_biomass * stress_percent / 100.0
+	state["small_prey_population"] = max(float(state.get("small_prey_population", 0.0)), _ecosystem_value("debug_min_population_floor"))
+	state["grazer_population"] = max(float(state.get("grazer_population", 0.0)), _ecosystem_value("debug_min_population_floor"))
+	state["average_plant_diet"] = min(float(state.get("average_plant_diet", _ecosystem_value("initial_average_plant_diet"))), _ecosystem_value("debug_forced_niche_plant_diet"))
+	state["average_meat_diet"] = max(float(state.get("average_meat_diet", _ecosystem_value("initial_average_meat_diet"))), _ecosystem_value("debug_forced_niche_meat_diet"))
+	state["average_scavenger_diet"] = max(float(state.get("average_scavenger_diet", _ecosystem_value("initial_average_scavenger_diet"))), _ecosystem_value("debug_forced_niche_scavenger_diet"))
+	state["grazer_non_plant_food_events"] = int(state.get("grazer_non_plant_food_events", 0)) + 1
+	_refresh_biome_derived_state(state)
+	_update_grazer_niche_shift(state)
+	biome_states[biome_id] = state
+	_emit_vegetation_changed(state)
+	_post_debug_message("Forced grazer niche shift check", biome_id)
+
+
+func debug_advance_ecosystem_tick() -> void:
+	_update_ecosystem_tick()
+	tick_timer = 0.0
+	get_node("/root/EventBus").post_message("Debug advanced ecosystem tick")
+
+
 func _initialize_biomes() -> void:
 	biome_states.clear()
 	var default_plant_biomass := _ecosystem_value("default_plant_biomass")
@@ -122,6 +195,52 @@ func _restore_biome_states(saved_states: Dictionary) -> void:
 		biome_states[biome_id] = state
 
 
+func _get_debug_biome_id(position: Vector2) -> String:
+	var biome_id := _get_biome_id_for_position(position)
+	if not biome_id.is_empty() and biome_states.has(biome_id):
+		return biome_id
+	var biome_ids := biome_states.keys()
+	biome_ids.sort()
+	return str(biome_ids[0]) if not biome_ids.is_empty() else ""
+
+
+func _debug_set_plant_biomass(biome_id: String, plant_biomass: float) -> void:
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	var previous_status := str(state.get("status", "healthy"))
+	var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
+	state["plant_biomass"] = clamp(plant_biomass, 0.0, max_biomass)
+	_refresh_biome_derived_state(state)
+	biome_states[biome_id] = state
+	_emit_vegetation_changed(state)
+	_emit_status_event_if_needed(previous_status, state)
+
+
+func _debug_adjust_population(position: Vector2, key: String, delta: float, max_population: float, message: String) -> void:
+	var biome_id := _get_debug_biome_id(position)
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	state[key] = clamp(float(state.get(key, 0.0)) + delta, 0.0, max_population)
+	biome_states[biome_id] = state
+	_post_debug_message(message, biome_id)
+
+
+func _refresh_biome_derived_state(state: Dictionary) -> void:
+	var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
+	state["plant_biomass_percent"] = _get_state_biomass_percent(state)
+	state["food_stress"] = 1.0 if max_biomass <= 0.0 else 1.0 - clamp(float(state.get("plant_biomass", 0.0)) / max_biomass, 0.0, 1.0)
+	state["status"] = _get_biomass_status(float(state.get("plant_biomass", 0.0)), max_biomass)
+
+
+func _post_debug_message(message: String, biome_id: String) -> void:
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	get_node("/root/EventBus").post_message("%s in %s" % [message, str(state.get("name", biome_id))])
+
+
 func _update_ecosystem_tick() -> void:
 	for biome_id in biome_states.keys():
 		var state: Dictionary = biome_states[biome_id]
@@ -135,6 +254,7 @@ func _update_ecosystem_tick() -> void:
 		)
 		_update_grazer_niche_shift(state)
 		biome_states[biome_id] = state
+		_emit_vegetation_changed(state)
 		_emit_status_event_if_needed(previous_status, state)
 	print("[Ecosystem] Tick: %s" % biome_states)
 
@@ -221,6 +341,10 @@ func _emit_status_event_if_needed(previous_status: String, state: Dictionary) ->
 	if event_name.is_empty():
 		return
 	get_node("/root/EventBus").emit_game_event(event_name, state.duplicate(true))
+
+
+func _emit_vegetation_changed(state: Dictionary) -> void:
+	get_node("/root/EventBus").emit_game_event("ecosystem_vegetation_changed", state.duplicate(true))
 
 
 func _emit_population_decline_events_if_needed(state: Dictionary, previous_small_prey: float, previous_grazers: float) -> void:
@@ -354,6 +478,7 @@ func _apply_plant_biomass_loss(biome_id: String, biomass_loss: float) -> void:
 		max_biomass
 	)
 	biome_states[biome_id] = state
+	_emit_vegetation_changed(state)
 	_emit_status_event_if_needed(previous_status, state)
 
 
