@@ -14,6 +14,10 @@ const OVERGRAZING_PRESSURE_SCALE := 10.0
 const STRESSED_THRESHOLD := 70.0
 const DEPLETED_THRESHOLD := 30.0
 const COLLAPSING_THRESHOLD := 10.0
+const GRAZER_FOOD_STRESS_THRESHOLD := 30.0
+const GRAZER_NICHE_SHIFT_THRESHOLD := 0.45
+const GRAZER_DIET_SHIFT_RATE := 0.04
+const GRAZER_AGGRESSION_SHIFT_RATE := 0.015
 
 var biome_states: Dictionary = {}
 var tick_timer := 0.0
@@ -47,6 +51,19 @@ func get_biome_status(biome_id: String) -> String:
 	return str(get_biome_state(biome_id).get("status", "unknown"))
 
 
+func get_grazer_traits(biome_id: String) -> Dictionary:
+	var state := get_biome_state(biome_id)
+	if state.is_empty():
+		return {}
+	return {
+		"plant_diet": float(state.get("average_plant_diet", 0.85)),
+		"meat_diet": float(state.get("average_meat_diet", 0.05)),
+		"scavenger_diet": float(state.get("average_scavenger_diet", 0.10)),
+		"aggression": float(state.get("average_aggression", 0.15)),
+		"current_niche": str(state.get("current_niche", "HERBIVORE"))
+	}
+
+
 func _initialize_biomes() -> void:
 	biome_states.clear()
 	for biome in WORLD_CONFIG.get_biome_zones():
@@ -63,6 +80,13 @@ func _initialize_biomes() -> void:
 			"overgrazing_level": 0.0,
 			"small_prey_population": INITIAL_SMALL_PREY_POPULATION,
 			"grazer_population": INITIAL_GRAZER_POPULATION,
+			"average_plant_diet": 0.85,
+			"average_meat_diet": 0.05,
+			"average_scavenger_diet": 0.10,
+			"average_aggression": 0.15,
+			"current_niche": "HERBIVORE",
+			"generations_under_food_stress": 0,
+			"grazer_non_plant_food_events": 0,
 			"predator_pressure": 0.0,
 			"status": _get_biomass_status(DEFAULT_PLANT_BIOMASS, DEFAULT_MAX_PLANT_BIOMASS)
 		}
@@ -80,6 +104,7 @@ func _update_ecosystem_tick() -> void:
 			float(state.get("plant_biomass", 0.0)),
 			float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
 		)
+		_update_grazer_niche_shift(state)
 		biome_states[biome_id] = state
 		_emit_status_event_if_needed(previous_status, state)
 	print("[Ecosystem] Tick: %s" % biome_states)
@@ -152,6 +177,8 @@ func _on_game_event(event_name: String, payload: Dictionary) -> void:
 			_apply_grazer_death(payload)
 		"grazer_consumed_plants":
 			_apply_visible_plant_consumption(payload)
+		"grazer_scavenged", "grazer_hunted_small_prey":
+			_record_grazer_non_plant_food(payload)
 
 
 func _apply_small_prey_death(payload: Dictionary) -> void:
@@ -170,6 +197,59 @@ func _apply_grazer_death(payload: Dictionary) -> void:
 	var state: Dictionary = biome_states[biome_id]
 	state["grazer_population"] = max(float(state.get("grazer_population", 0.0)) - 1.0, 0.0)
 	biome_states[biome_id] = state
+
+
+func _record_grazer_non_plant_food(payload: Dictionary) -> void:
+	var biome_id := str(payload.get("biome_id", ""))
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	state["grazer_non_plant_food_events"] = int(state.get("grazer_non_plant_food_events", 0)) + 1
+	biome_states[biome_id] = state
+
+
+func _update_grazer_niche_shift(state: Dictionary) -> void:
+	var biomass_percent := float(state.get("plant_biomass_percent", 100.0))
+	var grazer_population := float(state.get("grazer_population", 0.0))
+	var small_prey_population := float(state.get("small_prey_population", 0.0))
+	var non_plant_food_events := int(state.get("grazer_non_plant_food_events", 0))
+	var under_stress := (
+		biomass_percent < GRAZER_FOOD_STRESS_THRESHOLD
+		and grazer_population > 0.0
+		and small_prey_population > 0.0
+	)
+	if not under_stress:
+		state["generations_under_food_stress"] = 0
+		state["grazer_non_plant_food_events"] = 0
+		return
+	state["generations_under_food_stress"] = int(state.get("generations_under_food_stress", 0)) + 1
+	if non_plant_food_events <= 0:
+		return
+	state["average_plant_diet"] = clamp(float(state.get("average_plant_diet", 0.85)) - GRAZER_DIET_SHIFT_RATE, 0.0, 1.0)
+	state["average_meat_diet"] = clamp(float(state.get("average_meat_diet", 0.05)) + GRAZER_DIET_SHIFT_RATE * 0.65, 0.0, 1.0)
+	state["average_scavenger_diet"] = clamp(float(state.get("average_scavenger_diet", 0.10)) + GRAZER_DIET_SHIFT_RATE * 0.35, 0.0, 1.0)
+	state["average_aggression"] = clamp(float(state.get("average_aggression", 0.15)) + GRAZER_AGGRESSION_SHIFT_RATE, 0.0, 1.0)
+	state["grazer_non_plant_food_events"] = 0
+	_update_grazer_niche_status(state)
+
+
+func _update_grazer_niche_status(state: Dictionary) -> void:
+	var current_niche := str(state.get("current_niche", "HERBIVORE"))
+	if current_niche != "HERBIVORE":
+		return
+	var non_plant_diet := float(state.get("average_meat_diet", 0.0)) + float(state.get("average_scavenger_diet", 0.0))
+	if non_plant_diet <= GRAZER_NICHE_SHIFT_THRESHOLD:
+		return
+	state["current_niche"] = "OMNIVORE"
+	get_node("/root/EventBus").emit_game_event("grazer_niche_shifted", {
+		"biome_id": str(state.get("biome_id", "")),
+		"old_niche": current_niche,
+		"new_niche": "OMNIVORE",
+		"average_plant_diet": float(state.get("average_plant_diet", 0.0)),
+		"average_meat_diet": float(state.get("average_meat_diet", 0.0)),
+		"average_scavenger_diet": float(state.get("average_scavenger_diet", 0.0)),
+		"average_aggression": float(state.get("average_aggression", 0.0))
+	})
 
 
 func _apply_visible_plant_consumption(payload: Dictionary) -> void:

@@ -32,6 +32,7 @@ var plant_consumption_rate := 1.2
 var plant_diet := 0.85
 var meat_diet := 0.05
 var scavenger_diet := 0.10
+var current_niche := "HERBIVORE"
 var size := 1.35
 var reproduction_rate := 0.35
 var state := State.WANDER
@@ -71,6 +72,7 @@ func get_debug_data() -> Dictionary:
 		"speed": speed,
 		"fear": fear,
 		"aggression": aggression,
+		"current_niche": current_niche,
 		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
 	}
 	data.merge(hunger_diet.get_debug_data(), true)
@@ -109,6 +111,7 @@ func _update_state() -> void:
 	if state == State.FLEE:
 		_set_state(State.WANDER)
 		_pick_wander_target()
+	_sync_population_traits()
 	var biomass_percent := _get_current_biomass_percent()
 	if state == State.EAT_PLANTS and state_time <= 0.0:
 		_consume_plants()
@@ -342,6 +345,23 @@ func _sync_hunger_fields() -> void:
 	plant_diet = hunger_diet.plant_diet
 	meat_diet = hunger_diet.meat_diet
 	scavenger_diet = hunger_diet.scavenger_diet
+
+
+func _sync_population_traits() -> void:
+	var ecosystem := get_tree().current_scene.get_node_or_null("EcosystemDirector")
+	if not ecosystem or not ecosystem.has_method("get_grazer_traits"):
+		return
+	var traits: Dictionary = ecosystem.get_grazer_traits(_get_current_biome_id())
+	if traits.is_empty():
+		return
+	plant_diet = float(traits.get("plant_diet", plant_diet))
+	meat_diet = float(traits.get("meat_diet", meat_diet))
+	scavenger_diet = float(traits.get("scavenger_diet", scavenger_diet))
+	aggression = float(traits.get("aggression", aggression))
+	current_niche = str(traits.get("current_niche", current_niche))
+	hunger_diet.plant_diet = plant_diet
+	hunger_diet.meat_diet = meat_diet
+	hunger_diet.scavenger_diet = scavenger_diet
 
 
 func _get_current_biome_id() -> String:
