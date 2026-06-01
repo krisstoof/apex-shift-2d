@@ -26,6 +26,7 @@ const GRAZER_FOOD_STRESS_THRESHOLD := 30.0
 const GRAZER_NICHE_SHIFT_THRESHOLD := 0.45
 const GRAZER_DIET_SHIFT_RATE := 0.04
 const GRAZER_AGGRESSION_SHIFT_RATE := 0.015
+const POPULATION_DECLINE_EVENT_MIN_DELTA := 0.10
 
 var biome_states: Dictionary = {}
 var tick_timer := 0.0
@@ -175,6 +176,7 @@ func _update_biome_populations(state: Dictionary) -> void:
 	grazer_delta -= predator_pressure * GRAZER_PREDATION_RATE
 	state["small_prey_population"] = clamp(small_prey_population + small_prey_delta, 0.0, MAX_SMALL_PREY_POPULATION)
 	state["grazer_population"] = clamp(grazer_population + grazer_delta, 0.0, MAX_GRAZER_POPULATION)
+	_emit_population_decline_events_if_needed(state, small_prey_population, grazer_population)
 
 
 func _get_state_biomass_percent(state: Dictionary) -> float:
@@ -199,6 +201,21 @@ func _emit_status_event_if_needed(previous_status: String, state: Dictionary) ->
 	if event_name.is_empty():
 		return
 	get_node("/root/EventBus").emit_game_event(event_name, state.duplicate(true))
+
+
+func _emit_population_decline_events_if_needed(state: Dictionary, previous_small_prey: float, previous_grazers: float) -> void:
+	var current_small_prey := float(state.get("small_prey_population", 0.0))
+	var current_grazers := float(state.get("grazer_population", 0.0))
+	if previous_small_prey - current_small_prey >= POPULATION_DECLINE_EVENT_MIN_DELTA:
+		var payload := state.duplicate(true)
+		payload["previous_population"] = previous_small_prey
+		payload["current_population"] = current_small_prey
+		get_node("/root/EventBus").emit_game_event("small_prey_population_declining", payload)
+	if previous_grazers - current_grazers >= POPULATION_DECLINE_EVENT_MIN_DELTA:
+		var payload := state.duplicate(true)
+		payload["previous_population"] = previous_grazers
+		payload["current_population"] = current_grazers
+		get_node("/root/EventBus").emit_game_event("grazer_population_declining", payload)
 
 
 func _on_game_event(event_name: String, payload: Dictionary) -> void:

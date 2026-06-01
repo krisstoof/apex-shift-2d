@@ -1,6 +1,7 @@
 extends CanvasLayer
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS := 30.0
 
 var player: Node
 var evolution_director: Node
@@ -11,6 +12,7 @@ var message_history: Array[String] = []
 var map_screen_open := false
 var pause_menu_open := false
 var center_notification_time := 0.0
+var ecosystem_message_cooldowns: Dictionary = {}
 
 @onready var stats_label: Label = $Panel/StatsLabel
 @onready var prompt_label: Label = $Panel/PromptLabel
@@ -75,6 +77,8 @@ func _on_message(new_message: String) -> void:
 func _on_game_event(event_name: String, payload: Dictionary) -> void:
 	if event_name == "center_notification":
 		_show_center_notification(str(payload.get("text", "")))
+		return
+	_show_ecosystem_message(event_name, payload)
 
 
 func _show_center_notification(text: String) -> void:
@@ -83,6 +87,50 @@ func _show_center_notification(text: String) -> void:
 	center_notification_label.text = text
 	center_notification_label.visible = true
 	center_notification_time = 2.0
+
+
+func _show_ecosystem_message(event_name: String, payload: Dictionary) -> void:
+	var message_text := _get_ecosystem_message(event_name, payload)
+	if message_text.is_empty():
+		return
+	var biome_id := str(payload.get("biome_id", "global"))
+	var cooldown_key := "%s:%s" % [event_name, biome_id]
+	var now_seconds := Time.get_ticks_msec() / 1000.0
+	var next_allowed := float(ecosystem_message_cooldowns.get(cooldown_key, 0.0))
+	if now_seconds < next_allowed:
+		return
+	ecosystem_message_cooldowns[cooldown_key] = now_seconds + ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS
+	get_node("/root/EventBus").post_message(message_text)
+
+
+func _get_ecosystem_message(event_name: String, payload: Dictionary) -> String:
+	var biome_name := _get_ecosystem_biome_name(payload)
+	match event_name:
+		"ecosystem_biome_stressed":
+			return "Vegetation in %s is thinning." % biome_name
+		"ecosystem_biome_depleted":
+			return "Animals in %s have less food." % biome_name
+		"ecosystem_biome_collapsing":
+			return "Vegetation in %s is close to collapse." % biome_name
+		"grazer_niche_shifted":
+			return "Grazers in %s are starting to hunt smaller animals." % biome_name
+		"small_prey_population_declining":
+			return "Small prey population in %s is declining." % biome_name
+		"grazer_population_declining":
+			return "Grazer population in %s is declining." % biome_name
+	return ""
+
+
+func _get_ecosystem_biome_name(payload: Dictionary) -> String:
+	var biome_name := str(payload.get("name", ""))
+	if not biome_name.is_empty():
+		return biome_name
+	var biome_id := str(payload.get("biome_id", ""))
+	if ecosystem_director and ecosystem_director.has_method("get_biome_state"):
+		var state: Dictionary = ecosystem_director.get_biome_state(biome_id)
+		if not state.is_empty():
+			return str(state.get("name", biome_id))
+	return biome_id.capitalize() if not biome_id.is_empty() else "the wilds"
 
 
 func _get_torch_status_text() -> String:
