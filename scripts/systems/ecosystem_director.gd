@@ -11,6 +11,14 @@ const INITIAL_GRAZER_POPULATION := 4.0
 const SMALL_PREY_PLANT_CONSUMPTION := 0.08
 const GRAZER_PLANT_CONSUMPTION := 0.35
 const OVERGRAZING_PRESSURE_SCALE := 10.0
+const SMALL_PREY_GROWTH_RATE := 0.75
+const SMALL_PREY_PREDATION_RATE := 1.15
+const SMALL_PREY_COLLAPSE_LOSS_RATE := 0.65
+const GRAZER_GROWTH_RATE := 0.32
+const GRAZER_STARVATION_RATE := 0.70
+const GRAZER_PREDATION_RATE := 0.65
+const MAX_SMALL_PREY_POPULATION := 30.0
+const MAX_GRAZER_POPULATION := 14.0
 const STRESSED_THRESHOLD := 70.0
 const DEPLETED_THRESHOLD := 30.0
 const COLLAPSING_THRESHOLD := 10.0
@@ -80,6 +88,8 @@ func _initialize_biomes() -> void:
 			"overgrazing_level": 0.0,
 			"small_prey_population": INITIAL_SMALL_PREY_POPULATION,
 			"grazer_population": INITIAL_GRAZER_POPULATION,
+			"varnak_ecosystem_pressure": 0.0,
+			"food_stress": 0.0,
 			"average_plant_diet": 0.85,
 			"average_meat_diet": 0.05,
 			"average_scavenger_diet": 0.10,
@@ -99,7 +109,8 @@ func _update_ecosystem_tick() -> void:
 		var state: Dictionary = biome_states[biome_id]
 		var previous_status := str(state.get("status", "healthy"))
 		_update_biome_biomass(state)
-		state["predator_pressure"] = _calculate_predator_pressure(biome_id)
+		_update_predator_pressure(state, biome_id)
+		_update_biome_populations(state)
 		state["status"] = _get_biomass_status(
 			float(state.get("plant_biomass", 0.0)),
 			float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
@@ -127,16 +138,10 @@ func _update_biome_biomass(state: Dictionary) -> void:
 	state["plant_consumption_pressure"] = consumption_pressure
 	state["overgrazing_pressure"] = consumption_pressure
 	state["overgrazing_level"] = clamp(consumption_pressure / OVERGRAZING_PRESSURE_SCALE, 0.0, 1.0)
+	state["food_stress"] = 1.0 - clamp(plant_biomass / max_biomass, 0.0, 1.0)
 
 
-func _get_state_biomass_percent(state: Dictionary) -> float:
-	var max_biomass := float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
-	if max_biomass <= 0.0:
-		return 0.0
-	return float(state.get("plant_biomass", 0.0)) / max_biomass * 100.0
-
-
-func _calculate_predator_pressure(biome_id: String) -> float:
+func _update_predator_pressure(state: Dictionary, biome_id: String) -> void:
 	var varnak_count := 0
 	var total_varnaks := 0
 	for varnak in get_tree().get_nodes_in_group("varnak"):
@@ -146,8 +151,37 @@ func _calculate_predator_pressure(biome_id: String) -> float:
 		if _get_biome_id_for_position(varnak.global_position) == biome_id:
 			varnak_count += 1
 	if total_varnaks <= 0:
+		state["varnak_ecosystem_pressure"] = 0.0
+		state["predator_pressure"] = 0.0
+		return
+	var pressure: float = clamp(float(varnak_count) / float(total_varnaks), 0.0, 1.0)
+	state["varnak_ecosystem_pressure"] = pressure
+	state["predator_pressure"] = pressure
+
+
+func _update_biome_populations(state: Dictionary) -> void:
+	var biomass_factor: float = clamp(float(state.get("plant_biomass_percent", 0.0)) / 100.0, 0.0, 1.0)
+	var predator_pressure := float(state.get("varnak_ecosystem_pressure", 0.0))
+	var food_stress := float(state.get("food_stress", 0.0))
+	var small_prey_population := float(state.get("small_prey_population", 0.0))
+	var grazer_population := float(state.get("grazer_population", 0.0))
+	var omnivore_resilience := float(state.get("average_meat_diet", 0.05)) + float(state.get("average_scavenger_diet", 0.10))
+	var small_prey_delta: float = biomass_factor * SMALL_PREY_GROWTH_RATE
+	small_prey_delta -= predator_pressure * SMALL_PREY_PREDATION_RATE
+	if biomass_factor < 0.12:
+		small_prey_delta -= SMALL_PREY_COLLAPSE_LOSS_RATE
+	var grazer_delta: float = biomass_factor * GRAZER_GROWTH_RATE
+	grazer_delta -= food_stress * GRAZER_STARVATION_RATE * (1.0 - clamp(omnivore_resilience, 0.0, 0.85))
+	grazer_delta -= predator_pressure * GRAZER_PREDATION_RATE
+	state["small_prey_population"] = clamp(small_prey_population + small_prey_delta, 0.0, MAX_SMALL_PREY_POPULATION)
+	state["grazer_population"] = clamp(grazer_population + grazer_delta, 0.0, MAX_GRAZER_POPULATION)
+
+
+func _get_state_biomass_percent(state: Dictionary) -> float:
+	var max_biomass := float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
+	if max_biomass <= 0.0:
 		return 0.0
-	return clamp(float(varnak_count) / float(total_varnaks), 0.0, 1.0)
+	return float(state.get("plant_biomass", 0.0)) / max_biomass * 100.0
 
 
 func _emit_status_event_if_needed(previous_status: String, state: Dictionary) -> void:
