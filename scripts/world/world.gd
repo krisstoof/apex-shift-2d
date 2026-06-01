@@ -5,6 +5,11 @@ const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 
+const INITIAL_SMALL_PREY_VISIBLE_COUNT := 4
+const SMALL_PREY_VISIBLE_SPAWN_RADIUS := 560.0
+const SMALL_PREY_PLAYER_SAFE_DISTANCE := 180.0
+const SMALL_PREY_MIN_DISTANCE := 150.0
+
 var evolution_director: Node
 var day_night_system: Node
 var resource_rng := RandomNumberGenerator.new()
@@ -186,30 +191,46 @@ func restore_resources(resources: Array) -> void:
 
 func _spawn_initial_small_prey() -> void:
 	var player_position := _get_player_position()
+	var player_biome := _get_biome_for_position(player_position)
+	if player_biome.is_empty():
+		return
 	var spawned := 0
-	for biome in WORLD_CONFIG.get_biome_zones():
-		if bool(biome.get("dangerous", false)):
-			continue
-		if _try_spawn_small_prey_in_biome(biome, player_position):
+	var used_positions: Array[Vector2] = []
+	for _i in INITIAL_SMALL_PREY_VISIBLE_COUNT:
+		if _try_spawn_small_prey_near_player(player_biome, player_position, used_positions):
 			spawned += 1
 	if spawned > 0:
 		get_node("/root/EventBus").post_message("%d SmallPrey entered the ecosystem" % spawned)
 
 
-func _try_spawn_small_prey_in_biome(biome: Dictionary, player_position: Vector2) -> bool:
-	var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
-		var candidate := Vector2(
-			small_prey_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
-			small_prey_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
-		)
-		if candidate.distance_to(player_position) < WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE:
+		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(SMALL_PREY_PLAYER_SAFE_DISTANCE, SMALL_PREY_VISIBLE_SPAWN_RADIUS)
+		var candidate := player_position + offset
+		if candidate.distance_to(player_position) < SMALL_PREY_PLAYER_SAFE_DISTANCE:
 			continue
 		if not _is_point_in_biome(candidate, biome):
 			continue
+		if not _is_valid_small_prey_position(candidate, used_positions):
+			continue
+		used_positions.append(candidate)
 		_spawn_small_prey_at(candidate, str(biome.get("name", "biome")).to_snake_case())
 		return true
 	return false
+
+
+func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vector2]) -> bool:
+	for used_position in used_positions:
+		if candidate.distance_to(used_position) < SMALL_PREY_MIN_DISTANCE:
+			return false
+	return true
+
+
+func _get_biome_for_position(position: Vector2) -> Dictionary:
+	for biome in WORLD_CONFIG.get_biome_zones():
+		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
+			return biome
+	return {}
 
 
 func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
