@@ -264,6 +264,7 @@ func _build_overview_text(profile: Dictionary) -> String:
 		_get_ecosystem_population_total("small_prey_population"),
 		_get_ecosystem_population_total("grazer_population")
 	])
+	lines.append("creatures_out_of_bounds_count = %d" % _get_creatures_out_of_bounds_count())
 	lines.append("Ecosystem warnings: %s" % _get_ecosystem_warnings_text())
 	lines.append("Generation %d" % int(profile.get("generation", 1)))
 	return "\n".join(lines)
@@ -300,6 +301,7 @@ func _build_world_text() -> String:
 	lines.append("Current biome: %s" % _get_current_biome_name())
 	lines.append("Player position: %s" % _get_position_text(player.global_position if player else Vector2.ZERO))
 	lines.append("World bounds: %s" % str(WORLD_CONFIG.WORLD_RECT))
+	lines.append("creatures_out_of_bounds_count = %d" % _get_creatures_out_of_bounds_count())
 	lines.append("Campfires: %d | Traps: %d" % [
 		get_tree().get_nodes_in_group("campfires").size(),
 		get_tree().get_nodes_in_group("traps").size()
@@ -321,6 +323,7 @@ func _build_creatures_text() -> String:
 	var lines: Array[String] = []
 	var varnaks := get_tree().get_nodes_in_group("varnak")
 	lines.append("Creatures")
+	lines.append("creatures_out_of_bounds_count = %d" % _get_creatures_out_of_bounds_count())
 	lines.append("Varnaks %d | %s" % [varnaks.size(), _get_varnak_state_summary(varnaks)])
 	lines.append("SmallPrey visible %d | %s" % [
 		get_tree().get_nodes_in_group("small_prey").size(),
@@ -477,6 +480,20 @@ func _get_ecosystem_warnings_text() -> String:
 		if status != "healthy" and status != "stable" and status != "ok":
 			warnings.append("%s:%s" % [str(state.get("name", biome_id)), status])
 	return "none" if warnings.is_empty() else ", ".join(warnings)
+
+
+func _get_creatures_out_of_bounds_count() -> int:
+	var world := _get_world_node()
+	if world and world.has_method("get_creatures_out_of_bounds_count"):
+		return int(world.get_creatures_out_of_bounds_count())
+	var count := 0
+	for group_name in ["varnak", "small_prey", "grazer"]:
+		for creature in get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(creature) or not (creature is Node2D):
+				continue
+			if not WORLD_CONFIG.WORLD_RECT.has_point(creature.global_position):
+				count += 1
+	return count
 
 
 func _get_adaptation_pressure(profile: Dictionary) -> float:

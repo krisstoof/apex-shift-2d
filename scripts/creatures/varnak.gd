@@ -14,6 +14,7 @@ const HUNT_DETECTION_RANGE := 260.0
 const HUNT_PLAYER_SAFE_DISTANCE := 135.0
 const HUNT_HUNGER_THRESHOLD := 0.35
 const HUNT_FEED_AMOUNT := 0.55
+const WORLD_EDGE_PADDING := 32.0
 
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
@@ -95,15 +96,15 @@ func get_debug_data() -> Dictionary:
 
 
 func restore_from_data(data: Dictionary) -> void:
-	global_position = _data_to_vector(data.get("position", {}))
+	global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
 	facing_angle = float(data.get("facing_angle", data.get("rotation", facing_angle)))
 	facing_side = float(data.get("facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0))
 	max_health = max(float(data.get("max_health", max_health)), 1.0)
 	health = clamp(float(data.get("health", health)), 0.0, max_health)
 	hunger = clamp(float(data.get("hunger", hunger)), 0.0, 1.0)
-	night_health_bonus_active = bool(data.get("night_health_bonus_active", night_health_bonus_active))
+	night_health_bonus_active = data.get("night_health_bonus_active", night_health_bonus_active) == true
 	state = int(data.get("state", State.WANDER))
-	wander_target = _data_to_vector(data.get("wander_target", _vector_to_data(wander_target)))
+	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
 	attack_cooldown = float(data.get("attack_cooldown", attack_cooldown))
 	queue_redraw()
 
@@ -121,6 +122,7 @@ func _physics_process(delta: float) -> void:
 	_update_state()
 	_act(delta)
 	move_and_slide()
+	_enforce_world_bounds()
 
 
 func take_damage(amount: float, source: String) -> void:
@@ -226,8 +228,8 @@ func _act(delta: float) -> void:
 				return
 			var away := (global_position - flee_origin).normalized()
 			var flee_multiplier := 1.1 + fire_fear if is_instance_valid(scared_fire) else GAME_BALANCE.TORCH_FLEE_SPEED_MULTIPLIER
-			velocity = away * speed * flee_multiplier
-			_face_target(global_position + away)
+			var flee_target := _get_bounded_flee_target(away)
+			_move_toward(flee_target, speed * flee_multiplier)
 
 
 func _should_prioritize_player(distance: float, detect_range: float, close_chase_range: float, effective_aggression: float) -> bool:
@@ -280,6 +282,8 @@ func _find_ecosystem_target() -> Node2D:
 		for creature in get_tree().get_nodes_in_group(group_name):
 			if not is_instance_valid(creature):
 				continue
+			if not _get_world_rect().has_point(creature.global_position):
+				continue
 			var distance := global_position.distance_to(creature.global_position)
 			if distance > HUNT_DETECTION_RANGE:
 				continue
@@ -319,6 +323,7 @@ func _get_biome_id(biome: Dictionary) -> String:
 
 
 func _move_toward(target: Vector2, move_speed: float) -> void:
+	target = _clamp_to_world(target)
 	var direction := target - global_position
 	if direction.length_squared() <= 1.0:
 		velocity = Vector2.ZERO
@@ -395,7 +400,45 @@ func _get_flee_origin() -> Vector2:
 
 
 func _pick_wander_target() -> void:
-	wander_target = Vector2(randf_range(-620, 620), randf_range(-360, 360))
+	var rect := _get_world_rect()
+	wander_target = Vector2(
+		randf_range(rect.position.x, rect.end.x),
+		randf_range(rect.position.y, rect.end.y)
+	)
+
+
+func debug_return_to_world() -> void:
+	_enforce_world_bounds(true)
+
+
+func _enforce_world_bounds(force_retarget := false) -> void:
+	var clamped_position := _clamp_to_world(global_position)
+	if force_retarget or clamped_position.distance_squared_to(global_position) > 0.01:
+		global_position = clamped_position
+		velocity = Vector2.ZERO
+		ecosystem_target = null
+		ecosystem_target_kind = ""
+		state = State.WANDER
+		_pick_wander_target()
+
+
+func _get_bounded_flee_target(away: Vector2) -> Vector2:
+	var target := _clamp_to_world(global_position + away * 180.0)
+	if target.distance_squared_to(global_position) <= 16.0:
+		target = _get_world_rect().get_center()
+	return target
+
+
+func _clamp_to_world(position: Vector2) -> Vector2:
+	var rect := _get_world_rect()
+	return Vector2(
+		clamp(position.x, rect.position.x, rect.end.x),
+		clamp(position.y, rect.position.y, rect.end.y)
+	)
+
+
+func _get_world_rect() -> Rect2:
+	return WORLD_CONFIG.WORLD_RECT.grow(-WORLD_EDGE_PADDING)
 
 
 func _die(source: String) -> void:

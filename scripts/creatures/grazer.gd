@@ -18,6 +18,7 @@ const SMALL_PREY_DETECT_RANGE := 220.0
 const SMALL_PREY_ATTACK_RANGE := 28.0
 const PLANT_EAT_HUNGER_DROP := 0.45
 const MEAT_HUNGER_DROP := 0.65
+const WORLD_EDGE_PADDING := 28.0
 
 var health := 45.0
 var max_health := 45.0
@@ -101,6 +102,7 @@ func _physics_process(delta: float) -> void:
 	_update_state()
 	_act(delta)
 	move_and_slide()
+	_enforce_world_bounds()
 
 
 func _update_state() -> void:
@@ -171,8 +173,8 @@ func _act(_delta: float) -> void:
 			_move_toward(wander_target, speed * 0.72)
 		State.FLEE:
 			var away := (global_position - flee_origin).normalized()
-			velocity = away * speed * (1.0 + fear)
-			_face_target(global_position + away)
+			var flee_target := _get_bounded_flee_target(away)
+			_move_toward(flee_target, speed * (1.0 + fear))
 		State.HUNT_SMALL_PREY:
 			_hunt_small_prey()
 
@@ -198,6 +200,7 @@ func _hunt_small_prey() -> void:
 
 
 func _move_toward(target: Vector2, move_speed: float) -> void:
+	target = _clamp_to_world(target)
 	var direction := target - global_position
 	if direction.length_squared() <= 1.0:
 		velocity = Vector2.ZERO
@@ -274,13 +277,46 @@ func _pick_wander_target() -> void:
 			rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS)
 		)
 		if _is_position_in_biome(candidate, current_biome_id):
-			wander_target = candidate
+			wander_target = _clamp_to_world(candidate)
 			return
 	var limits := WORLD_CONFIG.get_player_limits()
-	wander_target = Vector2(
+	wander_target = _clamp_to_world(Vector2(
 		clamp(global_position.x + rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS), -limits.x, limits.x),
 		clamp(global_position.y + rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS), -limits.y, limits.y)
+	))
+
+
+func debug_return_to_world() -> void:
+	_enforce_world_bounds(true)
+
+
+func _enforce_world_bounds(force_retarget := false) -> void:
+	var clamped_position := _clamp_to_world(global_position)
+	if force_retarget or clamped_position.distance_squared_to(global_position) > 0.01:
+		global_position = clamped_position
+		velocity = Vector2.ZERO
+		prey_target = null
+		_set_state(State.WANDER)
+		_pick_wander_target()
+
+
+func _get_bounded_flee_target(away: Vector2) -> Vector2:
+	var target := _clamp_to_world(global_position + away * WANDER_RADIUS)
+	if target.distance_squared_to(global_position) <= 16.0:
+		target = _get_world_rect().get_center()
+	return target
+
+
+func _clamp_to_world(position: Vector2) -> Vector2:
+	var rect := _get_world_rect()
+	return Vector2(
+		clamp(position.x, rect.position.x, rect.end.x),
+		clamp(position.y, rect.position.y, rect.end.y)
 	)
+
+
+func _get_world_rect() -> Rect2:
+	return WORLD_CONFIG.WORLD_RECT.grow(-WORLD_EDGE_PADDING)
 
 
 func _set_state(next_state: State) -> void:
