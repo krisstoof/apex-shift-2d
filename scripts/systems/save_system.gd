@@ -45,14 +45,16 @@ func _collect_save_data() -> Dictionary:
 	var world := scene.get_node("World")
 	var day_night_system := scene.get_node("DayNightSystem")
 	var evolution_director := scene.get_node("EvolutionDirector")
+	var ecosystem_director := scene.get_node("EcosystemDirector")
 	return {
-		"version": 1,
+		"version": 2,
 		"player": _get_player_data(player),
 		"resources": world.get_resource_save_data(),
 		"varnaks": world.get_varnak_save_data(),
 		"buildings": _get_buildings_data(),
 		"day_night": day_night_system.get_save_data(),
-		"evolution": evolution_director.get_save_data()
+		"evolution": evolution_director.get_save_data(),
+		"ecosystem": ecosystem_director.get_save_data()
 	}
 
 
@@ -101,9 +103,11 @@ func _restore_save_data(data: Dictionary) -> void:
 	var world := scene.get_node("World")
 	var day_night_system := scene.get_node("DayNightSystem")
 	var evolution_director := scene.get_node("EvolutionDirector")
+	var ecosystem_director := scene.get_node("EcosystemDirector")
 
 	_restore_player_data(player, Dictionary(data.get("player", {})))
 	evolution_director.restore_from_data(Dictionary(data.get("evolution", {})))
+	ecosystem_director.load_save_data(Dictionary(data.get("ecosystem", {})))
 	day_night_system.restore_from_data(Dictionary(data.get("day_night", {})))
 	await world.restore_resources(Array(data.get("resources", [])))
 	await _restore_buildings(Array(data.get("buildings", [])))

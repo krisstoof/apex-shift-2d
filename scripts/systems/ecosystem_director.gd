@@ -56,6 +56,23 @@ func get_biome_state(biome_id: String) -> Dictionary:
 	return Dictionary(biome_states.get(biome_id, {})).duplicate(true)
 
 
+func get_save_data() -> Dictionary:
+	return {
+		"biome_states": biome_states.duplicate(true),
+		"tick_timer": tick_timer
+	}
+
+
+func load_save_data(data: Dictionary) -> void:
+	if data.is_empty():
+		return
+	var saved_states = data.get("biome_states", {})
+	if typeof(saved_states) == TYPE_DICTIONARY:
+		_restore_biome_states(Dictionary(saved_states))
+	tick_timer = clamp(float(data.get("tick_timer", tick_timer)), 0.0, SIMULATION_TICK_SECONDS)
+	initialized = true
+
+
 func get_biome_status(biome_id: String) -> String:
 	return str(get_biome_state(biome_id).get("status", "unknown"))
 
@@ -103,6 +120,25 @@ func _initialize_biomes() -> void:
 		}
 	initialized = true
 	print("[Ecosystem] Initialized biome states: %s" % biome_states)
+
+
+func _restore_biome_states(saved_states: Dictionary) -> void:
+	for biome_id in biome_states.keys():
+		if not saved_states.has(biome_id) or typeof(saved_states[biome_id]) != TYPE_DICTIONARY:
+			continue
+		var state: Dictionary = biome_states[biome_id]
+		var saved_state := Dictionary(saved_states[biome_id])
+		for key in saved_state.keys():
+			state[key] = saved_state[key]
+		state["biome_id"] = biome_id
+		state["plant_biomass_percent"] = _get_state_biomass_percent(state)
+		state["status"] = _get_biomass_status(
+			float(state.get("plant_biomass", 0.0)),
+			float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
+		)
+		var max_biomass := float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
+		state["food_stress"] = 1.0 if max_biomass <= 0.0 else 1.0 - clamp(float(state.get("plant_biomass", 0.0)) / max_biomass, 0.0, 1.0)
+		biome_states[biome_id] = state
 
 
 func _update_ecosystem_tick() -> void:
