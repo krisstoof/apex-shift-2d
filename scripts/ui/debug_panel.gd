@@ -162,6 +162,10 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 	var lines: Array[String] = []
 	lines.append("")
 	lines.append("Ecosystem")
+	lines.append("Visible Grazers %d | %s" % [
+		get_tree().get_nodes_in_group("grazer").size(),
+		_get_grazer_state_summary()
+	])
 	if not ecosystem_director or not ecosystem_director.has_method("get_biome_states"):
 		lines.append("Waiting for ecosystem state...")
 		return lines
@@ -185,6 +189,29 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 			float(state.get("overgrazing_level", state.get("overgrazing_pressure", 0.0)))
 		])
 	return lines
+
+
+func _get_grazer_state_summary() -> String:
+	var grazers := get_tree().get_nodes_in_group("grazer")
+	if grazers.is_empty():
+		return "none"
+	var counts := {}
+	var hunger_total := 0.0
+	var hunger_count := 0
+	for grazer in grazers:
+		if not is_instance_valid(grazer) or not grazer.has_method("get_debug_data"):
+			continue
+		var data: Dictionary = grazer.get_debug_data()
+		var state_name := str(data.get("state", "unknown")).to_lower()
+		counts[state_name] = int(counts.get(state_name, 0)) + 1
+		hunger_total += float(data.get("hunger", 0.0))
+		hunger_count += 1
+	var parts: Array[String] = []
+	for key in counts.keys():
+		parts.append("%s:%d" % [key, int(counts[key])])
+	if hunger_count > 0:
+		parts.append("hunger:%d%%" % int(round(hunger_total / float(hunger_count) * 100.0)))
+	return ", ".join(parts)
 
 
 func _get_varnak_state_summary(varnaks: Array) -> String:

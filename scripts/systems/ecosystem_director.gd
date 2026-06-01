@@ -144,9 +144,13 @@ func _emit_status_event_if_needed(previous_status: String, state: Dictionary) ->
 
 func _on_game_event(event_name: String, payload: Dictionary) -> void:
 	match event_name:
-		"small_prey_killed_by_player", "small_prey_killed_by_varnak":
+		"small_prey_killed_by_player", "small_prey_killed_by_varnak", "small_prey_killed_by_grazer":
 			_apply_small_prey_death(payload)
 		"small_prey_consumed_plants":
+			_apply_visible_plant_consumption(payload)
+		"grazer_killed_by_player", "grazer_killed_by_varnak":
+			_apply_grazer_death(payload)
+		"grazer_consumed_plants":
 			_apply_visible_plant_consumption(payload)
 
 
@@ -156,6 +160,15 @@ func _apply_small_prey_death(payload: Dictionary) -> void:
 		return
 	var state: Dictionary = biome_states[biome_id]
 	state["small_prey_population"] = max(float(state.get("small_prey_population", 0.0)) - 1.0, 0.0)
+	biome_states[biome_id] = state
+
+
+func _apply_grazer_death(payload: Dictionary) -> void:
+	var biome_id := str(payload.get("biome_id", ""))
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	state["grazer_population"] = max(float(state.get("grazer_population", 0.0)) - 1.0, 0.0)
 	biome_states[biome_id] = state
 
 

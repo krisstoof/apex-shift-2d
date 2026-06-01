@@ -3,6 +3,7 @@ extends Node2D
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
+const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
@@ -11,6 +12,10 @@ const SMALL_PREY_MAX_VISIBLE_PER_BIOME := 4
 const SMALL_PREY_VISIBLE_SPAWN_RADIUS := 560.0
 const SMALL_PREY_PLAYER_SAFE_DISTANCE := 180.0
 const SMALL_PREY_MIN_DISTANCE := 150.0
+const INITIAL_GRAZER_VISIBLE_COUNT := 2
+const GRAZER_VISIBLE_SPAWN_RADIUS := 700.0
+const GRAZER_PLAYER_SAFE_DISTANCE := 250.0
+const GRAZER_MIN_DISTANCE := 240.0
 
 var evolution_director: Node
 var day_night_system: Node
@@ -18,6 +23,7 @@ var ecosystem_director: Node
 var resource_rng := RandomNumberGenerator.new()
 var varnak_rng := RandomNumberGenerator.new()
 var small_prey_rng := RandomNumberGenerator.new()
+var grazer_rng := RandomNumberGenerator.new()
 var small_prey_spawn_timer := 0.0
 
 func _ready() -> void:
@@ -25,6 +31,7 @@ func _ready() -> void:
 	resource_rng.randomize()
 	varnak_rng.randomize()
 	small_prey_rng.randomize()
+	grazer_rng.randomize()
 	evolution_director = get_parent().get_node("EvolutionDirector")
 	day_night_system = get_parent().get_node("DayNightSystem")
 	ecosystem_director = get_parent().get_node("EcosystemDirector")
@@ -32,6 +39,7 @@ func _ready() -> void:
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	_spawn_resources()
 	_sync_visible_small_prey()
+	_spawn_initial_grazers()
 	_spawn_varnaks()
 	queue_redraw()
 
@@ -302,6 +310,58 @@ func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
 	if small_prey.has_method("setup"):
 		small_prey.setup(biome_id)
 	return small_prey
+
+
+func _spawn_initial_grazers() -> void:
+	var player_position := _get_player_position()
+	var player_biome := _get_biome_for_position(player_position)
+	if player_biome.is_empty():
+		return
+	var spawned := 0
+	var used_positions := _get_existing_grazer_positions()
+	for _i in INITIAL_GRAZER_VISIBLE_COUNT:
+		if _try_spawn_grazer_near_player(player_biome, player_position, used_positions):
+			spawned += 1
+	if spawned > 0:
+		get_node("/root/EventBus").post_message("%d Grazer%s entered the ecosystem" % [spawned, "" if spawned == 1 else "s"])
+
+
+func _try_spawn_grazer_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
+	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+		var offset := Vector2.RIGHT.rotated(grazer_rng.randf_range(0.0, TAU)) * grazer_rng.randf_range(GRAZER_PLAYER_SAFE_DISTANCE, GRAZER_VISIBLE_SPAWN_RADIUS)
+		var candidate := player_position + offset
+		if not _is_point_in_biome(candidate, biome):
+			continue
+		if not _is_valid_grazer_position(candidate, used_positions):
+			continue
+		used_positions.append(candidate)
+		_spawn_grazer_at(candidate, _get_biome_id(biome))
+		return true
+	return false
+
+
+func _get_existing_grazer_positions() -> Array[Vector2]:
+	var positions: Array[Vector2] = []
+	for grazer in get_tree().get_nodes_in_group("grazer"):
+		if is_instance_valid(grazer):
+			positions.append(grazer.global_position)
+	return positions
+
+
+func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2]) -> bool:
+	for used_position in used_positions:
+		if candidate.distance_to(used_position) < GRAZER_MIN_DISTANCE:
+			return false
+	return true
+
+
+func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
+	var grazer := GRAZER_SCENE.instantiate()
+	add_child(grazer)
+	grazer.global_position = pos
+	if grazer.has_method("setup"):
+		grazer.setup(biome_id)
+	return grazer
 
 
 func _spawn_varnaks() -> void:
