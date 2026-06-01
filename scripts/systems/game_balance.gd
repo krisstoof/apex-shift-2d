@@ -74,9 +74,44 @@ const SPEAR_ATTACK_COOLDOWN := 0.0
 const TRAP_DAMAGE := 120.0
 const TRAP_EFFECT_DURATION := 0.0
 
-const ECOSYSTEM_TREE_BIOMASS_IMPACT := 4.0
-const ECOSYSTEM_BUSH_BIOMASS_IMPACT := 1.0
-const ECOSYSTEM_DRY_BUSH_BIOMASS_IMPACT := 0.25
+const ECOSYSTEM := {
+	"simulation_tick_seconds": 5.0,
+	"default_plant_biomass": 100.0,
+	"max_plant_biomass": 100.0,
+	"plant_regrowth_rate": 1.5,
+	"initial_small_prey_population": 12.0,
+	"initial_grazer_population": 4.0,
+	"small_prey_plant_consumption": 0.08,
+	"grazer_plant_consumption": 0.35,
+	"overgrazing_pressure_scale": 10.0,
+	"small_prey_growth_rate": 0.75,
+	"small_prey_predation_rate": 1.15,
+	"small_prey_collapse_biomass_factor": 0.12,
+	"small_prey_collapse_loss_rate": 0.65,
+	"grazer_growth_rate": 0.32,
+	"grazer_starvation_rate": 0.70,
+	"grazer_predation_rate": 0.65,
+	"max_small_prey_population": 30.0,
+	"max_grazer_population": 14.0,
+	"stressed_threshold": 70.0,
+	"depleted_threshold": 30.0,
+	"collapsing_threshold": 10.0,
+	"grazer_food_stress_threshold": 30.0,
+	"grazer_niche_shift_threshold": 0.45,
+	"grazer_diet_shift_rate": 0.04,
+	"grazer_aggression_shift_rate": 0.015,
+	"population_decline_event_min_delta": 0.10,
+	"tree_biomass_impact": 4.0,
+	"bush_biomass_impact": 1.0,
+	"dry_bush_biomass_impact": 0.25,
+	"initial_average_plant_diet": 0.85,
+	"initial_average_meat_diet": 0.05,
+	"initial_average_scavenger_diet": 0.10,
+	"initial_average_aggression": 0.15,
+	"max_omnivore_resilience": 0.85,
+	"grazer_meat_diet_shift_ratio": 0.65,
+	"grazer_scavenger_diet_shift_ratio": 0.35
+}
 
 const DEBUG_PLAYER_DAMAGE_AMOUNT := 25.0
 const DEBUG_PLAYER_HEAL_AMOUNT := 25.0
