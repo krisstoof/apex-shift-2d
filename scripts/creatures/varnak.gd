@@ -1,16 +1,23 @@
 extends CharacterBody2D
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 
-enum State { IDLE, WANDER, STALK, CHASE, ATTACK, FLEE }
+enum State { IDLE, WANDER, STALK, CHASE, ATTACK, FLEE, HUNT_ECOSYSTEM }
 
 const ATTACK_RANGE := 42.0
 const ATTACK_ARC := deg_to_rad(78.0)
 const ATTACK_VISUAL_DURATION := 0.14
 const BASE_HEALTH := 90.0
+const HUNGER_GROWTH_RATE := 0.045
+const HUNT_DETECTION_RANGE := 260.0
+const HUNT_PLAYER_SAFE_DISTANCE := 135.0
+const HUNT_HUNGER_THRESHOLD := 0.35
+const HUNT_FEED_AMOUNT := 0.55
 
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
+var hunger := 0.0
 var speed := 105.0
 var aggression := 0.45
 var fire_fear := 0.85
@@ -29,6 +36,8 @@ var attack_cooldown := 0.0
 var attack_visual_time := 0.0
 var night_health_bonus_active := false
 var scared_fire: Node2D
+var ecosystem_target: Node2D
+var ecosystem_target_kind := ""
 
 func _ready() -> void:
 	add_to_group("varnak")
@@ -56,6 +65,7 @@ func get_save_data() -> Dictionary:
 		"facing_side": facing_side,
 		"health": health,
 		"max_health": max_health,
+		"hunger": hunger,
 		"night_health_bonus_active": night_health_bonus_active,
 		"state": int(state),
 		"wander_target": _vector_to_data(wander_target),
@@ -68,6 +78,7 @@ func get_debug_data() -> Dictionary:
 		"state": State.keys()[state],
 		"health": health,
 		"max_health": max_health,
+		"hunger": hunger,
 		"aggression": aggression,
 		"fire_fear": fire_fear,
 		"trap_awareness": trap_awareness,
@@ -77,6 +88,7 @@ func get_debug_data() -> Dictionary:
 		"stalk_tendency": stalk_tendency,
 		"speed": speed,
 		"attack_cooldown": attack_cooldown,
+		"ecosystem_target": ecosystem_target_kind if is_instance_valid(ecosystem_target) else "",
 		"night_health_bonus_active": night_health_bonus_active,
 		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
 	}
@@ -88,6 +100,7 @@ func restore_from_data(data: Dictionary) -> void:
 	facing_side = float(data.get("facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0))
 	max_health = max(float(data.get("max_health", max_health)), 1.0)
 	health = clamp(float(data.get("health", health)), 0.0, max_health)
+	hunger = clamp(float(data.get("hunger", hunger)), 0.0, 1.0)
 	night_health_bonus_active = bool(data.get("night_health_bonus_active", night_health_bonus_active))
 	state = int(data.get("state", State.WANDER))
 	wander_target = _data_to_vector(data.get("wander_target", _vector_to_data(wander_target)))
@@ -100,6 +113,7 @@ func _physics_process(delta: float) -> void:
 		player = get_tree().get_first_node_in_group("player")
 		return
 	_update_night_health_bonus()
+	hunger = clamp(hunger + HUNGER_GROWTH_RATE * delta, 0.0, 1.0)
 	attack_cooldown = max(attack_cooldown - delta, 0.0)
 	if attack_visual_time > 0.0:
 		attack_visual_time = max(attack_visual_time - delta, 0.0)
@@ -142,6 +156,9 @@ func _update_state() -> void:
 		return
 	if state == State.FLEE:
 		state = State.WANDER
+	if not is_instance_valid(ecosystem_target):
+		ecosystem_target = null
+		ecosystem_target_kind = ""
 	var distance := global_position.distance_to(player.global_position)
 	var night_bonus := night_activity * 70.0 if day_night_system and day_night_system.is_night() else 0.0
 	var detect_range := 210.0 + base_curiosity * 120.0 + night_bonus
@@ -155,6 +172,20 @@ func _update_state() -> void:
 		if distance > ATTACK_RANGE:
 			state = State.FLEE
 			return
+	if _should_prioritize_player(distance, detect_range, close_chase_range, effective_aggression):
+		ecosystem_target = null
+		ecosystem_target_kind = ""
+		if distance < 34.0:
+			state = State.ATTACK
+		elif distance < detect_range:
+			state = State.CHASE if effective_aggression > 0.5 or distance < close_chase_range else State.STALK
+		return
+	var prey := _find_ecosystem_target()
+	if is_instance_valid(prey) and _should_hunt_ecosystem(distance):
+		ecosystem_target = prey
+		ecosystem_target_kind = _get_ecosystem_target_kind(prey)
+		state = State.HUNT_ECOSYSTEM
+		return
 	if distance < 34.0:
 		state = State.ATTACK
 	elif distance < detect_range:
@@ -184,6 +215,8 @@ func _act(delta: float) -> void:
 				attack_visual_time = ATTACK_VISUAL_DURATION
 				queue_redraw()
 				attack_cooldown = 1.2 * (GAME_BALANCE.TORCH_ATTACK_COOLDOWN_MULTIPLIER if _is_torch_protecting_player(global_position.distance_to(player.global_position)) else 1.0)
+		State.HUNT_ECOSYSTEM:
+			_hunt_ecosystem_target()
 		State.FLEE:
 			var flee_origin := _get_flee_origin()
 			if flee_origin == Vector2.INF:
@@ -195,6 +228,94 @@ func _act(delta: float) -> void:
 			var flee_multiplier := 1.1 + fire_fear if is_instance_valid(scared_fire) else GAME_BALANCE.TORCH_FLEE_SPEED_MULTIPLIER
 			velocity = away * speed * flee_multiplier
 			_face_target(global_position + away)
+
+
+func _should_prioritize_player(distance: float, detect_range: float, close_chase_range: float, effective_aggression: float) -> bool:
+	if distance <= close_chase_range:
+		return true
+	if state == State.CHASE or state == State.STALK or state == State.ATTACK:
+		return distance < detect_range
+	if effective_aggression > 0.62 and distance < detect_range:
+		return true
+	if day_night_system and day_night_system.is_night() and night_activity > 0.55 and distance < detect_range:
+		return true
+	return false
+
+
+func _should_hunt_ecosystem(player_distance: float) -> bool:
+	if player_distance < HUNT_PLAYER_SAFE_DISTANCE:
+		return false
+	if hunger >= HUNT_HUNGER_THRESHOLD:
+		return true
+	return _get_biome_prey_pressure() > 0.35 and player_distance > HUNT_PLAYER_SAFE_DISTANCE * 1.4
+
+
+func _hunt_ecosystem_target() -> void:
+	if not is_instance_valid(ecosystem_target):
+		state = State.WANDER
+		_pick_wander_target()
+		return
+	var distance := global_position.distance_to(ecosystem_target.global_position)
+	if distance <= ATTACK_RANGE and attack_cooldown <= 0.0 and ecosystem_target.has_method("take_damage"):
+		var hunted_kind := ecosystem_target_kind
+		ecosystem_target.take_damage(999.0, "varnak")
+		hunger = max(hunger - HUNT_FEED_AMOUNT, 0.0)
+		var event_name := "varnak_hunted_grazer" if hunted_kind == "grazer" else "varnak_hunted_small_prey"
+		get_node("/root/EventBus").emit_game_event(event_name, {"position": global_position})
+		get_node("/root/EventBus").post_message("Varnak hunted %s" % ("Grazer" if hunted_kind == "grazer" else "SmallPrey"))
+		attack_visual_time = ATTACK_VISUAL_DURATION
+		attack_cooldown = 1.0
+		ecosystem_target = null
+		ecosystem_target_kind = ""
+		state = State.WANDER
+		queue_redraw()
+		return
+	_move_toward(ecosystem_target.global_position, speed * 0.92)
+
+
+func _find_ecosystem_target() -> Node2D:
+	var best_target: Node2D
+	var best_score := INF
+	for group_name in ["small_prey", "grazer"]:
+		for creature in get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(creature):
+				continue
+			var distance := global_position.distance_to(creature.global_position)
+			if distance > HUNT_DETECTION_RANGE:
+				continue
+			var score := distance * (1.35 if group_name == "grazer" else 1.0)
+			if score < best_score:
+				best_score = score
+				best_target = creature
+	return best_target
+
+
+func _get_ecosystem_target_kind(target: Node) -> String:
+	if target.is_in_group("grazer"):
+		return "grazer"
+	return "small_prey"
+
+
+func _get_biome_prey_pressure() -> float:
+	var ecosystem := get_tree().current_scene.get_node_or_null("EcosystemDirector")
+	if not ecosystem or not ecosystem.has_method("get_biome_state"):
+		return 0.0
+	var biome_id := _get_biome_id_for_position(global_position)
+	var state_data: Dictionary = ecosystem.get_biome_state(biome_id)
+	var small_prey_population := float(state_data.get("small_prey_population", 0.0))
+	var grazer_population := float(state_data.get("grazer_population", 0.0))
+	return clamp((small_prey_population + grazer_population * 1.5) / 18.0, 0.0, 1.0)
+
+
+func _get_biome_id_for_position(position: Vector2) -> String:
+	for biome in WORLD_CONFIG.get_biome_zones():
+		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
+			return _get_biome_id(biome)
+	return ""
+
+
+func _get_biome_id(biome: Dictionary) -> String:
+	return str(biome.get("name", "biome")).to_snake_case()
 
 
 func _move_toward(target: Vector2, move_speed: float) -> void:
@@ -296,7 +417,7 @@ func _draw() -> void:
 	if state == State.FLEE:
 		body_color = Color(0.95, 0.35, 0.08)
 		ear_color = Color(0.80, 0.22, 0.05)
-	elif state == State.CHASE or state == State.ATTACK:
+	elif state == State.CHASE or state == State.ATTACK or state == State.HUNT_ECOSYSTEM:
 		body_color = Color(0.95, 0.05, 0.03)
 		jaw_color = Color(0.55, 0.02, 0.02)
 	_apply_upright_body_transform()
