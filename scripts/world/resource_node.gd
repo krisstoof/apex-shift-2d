@@ -74,11 +74,11 @@ func _emit_plant_resource_harvested() -> void:
 func _get_biomass_impact() -> float:
 	match resource_kind:
 		"conifer_tree", "leafy_tree":
-			return GAME_BALANCE.ECOSYSTEM_TREE_BIOMASS_IMPACT
+			return float(GAME_BALANCE.ECOSYSTEM["tree_biomass_impact"])
 		"bush":
-			return GAME_BALANCE.ECOSYSTEM_BUSH_BIOMASS_IMPACT
+			return float(GAME_BALANCE.ECOSYSTEM["bush_biomass_impact"])
 		"dry_bush":
-			return GAME_BALANCE.ECOSYSTEM_DRY_BUSH_BIOMASS_IMPACT
+			return float(GAME_BALANCE.ECOSYSTEM["dry_bush_biomass_impact"])
 	return 0.0
 
 
