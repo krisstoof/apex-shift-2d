@@ -1,0 +1,13 @@
+{
+  "id": "small_prey",
+  "display_name": "Small Prey",
+  "tier": 1,
+  "base_traits": {
+    "health": 20,
+    "speed": 90,
+    "fear": 0.9,
+    "hunger_rate": 0.2,
+    "plant_consumption_rate": 0.4,
+    "reproduction_value": 0.6
+  }
+}

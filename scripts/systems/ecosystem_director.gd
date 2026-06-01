@@ -21,6 +21,7 @@ var initialized := false
 
 
 func _ready() -> void:
+	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	_initialize_biomes()
 
 
@@ -139,6 +140,41 @@ func _emit_status_event_if_needed(previous_status: String, state: Dictionary) ->
 	if event_name.is_empty():
 		return
 	get_node("/root/EventBus").emit_game_event(event_name, state.duplicate(true))
+
+
+func _on_game_event(event_name: String, payload: Dictionary) -> void:
+	match event_name:
+		"small_prey_killed_by_player", "small_prey_killed_by_varnak":
+			_apply_small_prey_death(payload)
+		"small_prey_consumed_plants":
+			_apply_visible_plant_consumption(payload)
+
+
+func _apply_small_prey_death(payload: Dictionary) -> void:
+	var biome_id := str(payload.get("biome_id", ""))
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	state["small_prey_population"] = max(float(state.get("small_prey_population", 0.0)) - 1.0, 0.0)
+	biome_states[biome_id] = state
+
+
+func _apply_visible_plant_consumption(payload: Dictionary) -> void:
+	var biome_id := str(payload.get("biome_id", ""))
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	var previous_status := str(state.get("status", "healthy"))
+	var plant_biomass := float(state.get("plant_biomass", 0.0))
+	var consumption := float(payload.get("plant_consumption_rate", 0.0))
+	state["plant_biomass"] = max(plant_biomass - consumption, 0.0)
+	state["plant_biomass_percent"] = _get_state_biomass_percent(state)
+	state["status"] = _get_biomass_status(
+		float(state.get("plant_biomass", 0.0)),
+		float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
+	)
+	biome_states[biome_id] = state
+	_emit_status_event_if_needed(previous_status, state)
 
 
 func _get_biomass_status(plant_biomass: float, max_plant_biomass: float) -> String:
