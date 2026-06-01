@@ -54,7 +54,7 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 func _process(_delta: float) -> void:
 	if not visible:
 		return
-	state_label.text = _build_state_text()
+	_set_state_text(_build_state_text())
 
 
 func toggle() -> void:
@@ -64,7 +64,13 @@ func toggle() -> void:
 func set_open(open: bool) -> void:
 	visible = open
 	if visible:
-		state_label.text = _build_state_text()
+		_set_state_text(_build_state_text())
+
+
+func _set_state_text(text: String) -> void:
+	state_label.text = text
+	var line_count := text.split("\n").size()
+	state_label.custom_minimum_size = Vector2(370.0, max(330.0, float(line_count) * 18.0))
 
 
 func _build_state_text() -> String:
@@ -84,8 +90,8 @@ func _build_state_text() -> String:
 		"yes" if player.has_spear else "no"
 	])
 	lines.append("Campfire %s | Traps %d" % [_get_campfire_state(), get_tree().get_nodes_in_group("traps").size()])
-	lines.append_array(_get_varnak_debug_lines(profile))
 	lines.append_array(_get_ecosystem_debug_lines())
+	lines.append_array(_get_varnak_debug_lines(profile))
 	return "\n".join(lines)
 
 
@@ -257,7 +263,7 @@ func _add_debug_item(item_name: String) -> void:
 	if not player or not player.has_method("debug_add_item"):
 		return
 	player.debug_add_item(item_name, 1)
-	state_label.text = _build_state_text()
+	_set_state_text(_build_state_text())
 
 
 func _on_add_wood_pressed() -> void:
@@ -287,19 +293,19 @@ func _on_add_spear_pressed() -> void:
 func _on_next_phase_pressed() -> void:
 	if day_night_system and day_night_system.has_method("debug_next_phase"):
 		day_night_system.debug_next_phase()
-	state_label.text = _build_state_text()
+	_set_state_text(_build_state_text())
 
 
 func _on_next_day_pressed() -> void:
 	if day_night_system and day_night_system.has_method("debug_next_day"):
 		day_night_system.debug_next_day()
-	state_label.text = _build_state_text()
+	_set_state_text(_build_state_text())
 
 
 func _on_increase_adaptation_pressed() -> void:
 	if evolution_director and evolution_director.has_method("debug_increase_adaptation"):
 		evolution_director.debug_increase_adaptation()
-	state_label.text = _build_state_text()
+	_set_state_text(_build_state_text())
 
 
 func _on_spawn_aggressive_pressed() -> void:
@@ -314,7 +320,7 @@ func _debug_spawn_animal(aggressive: bool) -> void:
 	var world := get_tree().current_scene.get_node_or_null("World")
 	if world and world.has_method("debug_spawn_animal"):
 		world.debug_spawn_animal(aggressive)
-	state_label.text = _build_state_text()
+	_set_state_text(_build_state_text())
 
 
 func _on_damage_player_pressed() -> void:
@@ -336,4 +342,4 @@ func _on_restore_hunger_energy_pressed() -> void:
 func _call_player_debug_method(method_name: String) -> void:
 	if player and player.has_method(method_name):
 		player.call(method_name)
-	state_label.text = _build_state_text()
+	_set_state_text(_build_state_text())
