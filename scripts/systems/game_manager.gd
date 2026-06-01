@@ -10,7 +10,7 @@ extends Node
 
 func _ready() -> void:
 	player.evolution_director = evolution_director
-	hud.bind(player, evolution_director, day_night_system)
+	hud.bind(player, evolution_director, day_night_system, ecosystem_director)
 	get_node("/root/EventBus").post_message("Apex Shift 2D prototype ready")
 
 
