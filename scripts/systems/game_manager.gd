@@ -2,6 +2,7 @@ extends Node
 
 @onready var evolution_director: Node = get_parent().get_node("EvolutionDirector")
 @onready var day_night_system: Node = get_parent().get_node("DayNightSystem")
+@onready var ecosystem_director: Node = get_parent().get_node("EcosystemDirector")
 @onready var hud: CanvasLayer = get_parent().get_node("HUD")
 @onready var player: Node = get_parent().get_node("Player")
 @onready var world: Node = get_parent().get_node("World")
