@@ -1,5 +1,8 @@
 extends StaticBody2D
 
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+
 @export var item_name := "wood"
 @export var amount := 2
 @export var color := Color.FOREST_GREEN
@@ -45,11 +48,49 @@ func setup(kind: String) -> void:
 func interact(player: Node) -> void:
 	player.inventory.add_item(item_name, amount)
 	get_node("/root/EventBus").post_message("Collected %s" % item_name)
+	_emit_plant_resource_harvested()
 	queue_free()
 
 
 func get_prompt() -> String:
 	return "E: gather %s x%s" % [item_name, amount]
+
+
+func _emit_plant_resource_harvested() -> void:
+	var biomass_impact := _get_biomass_impact()
+	if biomass_impact <= 0.0:
+		return
+	var biome_id := _get_biome_id_for_position(global_position)
+	if biome_id.is_empty():
+		return
+	get_node("/root/EventBus").emit_game_event("plant_resource_harvested", {
+		"resource_type": resource_kind,
+		"biome_id": biome_id,
+		"position": global_position,
+		"biomass_impact": biomass_impact
+	})
+
+
+func _get_biomass_impact() -> float:
+	match resource_kind:
+		"conifer_tree", "leafy_tree":
+			return GAME_BALANCE.ECOSYSTEM_TREE_BIOMASS_IMPACT
+		"bush":
+			return GAME_BALANCE.ECOSYSTEM_BUSH_BIOMASS_IMPACT
+		"dry_bush":
+			return GAME_BALANCE.ECOSYSTEM_DRY_BUSH_BIOMASS_IMPACT
+	return 0.0
+
+
+func _get_biome_id_for_position(position: Vector2) -> String:
+	for biome in WORLD_CONFIG.get_biome_zones():
+		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
+			return _get_biome_id(biome)
+	return ""
+
+
+func _get_biome_id(biome: Dictionary) -> String:
+	return str(biome.get("name", "biome")).to_snake_case()
 
 
 func _draw() -> void:
