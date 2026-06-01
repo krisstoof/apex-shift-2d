@@ -5,6 +5,12 @@ var evolution_director: Node
 var day_night_system: Node
 var ecosystem_director: Node
 
+const DEBUG_BUTTON_COLUMNS := [12.0, 210.0, 408.0]
+const DEBUG_BUTTON_WIDTH := 186.0
+const DEBUG_BUTTON_HEIGHT := 32.0
+const ECOSYSTEM_BUTTON_START_Y := 574.0
+const ECOSYSTEM_BUTTON_ROW_GAP := 40.0
+
 @onready var title_label: Label = $Panel/TitleLabel
 @onready var state_label: Label = $Panel/StateScroll/StateLabel
 @onready var add_wood_button: Button = $Panel/AddWoodButton
@@ -42,6 +48,7 @@ func _ready() -> void:
 	heal_player_button.pressed.connect(_on_heal_player_pressed)
 	reduce_hunger_energy_button.pressed.connect(_on_reduce_hunger_energy_pressed)
 	restore_hunger_energy_button.pressed.connect(_on_restore_hunger_energy_pressed)
+	_create_ecosystem_buttons()
 
 
 func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null) -> void:
@@ -71,6 +78,29 @@ func _set_state_text(text: String) -> void:
 	state_label.text = text
 	var line_count := text.split("\n").size()
 	state_label.custom_minimum_size = Vector2(560.0, max(390.0, float(line_count) * 20.0))
+
+
+func _create_ecosystem_buttons() -> void:
+	_add_ecosystem_button("Reduce plants", 0, 0, _on_reduce_plants_pressed)
+	_add_ecosystem_button("Restore plants", 0, 1, _on_restore_plants_pressed)
+	_add_ecosystem_button("Advance tick", 0, 2, _on_advance_ecosystem_tick_pressed)
+	_add_ecosystem_button("Add SmallPrey", 1, 0, _on_add_small_prey_pressed)
+	_add_ecosystem_button("Remove SmallPrey", 1, 1, _on_remove_small_prey_pressed)
+	_add_ecosystem_button("Force food stress", 1, 2, _on_force_food_stress_pressed)
+	_add_ecosystem_button("Add Grazers", 2, 0, _on_add_grazers_pressed)
+	_add_ecosystem_button("Remove Grazers", 2, 1, _on_remove_grazers_pressed)
+	_add_ecosystem_button("Force niche check", 2, 2, _on_force_niche_check_pressed)
+
+
+func _add_ecosystem_button(label: String, row: int, column: int, callback: Callable) -> void:
+	var button := Button.new()
+	button.text = label
+	button.offset_left = DEBUG_BUTTON_COLUMNS[column]
+	button.offset_top = ECOSYSTEM_BUTTON_START_Y + float(row) * ECOSYSTEM_BUTTON_ROW_GAP
+	button.offset_right = button.offset_left + DEBUG_BUTTON_WIDTH
+	button.offset_bottom = button.offset_top + DEBUG_BUTTON_HEIGHT
+	button.pressed.connect(callback)
+	$Panel.add_child(button)
 
 
 func _build_state_text() -> String:
@@ -361,6 +391,61 @@ func _debug_spawn_animal(aggressive: bool) -> void:
 	var world := get_tree().current_scene.get_node_or_null("World")
 	if world and world.has_method("debug_spawn_animal"):
 		world.debug_spawn_animal(aggressive)
+	_set_state_text(_build_state_text())
+
+
+func _on_reduce_plants_pressed() -> void:
+	_call_ecosystem_debug_method("debug_reduce_plant_biomass")
+
+
+func _on_restore_plants_pressed() -> void:
+	_call_ecosystem_debug_method("debug_restore_plant_biomass")
+
+
+func _on_add_small_prey_pressed() -> void:
+	_call_ecosystem_debug_method("debug_add_small_prey")
+	_call_world_debug_method("debug_spawn_small_prey_near_player")
+
+
+func _on_remove_small_prey_pressed() -> void:
+	_call_ecosystem_debug_method("debug_remove_small_prey")
+	_call_world_debug_method("debug_remove_small_prey_near_player")
+
+
+func _on_add_grazers_pressed() -> void:
+	_call_ecosystem_debug_method("debug_add_grazers")
+	_call_world_debug_method("debug_spawn_grazers_near_player")
+
+
+func _on_remove_grazers_pressed() -> void:
+	_call_ecosystem_debug_method("debug_remove_grazers")
+	_call_world_debug_method("debug_remove_grazers_near_player")
+
+
+func _on_force_food_stress_pressed() -> void:
+	_call_ecosystem_debug_method("debug_force_grazer_food_stress")
+
+
+func _on_force_niche_check_pressed() -> void:
+	_call_ecosystem_debug_method("debug_force_grazer_niche_shift_check")
+
+
+func _on_advance_ecosystem_tick_pressed() -> void:
+	if ecosystem_director and ecosystem_director.has_method("debug_advance_ecosystem_tick"):
+		ecosystem_director.debug_advance_ecosystem_tick()
+	_set_state_text(_build_state_text())
+
+
+func _call_ecosystem_debug_method(method_name: String) -> void:
+	if ecosystem_director and ecosystem_director.has_method(method_name) and player:
+		ecosystem_director.call(method_name, player.global_position)
+	_set_state_text(_build_state_text())
+
+
+func _call_world_debug_method(method_name: String) -> void:
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method(method_name):
+		world.call(method_name)
 	_set_state_text(_build_state_text())
 
 

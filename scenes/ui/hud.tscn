@@ -136,7 +136,7 @@ text = "Debug"
 offset_left = 12.0
 offset_top = 48.0
 offset_right = 596.0
-offset_bottom = 430.0
+offset_bottom = 340.0
 horizontal_scroll_mode = 0
 
 [node name="StateLabel" type="Label" parent="DebugPanel/Panel/StateScroll"]
@@ -147,105 +147,105 @@ text = "Waiting for game state..."
 
 [node name="AddWoodButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 12.0
-offset_top = 448.0
+offset_top = 358.0
 offset_right = 198.0
-offset_bottom = 480.0
+offset_bottom = 390.0
 text = "Add wood"
 
 [node name="AddStoneButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 210.0
-offset_top = 448.0
+offset_top = 358.0
 offset_right = 396.0
-offset_bottom = 480.0
+offset_bottom = 390.0
 text = "Add stone"
 
 [node name="AddFiberButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 408.0
-offset_top = 448.0
+offset_top = 358.0
 offset_right = 596.0
-offset_bottom = 480.0
+offset_bottom = 390.0
 text = "Add plant fiber"
 
 [node name="AddMeatButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 12.0
-offset_top = 488.0
+offset_top = 398.0
 offset_right = 198.0
-offset_bottom = 520.0
+offset_bottom = 430.0
 text = "Add meat"
 
 [node name="AddTorchButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 210.0
-offset_top = 488.0
+offset_top = 398.0
 offset_right = 396.0
-offset_bottom = 520.0
+offset_bottom = 430.0
 text = "Add torch"
 
 [node name="AddSpearButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 408.0
-offset_top = 488.0
+offset_top = 398.0
 offset_right = 596.0
-offset_bottom = 520.0
+offset_bottom = 430.0
 text = "Add spear"
 
 [node name="NextPhaseButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 12.0
-offset_top = 536.0
+offset_top = 446.0
 offset_right = 198.0
-offset_bottom = 568.0
+offset_bottom = 478.0
 text = "Next phase"
 
 [node name="NextDayButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 210.0
-offset_top = 536.0
+offset_top = 446.0
 offset_right = 396.0
-offset_bottom = 568.0
+offset_bottom = 478.0
 text = "Next day"
 
 [node name="IncreaseAdaptationButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 408.0
-offset_top = 536.0
+offset_top = 446.0
 offset_right = 596.0
-offset_bottom = 568.0
+offset_bottom = 478.0
 text = "Increase adaptation"
 
 [node name="SpawnAggressiveButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 12.0
-offset_top = 584.0
+offset_top = 494.0
 offset_right = 198.0
-offset_bottom = 616.0
+offset_bottom = 526.0
 text = "Spawn aggressive animal"
 
 [node name="SpawnNeutralButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 210.0
-offset_top = 584.0
+offset_top = 494.0
 offset_right = 396.0
-offset_bottom = 616.0
+offset_bottom = 526.0
 text = "Spawn neutral animal"
 
 [node name="DamagePlayerButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 408.0
-offset_top = 584.0
+offset_top = 494.0
 offset_right = 596.0
-offset_bottom = 616.0
+offset_bottom = 526.0
 text = "Damage player"
 
 [node name="HealPlayerButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 12.0
-offset_top = 624.0
+offset_top = 534.0
 offset_right = 198.0
-offset_bottom = 656.0
+offset_bottom = 566.0
 text = "Heal player"
 
 [node name="ReduceHungerEnergyButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 210.0
-offset_top = 624.0
+offset_top = 534.0
 offset_right = 396.0
-offset_bottom = 656.0
+offset_bottom = 566.0
 text = "Reduce h/energy"
 
 [node name="RestoreHungerEnergyButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 408.0
-offset_top = 624.0
+offset_top = 534.0
 offset_right = 596.0
-offset_bottom = 656.0
+offset_bottom = 566.0
 text = "Restore h/energy"

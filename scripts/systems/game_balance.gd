@@ -110,7 +110,15 @@ const ECOSYSTEM := {
 	"initial_average_aggression": 0.15,
 	"max_omnivore_resilience": 0.85,
 	"grazer_meat_diet_shift_ratio": 0.65,
-	"grazer_scavenger_diet_shift_ratio": 0.35
+	"grazer_scavenger_diet_shift_ratio": 0.35,
+	"debug_plant_biomass_delta": 25.0,
+	"debug_small_prey_population_delta": 3.0,
+	"debug_grazer_population_delta": 2.0,
+	"debug_forced_food_stress_margin": 5.0,
+	"debug_forced_niche_plant_diet": 0.58,
+	"debug_forced_niche_meat_diet": 0.28,
+	"debug_forced_niche_scavenger_diet": 0.14,
+	"debug_min_population_floor": 1.0
 }
 
 const DEBUG_PLAYER_DAMAGE_AMOUNT := 25.0
