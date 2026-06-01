@@ -1,583 +1,462 @@
-Darwinian Ecosystem Prototype
-Zadania do GitHub Issues dla prototypu ekosystemu i ewolucji
-
-Cel milestone'u
-Dodać pierwszy działający model ekosystemu, w którym biom ma ograniczoną roślinność, zwierzęta mają głód i preferencje żywieniowe, a średni gatunek roślinożerny może stopniowo przesuwać się w stronę wszystkożerności pod presją braku pożywienia.
-Założenie produkcyjne: obecny prototyp ma już fundamenty takie jak World, biomy, EvolutionDirector, DayNightSystem, SaveSystem, HUD, debug panel, crafting, Varnaki i EventBus. Ekosystem powinien być dokładany jako nowy moduł, a nie jako przebudowa całej gry.
-Proponowane etykiety
-Główne etykiety
-type: feature
-type: refactor
-type: balancing
-type: debug
-type: save-load
-type: documentation
-Obszary systemu
-area: ecosystem
-area: world
-area: creatures
-area: ai
-area: evolution
-area: ui
-area: save-system
-area: data
-Priorytety
-priority: high
-priority: medium
-priority: low
-Etapy
-milestone: darwinian-ecosystem
-stage: foundation
-stage: simulation
-stage: polish
-
-Issue 1: Add EcosystemDirector system  [type: feature | area: ecosystem | area: world | priority: high | stage: foundation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: ecosystem, area: world, priority: high, stage: foundation, milestone: darwinian-ecosystem
-
-
+Zadania GitHub Issues
+Issue 1: [WORLD] Expand world size for ecosystem gameplay
+Labels: type: feature, area: world, area: ecosystem, priority: high, stage: foundation
 Cel
-Dodać nowy system EcosystemDirector, który będzie centralnym modułem zarządzającym stanem ekosystemu na poziomie biomów. System nie powinien jeszcze implementować pełnej ewolucji; ma przechowywać i aktualizować podstawowe dane środowiskowe.
+Powiększyć grywalną mapę, aby zwierzęta, roślinność, Varnaki i przyszłe zależności ekosystemu miały więcej przestrzeni do działania.
 Zakres
-Utworzyć scripts/systems/ecosystem_director.gd.
-Dodać node EcosystemDirector do scenes/main.tscn.
-Podłączyć go w GameManager podobnie jak EvolutionDirector, DayNightSystem, World, SaveSystem i HUD.
-Dane zarządzane przez system
-biome_id
-plant_biomass
-max_plant_biomass
-plant_regrowth_rate
-overgrazing_pressure
-small_prey_population
-grazer_population
-predator_pressure
-Wymagania
-EcosystemDirector ma metodę inicjalizacji biomów na podstawie WorldConfig.
-System aktualizuje dane w ticku symulacyjnym, np. raz na kilka sekund, nie co klatkę.
-System emituje zdarzenia przez EventBus, gdy biomasa roślinności spada poniżej istotnych progów.
-Na tym etapie dane mogą być tylko liczbowe, bez widocznego wpływu na świat.
+world_bounds
+resource spawn ranges
+varnak spawn points
+biome polygons
+safe spawn distances
 Acceptance Criteria
-Po uruchomieniu gry EcosystemDirector istnieje w głównej scenie.
-Każdy biom ma własny stan ekosystemu.
-Dane biomów można odczytać z debug logów lub tymczasowego printa.
-System nie powoduje błędów przy starcie gry.
-System jest gotowy do podłączenia do debug panelu i save/load.
-
-Issue 2: Add biome plant biomass model  [type: feature | area: ecosystem | area: world | priority: high | stage: foundation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: ecosystem, area: world, priority: high, stage: foundation, milestone: darwinian-ecosystem
-
-
+Świat jest większy niż obecnie.
+Gracz ma więcej przestrzeni do eksploracji.
+Varnaki i zwierzęta nie są zbyt ciasno rozmieszczone.
+Minimap i full map działają poprawnie po zmianie rozmiaru świata.
+World bounds nadal ograniczają ruch gracza.
+Issue 2: [BALANCE] Add living world constants to GameBalance
+Labels: type: balancing, area: world, area: ecosystem, area: data, priority: high, stage: foundation
 Cel
-Dodać model biomasy roślinnej dla każdego biomu. Biomasa ma reprezentować abstrakcyjny poziom dostępnej roślinności, z której korzystają roślinożercy. Nie symulujemy każdej rośliny osobno.
+Dodać wartości balansujące dla większego świata, roślinności, ruchu zwierząt, łuku, Varnak hunting, landmarków i odrastania zasobów do GameBalance.
 Zakres
-Każdy biom przechowuje plant_biomass, max_plant_biomass, plant_regrowth_rate, plant_consumption_pressure i overgrazing_level.
-Plant_biomass odnawia się z czasem do max_plant_biomass.
-Populacje roślinożerne zmniejszają plant_biomass.
-Progi statusu biomu
-70-100%: healthy
-30-69%: stressed
-10-29%: depleted
-0-9%: collapsing
-Eventy
-ecosystem_biome_stressed
-ecosystem_biome_depleted
-ecosystem_biome_collapsing
-Wymagania
-Dodać metodę aktualizacji biomasy w EcosystemDirector.
-Dodać helper do pobierania aktualnego statusu biomu.
-Przy niskiej biomasie wysłać event przez EventBus.
+vegetation density
+grass food value
+bush food value
+animal hunger thresholds
+animal food search radius
+varnak hunger thresholds
+bow damage
+bow cooldown
+arrow speed
+arrow lifetime
+pond vegetation bonus
+landmark spawn values
+resource regrowth stages
+days per growth stage
+yield by growth stage
+grass regrowth time
+bush regrowth time
+tree regrowth time
 Acceptance Criteria
-Biomasa odnawia się z czasem.
-Biomasa maleje, gdy istnieje populacja roślinożerców.
-Biom zmienia status zależnie od poziomu biomasy.
-Eventy są emitowane przy zmianie statusu.
-System działa niezależnie od widocznych resource node’ów.
-
-Issue 3: Add ecosystem state to debug panel  [type: debug | area: ecosystem | area: ui | priority: high | stage: foundation | milestone: darwinian-ecosystem]
-Labels
-type: debug, area: ecosystem, area: ui, priority: high, stage: foundation, milestone: darwinian-ecosystem
-
-
+Nowe systemy używają wartości z GameBalance.
+Brak magic numbers w AI, łuku, generatorze roślinności i odrastaniu zasobów.
+Balans można łatwo zmieniać z jednego miejsca.
+Wartości są opisane komentarzami.
+Issue 3: [DEBUG] Organize debug panel with tabs and action buttons
+Labels: type: debug, area: ui, area: debug, area: ecosystem, priority: high, stage: foundation
 Cel
-Rozszerzyć debug panel o podgląd stanu ekosystemu. Bez tego trudno będzie ocenić, czy symulacja działa poprawnie.
-Zakres
-W DebugPanel dodać sekcję Ecosystem.
-Dla każdego biomu pokazywać nazwę, biomasę roślin, status, populacje SmallPrey/Grazer, predator pressure i overgrazing level.
-Przykład widoku
+Uporządkować debug panel, aby ograniczyć chaos informacyjny po dodaniu ekosystemu, większej mapy, roślinności, głodu zwierząt, Varnak hunting, landmarków, łuku i odrastania zasobów.
+Zakładki
+Overview
+Player
+World
 Ecosystem
-
-Westwood
-Plant biomass: 82%
-Status: healthy
-Small prey: 14
-Grazers: 6
-Predator pressure: 0.2
-Overgrazing: 0.1
-Wymagania
-HUD/debug panel powinien dostać referencję do EcosystemDirector.
-Dane powinny odświeżać się tak jak inne dane debugowe.
-Brak EcosystemDirector nie powinien crashować HUD-a.
+Creatures
+Evolution
+Combat
+Events
+Tools
+Overview
+Day / time / phase
+Player health / hunger / stamina / rest
+Current biome
+Live Varnaks
+Small prey population total
+Grazer population total
+Current ecosystem warnings
+Current generation
+Tools
+Add wood / stone / fiber / meat / torch
+Give spear / give bow
+Spawn aggressive Varnak / SmallPrey / Grazer
+Reduce / restore plant biomass
+Force ecosystem tick
+Force grazer food stress
+Force niche shift check
+Advance resource growth by 1 day
+Force full vegetation regrowth
+Reset resource growth
+Teleport out-of-bounds creatures back into world
 Acceptance Criteria
-Debug panel pokazuje stan ekosystemu.
-Widać osobne dane dla każdego biomu.
-Zmiany biomasy są widoczne w czasie.
-Panel działa razem z istniejącymi informacjami o graczu, Varnakach i dniu/nocy.
-
-Issue 4: Add small prey creature species  [type: feature | area: creatures | area: ai | area: ecosystem | priority: high | stage: simulation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: creatures, area: ai, area: ecosystem, priority: high, stage: simulation, milestone: darwinian-ecosystem
-
-
+Debug panel ma zakładki albo zwijane sekcje.
+Dane gracza, świata, ekosystemu, stworzeń i ewolucji są rozdzielone.
+Przyciski debugowe są przeniesione do Tools.
+Overview pokazuje tylko najważniejsze informacje.
+Panel nadal obsługuje istniejące funkcje debugowe.
+Brak któregoś systemu nie powoduje crasha.
+Issue 4: [BUG] Prevent animals from leaving world bounds
+Labels: type: bug, area: creatures, area: ai, area: world, priority: critical, stage: foundation
+Problem
+Zwierzęta wychodzą poza obszar gry. To psuje ekosystem, liczniki populacji i testowanie AI.
 Cel
-Dodać pierwszy gatunek małej ofiary, który będzie podstawą łańcucha pokarmowego. Gatunek ma jeść roślinność, uciekać przed graczem i większymi zwierzętami oraz być pożywieniem dla Varnaków i przyszłych drapieżników.
+Wszystkie stworzenia ekosystemu i Varnaki muszą pozostawać w granicach świata.
 Zakres
-Utworzyć scenes/creatures/small_prey.tscn.
-Utworzyć scripts/creatures/small_prey.gd.
-Utworzyć data/species/small_prey.json.
-AI states
-IDLE
-WANDER
-EAT
-FLEE
-DEAD
-Minimalne cechy
-health
-speed
-fear
-hunger
-plant_consumption_rate
-reproduction_value
-Eventy
-small_prey_killed_by_player
-small_prey_killed_by_varnak
-small_prey_consumed_plants
-Wymagania
-SmallPrey losowo wędruje po biomie.
-Okresowo je roślinność z biomu.
-Ucieka, gdy gracz lub Varnak jest blisko.
-Może zginąć po otrzymaniu obrażeń.
-Informuje EcosystemDirector o śmierci.
+SmallPrey
+Grazer
+Varnak
+future ecosystem creatures
+Proponowane rozwiązanie
+AI nie powinno wybierać celu poza mapą.
+Ruch powinien być clampowany do world bounds.
+Przy granicy zwierzę powinno wybrać nowy kierunek do środka mapy.
+Food targety poza mapą muszą być ignorowane.
+Flee direction nie może wypchnąć zwierzęcia poza mapę na stałe.
+Debug
+Dodać creatures_out_of_bounds_count.
+Opcjonalnie dodać przycisk: Teleport out-of-bounds creatures back into world.
 Acceptance Criteria
-SmallPrey pojawia się w świecie.
-SmallPrey porusza się samodzielnie.
-SmallPrey ucieka przed graczem.
-SmallPrey ucieka przed Varnakiem.
-SmallPrey może zostać zabity.
-Śmierć SmallPrey wpływa na populację w EcosystemDirector.
-
-Issue 5: Spawn small prey based on biome ecosystem state  [type: feature | area: world | area: ecosystem | area: creatures | priority: high | stage: simulation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: world, area: ecosystem, area: creatures, priority: high, stage: simulation, milestone: darwinian-ecosystem
-
-
+SmallPrey, Grazer i Varnak nie wychodzą poza obszar gry.
+Zwierzęta przy granicy mapy zawracają albo wybierają nowy cel.
+AI nie generuje celów ruchu poza mapą.
+Po 5-10 minutach testu żadne stworzenie nie znajduje się poza world bounds.
+Debug panel pokazuje creatures_out_of_bounds_count = 0.
+Issue 5: [WORLD] Replace sleep resource respawn with gradual multi-day regrowth
+Labels: type: feature, area: world, area: ecosystem, area: resources, priority: high, stage: simulation
 Cel
-Połączyć widoczne zwierzęta z abstrakcyjnym stanem populacji biomu. EcosystemDirector trzyma populację w tle, a World spawnuje reprezentantów tej populacji w pobliżu gracza lub w aktywnych biomach.
-Zakres
-Dodać do World obsługę spawnowania SmallPrey.
-Spawn zależy od small_prey_population, plant_biomass, danger biomu, odległości od gracza i max visible prey count.
-Wymagania
-Więcej SmallPrey w biomach z wysoką biomasą.
-Mniej SmallPrey w biomach wyeksploatowanych.
-SmallPrey nie spawnuje się bezpośrednio na graczu.
-Liczba widocznych SmallPrey jest limitowana.
+Usunąć natychmiastowy respawn zasobów po śnie i zastąpić go stopniowym odrastaniem zasobów w czasie.
+Problem
+Sen nie powinien magicznie resetować świata. Powinien tylko przesuwać czas, a zasoby powinny odrastać zgodnie z upływem dni.
+Model wzrostu
+growth_stage
+max_growth_stage
+days_to_next_stage
+growth_progress
+resource_yield_by_stage
+can_be_harvested
+biome_id
+position
+Przykład drzewa
+Stage 0: stump / empty spot
+Stage 1: sapling
+Stage 2: medium tree
+Stage 3: mature tree
+
+Day 0: tree harvested
+Day 1: sapling
+Day 2: medium tree
+Day 3: mature tree
+Yield według etapu
+sapling: 1 wood
+medium tree: 2 wood
+mature tree: 4 wood
+Sen
+Sen nie respawnuje zasobów bezpośrednio.
+Sen przesuwa czas do rana.
+Sen aktualizuje growth_progress zasobów.
+Zasoby przechodzą do kolejnych etapów, jeśli minął odpowiedni czas.
+Save/load
+Zapisywać resource kind, position, biome_id, growth_stage, growth_progress, days_since_harvested, is_harvested.
+Po wczytaniu gry zasoby powinny wrócić w tym samym etapie wzrostu.
 Acceptance Criteria
-SmallPrey spawnuje się w świecie.
-Spawn zależy od danych biomu.
-W biomach z niską biomasą pojawia się mniej SmallPrey.
-System nie tworzy nieskończonej liczby node’ów.
-Po śmierci SmallPrey populacja biomu jest aktualizowana.
-
-Issue 6: Add adaptive grazer creature species  [type: feature | area: creatures | area: ai | area: evolution | area: ecosystem | priority: high | stage: simulation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: creatures, area: ai, area: evolution, area: ecosystem, priority: high, stage: simulation, milestone: darwinian-ecosystem
-
-
+Zasoby nie respawnują natychmiast po śnie.
+Drzewo odrasta etapami przez około 3 dni.
+Małe, średnie i duże drzewo mają różny wygląd albo przynajmniej różny debug/state.
+Ilość surowca zależy od etapu wzrostu.
+Krzaki i trawy odrastają szybciej niż drzewa.
+Stan wzrostu zapisuje się i odczytuje przez SaveSystem.
+System współpracuje z biomasą ekosystemu.
+Issue 6: [WORLD] Add landmark generation to WorldConfig
+Labels: type: feature, area: world, area: terrain, priority: medium, stage: foundation
 Cel
-Dodać średnie zwierzę roślinożerne, które będzie pierwszym gatunkiem zdolnym do zmiany niszy żywieniowej. Na początku działa jak roślinożerca, ale przy niedoborze roślinności zaczyna korzystać z alternatywnego pożywienia.
-Zakres
-Utworzyć scenes/creatures/grazer.tscn.
-Utworzyć scripts/creatures/grazer.gd.
-Utworzyć data/species/grazer.json.
-AI states
-IDLE
-WANDER
-EAT_PLANTS
-SEEK_FOOD
-FLEE
-SCAVENGE
-HUNT_SMALL_PREY
-DEAD
-Cechy
-health
-speed
-fear
+Dodać do WorldConfig konfigurację punktów krajobrazowych, takich jak wzgórza i stawy.
+Struktura danych
+landmarks = [
+  {
+    id,
+    type,
+    position,
+    radius,
+    biome_id,
+    gameplay_tags
+  }
+]
+Typy
+hill
+pond
+Acceptance Criteria
+WorldConfig zawiera definicje landmarków.
+World potrafi utworzyć wzgórza i stawy na podstawie konfiguracji.
+Landmarki są widoczne w świecie.
+Landmarki są gotowe do rozszerzenia o wpływ na ekosystem.
+Issue 7: [WORLD] Add hills as terrain landmarks
+Labels: type: feature, area: world, area: terrain, priority: medium, stage: polish
+Cel
+Dodać wzgórza jako punkty krajobrazowe i element nawigacyjny.
+Mechanika pierwszej wersji
+Wizualny obszar.
+Lekka przeszkoda albo obszar z innym ruchem.
+Miejsce z ograniczonym spawnem roślin.
+Potencjalne miejsce lepszej widoczności w przyszłości.
+Acceptance Criteria
+Na mapie pojawiają się wzgórza.
+Wzgórza są widoczne wizualnie.
+Wzgórza nie psują pathingu/ruchu.
+Wzgórza mogą być użyte jako punkty orientacyjne.
+Issue 8: [WORLD] Add ponds as terrain landmarks and water sources
+Labels: type: feature, area: world, area: terrain, area: ecosystem, priority: medium, stage: polish
+Cel
+Dodać stawy jako punkty krajobrazowe oraz potencjalne źródła wody dla przyszłych systemów ekosystemu.
+Mechanika pierwszej wersji
+Staw może blokować ruch albo spowalniać wejście.
+Staw może zwiększać lokalną ilość roślinności.
+Staw może zwiększać spawn traw i krzaków wokół.
+W przyszłości staw może przyciągać zwierzęta jako źródło wody.
+Acceptance Criteria
+Na mapie pojawiają się stawy.
+Stawy są widoczne wizualnie.
+Gracz i zwierzęta poprawnie reagują na kolizję lub obszar.
+Wokół stawów może pojawiać się więcej roślinności.
+Stawy są gotowe do późniejszego wykorzystania jako źródło wody.
+Issue 9: [WORLD] Increase vegetation density with grasses and bushes
+Labels: type: feature, area: world, area: ecosystem, area: vegetation, priority: high, stage: simulation
+Cel
+Dodać więcej roślinności do świata, w tym trawy i krzaki, które będą pełniły rolę pożywienia dla roślinożerców.
+Nowe typy roślinności
+grass_patch
+small_bush
+berry_bush
+dense_grass
+Wymagania
+Roślinność powinna mieć wartość pokarmową dla roślinożerców.
+Roślinność powinna być przypisana do biomu.
+Nie każda roślina musi być interaktywna dla gracza.
+Nowe typy roślinności muszą wspierać growth_stage albo growth_progress.
+Trawy i krzaki mogą mieć krótszy cykl odrastania niż drzewa.
+Acceptance Criteria
+Na mapie pojawia się więcej traw i krzaków.
+Roślinożercy mogą traktować roślinność jako pożywienie.
+Roślinność jest zagęszczona zależnie od biomu.
+Zwiększenie roślinności nie psuje czytelności mapy.
+Roślinność może zostać podpięta pod odrastanie i wyjadanie.
+Issue 10: [ECOSYSTEM] Add edible vegetation nodes for herbivores
+Labels: type: feature, area: ecosystem, area: creatures, area: vegetation, priority: high, stage: simulation
+Cel
+Dodać roślinność, którą roślinożercy mogą wykrywać, wybierać jako cel i zjadać.
+Właściwości roślin
+food_value
+regrowth_time
+is_edible_by_herbivores
+biome_id
+growth_stage
+growth_progress
+Mechanika
+Zwierzę z głodem wyszukuje najbliższe jadalne rośliny.
+Po zjedzeniu roślina może zniknąć, zmniejszyć etap wzrostu albo przejść w stan wyjedzony.
+Zjadanie roślin wpływa na biomasę biomu.
+Roślinność nie respawnuje natychmiast po śnie.
+Acceptance Criteria
+Roślinożerca potrafi znaleźć jadalną roślinę.
+Roślinożerca może podejść do rośliny i ją zjeść.
+Zjedzenie rośliny zmniejsza głód zwierzęcia.
+Zjedzenie rośliny wpływa na stan biomu.
+Roślina może odrosnąć albo zostać odtworzona przez system regrowth.
+Issue 11: [ECOSYSTEM] Make vegetation denser around ponds
+Labels: type: feature, area: ecosystem, area: world, area: vegetation, priority: medium, stage: simulation
+Cel
+Sprawić, żeby stawy wpływały na lokalne zagęszczenie roślinności i tworzyły naturalne punkty koncentracji życia.
+Reguły
+W pobliżu stawów pojawia się więcej traw i krzewów.
+Zwierzęta roślinożerne mogą częściej szukać jedzenia w takich miejscach.
+W przyszłości stawy mogą przyciągać zwierzęta również jako źródła wody.
+Acceptance Criteria
+Wokół stawów pojawia się więcej roślinności.
+Roślinność przy stawach jest widocznie gęstsza niż w suchych miejscach.
+Zwierzęta mogą wykorzystać tę roślinność jako pożywienie.
+System nie tworzy zbyt dużego zagęszczenia nodeów.
+Issue 12: [AI] Add free roaming movement for ecosystem animals
+Labels: type: feature, area: ai, area: creatures, area: ecosystem, priority: high, stage: simulation
+Cel
+Zwierzęta powinny poruszać się swobodnie po mapie, a ich ruch powinien wynikać ze stanu: głodu, strachu, poszukiwania pożywienia, ucieczki lub eksploracji.
+Zachowania
+wander
+seek_food
+flee_threat
+avoid_obstacle
+return_to_biome
+idle
+Wymagania
+Zwierzęta swobodnie przemieszczają się po biomie.
+Mogą przekraczać granice biomów, ale preferują swój aktualny biom.
+Nie uciekają poza mapę.
+Unikają prostych przeszkód, np. ścian, stawów lub dużych wzgórz.
+Acceptance Criteria
+Zwierzęta poruszają się po mapie bez ręcznego sterowania.
+Zwierzęta nie opuszczają world bounds.
+Zwierzęta potrafią zmienić kierunek ruchu.
+Zwierzęta potrafią przejść w tryb szukania pożywienia.
+Zwierzęta potrafią uciekać przed zagrożeniem.
+Issue 13: [AI] Make hunger drive animal food seeking behavior
+Labels: type: feature, area: ai, area: ecosystem, area: creatures, priority: high, stage: simulation
+Cel
+Sprawić, aby spadający głód realnie wpływał na zachowanie zwierząt. Zwierzęta powinny kierować się w stronę pożywienia, gdy zaczynają być głodne.
+Progi głodu
+comfortable
+hungry
+starving
+desperate
+Zachowanie
+comfortable: zwierzę głównie wędruje.
+hungry: zwierzę szuka preferowanego jedzenia.
+starving: zwierzę podejmuje większe ryzyko.
+desperate: zwierzę może zmienić strategię, np. roślinożerca może zjeść padlinę albo zaatakować mniejszą ofiarę.
+Acceptance Criteria
+Głód wzrasta z czasem.
+Zwierzęta zmieniają zachowanie przy wysokim głodzie.
+Zwierzęta potrafią znaleźć pożywienie.
+Zwierzęta kierują się w stronę pożywienia.
+Po jedzeniu głód spada.
+Issue 14: [AI] Make Varnaks hunt when hungry or when player is nearby
+Labels: type: feature, area: ai, area: creatures, area: ecosystem, area: evolution, priority: high, stage: simulation
+Cel
+Varnaki powinny polować jako część ekosystemu, a nie tylko jako przeciwnicy gracza.
+Warunki ataku
+Varnak jest głodny.
+W pobliżu jest ofiara.
+Gracz wejdzie mu w drogę.
+Gracz znajdzie się w zasięgu wykrywania.
+Reguły wyboru celu
+hunger level
+distance to player
+distance to prey
 aggression
-hunger
-plant_diet
-meat_diet
-scavenger_diet
-size
-reproduction_rate
-Początkowy profil
-plant_diet = 0.85
-meat_diet = 0.05
-scavenger_diet = 0.10
-aggression = 0.15
-fear = 0.70
-Wymagania
-Jeśli biom ma dużo roślinności, Grazer je rośliny.
-Jeśli biomasa jest niska, Grazer szuka alternatyw.
-Jeśli głód jest wysoki, Grazer może jeść padlinę.
-Jeśli głód jest bardzo wysoki, Grazer może próbować polować na SmallPrey.
-Grazer nadal powinien bać się Varnaków i gracza, chyba że jego agresja w przyszłości wzrośnie.
+night_activity
+current threat
+fire/torch avoidance
 Acceptance Criteria
-Grazer pojawia się w świecie.
-Grazer normalnie je roślinność.
-Grazer reaguje na niski poziom biomasy.
-Grazer może przejść w tryb szukania alternatywnego pożywienia.
-Grazer może zaatakować SmallPrey w warunkach głodu.
-Zachowanie Grazera jest widoczne w debug panelu lub logach.
-
-Issue 7: Add hunger and diet system for ecosystem creatures  [type: feature | area: creatures | area: ai | area: ecosystem | priority: high | stage: simulation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: creatures, area: ai, area: ecosystem, priority: high, stage: simulation, milestone: darwinian-ecosystem
-
-
+Varnak ma głód albo uproszczony poziom potrzeby polowania.
+Varnak może polować na zwierzęta ekosystemu.
+Varnak nadal potrafi atakować gracza.
+Varnak reaguje na gracza, jeśli gracz znajdzie się na jego drodze.
+Polowanie Varnaka wpływa na populację ofiar.
+Issue 15: [CREATURES] Make killed animals drop meat
+Labels: type: feature, area: creatures, area: ecosystem, area: resources, priority: high, stage: simulation
 Cel
-Dodać wspólny model głodu i preferencji żywieniowych dla stworzeń ekosystemu. System ma być prosty i możliwy do rozszerzenia na Varnaki oraz inne gatunki.
+Sprawić, aby zwierzęta po śmierci zostawiały mięso, które gracz może zebrać.
 Zakres
-Dodać hunger, max_hunger, hunger_growth_rate, energy, diet preferences i food target selection.
-Każdy gatunek może posiadać plant_diet, meat_diet i scavenger_diet.
-Wymagania
-Głód rośnie z czasem.
-Jedzenie obniża głód.
-Wysoki głód zwiększa skłonność do ryzykownego zachowania.
-Diet traits wpływają na wybór jedzenia.
-Rozważyć komponenty hunger_component.gd i diet_component.gd albo prosty zestaw współdzielonych metod.
+SmallPrey
+Grazer
+Varnak - opcjonalnie do ujednolicenia z obecnym systemem nagród
+Mechanika
+Po śmierci zwierzę zostawia meat_drop w miejscu śmierci.
+Meat drop można zebrać przez E.
+Zebranie dodaje meat do inventory gracza.
+Drop znika po zebraniu.
+Opcjonalnie drop znika po kilku dniach lub po pewnym czasie.
+Ilość mięsa
+SmallPrey: 1 meat
+Grazer: 2-3 meat
+Varnak: 2-4 meat
+Eventy
+animal_dropped_meat
+meat_collected
 Acceptance Criteria
-SmallPrey ma działający głód.
-Grazer ma działający głód.
-Głód wpływa na decyzje AI.
-Diet traits wpływają na wybór jedzenia.
-Głód i dieta są widoczne w debug danych stworzenia.
-
-Issue 8: Add grazer niche shift from herbivore to omnivore  [type: feature | area: evolution | area: ecosystem | area: ai | priority: high | stage: simulation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: evolution, area: ecosystem, area: ai, priority: high, stage: simulation, milestone: darwinian-ecosystem
-
-
+Zabity SmallPrey zostawia mięso.
+Zabity Grazer zostawia mięso.
+Mięso można zebrać przez interakcję.
+Zebranie mięsa dodaje meat do inventory.
+Ilość mięsa zależy od typu zwierzęcia.
+Loot drop nie pojawia się poza world bounds.
+Wartości lootu są konfigurowalne w GameBalance.
+System nie duplikuje mięsa przy wielokrotnym wywołaniu śmierci tego samego zwierzęcia.
+Issue 16: [COMBAT] Add ranged projectile damage handling
+Labels: type: feature, area: combat, area: player, area: creatures, priority: high, stage: simulation
 Cel
-Dodać pierwszy model zmiany niszy ekologicznej. Grazer zaczyna jako roślinożerca, ale gdy przez dłuższy czas brakuje roślinności, populacja stopniowo przesuwa się w stronę wszystkożerności.
-Zakres
-W EcosystemDirector śledzić average_plant_diet, average_meat_diet, average_scavenger_diet, average_aggression, current_niche i generations_under_food_stress.
-Na tym etapie obsłużyć zmianę HERBIVORE -> OMNIVORE.
-Nisze
-HERBIVORE
-OMNIVORE
-PREDATOR
-Przykładowy próg
-if average_meat_diet + average_scavenger_diet > 0.45:
-    current_niche = OMNIVORE
-Wymagania
-Jeśli przez kilka cykli plant_biomass < 30%, grazer_population > 0, small_prey_population > 0 i Grazery przeżywają dzięki nie-roślinnemu jedzeniu, to plant_diet spada, meat_diet/scavenger_diet rosną, a aggression lekko rośnie.
-Po przekroczeniu progu current_niche zmienia się na OMNIVORE.
-Emitować event grazer_niche_shifted z biome_id, old_niche, new_niche i średnimi cechami.
+Dodać podstawową obsługę obrażeń od pocisków, potrzebną dla łuku i przyszłych broni dystansowych.
+Pliki
+scenes/projectiles/arrow_projectile.tscn
+scripts/projectiles/arrow_projectile.gd
+Mechanika
+Pocisk porusza się w linii prostej.
+Pocisk ma maksymalny zasięg albo czas życia.
+Pocisk znika po trafieniu.
+Pocisk zadaje obrażenia obiektom z metodą take_damage.
+Pocisk nie rani gracza, jeśli został wystrzelony przez gracza.
 Acceptance Criteria
-Grazer startuje jako HERBIVORE.
-Niski poziom roślinności przez dłuższy czas wpływa na cechy populacji.
-Populacja może zmienić niszę na OMNIVORE.
-Zmiana niszy emituje event.
-Debug panel pokazuje aktualną niszę Grazera.
-
-Issue 9: Allow Varnaks to hunt ecosystem creatures  [type: feature | area: creatures | area: ai | area: ecosystem | area: evolution | priority: medium | stage: simulation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: creatures, area: ai, area: ecosystem, area: evolution, priority: medium, stage: simulation, milestone: darwinian-ecosystem
-
-
+Arrow projectile pojawia się po strzale z łuku.
+Arrow projectile porusza się w kierunku kursora.
+Arrow projectile znika po trafieniu.
+Arrow projectile zadaje obrażenia Varnakowi.
+Arrow projectile zadaje obrażenia zwierzętom ekosystemu.
+Arrow projectile nie zostaje w świecie bez końca.
+Issue 17: [WEAPON] Add craftable bow with infinite ammo
+Labels: type: feature, area: player, area: combat, area: crafting, priority: high, stage: simulation
 Cel
-Rozszerzyć zachowanie Varnaków tak, aby nie istniały wyłącznie jako przeciwnik gracza. Varnaki powinny móc polować na SmallPrey i Grazery, dzięki czemu staną się częścią ekosystemu.
+Dodać nową broń dla gracza: łuk. Na tym etapie łuk powinien mieć nieskończoną amunicję, aby szybciej przetestować walkę dystansową i polowanie.
 Zakres
-Zmodyfikować scripts/creatures/varnak.gd.
-Dodać wybór celu między player, small_prey i grazer.
-Opcjonalnie dodać uproszczony głód Varnaka.
-Wymagania
-Varnak preferuje gracza, jeśli gracz jest blisko, Varnak jest agresywny, już ściga gracza albo jest noc i ma wysoką aktywność nocną.
-Varnak poluje na zwierzęta, jeśli gracz jest daleko, Varnak jest głodny, w pobliżu jest łatwa ofiara albo biom ma wystarczającą populację ofiar.
-Emitować varnak_hunted_small_prey i varnak_hunted_grazer.
+bow crafting recipe
+has_bow flag
+ranged attack input
+arrow projectile
+basic damage
+cooldown
+HUD/skill bar status
+Crafting - propozycja
+wood: 3
+fiber: 4
+bone: 1
+Mechanika
+Gracz może wytworzyć łuk.
+Po wytworzeniu łuk zostaje jako wyposażenie.
+Strzał leci w kierunku kursora.
+Amunicja jest nieskończona w tym etapie.
+Łuk zadaje mniejsze obrażenia niż włócznia, ale działa z dystansu.
+Strzał ma cooldown.
 Acceptance Criteria
-Varnak potrafi wykryć SmallPrey.
-Varnak potrafi wykryć Grazera.
-Varnak może zabić stworzenie ekosystemu.
-Zabicie stworzenia zmniejsza populację odpowiedniego biomu.
-Varnak nadal działa poprawnie jako zagrożenie dla gracza.
-
-Issue 10: Add ecosystem population simulation per biome  [type: feature | area: ecosystem | area: world | priority: high | stage: simulation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: ecosystem, area: world, priority: high, stage: simulation, milestone: darwinian-ecosystem
-
-
+Gracz może stworzyć łuk.
+HUD pokazuje posiadanie łuku.
+Gracz może strzelać z łuku.
+Pocisk trafia Varnaki lub zwierzęta.
+Trafienie zadaje obrażenia.
+Amunicja nie jest zużywana.
+Wartości łuku są w GameBalance.
+Issue 18: [WORLD] Smooth biome transitions with gradient or mesh blending
+Labels: type: feature, area: world, area: biome, area: visuals, priority: medium, stage: polish
 Cel
-Dodać abstrakcyjną symulację populacji na poziomie biomów. Widoczne obiekty w świecie są tylko reprezentacją populacji; prawdziwy stan ekosystemu istnieje w EcosystemDirector.
-Zakres
-Dla każdego biomu symulować small_prey_population, grazer_population, varnak_ecosystem_pressure, plant_biomass i food_stress.
-Wymagania
-SmallPrey rośnie liczebnie, jeśli jest dużo roślinności; maleje przy presji drapieżników albo krytycznie niskiej biomasie.
-Grazer rośnie liczebnie przy wystarczającej roślinności; maleje przy braku roślinności; może przetrwać lepiej przy wyższej wszystkożerności.
-Varnak pressure zależy od liczby Varnaków w biomie i wpływa negatywnie na SmallPrey oraz Grazery.
+Poprawić sposób przechodzenia między biomami. Dla większej mapy i bardziej naturalnego świata przejścia powinny być łagodniejsze.
+Techniki do rozważenia
+gradient blending
+mesh-based biome overlay
+noise-based transition zone
+soft polygon edges
 Acceptance Criteria
-Populacje zmieniają się w czasie.
-Roślinność wpływa na populacje roślinożerców.
-Drapieżnictwo wpływa na populacje ofiar.
-Populacje nie spadają poniżej zera.
-Debug panel pokazuje zmiany populacji.
-
-Issue 11: Connect resource gathering to biome biomass pressure  [type: feature | area: ecosystem | area: world | priority: medium | stage: simulation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: ecosystem, area: world, priority: medium, stage: simulation, milestone: darwinian-ecosystem
-
-
+Przejścia między biomami wyglądają łagodniej.
+Nadal można ustalić, w którym biomie znajduje się gracz.
+Spawn zasobów i zwierząt nadal zależy od biomu.
+Full map pokazuje biomy w czytelny sposób.
+Issue 19: [MAP] Update minimap and full map for larger world and landmarks
+Labels: type: feature, area: ui, area: map, area: world, priority: medium, stage: polish
 Cel
-Sprawić, żeby działania gracza wpływały na stan ekosystemu. Zbieranie zasobów z roślinności powinno obniżać biomasę biomu lub zwiększać presję eksploatacji.
-Zakres
-Zmodyfikować ResourceNode i/lub World, aby przy zebraniu zasobu roślinnego zgłaszać event do EcosystemDirector.
-Dotyczy conifer_tree, leafy_tree, bush i dry_bush. Nie dotyczy rock.
-Wymagania
-Event plant_resource_harvested powinien zawierać resource_type, biome_id, position i biomass_impact.
-Ścięcie drzewa powinno mieć większy wpływ niż zebranie krzewu.
-Zbieranie suchego krzewu może mieć mały albo zerowy wpływ na biomasę.
-Wpływ powinien być konfigurowalny w GameBalance.
+Zaktualizować minimapę i pełną mapę, aby poprawnie obsługiwały większy świat, łagodniejsze biomy oraz nowe punkty krajobrazowe.
+Nowe elementy mapy
+hills
+ponds
+dense vegetation zones
+possibly animal hotspots
 Acceptance Criteria
-Zbieranie drzew obniża biomasę biomu.
-Zbieranie krzewów może obniżać biomasę biomu.
-Skały nie wpływają na biomasę.
-Debug panel pokazuje zmianę po zbieraniu.
-Wpływ gracza na ekosystem jest zauważalny, ale nie zbyt gwałtowny.
-
-Issue 12: Add ecosystem events and HUD messages  [type: feature | area: ecosystem | area: ui | priority: medium | stage: polish | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: ecosystem, area: ui, priority: medium, stage: polish, milestone: darwinian-ecosystem
-
-
-Cel
-Dodać podstawową informację zwrotną dla gracza, że ekosystem reaguje na zmiany. Nie chodzi jeszcze o rozbudowane UI; wystarczą krótkie komunikaty przez istniejący system wiadomości HUD.
-Zakres
-Obsłużyć eventy ecosystem_biome_stressed, ecosystem_biome_depleted, ecosystem_biome_collapsing, grazer_niche_shifted, small_prey_population_declining i grazer_population_declining.
-Przykładowe komunikaty
-Roślinność w Westwood zaczyna się przerzedzać.
-Zwierzęta w South Thicket mają coraz mniej pożywienia.
-Grazery w Redfang Wilds zaczynają polować na mniejsze zwierzęta.
-Populacja małych ofiar w Hearth Meadow spada.
-Wymagania
-Komunikaty nie powinny spamować gracza.
-Ten sam komunikat nie powinien pojawiać się co kilka sekund.
-Dodać cooldown dla wiadomości ekosystemu.
-Acceptance Criteria
-HUD pokazuje komunikaty o ważnych zmianach ekosystemu.
-Komunikaty są czytelne.
-Komunikaty nie spamują.
-Zmiana niszy Grazera jest komunikowana graczowi.
-
-Issue 13: Save and load ecosystem state  [type: save-load | area: ecosystem | area: save-system | priority: high | stage: foundation | milestone: darwinian-ecosystem]
-Labels
-type: save-load, area: ecosystem, area: save-system, priority: high, stage: foundation, milestone: darwinian-ecosystem
-
-
-Cel
-Rozszerzyć SaveSystem, aby zapisywał i odczytywał stan ekosystemu. Ekosystem powinien zostać dodany do procesu zapisu obok gracza, świata, budynków, Varnaków, dnia/nocy i ewolucji.
-Zakres
-Zapisywać biome ecosystem states, plant_biomass, plant status, small_prey_population, grazer_population, grazer average traits, grazer current niche, generations_under_food_stress i ewentualne cooldowny wiadomości.
-Wymagania
-Dodać do EcosystemDirector metody get_save_data() -> Dictionary oraz load_save_data(data: Dictionary) -> void.
-Zmodyfikować SaveSystem, aby wywoływał te metody.
-Brak danych ekosystemu w starszym save’ie nie może crashować gry.
-Acceptance Criteria
-Stan biomasy zapisuje się poprawnie.
-Populacje zapisują się poprawnie.
-Nisza Grazera zapisuje się poprawnie.
-Po wczytaniu gry debug panel pokazuje te same wartości.
-Brak danych ekosystemu w starszym save’ie nie crashuje gry.
-
-Issue 14: Add ecosystem balancing constants to GameBalance  [type: balancing | area: ecosystem | area: data | priority: medium | stage: foundation | milestone: darwinian-ecosystem]
-Labels
-type: balancing, area: ecosystem, area: data, priority: medium, stage: foundation, milestone: darwinian-ecosystem
-
-
-Cel
-Dodać wartości balansujące ekosystem do GameBalance, aby uniknąć magic numbers w kodzie. Ekosystem powinien korzystać z tego samego podejścia co crafting, gracz, pochodnia, ognisko, noc, adaptacja, pułapki i walka.
-Zakres
-Dodać sekcję const ECOSYSTEM = { ... } w GameBalance.
-Przenieść progi, tempa i mnożniki ekosystemu do jednej sekcji konfiguracyjnej.
-Przykładowe wartości
-const ECOSYSTEM = {
-    "simulation_tick_seconds": 5.0,
-    "default_plant_biomass": 100.0,
-    "max_plant_biomass": 100.0,
-    "plant_regrowth_rate": 1.5,
-    "stressed_threshold": 70.0,
-    "depleted_threshold": 30.0,
-    "collapsing_threshold": 10.0,
-    "tree_biomass_impact": 5.0,
-    "bush_biomass_impact": 1.0,
-    "small_prey_plant_consumption": 0.2,
-    "grazer_plant_consumption": 0.6,
-    "grazer_food_stress_threshold": 30.0,
-    "grazer_niche_shift_threshold": 0.45,
-    "diet_shift_rate": 0.02
-}
-Wymagania
-Ekosystem używa wartości z GameBalance.
-Brak magic numbers w głównych metodach symulacji.
-Progi biomasy są łatwe do strojenia.
-Tempo zmiany niszy można łatwo dostosować.
-Acceptance Criteria
-Ekosystem używa wartości z GameBalance.
-Brak magic numbers w głównych metodach symulacji.
-Progi biomasy są łatwe do strojenia.
-Tempo zmiany niszy można łatwo dostosować.
-
-Issue 15: Create species data files for ecosystem creatures  [type: feature | area: data | area: creatures | area: ecosystem | priority: medium | stage: foundation | milestone: darwinian-ecosystem]
-Labels
-type: feature, area: data, area: creatures, area: ecosystem, priority: medium, stage: foundation, milestone: darwinian-ecosystem
-
-
-Cel
-Dodać pliki danych dla nowych gatunków ekosystemu. Nowe gatunki powinny mieć definicje podobne do species_varnak.json, aby łatwiej było je balansować i rozszerzać.
-Zakres
-Utworzyć data/species/small_prey.json.
-Utworzyć data/species/grazer.json.
-Opcjonalne przeniesienie species_varnak.json do data/species/varnak.json zostawić na osobny refactor.
-small_prey.json - przykład
-{
-  "id": "small_prey",
-  "display_name": "Small Prey",
-  "tier": 1,
-  "base_traits": {
-    "health": 20,
-    "speed": 90,
-    "fear": 0.9,
-    "hunger_rate": 0.2,
-    "plant_diet": 1.0,
-    "meat_diet": 0.0,
-    "scavenger_diet": 0.0,
-    "reproduction_rate": 0.6
-  }
-}
-grazer.json - przykład
-{
-  "id": "grazer",
-  "display_name": "Grazer",
-  "tier": 2,
-  "base_traits": {
-    "health": 45,
-    "speed": 70,
-    "fear": 0.7,
-    "aggression": 0.15,
-    "hunger_rate": 0.3,
-    "plant_diet": 0.85,
-    "meat_diet": 0.05,
-    "scavenger_diet": 0.10,
-    "reproduction_rate": 0.35
-  },
-  "evolution": {
-    "mutation_rate": 0.03,
-    "diet_shift_rate": 0.02
-  }
-}
-Wymagania
-Pliki JSON istnieją.
-Dane są ładowane przez odpowiednie systemy lub przygotowane do ładowania.
-Nowe gatunki nie mają hardkodowanych wszystkich wartości w skryptach.
-Format danych jest spójny z kierunkiem dalszego rozwoju.
-Acceptance Criteria
-Pliki JSON istnieją.
-Dane są ładowane przez odpowiednie systemy lub przygotowane do ładowania.
-Nowe gatunki nie mają hardkodowanych wszystkich wartości w skryptach.
-Format danych jest spójny z kierunkiem dalszego rozwoju.
-
-Issue 16: Add ecosystem test controls to debug panel  [type: debug | area: ecosystem | area: ui | priority: medium | stage: polish | milestone: darwinian-ecosystem]
-Labels
-type: debug, area: ecosystem, area: ui, priority: medium, stage: polish, milestone: darwinian-ecosystem
-
-
-Cel
-Dodać przyciski testowe do debug panelu, aby łatwo symulować presję ekologiczną bez czekania wielu cykli.
-Zakres
-Dodać przyciski: Reduce plant biomass, Restore plant biomass, Add small prey, Remove small prey, Add grazers, Remove grazers, Force grazer food stress, Force grazer niche shift check, Advance ecosystem tick.
-Wymagania
-Przyciski powinny działać na aktualnym biomie gracza albo na wybranym biomie.
-Jeśli wybór biomu jest zbyt kosztowny, pierwsza wersja może działać na biomie, w którym znajduje się gracz.
-Akcje powinny być widoczne natychmiast w debug panelu.
-Acceptance Criteria
-Można ręcznie obniżyć biomasę biomu.
-Można ręcznie przywrócić biomasę biomu.
-Można zwiększyć/zmniejszyć populację SmallPrey.
-Można zwiększyć/zmniejszyć populację Grazerów.
-Można wymusić tick symulacji.
-Można szybciej przetestować zmianę niszy Grazera.
-
-Issue 17: Document Darwinian ecosystem prototype rules  [type: documentation | area: ecosystem | priority: medium | stage: polish | milestone: darwinian-ecosystem]
-Labels
-type: documentation, area: ecosystem, priority: medium, stage: polish, milestone: darwinian-ecosystem
-
-
-Cel
-Dodać dokumentację opisującą pierwszy model ekosystemu i ewolucji. Dokumentacja ma pomóc w dalszym rozwoju projektu oraz w tworzeniu kolejnych issues.
-Zakres
-Utworzyć docs/darwinian-ecosystem-prototype.md.
-Wymagania
-Dokument opisuje założenia systemu, poziomy troficzne, biomasę roślinności, SmallPrey, Grazera, Varnaki jako drapieżnika szczytowego, głód, preferencje żywieniowe, zmianę niszy i wpływ gracza.
-W sekcji Not in scope zaznaczyć: brak pełnej genetyki osobników, migracji między biomami, wielu gatunków drapieżników, sezonów, chorób, rozmnażania osobnik po osobniku i pełnego 3D.
-Acceptance Criteria
-Dokument istnieje.
-Opisuje aktualną wersję systemu.
-Wskazuje, co jest poza zakresem.
-Może być używany jako punkt odniesienia dla kolejnych milestone’ów.
-
-Issue 18: Add manual test checklist for ecosystem prototype  [type: documentation | type: debug | area: ecosystem | priority: medium | stage: polish | milestone: darwinian-ecosystem]
-Labels
-type: documentation, type: debug, area: ecosystem, priority: medium, stage: polish, milestone: darwinian-ecosystem
-
-
-Cel
-Dodać checklistę manualnego testowania ekosystemu. Projekt ma już dokumenty testowe dla pochodni i debug panelu, więc ekosystem powinien dostać podobną checklistę.
-Zakres
-Utworzyć docs/ecosystem-manual-test.md.
-Wymagania
-Checklist powinna obejmować: start nowej gry, sprawdzenie biomasy biomów, obniżenie biomasy przez debug panel, obniżenie biomasy przez zbieranie roślin, spawn SmallPrey, zachowanie SmallPrey, spawn Grazera, Grazer jedzący roślinność, Grazer w warunkach głodu, Grazer polujący na SmallPrey, zmiana niszy z HERBIVORE na OMNIVORE, Varnak polujący na SmallPrey/Grazera, save/load ecosystem state.
-Acceptance Criteria
-Plik checklisty istnieje.
-Checklistę da się wykonać ręcznie w grze.
-Testy obejmują główne elementy milestone’u.
-Checklist pokazuje, czy model ekosystemu faktycznie działa.
-
+Minimap działa z większym światem.
+Full map działa z większym światem.
+Wzgórza są widoczne na mapie.
+Stawy są widoczne na mapie.
+Łagodne biomy nadal są czytelne.
+Mapa nie jest przeładowana markerami.
 Sugerowana kolejność realizacji
-Fundament
-Add EcosystemDirector system
-Add ecosystem balancing constants to GameBalance
-Add biome plant biomass model
-Add ecosystem state to debug panel
-Create species data files for ecosystem creatures
-Pierwsze stworzenia
-Add small prey creature species
-Spawn small prey based on biome ecosystem state
-Add adaptive grazer creature species
-Add hunger and diet system for ecosystem creatures
-Właściwa ewolucja niszy
-Add grazer niche shift from herbivore to omnivore
-Allow Varnaks to hunt ecosystem creatures
-Add ecosystem population simulation per biome
-Connect resource gathering to biome biomass pressure
-Stabilizacja
-Save and load ecosystem state
-Add ecosystem events and HUD messages
-Add ecosystem test controls to debug panel
-Document Darwinian ecosystem prototype rules
-Add manual test checklist for ecosystem prototype
-Absolutne minimum na start
-Add EcosystemDirector system
-Add biome plant biomass model
-Add ecosystem state to debug panel
-Add small prey creature species
-Add adaptive grazer creature species
-Te pięć zadań da pierwszy namacalny efekt: świat zacznie mieć własną bazę pokarmową i pierwsze zwierzęta zależne od jej stanu. Dopiero potem warto dodawać pełniejszą zmianę niszy i zachowanie drapieżników.
+[WORLD] Expand world size for ecosystem gameplay
+[BALANCE] Add living world constants to GameBalance
+[DEBUG] Organize debug panel with tabs and action buttons
+[BUG] Prevent animals from leaving world bounds
+[WORLD] Replace sleep resource respawn with gradual multi-day regrowth
+[WORLD] Add landmark generation to WorldConfig
+[WORLD] Add hills as terrain landmarks
+[WORLD] Add ponds as terrain landmarks and water sources
+[WORLD] Increase vegetation density with grasses and bushes
+[ECOSYSTEM] Add edible vegetation nodes for herbivores
+[ECOSYSTEM] Make vegetation denser around ponds
+[AI] Add free roaming movement for ecosystem animals
+[AI] Make hunger drive animal food seeking behavior
+[AI] Make Varnaks hunt when hungry or when player is nearby
+[CREATURES] Make killed animals drop meat
+[COMBAT] Add ranged projectile damage handling
+[WEAPON] Add craftable bow with infinite ammo
+[WORLD] Smooth biome transitions with gradient or mesh blending
+[MAP] Update minimap and full map for larger world and landmark
