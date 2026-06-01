@@ -5,16 +5,20 @@ const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 
-const INITIAL_SMALL_PREY_VISIBLE_COUNT := 4
+const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
+const SMALL_PREY_MAX_VISIBLE_COUNT := 8
+const SMALL_PREY_MAX_VISIBLE_PER_BIOME := 4
 const SMALL_PREY_VISIBLE_SPAWN_RADIUS := 560.0
 const SMALL_PREY_PLAYER_SAFE_DISTANCE := 180.0
 const SMALL_PREY_MIN_DISTANCE := 150.0
 
 var evolution_director: Node
 var day_night_system: Node
+var ecosystem_director: Node
 var resource_rng := RandomNumberGenerator.new()
 var varnak_rng := RandomNumberGenerator.new()
 var small_prey_rng := RandomNumberGenerator.new()
+var small_prey_spawn_timer := 0.0
 
 func _ready() -> void:
 	await get_tree().process_frame
@@ -23,15 +27,20 @@ func _ready() -> void:
 	small_prey_rng.randomize()
 	evolution_director = get_parent().get_node("EvolutionDirector")
 	day_night_system = get_parent().get_node("DayNightSystem")
+	ecosystem_director = get_parent().get_node("EcosystemDirector")
 	evolution_director.profile_changed.connect(_on_profile_changed)
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	_spawn_resources()
-	_spawn_initial_small_prey()
+	_sync_visible_small_prey()
 	_spawn_varnaks()
 	queue_redraw()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	small_prey_spawn_timer += delta
+	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
+		small_prey_spawn_timer = 0.0
+		_sync_visible_small_prey()
 	queue_redraw()
 
 
@@ -189,18 +198,60 @@ func restore_resources(resources: Array) -> void:
 		_spawn_resource_at(kind, pos)
 
 
-func _spawn_initial_small_prey() -> void:
+func _sync_visible_small_prey() -> void:
+	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
+		return
 	var player_position := _get_player_position()
 	var player_biome := _get_biome_for_position(player_position)
 	if player_biome.is_empty():
 		return
+	var biome_id := _get_biome_id(player_biome)
+	var biome_state: Dictionary = ecosystem_director.get_biome_state(biome_id)
+	if biome_state.is_empty():
+		return
+	var desired_count := _get_desired_small_prey_count(player_biome, biome_state)
+	var current_biome_count := _get_visible_small_prey_count(biome_id)
+	var global_count := get_tree().get_nodes_in_group("small_prey").size()
+	var spawn_budget: int = min(desired_count - current_biome_count, SMALL_PREY_MAX_VISIBLE_COUNT - global_count)
+	if spawn_budget <= 0:
+		return
 	var spawned := 0
-	var used_positions: Array[Vector2] = []
-	for _i in INITIAL_SMALL_PREY_VISIBLE_COUNT:
+	var used_positions := _get_existing_small_prey_positions()
+	for _i in spawn_budget:
 		if _try_spawn_small_prey_near_player(player_biome, player_position, used_positions):
 			spawned += 1
 	if spawned > 0:
 		get_node("/root/EventBus").post_message("%d SmallPrey entered the ecosystem" % spawned)
+
+
+func _get_desired_small_prey_count(biome: Dictionary, biome_state: Dictionary) -> int:
+	var population := float(biome_state.get("small_prey_population", 0.0))
+	var biomass_percent := float(biome_state.get("plant_biomass_percent", 0.0))
+	var population_factor: float = clamp(population / 12.0, 0.0, 1.0)
+	var biomass_factor: float = clamp(biomass_percent / 100.0, 0.0, 1.0)
+	var danger_factor := 0.45 if bool(biome.get("dangerous", false)) else 1.0
+	var desired := int(round(float(SMALL_PREY_MAX_VISIBLE_PER_BIOME) * population_factor * biomass_factor * danger_factor))
+	if population > 0.0 and biomass_percent >= 30.0:
+		desired = max(desired, 1)
+	return clamp(desired, 0, SMALL_PREY_MAX_VISIBLE_PER_BIOME)
+
+
+func _get_visible_small_prey_count(biome_id: String) -> int:
+	var count := 0
+	for small_prey in get_tree().get_nodes_in_group("small_prey"):
+		if not is_instance_valid(small_prey):
+			continue
+		if _get_biome_id_for_position(small_prey.global_position) == biome_id:
+			count += 1
+	return count
+
+
+func _get_existing_small_prey_positions() -> Array[Vector2]:
+	var positions: Array[Vector2] = []
+	for small_prey in get_tree().get_nodes_in_group("small_prey"):
+		if is_instance_valid(small_prey):
+			positions.append(small_prey.global_position)
+	return positions
 
 
 func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
@@ -214,7 +265,7 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 		if not _is_valid_small_prey_position(candidate, used_positions):
 			continue
 		used_positions.append(candidate)
-		_spawn_small_prey_at(candidate, str(biome.get("name", "biome")).to_snake_case())
+		_spawn_small_prey_at(candidate, _get_biome_id(biome))
 		return true
 	return false
 
@@ -231,6 +282,17 @@ func _get_biome_for_position(position: Vector2) -> Dictionary:
 		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
 			return biome
 	return {}
+
+
+func _get_biome_id(biome: Dictionary) -> String:
+	return str(biome.get("name", "biome")).to_snake_case()
+
+
+func _get_biome_id_for_position(position: Vector2) -> String:
+	var biome := _get_biome_for_position(position)
+	if biome.is_empty():
+		return ""
+	return _get_biome_id(biome)
 
 
 func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
