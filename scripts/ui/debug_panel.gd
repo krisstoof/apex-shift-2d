@@ -182,9 +182,19 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 			int(round(float(state.get("plant_biomass_percent", 0.0)))),
 			str(state.get("status", "unknown"))
 		])
-		lines.append("  SmallPrey %d | Grazers %d | pred %.2f | over %.2f" % [
+		lines.append("  SmallPrey %d | Grazers %d | niche %s | stress %d" % [
 			int(round(float(state.get("small_prey_population", 0.0)))),
 			int(round(float(state.get("grazer_population", 0.0)))),
+			str(state.get("current_niche", "HERBIVORE")).to_lower(),
+			int(state.get("generations_under_food_stress", 0))
+		])
+		lines.append("  diet P %.2f M %.2f S %.2f | aggr %.2f" % [
+			float(state.get("average_plant_diet", 0.85)),
+			float(state.get("average_meat_diet", 0.05)),
+			float(state.get("average_scavenger_diet", 0.10)),
+			float(state.get("average_aggression", 0.15))
+		])
+		lines.append("  pred %.2f | over %.2f" % [
 			float(state.get("predator_pressure", 0.0)),
 			float(state.get("overgrazing_level", state.get("overgrazing_pressure", 0.0)))
 		])
