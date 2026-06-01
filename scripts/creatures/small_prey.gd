@@ -146,7 +146,7 @@ func _move_toward(target: Vector2, move_speed: float) -> void:
 	if direction.length_squared() <= 1.0:
 		velocity = Vector2.ZERO
 		return
-	velocity = direction.normalized() * move_speed
+	velocity = direction.normalized() * move_speed * _get_terrain_speed_multiplier()
 	_face_target(target)
 
 
@@ -237,6 +237,13 @@ func _clamp_to_world(position: Vector2) -> Vector2:
 
 func _get_world_rect() -> Rect2:
 	return WORLD_CONFIG.WORLD_RECT.grow(-WORLD_EDGE_PADDING)
+
+
+func _get_terrain_speed_multiplier() -> float:
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("get_terrain_speed_multiplier"):
+		return float(world.get_terrain_speed_multiplier(global_position))
+	return 1.0
 
 
 func _set_state(next_state: State) -> void:
