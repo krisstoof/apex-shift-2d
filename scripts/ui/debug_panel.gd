@@ -197,6 +197,7 @@ func _get_grazer_state_summary() -> String:
 		return "none"
 	var counts := {}
 	var hunger_total := 0.0
+	var energy_total := 0.0
 	var hunger_count := 0
 	for grazer in grazers:
 		if not is_instance_valid(grazer) or not grazer.has_method("get_debug_data"):
@@ -205,12 +206,14 @@ func _get_grazer_state_summary() -> String:
 		var state_name := str(data.get("state", "unknown")).to_lower()
 		counts[state_name] = int(counts.get(state_name, 0)) + 1
 		hunger_total += float(data.get("hunger", 0.0))
+		energy_total += float(data.get("energy", 0.0))
 		hunger_count += 1
 	var parts: Array[String] = []
 	for key in counts.keys():
 		parts.append("%s:%d" % [key, int(counts[key])])
 	if hunger_count > 0:
 		parts.append("hunger:%d%%" % int(round(hunger_total / float(hunger_count) * 100.0)))
+		parts.append("energy:%d%%" % int(round(energy_total / float(hunger_count) * 100.0)))
 	return ", ".join(parts)
 
 

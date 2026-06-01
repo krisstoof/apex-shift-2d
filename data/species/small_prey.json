@@ -6,7 +6,12 @@
     "health": 20,
     "speed": 90,
     "fear": 0.9,
+    "max_hunger": 1.0,
     "hunger_rate": 0.2,
+    "energy": 1.0,
+    "plant_diet": 1.0,
+    "meat_diet": 0.0,
+    "scavenger_diet": 0.0,
     "plant_consumption_rate": 0.4,
     "reproduction_value": 0.6
   }

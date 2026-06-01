@@ -1,6 +1,7 @@
 extends CharacterBody2D
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
 const SPECIES_PATH := "res://data/species/grazer.json"
 
 enum State { IDLE, WANDER, EAT_PLANTS, SEEK_FOOD, FLEE, SCAVENGE, HUNT_SMALL_PREY, DEAD }
@@ -24,7 +25,9 @@ var speed := 70.0
 var fear := 0.7
 var aggression := 0.15
 var hunger := 0.0
-var hunger_rate := 0.3
+var max_hunger := 1.0
+var hunger_growth_rate := 0.3
+var energy := 1.0
 var plant_consumption_rate := 1.2
 var plant_diet := 0.85
 var meat_diet := 0.05
@@ -41,6 +44,7 @@ var player: Node2D
 var flee_origin := Vector2.INF
 var prey_target: Node2D
 var rng := RandomNumberGenerator.new()
+var hunger_diet := HUNGER_DIET.new()
 
 
 func _ready() -> void:
@@ -59,20 +63,18 @@ func setup(p_biome_id: String = "") -> void:
 
 
 func get_debug_data() -> Dictionary:
-	return {
+	var data := {
 		"state": State.keys()[state],
 		"biome_id": biome_id,
 		"health": health,
 		"max_health": max_health,
-		"hunger": hunger,
 		"speed": speed,
 		"fear": fear,
 		"aggression": aggression,
-		"plant_diet": plant_diet,
-		"meat_diet": meat_diet,
-		"scavenger_diet": scavenger_diet,
 		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
 	}
+	data.merge(hunger_diet.get_debug_data(), true)
+	return data
 
 
 func take_damage(amount: float, source: String = "unknown") -> void:
@@ -92,7 +94,8 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
 	state_time = max(state_time - delta, 0.0)
-	hunger = clamp(hunger + hunger_rate * delta, 0.0, 1.0)
+	hunger_diet.tick(delta, velocity.length() / max(speed, 1.0))
+	_sync_hunger_fields()
 	_update_state()
 	_act(delta)
 	move_and_slide()
@@ -121,17 +124,24 @@ func _update_state() -> void:
 		if not is_instance_valid(prey_target):
 			_set_state(State.SEEK_FOOD)
 		return
-	if hunger > 0.28 and biomass_percent >= LOW_BIOMASS_PERCENT:
+	var nearest_prey := _find_nearest_small_prey()
+	var food_target: String = hunger_diet.choose_food_target({
+		"plants": clamp(biomass_percent / 100.0, 0.0, 1.0),
+		"meat": 1.0 if is_instance_valid(nearest_prey) else 0.0,
+		"scavenger": 0.65 if biomass_percent < LOW_BIOMASS_PERCENT else 0.10
+	})
+	var hunger_ratio: float = hunger_diet.get_hunger_ratio()
+	var risk_drive: float = hunger_diet.get_risk_drive()
+	if hunger_ratio > 0.28 and food_target == "plants" and biomass_percent >= LOW_BIOMASS_PERCENT:
 		_set_state(State.EAT_PLANTS)
 		state_time = EAT_DURATION_SECONDS
 		return
-	if hunger > 0.55 and biomass_percent < LOW_BIOMASS_PERCENT:
-		var prey := _find_nearest_small_prey()
-		if hunger > 0.82 and meat_diet + aggression > 0.12 and is_instance_valid(prey):
-			prey_target = prey
+	if hunger_ratio > 0.55 and biomass_percent < LOW_BIOMASS_PERCENT:
+		if risk_drive > 0.74 and food_target == "meat" and meat_diet + aggression > 0.12 and is_instance_valid(nearest_prey):
+			prey_target = nearest_prey
 			_set_state(State.HUNT_SMALL_PREY)
 			return
-		if scavenger_diet > 0.0:
+		if food_target == "scavenger" and scavenger_diet > 0.0:
 			_set_state(State.SCAVENGE)
 			state_time = SCAVENGE_DURATION_SECONDS
 			return
@@ -171,7 +181,8 @@ func _hunt_small_prey() -> void:
 	var distance := global_position.distance_to(prey_target.global_position)
 	if distance <= SMALL_PREY_ATTACK_RANGE and prey_target.has_method("take_damage"):
 		prey_target.take_damage(999.0, "grazer")
-		hunger = max(hunger - MEAT_HUNGER_DROP, 0.0)
+		hunger_diet.eat("meat", MEAT_HUNGER_DROP)
+		_sync_hunger_fields()
 		get_node("/root/EventBus").emit_game_event("grazer_hunted_small_prey", {
 			"biome_id": _get_current_biome_id(),
 			"position": global_position
@@ -203,7 +214,8 @@ func _face_target(target: Vector2) -> void:
 
 
 func _consume_plants() -> void:
-	hunger = max(hunger - PLANT_EAT_HUNGER_DROP * plant_diet, 0.0)
+	hunger_diet.eat("plants", PLANT_EAT_HUNGER_DROP)
+	_sync_hunger_fields()
 	get_node("/root/EventBus").emit_game_event("grazer_consumed_plants", {
 		"biome_id": _get_current_biome_id(),
 		"position": global_position,
@@ -212,7 +224,8 @@ func _consume_plants() -> void:
 
 
 func _scavenge_food() -> void:
-	hunger = max(hunger - MEAT_HUNGER_DROP * scavenger_diet, 0.0)
+	hunger_diet.eat("scavenger", MEAT_HUNGER_DROP)
+	_sync_hunger_fields()
 	get_node("/root/EventBus").emit_game_event("grazer_scavenged", {
 		"biome_id": _get_current_biome_id(),
 		"position": global_position
@@ -301,13 +314,34 @@ func _load_species_data() -> void:
 	speed = float(base_traits.get("speed", speed))
 	fear = float(base_traits.get("fear", fear))
 	aggression = float(base_traits.get("aggression", aggression))
-	hunger_rate = float(base_traits.get("hunger_rate", hunger_rate))
+	hunger_growth_rate = float(base_traits.get("hunger_growth_rate", base_traits.get("hunger_rate", hunger_growth_rate)))
+	max_hunger = float(base_traits.get("max_hunger", max_hunger))
+	energy = float(base_traits.get("energy", energy))
 	plant_consumption_rate = float(base_traits.get("plant_consumption_rate", plant_consumption_rate))
 	plant_diet = float(base_traits.get("plant_diet", plant_diet))
 	meat_diet = float(base_traits.get("meat_diet", meat_diet))
 	scavenger_diet = float(base_traits.get("scavenger_diet", scavenger_diet))
 	size = float(base_traits.get("size", size))
 	reproduction_rate = float(base_traits.get("reproduction_rate", reproduction_rate))
+	hunger_diet.configure(base_traits, {
+		"max_hunger": max_hunger,
+		"hunger_growth_rate": hunger_growth_rate,
+		"energy": energy,
+		"plant_diet": plant_diet,
+		"meat_diet": meat_diet,
+		"scavenger_diet": scavenger_diet
+	})
+	_sync_hunger_fields()
+
+
+func _sync_hunger_fields() -> void:
+	hunger = hunger_diet.hunger
+	max_hunger = hunger_diet.max_hunger
+	hunger_growth_rate = hunger_diet.hunger_growth_rate
+	energy = hunger_diet.energy
+	plant_diet = hunger_diet.plant_diet
+	meat_diet = hunger_diet.meat_diet
+	scavenger_diet = hunger_diet.scavenger_diet
 
 
 func _get_current_biome_id() -> String:
