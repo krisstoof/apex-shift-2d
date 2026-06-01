@@ -25,6 +25,10 @@ const PLANT_RESOURCE_KINDS := ["conifer_tree", "leafy_tree", "bush", "dry_bush"]
 const CREATURE_BOUND_GROUPS := ["varnak", "small_prey", "grazer"]
 const CREATURE_BOUND_TELEPORT_PADDING := 36.0
 const HILL_RESOURCE_BLOCK_RADIUS_FACTOR := 0.72
+const POND_SPEED_MULTIPLIER := 0.68
+const POND_VEGETATION_BONUS_COUNT := 3
+const POND_VEGETATION_RING_MIN_FACTOR := 0.82
+const POND_VEGETATION_RING_MAX_FACTOR := 1.35
 
 var evolution_director: Node
 var day_night_system: Node
@@ -36,6 +40,7 @@ var grazer_rng := RandomNumberGenerator.new()
 var small_prey_spawn_timer := 0.0
 var landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
+var pond_landmarks: Array[Dictionary] = []
 
 func _ready() -> void:
 	await get_tree().process_frame
@@ -76,6 +81,15 @@ func get_landmarks() -> Array[Dictionary]:
 	return landmarks.duplicate(true)
 
 
+func get_terrain_speed_multiplier(position: Vector2) -> float:
+	for pond in pond_landmarks:
+		var center := Vector2(pond.get("position", Vector2.ZERO))
+		var radius := float(pond.get("radius", 0.0))
+		if position.distance_to(center) <= radius:
+			return POND_SPEED_MULTIPLIER
+	return 1.0
+
+
 func get_creatures_out_of_bounds_count() -> int:
 	return _get_out_of_bounds_creatures().size()
 
@@ -101,26 +115,35 @@ func debug_teleport_out_of_bounds_creatures() -> void:
 func _create_landmarks() -> void:
 	landmarks = WORLD_CONFIG.get_landmarks()
 	hill_landmarks.clear()
+	pond_landmarks.clear()
 	for landmark in landmarks:
-		if str(landmark.get("type", "")) == "hill":
-			hill_landmarks.append(landmark)
-			_create_hill_area(landmark)
+		match str(landmark.get("type", "")):
+			"hill":
+				hill_landmarks.append(landmark)
+				_create_landmark_area(landmark, "hill_landmarks")
+			"pond":
+				pond_landmarks.append(landmark)
+				_create_landmark_area(landmark, "pond_landmarks")
 
 
-func _create_hill_area(landmark: Dictionary) -> void:
+func _create_landmark_area(landmark: Dictionary, group_name: String) -> void:
 	var area := Area2D.new()
-	area.name = str(landmark.get("id", "hill"))
+	area.name = str(landmark.get("id", "landmark"))
 	area.global_position = Vector2(landmark.get("position", Vector2.ZERO))
 	area.collision_layer = 0
 	area.collision_mask = 0
 	area.monitoring = false
 	area.monitorable = false
 	area.set_meta("landmark_id", str(landmark.get("id", "")))
-	area.set_meta("landmark_type", "hill")
+	area.set_meta("landmark_type", str(landmark.get("type", "")))
 	area.set_meta("biome_id", str(landmark.get("biome_id", "")))
 	area.set_meta("gameplay_tags", landmark.get("gameplay_tags", []))
+	if str(landmark.get("type", "")) == "pond":
+		area.set_meta("terrain_speed_multiplier", POND_SPEED_MULTIPLIER)
 	area.add_to_group("landmarks")
-	area.add_to_group("hill_landmarks")
+	area.add_to_group(group_name)
+	if str(landmark.get("type", "")) == "pond":
+		area.add_to_group("water_sources")
 	var shape := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
 	circle.radius = float(landmark.get("radius", 120.0))
@@ -142,6 +165,7 @@ func _spawn_resources() -> void:
 	_spawn_resource_kind("rock", WORLD_CONFIG.ROCK_COUNT, used_positions, player_position)
 	_spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
 	_spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
+	_spawn_pond_vegetation(used_positions, player_position)
 	call_deferred("_sync_all_biome_vegetation")
 
 
@@ -149,6 +173,35 @@ func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Arr
 	for _i in count:
 		if not _try_spawn_resource(resource_kind, used_positions, player_position):
 			push_warning("Could not find a valid spawn position for %s" % resource_kind)
+
+
+func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
+	for pond in pond_landmarks:
+		var biome := _get_biome_for_id(str(pond.get("biome_id", "")))
+		if biome.is_empty():
+			continue
+		for i in POND_VEGETATION_BONUS_COUNT:
+			var kind := "bush" if i % 2 == 0 else "dry_bush"
+			_try_spawn_resource_near_pond(kind, pond, biome, used_positions, player_position)
+
+
+func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	var center := Vector2(pond.get("position", Vector2.ZERO))
+	var radius := float(pond.get("radius", 100.0))
+	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+		var angle := resource_rng.randf_range(0.0, TAU)
+		var distance := resource_rng.randf_range(radius * POND_VEGETATION_RING_MIN_FACTOR, radius * POND_VEGETATION_RING_MAX_FACTOR)
+		var candidate := center + Vector2.RIGHT.rotated(angle) * distance
+		if not _is_point_in_biome(candidate, biome):
+			continue
+		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			continue
+		if not _is_valid_resource_position(candidate, used_positions, player_position):
+			continue
+		used_positions.append(candidate)
+		_spawn_resource_at(resource_kind, candidate)
+		return true
+	return false
 
 
 func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:

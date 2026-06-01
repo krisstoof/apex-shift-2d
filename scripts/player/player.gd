@@ -54,7 +54,7 @@ func _physics_process(delta: float) -> void:
 	_face_mouse()
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var wants_run := Input.is_key_pressed(KEY_SHIFT) and stats.can_run() and input_vector.length() > 0.0
-	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier()
+	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier() * _get_terrain_speed_multiplier()
 	velocity = input_vector * speed
 	move_and_slide()
 	global_position.x = clamp(global_position.x, -world_limits.x, world_limits.x)
@@ -122,6 +122,13 @@ func is_torch_active() -> bool:
 
 func get_torch_remaining_seconds() -> float:
 	return torch_remaining_seconds if is_torch_active() else 0.0
+
+
+func _get_terrain_speed_multiplier() -> float:
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("get_terrain_speed_multiplier"):
+		return float(world.get_terrain_speed_multiplier(global_position))
+	return 1.0
 
 
 func debug_add_item(item_name: String, amount := 1) -> void:
