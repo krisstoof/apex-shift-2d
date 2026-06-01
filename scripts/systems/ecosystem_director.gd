@@ -213,6 +213,8 @@ func _on_game_event(event_name: String, payload: Dictionary) -> void:
 			_apply_visible_plant_consumption(payload)
 		"grazer_scavenged", "grazer_hunted_small_prey":
 			_record_grazer_non_plant_food(payload)
+		"plant_resource_harvested":
+			_apply_harvested_plant_pressure(payload)
 
 
 func _apply_small_prey_death(payload: Dictionary) -> void:
@@ -288,17 +290,29 @@ func _update_grazer_niche_status(state: Dictionary) -> void:
 
 func _apply_visible_plant_consumption(payload: Dictionary) -> void:
 	var biome_id := str(payload.get("biome_id", ""))
-	if not biome_states.has(biome_id):
+	var consumption := float(payload.get("plant_consumption_rate", 0.0))
+	_apply_plant_biomass_loss(biome_id, consumption)
+
+
+func _apply_harvested_plant_pressure(payload: Dictionary) -> void:
+	var biome_id := str(payload.get("biome_id", ""))
+	var biomass_impact := float(payload.get("biomass_impact", 0.0))
+	_apply_plant_biomass_loss(biome_id, biomass_impact)
+
+
+func _apply_plant_biomass_loss(biome_id: String, biomass_loss: float) -> void:
+	if not biome_states.has(biome_id) or biomass_loss <= 0.0:
 		return
 	var state: Dictionary = biome_states[biome_id]
 	var previous_status := str(state.get("status", "healthy"))
 	var plant_biomass := float(state.get("plant_biomass", 0.0))
-	var consumption := float(payload.get("plant_consumption_rate", 0.0))
-	state["plant_biomass"] = max(plant_biomass - consumption, 0.0)
+	state["plant_biomass"] = max(plant_biomass - biomass_loss, 0.0)
 	state["plant_biomass_percent"] = _get_state_biomass_percent(state)
+	var max_biomass := float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
+	state["food_stress"] = 1.0 if max_biomass <= 0.0 else 1.0 - clamp(float(state.get("plant_biomass", 0.0)) / max_biomass, 0.0, 1.0)
 	state["status"] = _get_biomass_status(
 		float(state.get("plant_biomass", 0.0)),
-		float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
+		max_biomass
 	)
 	biome_states[biome_id] = state
 	_emit_status_event_if_needed(previous_status, state)
