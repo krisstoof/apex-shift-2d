@@ -70,7 +70,7 @@ func set_open(open: bool) -> void:
 func _set_state_text(text: String) -> void:
 	state_label.text = text
 	var line_count := text.split("\n").size()
-	state_label.custom_minimum_size = Vector2(370.0, max(330.0, float(line_count) * 18.0))
+	state_label.custom_minimum_size = Vector2(560.0, max(390.0, float(line_count) * 20.0))
 
 
 func _build_state_text() -> String:
