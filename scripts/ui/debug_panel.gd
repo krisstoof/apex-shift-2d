@@ -3,6 +3,7 @@ extends Control
 var player: Node
 var evolution_director: Node
 var day_night_system: Node
+var ecosystem_director: Node
 
 @onready var title_label: Label = $Panel/TitleLabel
 @onready var state_label: Label = $Panel/StateScroll/StateLabel
@@ -43,10 +44,11 @@ func _ready() -> void:
 	restore_hunger_energy_button.pressed.connect(_on_restore_hunger_energy_pressed)
 
 
-func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node) -> void:
+func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null) -> void:
 	player = p_player
 	evolution_director = p_evolution_director
 	day_night_system = p_day_night_system
+	ecosystem_director = p_ecosystem_director
 
 
 func _process(_delta: float) -> void:
@@ -83,6 +85,7 @@ func _build_state_text() -> String:
 	])
 	lines.append("Campfire %s | Traps %d" % [_get_campfire_state(), get_tree().get_nodes_in_group("traps").size()])
 	lines.append_array(_get_varnak_debug_lines(profile))
+	lines.append_array(_get_ecosystem_debug_lines())
 	return "\n".join(lines)
 
 
@@ -146,6 +149,35 @@ func _get_varnak_debug_lines(profile: Dictionary) -> Array[String]:
 		_get_average_varnak_health_text(varnaks),
 		_get_nearest_varnak_text(varnaks)
 	])
+	return lines
+
+
+func _get_ecosystem_debug_lines() -> Array[String]:
+	var lines: Array[String] = []
+	lines.append("")
+	lines.append("Ecosystem")
+	if not ecosystem_director or not ecosystem_director.has_method("get_biome_states"):
+		lines.append("Waiting for ecosystem state...")
+		return lines
+	var biome_states: Dictionary = ecosystem_director.get_biome_states()
+	if biome_states.is_empty():
+		lines.append("No biome states")
+		return lines
+	var biome_ids := biome_states.keys()
+	biome_ids.sort()
+	for biome_id in biome_ids:
+		var state: Dictionary = Dictionary(biome_states[biome_id])
+		lines.append("%s | plants %d%% | %s" % [
+			str(state.get("name", biome_id)),
+			int(round(float(state.get("plant_biomass_percent", 0.0)))),
+			str(state.get("status", "unknown"))
+		])
+		lines.append("  SmallPrey %d | Grazers %d | pred %.2f | over %.2f" % [
+			int(round(float(state.get("small_prey_population", 0.0)))),
+			int(round(float(state.get("grazer_population", 0.0)))),
+			float(state.get("predator_pressure", 0.0)),
+			float(state.get("overgrazing_level", state.get("overgrazing_pressure", 0.0)))
+		])
 	return lines
 
 

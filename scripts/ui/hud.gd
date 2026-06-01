@@ -5,6 +5,7 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 var player: Node
 var evolution_director: Node
 var day_night_system: Node
+var ecosystem_director: Node
 var message := ""
 var message_history: Array[String] = []
 var map_screen_open := false
@@ -33,17 +34,18 @@ func _ready() -> void:
 	pause_menu.quit_requested.connect(_on_pause_menu_quit)
 
 
-func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node) -> void:
+func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null) -> void:
 	player = p_player
 	evolution_director = p_evolution_director
 	day_night_system = p_day_night_system
+	ecosystem_director = p_ecosystem_director
 	skill_icon_bar.bind(player)
 	var world := get_tree().current_scene.get_node_or_null("World")
 	var world_rect: Rect2 = world.get_world_rect() if world and world.has_method("get_world_rect") else WORLD_CONFIG.WORLD_RECT
 	var biome_zones: Array[Dictionary] = world.get_biome_zones() if world and world.has_method("get_biome_zones") else WORLD_CONFIG.get_biome_zones()
 	minimap.bind(player, world_rect, biome_zones)
 	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones)
-	debug_panel.bind(player, evolution_director, day_night_system)
+	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director)
 
 
 func _process(delta: float) -> void:
