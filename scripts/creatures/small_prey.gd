@@ -1,6 +1,7 @@
 extends CharacterBody2D
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
 const SPECIES_PATH := "res://data/species/small_prey.json"
 
 enum State { IDLE, WANDER, EAT, FLEE, DEAD }
@@ -18,7 +19,12 @@ var max_health := 20.0
 var speed := 90.0
 var fear := 0.9
 var hunger := 0.0
-var hunger_rate := 0.2
+var max_hunger := 1.0
+var hunger_growth_rate := 0.2
+var energy := 1.0
+var plant_diet := 1.0
+var meat_diet := 0.0
+var scavenger_diet := 0.0
 var plant_consumption_rate := 0.4
 var reproduction_value := 0.6
 var state := State.WANDER
@@ -31,6 +37,7 @@ var facing_side := 1.0
 var player: Node2D
 var flee_origin := Vector2.INF
 var rng := RandomNumberGenerator.new()
+var hunger_diet := HUNGER_DIET.new()
 
 
 func _ready() -> void:
@@ -49,18 +56,19 @@ func setup(p_biome_id: String = "") -> void:
 
 
 func get_debug_data() -> Dictionary:
-	return {
+	var data := {
 		"state": State.keys()[state],
 		"biome_id": biome_id,
 		"health": health,
 		"max_health": max_health,
-		"hunger": hunger,
 		"speed": speed,
 		"fear": fear,
 		"plant_consumption_rate": plant_consumption_rate,
 		"reproduction_value": reproduction_value,
 		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
 	}
+	data.merge(hunger_diet.get_debug_data(), true)
+	return data
 
 
 func take_damage(amount: float, source: String = "unknown") -> void:
@@ -81,7 +89,8 @@ func _physics_process(delta: float) -> void:
 		player = get_tree().get_first_node_in_group("player")
 	state_time = max(state_time - delta, 0.0)
 	eat_cooldown = max(eat_cooldown - delta, 0.0)
-	hunger = clamp(hunger + hunger_rate * delta, 0.0, 1.0)
+	hunger_diet.tick(delta, velocity.length() / max(speed, 1.0))
+	_sync_hunger_fields()
 	_update_state()
 	_act(delta)
 	move_and_slide()
@@ -95,7 +104,7 @@ func _update_state() -> void:
 	if state == State.FLEE:
 		_set_state(State.WANDER)
 		_pick_wander_target()
-	if eat_cooldown <= 0.0 and hunger > 0.25:
+	if eat_cooldown <= 0.0 and hunger_diet.get_hunger_ratio() > 0.25:
 		_set_state(State.EAT)
 		state_time = EAT_DURATION_SECONDS
 		return
@@ -167,7 +176,8 @@ func _get_flee_origin() -> Vector2:
 
 
 func _consume_plants() -> void:
-	hunger = max(hunger - 0.5, 0.0)
+	hunger_diet.eat("plants", 0.5)
+	_sync_hunger_fields()
 	eat_cooldown = EAT_INTERVAL_SECONDS
 	var current_biome_id := _get_current_biome_id()
 	get_node("/root/EventBus").emit_game_event("small_prey_consumed_plants", {
@@ -231,9 +241,33 @@ func _load_species_data() -> void:
 	health = max_health
 	speed = float(base_traits.get("speed", speed))
 	fear = float(base_traits.get("fear", fear))
-	hunger_rate = float(base_traits.get("hunger_rate", hunger_rate))
+	hunger_growth_rate = float(base_traits.get("hunger_growth_rate", base_traits.get("hunger_rate", hunger_growth_rate)))
+	max_hunger = float(base_traits.get("max_hunger", max_hunger))
+	energy = float(base_traits.get("energy", energy))
+	plant_diet = float(base_traits.get("plant_diet", plant_diet))
+	meat_diet = float(base_traits.get("meat_diet", meat_diet))
+	scavenger_diet = float(base_traits.get("scavenger_diet", scavenger_diet))
 	plant_consumption_rate = float(base_traits.get("plant_consumption_rate", plant_consumption_rate))
 	reproduction_value = float(base_traits.get("reproduction_value", reproduction_value))
+	hunger_diet.configure(base_traits, {
+		"max_hunger": max_hunger,
+		"hunger_growth_rate": hunger_growth_rate,
+		"energy": energy,
+		"plant_diet": plant_diet,
+		"meat_diet": meat_diet,
+		"scavenger_diet": scavenger_diet
+	})
+	_sync_hunger_fields()
+
+
+func _sync_hunger_fields() -> void:
+	hunger = hunger_diet.hunger
+	max_hunger = hunger_diet.max_hunger
+	hunger_growth_rate = hunger_diet.hunger_growth_rate
+	energy = hunger_diet.energy
+	plant_diet = hunger_diet.plant_diet
+	meat_diet = hunger_diet.meat_diet
+	scavenger_diet = hunger_diet.scavenger_diet
 
 
 func _get_current_biome_id() -> String:
