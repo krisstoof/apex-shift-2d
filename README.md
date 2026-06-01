@@ -55,14 +55,15 @@ Apex Shift 2D is a small Godot 4.x top-down survival prototype. The current buil
 
 ## Manual Test Checklists
 
+- [Application overview](docs/application-overview.md)
 - [Torch manual test](docs/torch-manual-test.md)
 - [Debug panel manual test](docs/debug-panel-manual-test.md)
 
 ## Known Limitations
 
 - Placeholder graphics only.
-- No persistent save data yet; `save_system.gd` is a TODO stub.
-- No full open world, audio, menus, or polished combat feedback.
+- Persistent save/load exists, but it is still prototype-level and local to `user://savegame.json`.
+- No full open world, audio, or polished combat feedback.
 - Existing Varnaks update immediately after generation changes for easy testing.
 - Varnak adaptation is intentionally lightweight and tuned for fast prototype testing.
 - Respawn is a test helper, not a full population simulation.

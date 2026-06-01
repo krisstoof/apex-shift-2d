@@ -5,9 +5,12 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const SIMULATION_TICK_SECONDS := 5.0
 const DEFAULT_PLANT_BIOMASS := 100.0
 const DEFAULT_MAX_PLANT_BIOMASS := 100.0
-const DEFAULT_PLANT_REGROWTH_RATE := 1.0
+const DEFAULT_PLANT_REGROWTH_RATE := 1.5
 const INITIAL_SMALL_PREY_POPULATION := 12.0
 const INITIAL_GRAZER_POPULATION := 4.0
+const SMALL_PREY_PLANT_CONSUMPTION := 0.08
+const GRAZER_PLANT_CONSUMPTION := 0.35
+const OVERGRAZING_PRESSURE_SCALE := 10.0
 const STRESSED_THRESHOLD := 70.0
 const DEPLETED_THRESHOLD := 30.0
 const COLLAPSING_THRESHOLD := 10.0
@@ -39,6 +42,10 @@ func get_biome_state(biome_id: String) -> Dictionary:
 	return Dictionary(biome_states.get(biome_id, {})).duplicate(true)
 
 
+func get_biome_status(biome_id: String) -> String:
+	return str(get_biome_state(biome_id).get("status", "unknown"))
+
+
 func _initialize_biomes() -> void:
 	biome_states.clear()
 	for biome in WORLD_CONFIG.get_biome_zones():
@@ -47,9 +54,12 @@ func _initialize_biomes() -> void:
 			"biome_id": biome_id,
 			"name": str(biome.get("name", biome_id)),
 			"plant_biomass": DEFAULT_PLANT_BIOMASS,
+			"plant_biomass_percent": 100.0,
 			"max_plant_biomass": DEFAULT_MAX_PLANT_BIOMASS,
 			"plant_regrowth_rate": DEFAULT_PLANT_REGROWTH_RATE,
+			"plant_consumption_pressure": 0.0,
 			"overgrazing_pressure": 0.0,
+			"overgrazing_level": 0.0,
 			"small_prey_population": INITIAL_SMALL_PREY_POPULATION,
 			"grazer_population": INITIAL_GRAZER_POPULATION,
 			"predator_pressure": 0.0,
@@ -63,6 +73,7 @@ func _update_ecosystem_tick() -> void:
 	for biome_id in biome_states.keys():
 		var state: Dictionary = biome_states[biome_id]
 		var previous_status := str(state.get("status", "healthy"))
+		_update_biome_biomass(state)
 		state["predator_pressure"] = _calculate_predator_pressure(biome_id)
 		state["status"] = _get_biomass_status(
 			float(state.get("plant_biomass", 0.0)),
@@ -71,6 +82,32 @@ func _update_ecosystem_tick() -> void:
 		biome_states[biome_id] = state
 		_emit_status_event_if_needed(previous_status, state)
 	print("[Ecosystem] Tick: %s" % biome_states)
+
+
+func _update_biome_biomass(state: Dictionary) -> void:
+	var max_biomass := float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
+	var plant_biomass := float(state.get("plant_biomass", DEFAULT_PLANT_BIOMASS))
+	var regrowth_rate := float(state.get("plant_regrowth_rate", DEFAULT_PLANT_REGROWTH_RATE))
+	var small_prey_population := float(state.get("small_prey_population", 0.0))
+	var grazer_population := float(state.get("grazer_population", 0.0))
+	var consumption_pressure := (
+		small_prey_population * SMALL_PREY_PLANT_CONSUMPTION
+		+ grazer_population * GRAZER_PLANT_CONSUMPTION
+	)
+	var regrowth := regrowth_rate if plant_biomass < max_biomass else 0.0
+	plant_biomass = clamp(plant_biomass + regrowth - consumption_pressure, 0.0, max_biomass)
+	state["plant_biomass"] = plant_biomass
+	state["plant_biomass_percent"] = _get_state_biomass_percent(state)
+	state["plant_consumption_pressure"] = consumption_pressure
+	state["overgrazing_pressure"] = consumption_pressure
+	state["overgrazing_level"] = clamp(consumption_pressure / OVERGRAZING_PRESSURE_SCALE, 0.0, 1.0)
+
+
+func _get_state_biomass_percent(state: Dictionary) -> float:
+	var max_biomass := float(state.get("max_plant_biomass", DEFAULT_MAX_PLANT_BIOMASS))
+	if max_biomass <= 0.0:
+		return 0.0
+	return float(state.get("plant_biomass", 0.0)) / max_biomass * 100.0
 
 
 func _calculate_predator_pressure(biome_id: String) -> float:
