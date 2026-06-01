@@ -1,23 +1,23 @@
 extends RefCounted
 class_name WorldConfig
 
-const WORLD_SCALE := 1.5
+const WORLD_SCALE := 2.2
 const BASE_WORLD_RECT := Rect2(-1440, -880, 2880, 1760)
 const WORLD_RECT := Rect2(BASE_WORLD_RECT.position * WORLD_SCALE, BASE_WORLD_RECT.size * WORLD_SCALE)
-const PLAYER_EDGE_PADDING := 30.0
+const PLAYER_EDGE_PADDING := 40.0
 
-const TREE_COUNT := 29
-const ROCK_COUNT := 14
-const BUSH_COUNT := 19
+const TREE_COUNT := 48
+const ROCK_COUNT := 24
+const BUSH_COUNT := 36
 
-const RESOURCE_SPAWN_MARGIN := 70.0
-const RESOURCE_MIN_DISTANCE := 70.0
-const RESOURCE_PLAYER_SAFE_DISTANCE := 180.0
-const RESOURCE_SPAWN_ATTEMPTS := 80
+const RESOURCE_SPAWN_MARGIN := 95.0
+const RESOURCE_MIN_DISTANCE := 90.0
+const RESOURCE_PLAYER_SAFE_DISTANCE := 260.0
+const RESOURCE_SPAWN_ATTEMPTS := 120
 
-const VARNAK_TARGET_COUNT := 6
-const VARNAK_PLAYER_SAFE_DISTANCE := 360.0
-const VARNAK_SPAWN_ATTEMPTS := 20
+const VARNAK_TARGET_COUNT := 8
+const VARNAK_PLAYER_SAFE_DISTANCE := 560.0
+const VARNAK_SPAWN_ATTEMPTS := 36
 const VARNAK_SPAWN_POINTS := [
 	Vector2(220, 0),
 	Vector2(-470, -300),
@@ -28,7 +28,13 @@ const VARNAK_SPAWN_POINTS := [
 	Vector2(980, -120),
 	Vector2(1220, -420),
 	Vector2(1160, 760),
-	Vector2(-1140, 580)
+	Vector2(-1140, 580),
+	Vector2(-1290, -120),
+	Vector2(-1040, 790),
+	Vector2(-240, -760),
+	Vector2(90, 700),
+	Vector2(620, 810),
+	Vector2(1360, 110)
 ]
 
 const BIOME_ZONES := [
