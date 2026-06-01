@@ -13,6 +13,6 @@
     "meat_diet": 0.0,
     "scavenger_diet": 0.0,
     "plant_consumption_rate": 0.4,
-    "reproduction_value": 0.6
+    "reproduction_rate": 0.6
   }
 }

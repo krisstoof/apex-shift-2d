@@ -248,7 +248,7 @@ func _load_species_data() -> void:
 	meat_diet = float(base_traits.get("meat_diet", meat_diet))
 	scavenger_diet = float(base_traits.get("scavenger_diet", scavenger_diet))
 	plant_consumption_rate = float(base_traits.get("plant_consumption_rate", plant_consumption_rate))
-	reproduction_value = float(base_traits.get("reproduction_value", reproduction_value))
+	reproduction_value = float(base_traits.get("reproduction_rate", base_traits.get("reproduction_value", reproduction_value)))
 	hunger_diet.configure(base_traits, {
 		"max_hunger": max_hunger,
 		"hunger_growth_rate": hunger_growth_rate,
