@@ -5,6 +5,7 @@ const CRAFTING_COSTS := {
 	"campfire": {"wood": 3, "stone": 2},
 	"spear": {"wood": 2, "stone": 1, "fiber": 1},
 	"torch": {"wood": 1, "fiber": 1},
+	"bow": {"wood": 3, "fiber": 4, "bone": 1},
 	"cooked_meat": {"meat": 1},
 	"basic_trap": {"wood": 2, "fiber": 2},
 	"trap": {"wood": 2, "fiber": 2},
@@ -73,6 +74,107 @@ const ADAPTATION_WALL_CURIOSITY_GROWTH := 0.10
 const SPEAR_ATTACK_COOLDOWN := 0.0
 const TRAP_DAMAGE := 120.0
 const TRAP_EFFECT_DURATION := 0.0
+
+# Larger-world generation values. These are used or reserved for world scale,
+# vegetation density, spawn spacing, and biome content distribution.
+const LIVING_WORLD := {
+	"world_scale": 2.2,
+	"tree_density_per_world_area": 0.0000035,
+	"rock_density_per_world_area": 0.0000018,
+	"bush_density_per_world_area": 0.0000026,
+	"grass_patch_density_per_world_area": 0.000010,
+	"dense_vegetation_zone_bonus": 1.35,
+	"resource_spawn_margin": 95.0,
+	"resource_min_distance": 90.0,
+	"resource_player_safe_distance": 260.0,
+	"resource_spawn_attempts": 120,
+	"small_prey_visible_spawn_radius": 850.0,
+	"small_prey_player_safe_distance": 240.0,
+	"small_prey_min_distance": 190.0,
+	"grazer_visible_spawn_radius": 1000.0,
+	"grazer_player_safe_distance": 340.0,
+	"grazer_min_distance": 300.0,
+	"varnak_player_safe_distance": 560.0,
+	"varnak_spawn_attempts": 36
+}
+
+# Food values and decision thresholds for living creatures. Future creature AI
+# should read these instead of baking hunger and food-search numbers locally.
+const ANIMAL_AI := {
+	"grass_food_value": 0.20,
+	"bush_food_value": 0.45,
+	"tree_food_value": 0.10,
+	"meat_food_value": 0.65,
+	"scavenger_food_value": 0.55,
+	"hungry_threshold": 0.35,
+	"starving_threshold": 0.60,
+	"desperate_threshold": 0.82,
+	"food_search_radius": 520.0,
+	"desperate_food_search_radius": 780.0,
+	"prey_detect_radius": 260.0,
+	"water_search_radius": 680.0
+}
+
+# Predator behavior tuning for Varnaks when they participate in the ecosystem
+# food web instead of only reacting to the player.
+const VARNAK_HUNTING := {
+	"hunger_growth_rate": 0.18,
+	"hungry_threshold": 0.32,
+	"starving_threshold": 0.58,
+	"desperate_threshold": 0.80,
+	"prey_detect_radius": 620.0,
+	"player_intrusion_radius": 240.0,
+	"prey_chase_priority": 0.65,
+	"player_chase_priority": 0.85,
+	"night_hunting_multiplier": 1.25,
+	"fire_avoidance_priority": 1.10,
+	"torch_avoidance_priority": 0.75
+}
+
+# Ranged combat values reserved for the bow and arrow projectile systems.
+const RANGED_COMBAT := {
+	"bow_damage": 28.0,
+	"bow_cooldown_seconds": 0.75,
+	"bow_stamina_cost": 8.0,
+	"arrow_speed": 780.0,
+	"arrow_lifetime_seconds": 1.25,
+	"arrow_max_range": 900.0,
+	"arrow_hit_radius": 8.0
+}
+
+# Landmark generation and biome modifiers for ponds, hills, dense vegetation,
+# and future animal hotspots.
+const LANDMARKS := {
+	"hill_count": 8,
+	"pond_count": 5,
+	"dense_vegetation_zone_count": 7,
+	"animal_hotspot_count": 4,
+	"hill_spawn_margin": 220.0,
+	"pond_spawn_margin": 260.0,
+	"landmark_min_distance": 420.0,
+	"pond_vegetation_bonus": 1.45,
+	"pond_grass_food_bonus": 1.30,
+	"dense_vegetation_resource_bonus": 1.60,
+	"animal_hotspot_population_bonus": 1.25
+}
+
+# Resource regrowth stages for future gradual multi-day regrowth. Yield values
+# are multipliers applied to the mature resource yield.
+const RESOURCE_REGROWTH := {
+	"stages": ["depleted", "sprout", "young", "mature"],
+	"days_per_growth_stage": 1,
+	"yield_by_growth_stage": {
+		"depleted": 0.0,
+		"sprout": 0.25,
+		"young": 0.60,
+		"mature": 1.0
+	},
+	"grass_regrowth_time_days": 1,
+	"bush_regrowth_time_days": 2,
+	"tree_regrowth_time_days": 4,
+	"dry_bush_regrowth_time_days": 3,
+	"growth_tick_seconds": 5.0
+}
 
 const ECOSYSTEM := {
 	"simulation_tick_seconds": 5.0,
