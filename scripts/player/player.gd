@@ -205,7 +205,7 @@ func _attack() -> void:
 	var target := _get_attack_target()
 	if target:
 		target.take_damage(damage, "player")
-		get_node("/root/EventBus").post_message("Hit Varnak")
+		get_node("/root/EventBus").post_message("Hit %s" % _get_attack_target_label(target))
 		return
 	get_node("/root/EventBus").post_message("Attack missed")
 
@@ -214,7 +214,7 @@ func _get_attack_target() -> Node:
 	var best_target: Node
 	var best_distance := INF
 	for body in attack_area.get_overlapping_bodies():
-		if not body.is_in_group("varnak") or not body.has_method("take_damage"):
+		if not _is_attackable_creature(body):
 			continue
 		if not _is_in_attack_arc(body.global_position):
 			continue
@@ -223,6 +223,18 @@ func _get_attack_target() -> Node:
 			best_distance = distance
 			best_target = body
 	return best_target
+
+
+func _is_attackable_creature(body: Node) -> bool:
+	if not body.has_method("take_damage"):
+		return false
+	return body.is_in_group("varnak") or body.is_in_group("small_prey")
+
+
+func _get_attack_target_label(target: Node) -> String:
+	if target.is_in_group("small_prey"):
+		return "SmallPrey"
+	return "Varnak"
 
 
 func _is_in_attack_arc(target_position: Vector2) -> bool:

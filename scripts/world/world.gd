@@ -2,22 +2,26 @@ extends Node2D
 
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
+const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 
 var evolution_director: Node
 var day_night_system: Node
 var resource_rng := RandomNumberGenerator.new()
 var varnak_rng := RandomNumberGenerator.new()
+var small_prey_rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	await get_tree().process_frame
 	resource_rng.randomize()
 	varnak_rng.randomize()
+	small_prey_rng.randomize()
 	evolution_director = get_parent().get_node("EvolutionDirector")
 	day_night_system = get_parent().get_node("DayNightSystem")
 	evolution_director.profile_changed.connect(_on_profile_changed)
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	_spawn_resources()
+	_spawn_initial_small_prey()
 	_spawn_varnaks()
 	queue_redraw()
 
@@ -178,6 +182,43 @@ func restore_resources(resources: Array) -> void:
 		var kind := str(resource_data.get("kind", "tree"))
 		var pos := _data_to_vector(resource_data.get("position", {}))
 		_spawn_resource_at(kind, pos)
+
+
+func _spawn_initial_small_prey() -> void:
+	var player_position := _get_player_position()
+	var spawned := 0
+	for biome in WORLD_CONFIG.get_biome_zones():
+		if bool(biome.get("dangerous", false)):
+			continue
+		if _try_spawn_small_prey_in_biome(biome, player_position):
+			spawned += 1
+	if spawned > 0:
+		get_node("/root/EventBus").post_message("%d SmallPrey entered the ecosystem" % spawned)
+
+
+func _try_spawn_small_prey_in_biome(biome: Dictionary, player_position: Vector2) -> bool:
+	var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+		var candidate := Vector2(
+			small_prey_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
+			small_prey_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
+		)
+		if candidate.distance_to(player_position) < WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE:
+			continue
+		if not _is_point_in_biome(candidate, biome):
+			continue
+		_spawn_small_prey_at(candidate, str(biome.get("name", "biome")).to_snake_case())
+		return true
+	return false
+
+
+func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
+	var small_prey := SMALL_PREY_SCENE.instantiate()
+	add_child(small_prey)
+	small_prey.global_position = pos
+	if small_prey.has_method("setup"):
+		small_prey.setup(biome_id)
+	return small_prey
 
 
 func _spawn_varnaks() -> void:
