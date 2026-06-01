@@ -22,6 +22,8 @@ const DEBUG_SMALL_PREY_SPAWN_RADIUS := 180.0
 const DEBUG_GRAZER_SPAWN_RADIUS := 240.0
 const BIOME_DEPLETED_TINT := Color(0.42, 0.33, 0.18)
 const PLANT_RESOURCE_KINDS := ["conifer_tree", "leafy_tree", "bush", "dry_bush"]
+const CREATURE_BOUND_GROUPS := ["varnak", "small_prey", "grazer"]
+const CREATURE_BOUND_TELEPORT_PADDING := 36.0
 
 var evolution_director: Node
 var day_night_system: Node
@@ -64,6 +66,28 @@ func get_world_rect() -> Rect2:
 
 func get_biome_zones() -> Array[Dictionary]:
 	return WORLD_CONFIG.get_biome_zones()
+
+
+func get_creatures_out_of_bounds_count() -> int:
+	return _get_out_of_bounds_creatures().size()
+
+
+func debug_teleport_out_of_bounds_creatures() -> void:
+	var creatures := _get_out_of_bounds_creatures()
+	for creature in creatures:
+		if not is_instance_valid(creature):
+			continue
+		if creature.has_method("debug_return_to_world"):
+			creature.debug_return_to_world()
+		else:
+			creature.global_position = _clamp_position_to_world(creature.global_position)
+	if creatures.size() > 0:
+		get_node("/root/EventBus").post_message("Teleported %d out-of-bounds creature%s" % [
+			creatures.size(),
+			"" if creatures.size() == 1 else "s"
+		])
+	else:
+		get_node("/root/EventBus").post_message("No out-of-bounds creatures")
 
 
 func _spawn_resources() -> void:
@@ -244,7 +268,7 @@ func _get_desired_small_prey_count(biome: Dictionary, biome_state: Dictionary) -
 	var biomass_percent := float(biome_state.get("plant_biomass_percent", 0.0))
 	var population_factor: float = clamp(population / 12.0, 0.0, 1.0)
 	var biomass_factor: float = clamp(biomass_percent / 100.0, 0.0, 1.0)
-	var danger_factor := 0.45 if bool(biome.get("dangerous", false)) else 1.0
+	var danger_factor := 0.45 if biome.get("dangerous", false) == true else 1.0
 	var desired := int(round(float(SMALL_PREY_MAX_VISIBLE_PER_BIOME) * population_factor * biomass_factor * danger_factor))
 	if population > 0.0 and biomass_percent >= 30.0:
 		desired = max(desired, 1)
@@ -584,6 +608,26 @@ func debug_remove_grazers_near_player() -> void:
 		get_node("/root/EventBus").post_message("Debug removed %d Grazers" % removed)
 
 
+func _get_out_of_bounds_creatures() -> Array[Node2D]:
+	var creatures: Array[Node2D] = []
+	for group_name in CREATURE_BOUND_GROUPS:
+		for node in get_tree().get_nodes_in_group(group_name):
+			var creature := node as Node2D
+			if not is_instance_valid(creature):
+				continue
+			if not WORLD_CONFIG.WORLD_RECT.has_point(creature.global_position):
+				creatures.append(creature)
+	return creatures
+
+
+func _clamp_position_to_world(position: Vector2) -> Vector2:
+	var rect := WORLD_CONFIG.WORLD_RECT.grow(-CREATURE_BOUND_TELEPORT_PADDING)
+	return Vector2(
+		clamp(position.x, rect.position.x, rect.end.x),
+		clamp(position.y, rect.position.y, rect.end.y)
+	)
+
+
 func get_varnak_save_data() -> Array[Dictionary]:
 	var varnaks: Array[Dictionary] = []
 	for varnak in get_tree().get_nodes_in_group("varnak"):
@@ -720,7 +764,7 @@ func _get_varnak_spawn_weight(point: Vector2) -> float:
 func _is_point_in_dangerous_biome(point: Vector2) -> bool:
 	for biome_value in WORLD_CONFIG.BIOME_ZONES:
 		var biome := Dictionary(biome_value)
-		if bool(biome.get("dangerous", false)) and _is_point_in_biome(point, biome):
+		if biome.get("dangerous", false) == true and _is_point_in_biome(point, biome):
 			return true
 	return false
 
