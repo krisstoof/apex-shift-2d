@@ -112,11 +112,12 @@ func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Arr
 			push_warning("Could not find a valid spawn position for %s" % resource_kind)
 
 
-func _spawn_resource_at(resource_kind: String, pos: Vector2) -> void:
+func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
 	var node := RESOURCE_SCENE.instantiate()
 	add_child(node)
 	node.position = pos
 	node.setup(resource_kind)
+	return node
 
 
 func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
@@ -203,13 +204,62 @@ func _get_player_position() -> Vector2:
 	return Vector2.ZERO
 
 
-func respawn_resources() -> void:
+func advance_resource_growth_days(days: float) -> void:
+	var changed_count := 0
 	for resource in get_tree().get_nodes_in_group("resources"):
-		if is_instance_valid(resource):
-			resource.queue_free()
-	await get_tree().process_frame
-	_spawn_resources()
-	get_node("/root/EventBus").post_message("Resources regrew after sleep")
+		if not is_instance_valid(resource) or not resource.has_method("advance_growth_days"):
+			continue
+		if resource.advance_growth_days(days):
+			changed_count += 1
+	if changed_count > 0:
+		get_node("/root/EventBus").post_message("%d resources advanced growth" % changed_count)
+
+
+func debug_advance_resource_growth_day() -> void:
+	advance_resource_growth_days(1.0)
+
+
+func debug_force_full_vegetation_regrowth() -> void:
+	var changed_count := 0
+	for resource in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(resource) or not resource.has_method("force_full_regrowth"):
+			continue
+		resource.force_full_regrowth()
+		changed_count += 1
+	get_node("/root/EventBus").post_message("Forced full regrowth on %d resources" % changed_count)
+
+
+func debug_reset_resource_growth() -> void:
+	var changed_count := 0
+	for resource in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(resource) or not resource.has_method("reset_growth_state"):
+			continue
+		resource.reset_growth_state()
+		changed_count += 1
+	get_node("/root/EventBus").post_message("Reset growth state on %d resources" % changed_count)
+
+
+func get_resource_growth_debug_summary() -> Dictionary:
+	var summary := {
+		"depleted": 0,
+		"sprout": 0,
+		"young": 0,
+		"mature": 0
+	}
+	for resource in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(resource) or not resource.has_method("get_growth_debug_text"):
+			continue
+		var stage := int(resource.get("growth_stage"))
+		match stage:
+			0:
+				summary["depleted"] += 1
+			1:
+				summary["sprout"] += 1
+			2:
+				summary["young"] += 1
+			_:
+				summary["mature"] += 1
+	return summary
 
 
 func get_resource_save_data() -> Array[Dictionary]:
@@ -217,10 +267,13 @@ func get_resource_save_data() -> Array[Dictionary]:
 	for resource in get_tree().get_nodes_in_group("resources"):
 		if not is_instance_valid(resource):
 			continue
-		resources.append({
-			"kind": str(resource.get("resource_kind")),
-			"position": _vector_to_data(resource.global_position)
-		})
+		if resource.has_method("get_save_data"):
+			resources.append(resource.get_save_data())
+		else:
+			resources.append({
+				"kind": str(resource.get("resource_kind")),
+				"position": _vector_to_data(resource.global_position)
+			})
 	return resources
 
 
@@ -232,9 +285,12 @@ func restore_resources(resources: Array) -> void:
 	for resource_data in resources:
 		if typeof(resource_data) != TYPE_DICTIONARY:
 			continue
-		var kind := str(resource_data.get("kind", "tree"))
-		var pos := _data_to_vector(resource_data.get("position", {}))
-		_spawn_resource_at(kind, pos)
+		var data := Dictionary(resource_data)
+		var kind := str(data.get("kind", "tree"))
+		var pos := _data_to_vector(data.get("position", {}))
+		var resource := _spawn_resource_at(kind, pos)
+		if resource.has_method("restore_from_data"):
+			resource.restore_from_data(data)
 
 
 func _sync_visible_small_prey() -> void:
@@ -350,10 +406,7 @@ func _sync_biome_vegetation(biome_id: String) -> void:
 		var target_count := _get_biome_resource_target_count(biome, kind)
 		var current_resources := _get_plant_resources_in_biome(biome_id, kind)
 		var current_count := current_resources.size()
-		if current_count > target_count:
-			_remove_plant_resources(current_resources, current_count - target_count)
-			changed = true
-		elif current_count < target_count:
+		if current_count < target_count:
 			for _i in target_count - current_count:
 				if _try_spawn_resource_in_biome(kind, biome, used_positions, _get_player_position()):
 					changed = true
@@ -786,10 +839,11 @@ func _on_profile_changed(profile: Dictionary) -> void:
 func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 	if event_name == "generation_changed":
 		call_deferred("respawn_varnaks")
-	elif event_name == "day_ended" and _payload.get("reason", "") == "slept_in_tent":
-		call_deferred("respawn_resources")
-		call_deferred("respawn_missing_varnaks")
-	elif event_name == "ecosystem_vegetation_changed" or event_name == "plant_resource_harvested":
+	elif event_name == "day_ended":
+		call_deferred("advance_resource_growth_days", 1.0)
+		if _payload.get("reason", "") == "slept_in_tent":
+			call_deferred("respawn_missing_varnaks")
+	elif event_name == "ecosystem_vegetation_changed":
 		var biome_id := str(_payload.get("biome_id", ""))
 		if not biome_id.is_empty():
 			call_deferred("_sync_biome_vegetation", biome_id)

@@ -312,6 +312,7 @@ func _build_world_text() -> String:
 		get_tree().get_nodes_in_group("grass").size(),
 		get_tree().get_nodes_in_group("rocks").size()
 	])
+	lines.append("Growth: %s" % _get_resource_growth_text())
 	return "\n".join(lines)
 
 
@@ -494,6 +495,19 @@ func _get_creatures_out_of_bounds_count() -> int:
 			if not WORLD_CONFIG.WORLD_RECT.has_point(creature.global_position):
 				count += 1
 	return count
+
+
+func _get_resource_growth_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_resource_growth_debug_summary"):
+		return "unavailable"
+	var summary: Dictionary = world.get_resource_growth_debug_summary()
+	return "depleted %d | sprout %d | young %d | mature %d" % [
+		int(summary.get("depleted", 0)),
+		int(summary.get("sprout", 0)),
+		int(summary.get("young", 0)),
+		int(summary.get("mature", 0))
+	]
 
 
 func _get_adaptation_pressure(profile: Dictionary) -> float:
