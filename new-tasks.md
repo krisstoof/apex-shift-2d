@@ -1,462 +1,502 @@
-Zadania GitHub Issues
-Issue 1: [WORLD] Expand world size for ecosystem gameplay
-Labels: type: feature, area: world, area: ecosystem, priority: high, stage: foundation
+Ecosystem Stabilization & Unified Creature Simulation
+GitHub Issues — nowy zestaw zadań
+Milestone
+Ecosystem Stabilization & Unified Creature Simulation
+Cel: ustabilizować działanie żywego świata: poprawić spawn roślin i zwierząt względem wody, uporządkować AI, ujednolicić statystyki osobnicze i populacyjne, rozszerzyć ewolucję na wszystkie stworzenia, poprawić mapy/debug, a następnie oczyścić kod i dodać testy.
+Analiza dokumentacji i nowych uwag
+Projekt ma już rozszerzony fundament: większy świat, biomy, roślinność, stawy, wzgórza, SmallPrey, Grazery, Varnaki, łuk, mięso, głód, dietę, biomasę, odrastanie zasobów i debug panel.
+Dokumentacja wskazuje, że stan ekosystemu powinien pozostawać w EcosystemDirector, widoczne zasoby i encje w World, balans w GameBalance, a UI/debug w skryptach interfejsu.
+Nowe uwagi są głównie stabilizacyjne: spawn w wodzie, czytelność mapy, rozróżnienie danych osobnika i populacji, ujednolicenie Varnaków z resztą zwierząt, ewolucja wszystkich gatunków oraz testy.
+To nie jest moment na dokładanie dużej warstwy contentu. To jest moment na porządkowanie biologicznego modelu gry i technicznej stabilności.
+Priorytet realizacji
+1.  Naprawić spawn roślin w wodzie.
+2.  Naprawić spawn zwierząt w wodzie.
+3.  Poprawić widoczność wzgórz i stawów.
+4.  Uporządkować minimapę i pełną mapę.
+5.  Złagodzić tint biomasy.
+6.  Poprawić regenerację staminy przy ognisku.
+7.  Rozdzielić statystyki osobnicze i populacyjne.
+8.  Dodać jedzenie mięsa przez głodne zwierzęta.
+9.  Ujednolicić Varnaki jako pełnoprawne zwierzęta ekosystemu.
+10.  Rozszerzyć ewolucję/generacje na wszystkie stworzenia.
+11.  Przeprowadzić audyt AI.
+12.  Wyczyścić i zoptymalizować kod.
+13.  Dodać testy jednostkowe i integracyjne.
+Issue 1: [BUG] Prevent vegetation from spawning inside pond water
+Labels: type: bug, area: world, area: vegetation, area: landmarks, priority: critical, stage: stabilization
 Cel
-Powiększyć grywalną mapę, aby zwierzęta, roślinność, Varnaki i przyszłe zależności ekosystemu miały więcej przestrzeni do działania.
-Zakres
-world_bounds
-resource spawn ranges
-varnak spawn points
-biome polygons
-safe spawn distances
-Acceptance Criteria
-Świat jest większy niż obecnie.
-Gracz ma więcej przestrzeni do eksploracji.
-Varnaki i zwierzęta nie są zbyt ciasno rozmieszczone.
-Minimap i full map działają poprawnie po zmianie rozmiaru świata.
-World bounds nadal ograniczają ruch gracza.
-Issue 2: [BALANCE] Add living world constants to GameBalance
-Labels: type: balancing, area: world, area: ecosystem, area: data, priority: high, stage: foundation
-Cel
-Dodać wartości balansujące dla większego świata, roślinności, ruchu zwierząt, łuku, Varnak hunting, landmarków i odrastania zasobów do GameBalance.
-Zakres
-vegetation density
-grass food value
-bush food value
-animal hunger thresholds
-animal food search radius
-varnak hunger thresholds
-bow damage
-bow cooldown
-arrow speed
-arrow lifetime
-pond vegetation bonus
-landmark spawn values
-resource regrowth stages
-days per growth stage
-yield by growth stage
-grass regrowth time
-bush regrowth time
-tree regrowth time
-Acceptance Criteria
-Nowe systemy używają wartości z GameBalance.
-Brak magic numbers w AI, łuku, generatorze roślinności i odrastaniu zasobów.
-Balans można łatwo zmieniać z jednego miejsca.
-Wartości są opisane komentarzami.
-Issue 3: [DEBUG] Organize debug panel with tabs and action buttons
-Labels: type: debug, area: ui, area: debug, area: ecosystem, priority: high, stage: foundation
-Cel
-Uporządkować debug panel, aby ograniczyć chaos informacyjny po dodaniu ekosystemu, większej mapy, roślinności, głodu zwierząt, Varnak hunting, landmarków, łuku i odrastania zasobów.
-Zakładki
-Overview
-Player
-World
-Ecosystem
-Creatures
-Evolution
-Combat
-Events
-Tools
-Overview
-Day / time / phase
-Player health / hunger / stamina / rest
-Current biome
-Live Varnaks
-Small prey population total
-Grazer population total
-Current ecosystem warnings
-Current generation
-Tools
-Add wood / stone / fiber / meat / torch
-Give spear / give bow
-Spawn aggressive Varnak / SmallPrey / Grazer
-Reduce / restore plant biomass
-Force ecosystem tick
-Force grazer food stress
-Force niche shift check
-Advance resource growth by 1 day
-Force full vegetation regrowth
-Reset resource growth
-Teleport out-of-bounds creatures back into world
-Acceptance Criteria
-Debug panel ma zakładki albo zwijane sekcje.
-Dane gracza, świata, ekosystemu, stworzeń i ewolucji są rozdzielone.
-Przyciski debugowe są przeniesione do Tools.
-Overview pokazuje tylko najważniejsze informacje.
-Panel nadal obsługuje istniejące funkcje debugowe.
-Brak któregoś systemu nie powoduje crasha.
-Issue 4: [BUG] Prevent animals from leaving world bounds
-Labels: type: bug, area: creatures, area: ai, area: world, priority: critical, stage: foundation
+Naprawić problem, w którym roślinność, szczególnie drzewa, nadal pojawia się pośrodku stawów.
 Problem
-Zwierzęta wychodzą poza obszar gry. To psuje ekosystem, liczniki populacji i testowanie AI.
+Dokumentacja zakłada, że roślinność nie powinna pojawiać się wewnątrz widocznego kształtu wody oraz że roślinność wokół stawów ma być rozkładana po obwodzie i odrzucana, jeśli trafia do środka wody. Aktualnie według uwag drzewa nadal rosną pośrodku stawu.
+Zakres
+tree
+conifer_tree
+leafy_tree
+bush
+small_bush
+berry_bush
+grass_patch
+dense_grass
+dry_bush
+Wymagania
+Dodać jedno wspólne sprawdzanie, czy pozycja znajduje się wewnątrz wody.
+Wykorzystać ten sam kształt stawu do renderowania, spawnu roślin, spawnu zwierząt oraz ruchu gracza i zwierząt.
+Roślinność może pojawiać się wokół stawu, ale nie w jego środku.
+Drzewa powinny mieć dodatkowy margines od wody, większy niż trawy.
+Acceptance Criteria
+Drzewa nie spawnują się w środku stawów.
+Krzaki nie spawnują się w środku stawów.
+Trawy nie spawnują się w środku stawów.
+Roślinność przy stawie nadal pojawia się wokół brzegu.
+Spawn zachowuje się poprawnie po save/load.
+Debug/spawn test nie generuje roślin wewnątrz wody.
+
+Issue 2: [BUG] Prevent animals from spawning inside pond water
+Labels: type: bug, area: creatures, area: world, area: ai, area: landmarks, priority: critical, stage: stabilization
 Cel
-Wszystkie stworzenia ekosystemu i Varnaki muszą pozostawać w granicach świata.
+Naprawić spawn zwierząt tak, aby nie pojawiały się w wodzie.
 Zakres
 SmallPrey
 Grazer
 Varnak
-future ecosystem creatures
-Proponowane rozwiązanie
-AI nie powinno wybierać celu poza mapą.
-Ruch powinien być clampowany do world bounds.
-Przy granicy zwierzę powinno wybrać nowy kierunek do środka mapy.
-Food targety poza mapą muszą być ignorowane.
-Flee direction nie może wypchnąć zwierzęcia poza mapę na stałe.
-Debug
-Dodać creatures_out_of_bounds_count.
-Opcjonalnie dodać przycisk: Teleport out-of-bounds creatures back into world.
-Acceptance Criteria
-SmallPrey, Grazer i Varnak nie wychodzą poza obszar gry.
-Zwierzęta przy granicy mapy zawracają albo wybierają nowy cel.
-AI nie generuje celów ruchu poza mapą.
-Po 5-10 minutach testu żadne stworzenie nie znajduje się poza world bounds.
-Debug panel pokazuje creatures_out_of_bounds_count = 0.
-Issue 5: [WORLD] Replace sleep resource respawn with gradual multi-day regrowth
-Labels: type: feature, area: world, area: ecosystem, area: resources, priority: high, stage: simulation
-Cel
-Usunąć natychmiastowy respawn zasobów po śnie i zastąpić go stopniowym odrastaniem zasobów w czasie.
-Problem
-Sen nie powinien magicznie resetować świata. Powinien tylko przesuwać czas, a zasoby powinny odrastać zgodnie z upływem dni.
-Model wzrostu
-growth_stage
-max_growth_stage
-days_to_next_stage
-growth_progress
-resource_yield_by_stage
-can_be_harvested
-biome_id
-position
-Przykład drzewa
-Stage 0: stump / empty spot
-Stage 1: sapling
-Stage 2: medium tree
-Stage 3: mature tree
-
-Day 0: tree harvested
-Day 1: sapling
-Day 2: medium tree
-Day 3: mature tree
-Yield według etapu
-sapling: 1 wood
-medium tree: 2 wood
-mature tree: 4 wood
-Sen
-Sen nie respawnuje zasobów bezpośrednio.
-Sen przesuwa czas do rana.
-Sen aktualizuje growth_progress zasobów.
-Zasoby przechodzą do kolejnych etapów, jeśli minął odpowiedni czas.
-Save/load
-Zapisywać resource kind, position, biome_id, growth_stage, growth_progress, days_since_harvested, is_harvested.
-Po wczytaniu gry zasoby powinny wrócić w tym samym etapie wzrostu.
-Acceptance Criteria
-Zasoby nie respawnują natychmiast po śnie.
-Drzewo odrasta etapami przez około 3 dni.
-Małe, średnie i duże drzewo mają różny wygląd albo przynajmniej różny debug/state.
-Ilość surowca zależy od etapu wzrostu.
-Krzaki i trawy odrastają szybciej niż drzewa.
-Stan wzrostu zapisuje się i odczytuje przez SaveSystem.
-System współpracuje z biomasą ekosystemu.
-Issue 6: [WORLD] Add landmark generation to WorldConfig
-Labels: type: feature, area: world, area: terrain, priority: medium, stage: foundation
-Cel
-Dodać do WorldConfig konfigurację punktów krajobrazowych, takich jak wzgórza i stawy.
-Struktura danych
-landmarks = [
-  {
-    id,
-    type,
-    position,
-    radius,
-    biome_id,
-    gameplay_tags
-  }
-]
-Typy
-hill
-pond
-Acceptance Criteria
-WorldConfig zawiera definicje landmarków.
-World potrafi utworzyć wzgórza i stawy na podstawie konfiguracji.
-Landmarki są widoczne w świecie.
-Landmarki są gotowe do rozszerzenia o wpływ na ekosystem.
-Issue 7: [WORLD] Add hills as terrain landmarks
-Labels: type: feature, area: world, area: terrain, priority: medium, stage: polish
-Cel
-Dodać wzgórza jako punkty krajobrazowe i element nawigacyjny.
-Mechanika pierwszej wersji
-Wizualny obszar.
-Lekka przeszkoda albo obszar z innym ruchem.
-Miejsce z ograniczonym spawnem roślin.
-Potencjalne miejsce lepszej widoczności w przyszłości.
-Acceptance Criteria
-Na mapie pojawiają się wzgórza.
-Wzgórza są widoczne wizualnie.
-Wzgórza nie psują pathingu/ruchu.
-Wzgórza mogą być użyte jako punkty orientacyjne.
-Issue 8: [WORLD] Add ponds as terrain landmarks and water sources
-Labels: type: feature, area: world, area: terrain, area: ecosystem, priority: medium, stage: polish
-Cel
-Dodać stawy jako punkty krajobrazowe oraz potencjalne źródła wody dla przyszłych systemów ekosystemu.
-Mechanika pierwszej wersji
-Staw może blokować ruch albo spowalniać wejście.
-Staw może zwiększać lokalną ilość roślinności.
-Staw może zwiększać spawn traw i krzaków wokół.
-W przyszłości staw może przyciągać zwierzęta jako źródło wody.
-Acceptance Criteria
-Na mapie pojawiają się stawy.
-Stawy są widoczne wizualnie.
-Gracz i zwierzęta poprawnie reagują na kolizję lub obszar.
-Wokół stawów może pojawiać się więcej roślinności.
-Stawy są gotowe do późniejszego wykorzystania jako źródło wody.
-Issue 9: [WORLD] Increase vegetation density with grasses and bushes
-Labels: type: feature, area: world, area: ecosystem, area: vegetation, priority: high, stage: simulation
-Cel
-Dodać więcej roślinności do świata, w tym trawy i krzaki, które będą pełniły rolę pożywienia dla roślinożerców.
-Nowe typy roślinności
-grass_patch
-small_bush
-berry_bush
-dense_grass
+future creatures
 Wymagania
-Roślinność powinna mieć wartość pokarmową dla roślinożerców.
-Roślinność powinna być przypisana do biomu.
-Nie każda roślina musi być interaktywna dla gracza.
-Nowe typy roślinności muszą wspierać growth_stage albo growth_progress.
-Trawy i krzaki mogą mieć krótszy cykl odrastania niż drzewa.
+Spawn zwierzęcia powinien sprawdzać world_bounds, odległość od gracza, minimalny dystans od innych zwierząt oraz to, czy punkt nie znajduje się w głębokiej wodzie.
+Zwierzęta mogą wejść na płyciznę, ale nie powinny startować pośrodku stawu.
+Varnaki również powinny respektować te zasady, ponieważ mają być traktowane jak zwierzęta ekosystemu.
 Acceptance Criteria
-Na mapie pojawia się więcej traw i krzaków.
-Roślinożercy mogą traktować roślinność jako pożywienie.
-Roślinność jest zagęszczona zależnie od biomu.
-Zwiększenie roślinności nie psuje czytelności mapy.
-Roślinność może zostać podpięta pod odrastanie i wyjadanie.
-Issue 10: [ECOSYSTEM] Add edible vegetation nodes for herbivores
-Labels: type: feature, area: ecosystem, area: creatures, area: vegetation, priority: high, stage: simulation
+SmallPrey nie spawnuje się w wodzie.
+Grazer nie spawnuje się w wodzie.
+Varnak nie spawnuje się w wodzie.
+Spawn przy brzegu stawu jest możliwy, jeśli punkt jest poza wodą lub na płyciźnie.
+Debug spawn również respektuje reguły wody.
+
+Issue 3: [WORLD] Add shallow water zones for creature movement
+Labels: type: feature, area: world, area: ai, area: creatures, area: landmarks, priority: high, stage: stabilization
 Cel
-Dodać roślinność, którą roślinożercy mogą wykrywać, wybierać jako cel i zjadać.
-Właściwości roślin
-food_value
-regrowth_time
-is_edible_by_herbivores
-biome_id
-growth_stage
-growth_progress
-Mechanika
-Zwierzę z głodem wyszukuje najbliższe jadalne rośliny.
-Po zjedzeniu roślina może zniknąć, zmniejszyć etap wzrostu albo przejść w stan wyjedzony.
-Zjadanie roślin wpływa na biomasę biomu.
-Roślinność nie respawnuje natychmiast po śnie.
+Dodać rozróżnienie między głęboką wodą a płycizną. Zwierzęta nie powinny spawnować się w wodzie, ale mogą wchodzić na płyciznę.
+Zakres
+deep_water
+shallow_water
+shore
+Zachowanie
+deep_water: blokuje spawn i mocno ogranicza albo blokuje ruch.
+shallow_water: pozwala przejść, ale wolniej.
+shore: normalny ruch, większa szansa na roślinność.
 Acceptance Criteria
-Roślinożerca potrafi znaleźć jadalną roślinę.
-Roślinożerca może podejść do rośliny i ją zjeść.
-Zjedzenie rośliny zmniejsza głód zwierzęcia.
-Zjedzenie rośliny wpływa na stan biomu.
-Roślina może odrosnąć albo zostać odtworzona przez system regrowth.
-Issue 11: [ECOSYSTEM] Make vegetation denser around ponds
-Labels: type: feature, area: ecosystem, area: world, area: vegetation, priority: medium, stage: simulation
+Zwierzęta nie wchodzą do głębokiej wody.
+Zwierzęta mogą przechodzić przez płyciznę.
+Ruch na płyciźnie może być wolniejszy.
+Logika płycizny jest wspólna dla SmallPrey, Grazerów i Varnaków.
+Gracz i zwierzęta korzystają ze spójnej definicji stawu.
+
+Issue 4: [VISUALS] Improve hill readability and elevation visuals
+Labels: type: feature, area: world, area: visuals, area: landmarks, priority: high, stage: polish
 Cel
-Sprawić, żeby stawy wpływały na lokalne zagęszczenie roślinności i tworzyły naturalne punkty koncentracji życia.
-Reguły
-W pobliżu stawów pojawia się więcej traw i krzewów.
-Zwierzęta roślinożerne mogą częściej szukać jedzenia w takich miejscach.
-W przyszłości stawy mogą przyciągać zwierzęta również jako źródła wody.
+Sprawić, aby wzgórza były bardziej widoczne i rozróżnialne jako wypiętrzenia terenu.
+Problem
+Według uwag wzgórza są za mało czytelne.
+Zakres
+bardziej wyraźny kształt
+warstwy wysokości
+delikatny cień
+kontur lub gradient wysokości
+różnica koloru względem biomu
 Acceptance Criteria
-Wokół stawów pojawia się więcej roślinności.
-Roślinność przy stawach jest widocznie gęstsza niż w suchych miejscach.
-Zwierzęta mogą wykorzystać tę roślinność jako pożywienie.
-System nie tworzy zbyt dużego zagęszczenia nodeów.
-Issue 12: [AI] Add free roaming movement for ecosystem animals
+Wzgórze jest łatwo zauważalne w widoku gry.
+Wzgórze różni się od zwykłego biomu.
+Wzgórze jest czytelne na minimapie i pełnej mapie.
+Efekt nie wygląda jak nienaturalny łuk lub artefakt.
+
+Issue 5: [BUG] Remove unwanted arc artifacts around ponds and hills
+Labels: type: bug, area: visuals, area: world, area: landmarks, priority: high, stage: stabilization
+Cel
+Usunąć dziwny łuk/artefakt wizualny przy stawach i wzgórzach.
+Zakres
+pond shapes
+hill shapes
+landmark overlays
+biome blended texture
+minimap landmark drawing
+full map landmark drawing
+Acceptance Criteria
+Przy stawach nie pojawia się dziwny łuk.
+Przy wzgórzach nie pojawia się dziwny łuk.
+Renderowanie landmarków jest stabilne po odświeżeniu mapy.
+Poprawka nie psuje biome blendingu.
+
+Issue 6: [MAP] Increase minimap size by 2x
+Labels: type: feature, area: ui, area: map, priority: medium, stage: polish
+Cel
+Powiększyć minimapę dwukrotnie, aby była czytelniejsza w większym świecie.
+Zakres
+scripts/ui/minimap.gd
+scenes/ui/hud.tscn
+Wymagania
+Minimapa ma być około 2x większa niż obecnie.
+Nie powinna zasłaniać kluczowych elementów HUD.
+Markery gracza, Varnaków, zwierząt i landmarków powinny być odpowiednio przeskalowane.
+Przy większej minimapie warto ograniczyć liczbę nieistotnych markerów.
+Acceptance Criteria
+Minimapa jest 2x większa.
+Minimapa pozostaje czytelna.
+Markery nie są zbyt małe ani zbyt duże.
+HUD nadal jest używalny.
+
+Issue 7: [MAP] Hide non-interactive vegetation from minimap
+Labels: type: feature, area: ui, area: map, area: vegetation, priority: high, stage: polish
+Cel
+Usunąć z minimapy nieinteraktywną roślinność, aby ograniczyć szum informacyjny.
+Zasada
+Minimapa powinna pokazywać: gracza, ważne zasoby interaktywne, Varnaki, ważniejsze zwierzęta lub hotspoty, stawy, wzgórza i biomy.
+Minimapa nie powinna pokazywać: każdej trawy, każdej nieinteraktywnej rośliny ani gęstej roślinności dekoracyjnej.
+Acceptance Criteria
+Nieinteraktywne trawy nie są pokazywane na minimapie.
+Nieinteraktywne krzaki/dekoracje nie są pokazywane na minimapie.
+Interaktywne zasoby nadal mogą być widoczne.
+Minimapa jest mniej chaotyczna.
+Pełna mapa może pokazywać więcej informacji niż minimapa.
+
+Issue 8: [VISUALS] Soften biomass depletion tint
+Labels: type: polish, area: world, area: ecosystem, area: visuals, priority: medium, stage: polish
+Cel
+Złagodzić tint wskazujący spadek biomasy, ponieważ przy biomasie 0 wszystkie tereny wyglądają zbyt podobnie.
+Problem
+Tint biomasy jest za mocny i powoduje, że różne biomy tracą własną tożsamość wizualną, szczególnie przy niskiej biomasie.
+Wymagania
+Biom przy 0 biomasy nadal powinien wyglądać jak ten sam biom, tylko bardziej wyjałowiony.
+Tint nie powinien całkowicie nadpisywać koloru biomu.
+Różne biomy muszą pozostać rozróżnialne.
+Wartości powinny trafić do GameBalance.
+Acceptance Criteria
+Przy niskiej biomasie biomy nadal różnią się od siebie.
+Efekt wyjałowienia jest widoczny, ale łagodniejszy.
+Przejście między stanami biomasy jest płynne.
+Minimap/full map pozostają czytelne.
+
+Issue 9: [MAP] Add ponds and hills to full map and minimap
+Labels: type: feature, area: ui, area: map, area: landmarks, priority: high, stage: polish
+Cel
+Dodać stawy i wzgórza do minimapy oraz pełnej mapy.
+Zakres
+scripts/ui/minimap.gd
+scripts/ui/map_screen.gd
+Acceptance Criteria
+Stawy są widoczne na minimapie.
+Wzgórza są widoczne na minimapie.
+Stawy są widoczne na pełnej mapie.
+Wzgórza są widoczne na pełnej mapie.
+Mapa ma legendę lub czytelne rozróżnienie symboli.
+Markery landmarków nie zlewają się z markerami zasobów.
+
+Issue 10: [CREATURES] Add individual creature stats separate from population stats
+Labels: type: feature, area: creatures, area: ecosystem, area: ai, priority: critical, stage: architecture
+Cel
+Rozdzielić statystyki pojedynczego zwierzęcia od statystyk populacji.
+Problem
+Głód, zmęczenie i podobne wartości powinny należeć do konkretnego osobnika, a nie tylko do abstrakcyjnej populacji.
+Statystyki osobnika
+health
+hunger
+energy
+fatigue/rest
+age opcjonalnie
+diet preferences
+current target
+current AI state
+last food source
+fitness_score
+Statystyki populacji
+population_count
+average_hunger
+average_energy
+average_plant_diet
+average_meat_diet
+average_aggression
+birth_rate
+death_rate
+predation_pressure
+starvation_pressure
+Wymagania
+EcosystemDirector trzyma stan populacyjny.
+Widoczne stworzenia trzymają stan osobniczy.
+Śmierć, jedzenie i głód osobnika powinny wpływać na statystyki populacyjne.
+Debug panel powinien pokazywać nearest creature stats i population aggregate stats.
+Acceptance Criteria
+SmallPrey ma własny głód i energię.
+Grazer ma własny głód i energię.
+Varnak ma własny głód i energię.
+Populacja nadal ma statystyki zbiorcze.
+Debug rozróżnia dane osobnika i populacji.
+Save/load zachowuje stan osobników, jeśli są zapisane jako aktywne stworzenia.
+
+Issue 11: [AI] Allow hungry animals to eat meat and carcasses
 Labels: type: feature, area: ai, area: creatures, area: ecosystem, priority: high, stage: simulation
 Cel
-Zwierzęta powinny poruszać się swobodnie po mapie, a ich ruch powinien wynikać ze stanu: głodu, strachu, poszukiwania pożywienia, ucieczki lub eksploracji.
-Zachowania
-wander
-seek_food
-flee_threat
-avoid_obstacle
-return_to_biome
-idle
+Zwierzęta powinny móc jeść mięso, gdy są głodne, zgodnie ze swoimi preferencjami żywieniowymi.
+Zakres
+Grazer
+Varnak
+future omnivores
+future scavengers
+Mechanika
+Meat drop albo carcass powinien być wykrywany jako źródło pożywienia.
+Zwierzę wybiera mięso, jeśli jest głodne, ma wystarczająco wysokie meat_diet lub scavenger_diet i mięso znajduje się w zasięgu wykrywania.
+Zjedzenie mięsa obniża głód.
+Zjedzenie mięsa może usunąć meat drop albo zmniejszyć jego ilość.
+Acceptance Criteria
+Głodny Grazer może zjeść mięso, jeśli jego dieta i stan głodu na to pozwalają.
+Varnak może zjeść mięso po zabiciu ofiary.
+Zwierzęta nie jedzą mięsa, jeśli ich dieta tego nie dopuszcza.
+Meat drop nie duplikuje się po zjedzeniu.
+Jedzenie mięsa wpływa na głód osobnika.
+
+Issue 12: [CREATURES] Treat Varnaks as full ecosystem animals
+Labels: type: refactor, area: creatures, area: ecosystem, area: ai, area: evolution, priority: critical, stage: architecture
+Cel
+Ujednolicić Varnaki z resztą ekosystemu.
+Problem
+Varnaki są głównymi przeciwnikami i mają własną adaptację, ale zgodnie z założeniem powinny być traktowane jako zwierzęta ekosystemu.
+Varnak powinien mieć
+individual hunger
+individual energy/rest
+diet profile
+food target selection
+meat/carcass consumption
+fitness score
+species/population reference
+generation data
 Wymagania
-Zwierzęta swobodnie przemieszczają się po biomie.
-Mogą przekraczać granice biomów, ale preferują swój aktualny biom.
-Nie uciekają poza mapę.
-Unikają prostych przeszkód, np. ścian, stawów lub dużych wzgórz.
+Nie usuwać unikalnych cech Varnaków: agresji, strachu przed ogniem, reakcji na pochodnię, nocnej aktywności.
+Przenieść wspólne mechaniki do helperów/komponentów, gdzie ma to sens.
+Varnak nadal powinien być szczególnym, inteligentniejszym drapieżnikiem, ale opartym na tym samym modelu biologicznym.
 Acceptance Criteria
-Zwierzęta poruszają się po mapie bez ręcznego sterowania.
-Zwierzęta nie opuszczają world bounds.
-Zwierzęta potrafią zmienić kierunek ruchu.
-Zwierzęta potrafią przejść w tryb szukania pożywienia.
-Zwierzęta potrafią uciekać przed zagrożeniem.
-Issue 13: [AI] Make hunger drive animal food seeking behavior
-Labels: type: feature, area: ai, area: ecosystem, area: creatures, priority: high, stage: simulation
+Varnak ma głód osobniczy.
+Varnak może jeść mięso.
+Varnak może polować, bo jest głodny, nie tylko dlatego, że gracz jest celem.
+Varnak ma dane potrzebne do populacyjnej ewolucji.
+Varnak nadal reaguje na ogień, pochodnię, noc, pułapki i gracza.
+
+Issue 13: [EVOLUTION] Extend generation and evolution system to all creature species
+Labels: type: feature, area: evolution, area: ecosystem, area: creatures, priority: critical, stage: architecture
 Cel
-Sprawić, aby spadający głód realnie wpływał na zachowanie zwierząt. Zwierzęta powinny kierować się w stronę pożywienia, gdy zaczynają być głodne.
-Progi głodu
-comfortable
-hungry
-starving
-desperate
-Zachowanie
-comfortable: zwierzę głównie wędruje.
-hungry: zwierzę szuka preferowanego jedzenia.
-starving: zwierzę podejmuje większe ryzyko.
-desperate: zwierzę może zmienić strategię, np. roślinożerca może zjeść padlinę albo zaatakować mniejszą ofiarę.
-Acceptance Criteria
-Głód wzrasta z czasem.
-Zwierzęta zmieniają zachowanie przy wysokim głodzie.
-Zwierzęta potrafią znaleźć pożywienie.
-Zwierzęta kierują się w stronę pożywienia.
-Po jedzeniu głód spada.
-Issue 14: [AI] Make Varnaks hunt when hungry or when player is nearby
-Labels: type: feature, area: ai, area: creatures, area: ecosystem, area: evolution, priority: high, stage: simulation
-Cel
-Varnaki powinny polować jako część ekosystemu, a nie tylko jako przeciwnicy gracza.
-Warunki ataku
-Varnak jest głodny.
-W pobliżu jest ofiara.
-Gracz wejdzie mu w drogę.
-Gracz znajdzie się w zasięgu wykrywania.
-Reguły wyboru celu
-hunger level
-distance to player
-distance to prey
-aggression
-night_activity
-current threat
-fire/torch avoidance
-Acceptance Criteria
-Varnak ma głód albo uproszczony poziom potrzeby polowania.
-Varnak może polować na zwierzęta ekosystemu.
-Varnak nadal potrafi atakować gracza.
-Varnak reaguje na gracza, jeśli gracz znajdzie się na jego drodze.
-Polowanie Varnaka wpływa na populację ofiar.
-Issue 15: [CREATURES] Make killed animals drop meat
-Labels: type: feature, area: creatures, area: ecosystem, area: resources, priority: high, stage: simulation
-Cel
-Sprawić, aby zwierzęta po śmierci zostawiały mięso, które gracz może zebrać.
+Rozszerzyć system generacji/ewolucji na wszystkie stworzenia, nie tylko Varnaki.
+Problem
+Ewolucja/generacja ma dotyczyć wszystkich stworzeń. Obecnie dokumentacja nadal mocno wyróżnia Varnaki jako główne stworzenia adaptacyjne, a Grazery mają głównie niszę/diet shift.
 Zakres
 SmallPrey
 Grazer
-Varnak - opcjonalnie do ujednolicenia z obecnym systemem nagród
+Varnak
+future predators
+Wspólny model gatunku/populacji
+species_id
+generation
+population_traits
+individual_traits
+mutation_rate
+selection_pressure
+fitness_rules
+niche
 Mechanika
-Po śmierci zwierzę zostawia meat_drop w miejscu śmierci.
-Meat drop można zebrać przez E.
-Zebranie dodaje meat do inventory gracza.
-Drop znika po zebraniu.
-Opcjonalnie drop znika po kilku dniach lub po pewnym czasie.
-Ilość mięsa
-SmallPrey: 1 meat
-Grazer: 2-3 meat
-Varnak: 2-4 meat
-Eventy
-animal_dropped_meat
-meat_collected
+Każdy gatunek ma generację.
+Osobniki mają cechy.
+Populacje mają średnie cechy.
+Osobniki zbierają fitness.
+Nowe generacje przesuwają średnie cechy na podstawie przeżycia i rozmnażania.
+Mutacja dodaje niewielką losową zmienność.
 Acceptance Criteria
-Zabity SmallPrey zostawia mięso.
-Zabity Grazer zostawia mięso.
-Mięso można zebrać przez interakcję.
-Zebranie mięsa dodaje meat do inventory.
-Ilość mięsa zależy od typu zwierzęcia.
-Loot drop nie pojawia się poza world bounds.
-Wartości lootu są konfigurowalne w GameBalance.
-System nie duplikuje mięsa przy wielokrotnym wywołaniu śmierci tego samego zwierzęcia.
-Issue 16: [COMBAT] Add ranged projectile damage handling
-Labels: type: feature, area: combat, area: player, area: creatures, priority: high, stage: simulation
+SmallPrey ma generację.
+Grazer ma generację.
+Varnak ma generację.
+Debug pokazuje generacje wszystkich gatunków.
+Zmiany cech wynikają z presji środowiska, nie tylko z ręcznego bonusu.
+Save/load zapisuje generacje i populacyjne cechy gatunków.
+
+Issue 14: [AI] Audit and improve creature decision-making
+Labels: type: refactor, area: ai, area: creatures, area: ecosystem, priority: high, stage: stabilization
 Cel
-Dodać podstawową obsługę obrażeń od pocisków, potrzebną dla łuku i przyszłych broni dystansowych.
-Pliki
-scenes/projectiles/arrow_projectile.tscn
-scripts/projectiles/arrow_projectile.gd
-Mechanika
-Pocisk porusza się w linii prostej.
-Pocisk ma maksymalny zasięg albo czas życia.
-Pocisk znika po trafieniu.
-Pocisk zadaje obrażenia obiektom z metodą take_damage.
-Pocisk nie rani gracza, jeśli został wystrzelony przez gracza.
-Acceptance Criteria
-Arrow projectile pojawia się po strzale z łuku.
-Arrow projectile porusza się w kierunku kursora.
-Arrow projectile znika po trafieniu.
-Arrow projectile zadaje obrażenia Varnakowi.
-Arrow projectile zadaje obrażenia zwierzętom ekosystemu.
-Arrow projectile nie zostaje w świecie bez końca.
-Issue 17: [WEAPON] Add craftable bow with infinite ammo
-Labels: type: feature, area: player, area: combat, area: crafting, priority: high, stage: simulation
-Cel
-Dodać nową broń dla gracza: łuk. Na tym etapie łuk powinien mieć nieskończoną amunicję, aby szybciej przetestować walkę dystansową i polowanie.
+Przeprowadzić analizę i poprawki AI wszystkich stworzeń.
 Zakres
-bow crafting recipe
-has_bow flag
-ranged attack input
-arrow projectile
-basic damage
-cooldown
-HUD/skill bar status
-Crafting - propozycja
-wood: 3
-fiber: 4
-bone: 1
-Mechanika
-Gracz może wytworzyć łuk.
-Po wytworzeniu łuk zostaje jako wyposażenie.
-Strzał leci w kierunku kursora.
-Amunicja jest nieskończona w tym etapie.
-Łuk zadaje mniejsze obrażenia niż włócznia, ale działa z dystansu.
-Strzał ma cooldown.
+wander
+seek food
+eat
+hunt
+flee
+avoid water
+avoid hills
+avoid walls
+avoid world edge
+target switching
+return to biome
+react to player
+react to fire/torch
+Problemy do wykrycia
+Zwierzę zmienia cel zbyt często.
+Zwierzę ignoruje jedzenie.
+Zwierzę ucieka w wodę.
+Zwierzę blokuje się na przeszkodzie.
+Zwierzę wychodzi poza biome/world bounds.
+Varnak wybiera gracza zbyt często lub zbyt rzadko.
+Grazer za szybko przechodzi w drapieżnictwo.
+Zwierzęta jedzą, mimo że nie są głodne.
 Acceptance Criteria
-Gracz może stworzyć łuk.
-HUD pokazuje posiadanie łuku.
-Gracz może strzelać z łuku.
-Pocisk trafia Varnaki lub zwierzęta.
-Trafienie zadaje obrażenia.
-Amunicja nie jest zużywana.
-Wartości łuku są w GameBalance.
-Issue 18: [WORLD] Smooth biome transitions with gradient or mesh blending
-Labels: type: feature, area: world, area: biome, area: visuals, priority: medium, stage: polish
+AI ma opisane priorytety decyzji.
+Każdy stan ma jasne wejście i wyjście.
+Zwierzęta nie migają chaotycznie między stanami.
+Głód realnie wpływa na szukanie jedzenia.
+Strach realnie wpływa na ucieczkę.
+Debug pokazuje aktualny cel i powód decyzji przynajmniej dla najbliższego stworzenia.
+
+Issue 15: [BUG] Fix campfire stamina regeneration behavior
+Labels: type: bug, area: player, area: campfire, area: survival, priority: high, stage: stabilization
 Cel
-Poprawić sposób przechodzenia między biomami. Dla większej mapy i bardziej naturalnego świata przejścia powinny być łagodniejsze.
-Techniki do rozważenia
-gradient blending
-mesh-based biome overlay
-noise-based transition zone
-soft polygon edges
+Poprawić regenerację staminy przy ognisku.
+Problem
+Wcześniej planowaliśmy, że przy ognisku gracz powinien szybciej regenerować staminę/rest, ale nowa uwaga wskazuje, że regeneracja staminy przy ognisku nadal wymaga poprawki.
+Zakres
+czy gracz jest w zasięgu aktywnego ogniska
+czy ognisko jest aktywne
+czy stamina regen multiplier jest stosowany
+czy efekt nie stackuje się od wielu ognisk
+czy HUD/debug pokazuje aktywny efekt
 Acceptance Criteria
-Przejścia między biomami wyglądają łagodniej.
-Nadal można ustalić, w którym biomie znajduje się gracz.
-Spawn zasobów i zwierząt nadal zależy od biomu.
-Full map pokazuje biomy w czytelny sposób.
-Issue 19: [MAP] Update minimap and full map for larger world and landmarks
-Labels: type: feature, area: ui, area: map, area: world, priority: medium, stage: polish
+Stamina regeneruje się szybciej przy aktywnym ognisku.
+Po odejściu od ogniska regeneracja wraca do normalnej.
+Kilka ognisk nie mnoży efektu.
+Debug pokazuje campfire_regen_active.
+Wartości są konfigurowalne w GameBalance.
+
+Issue 16: [PERFORMANCE] Cleanup and optimize living world systems
+Labels: type: refactor, type: performance, area: world, area: ecosystem, area: ai, priority: high, stage: cleanup
 Cel
-Zaktualizować minimapę i pełną mapę, aby poprawnie obsługiwały większy świat, łagodniejsze biomy oraz nowe punkty krajobrazowe.
-Nowe elementy mapy
-hills
-ponds
-dense vegetation zones
-possibly animal hotspots
+Wyczyścić i zoptymalizować kod po rozbudowie ekosystemu.
+Zakres
+World
+WorldConfig
+EcosystemDirector
+ResourceNode
+SmallPrey
+Grazer
+Varnak
+HungerDiet
+Minimap
+MapScreen
+DebugPanel
+SaveSystem
+Szczególne ryzyka
+Performance-sensitive są: renderowanie biomów, mapy, pętle zasobów/stworzeń i debug text.
+Wymagania
+Ograniczyć pełne skanowanie świata co klatkę.
+Używać cache, grup i indeksów tam, gdzie ma to sens.
+Debug panel nie powinien przebudowywać dużej ilości tekstu co klatkę bez potrzeby.
+AI nie powinno wykonywać kosztownych globalnych wyszukiwań co frame.
+Mapy powinny używać cache danych landmarków/biomów.
 Acceptance Criteria
-Minimap działa z większym światem.
-Full map działa z większym światem.
-Wzgórza są widoczne na mapie.
-Stawy są widoczne na mapie.
-Łagodne biomy nadal są czytelne.
-Mapa nie jest przeładowana markerami.
+Smoke test działa stabilnie.
+Gra nie przycina przy większej liczbie roślin i zwierząt.
+Debug panel pozostaje responsywny.
+Brak oczywistych duplikacji kodu między SmallPrey, Grazerem i Varnakiem.
+Najczęstsze magic numbers są przeniesione do GameBalance.
+
+Issue 17: [TESTS] Add unit tests for ecosystem and creature helpers
+Labels: type: test, area: tests, area: ecosystem, area: creatures, priority: high, stage: validation
+Cel
+Dodać testy jednostkowe dla logiki ekosystemu i pomocniczych systemów stworzeń.
+Zakres testów
+HungerDiet
+biomass status calculation
+diet preference food choice
+resource regrowth stage progression
+population update calculations
+niche shift threshold
+world bounds helper
+water/pond position helper
+loot drop calculation
+Acceptance Criteria
+Istnieją testy jednostkowe dla HungerDiet.
+Istnieją testy dla progów głodu.
+Istnieją testy dla statusu biomasy.
+Istnieją testy dla przechodzenia etapów odrastania zasobów.
+Istnieją testy dla wyboru jedzenia według diety.
+Testy można uruchomić lokalnie jako część procesu walidacji.
+
+Issue 18: [TESTS] Add integration tests for living world flows
+Labels: type: test, area: tests, area: world, area: ecosystem, area: ai, priority: high, stage: validation
+Cel
+Dodać testy integracyjne lub scenariusze automatyczne dla głównych przepływów żywego świata.
+Zakres testów
+new game starts with ecosystem initialized
+vegetation does not spawn in pond water
+animals do not spawn in pond water
+animals remain inside world bounds
+small prey searches for food when hungry
+grazer eats plants when hungry
+grazer can eat meat when desperate
+varnak hunts prey when hungry
+animal death creates meat drop
+resource regrowth advances after day progression
+save/load restores ecosystem state
+minimap renders with landmarks
+Acceptance Criteria
+Istnieje zestaw testów integracyjnych albo smoke-test checklist dla living world.
+Testy wykrywają spawn roślin w wodzie.
+Testy wykrywają spawn zwierząt w wodzie.
+Testy wykrywają brak mięsa po śmierci zwierzęcia.
+Testy sprawdzają save/load ekosystemu.
+Testy są opisane w dokumentacji projektu.
+
+Issue 19: [DOCS] Update application overview after ecosystem stabilization
+Labels: type: documentation, area: docs, area: ecosystem, priority: medium, stage: validation
+Cel
+Zaktualizować dokumentację po wdrożeniu stabilizacji ekosystemu.
+Zakres
+water spawn rules
+shallow water rules
+hill visual rules
+minimap visibility rules
+individual vs population stats
+Varnaks as ecosystem animals
+multi-species generation model
+AI decision priorities
+campfire regeneration behavior
+test coverage
+Acceptance Criteria
+Dokumentacja opisuje aktualne działanie systemów.
+Nowe reguły są spójne z kodem.
+Dokumentacja rozróżnia stan obecny od planowanego.
+Można jej użyć do kolejnego milestone’u.
+
 Sugerowana kolejność realizacji
-[WORLD] Expand world size for ecosystem gameplay
-[BALANCE] Add living world constants to GameBalance
-[DEBUG] Organize debug panel with tabs and action buttons
-[BUG] Prevent animals from leaving world bounds
-[WORLD] Replace sleep resource respawn with gradual multi-day regrowth
-[WORLD] Add landmark generation to WorldConfig
-[WORLD] Add hills as terrain landmarks
-[WORLD] Add ponds as terrain landmarks and water sources
-[WORLD] Increase vegetation density with grasses and bushes
-[ECOSYSTEM] Add edible vegetation nodes for herbivores
-[ECOSYSTEM] Make vegetation denser around ponds
-[AI] Add free roaming movement for ecosystem animals
-[AI] Make hunger drive animal food seeking behavior
-[AI] Make Varnaks hunt when hungry or when player is nearby
-[CREATURES] Make killed animals drop meat
-[COMBAT] Add ranged projectile damage handling
-[WEAPON] Add craftable bow with infinite ammo
-[WORLD] Smooth biome transitions with gradient or mesh blending
-[MAP] Update minimap and full map for larger world and landmark
+Faza 1 — pilne bugfixy świata
+1.  [BUG] Prevent vegetation from spawning inside pond water
+2.  [BUG] Prevent animals from spawning inside pond water
+3.  [WORLD] Add shallow water zones for creature movement
+4.  [BUG] Remove unwanted arc artifacts around ponds and hills
+5.  [VISUALS] Improve hill readability and elevation visuals
+Faza 2 — czytelność mapy i świata
+1.  [MAP] Increase minimap size by 2x
+2.  [MAP] Hide non-interactive vegetation from minimap
+3.  [MAP] Add ponds and hills to full map and minimap
+4.  [VISUALS] Soften biomass depletion tint
+Faza 3 — ujednolicenie stworzeń
+1.  [CREATURES] Add individual creature stats separate from population stats
+2.  [AI] Allow hungry animals to eat meat and carcasses
+3.  [CREATURES] Treat Varnaks as full ecosystem animals
+4.  [EVOLUTION] Extend generation and evolution system to all creature species
+5.  [AI] Audit and improve creature decision-making
+Faza 4 — poprawki survivalowe i techniczne
+1.  [BUG] Fix campfire stamina regeneration behavior
+2.  [PERFORMANCE] Cleanup and optimize living world systems
+Faza 5 — walidacja
+1.  [TESTS] Add unit tests for ecosystem and creature helpers
+2.  [TESTS] Add integration tests for living world flows
+3.  [DOCS] Update application overview after ecosystem stabilization
+Najważniejsze zadania z całego zestawu
+1.  [BUG] Prevent vegetation from spawning inside pond water
+2.  [CREATURES] Add individual creature stats separate from population stats
+3.  [CREATURES] Treat Varnaks as full ecosystem animals
+4.  [EVOLUTION] Extend generation and evolution system to all creature species
+Te zadania zdecydują, czy projekt pozostanie survivalem z dodatkowymi zwierzętami, czy faktycznie pójdzie w stronę darwinowskiego ekosystemu działającego na poziomie osobników, populacji i gatunków.
+Źródła wejściowe
+application-overview.md — aktualna dokumentacja prototypu Apex Shift 2D
+uwagi 2.06.2026.docx — nowe uwagi projektowe użytkownika
