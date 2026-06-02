@@ -75,6 +75,21 @@ const SPEAR_ATTACK_COOLDOWN := 0.0
 const TRAP_DAMAGE := 120.0
 const TRAP_EFFECT_DURATION := 0.0
 
+const ANIMAL_LOOT := {
+	"small_prey": {
+		"meat_min": 1,
+		"meat_max": 1
+	},
+	"grazer": {
+		"meat_min": 2,
+		"meat_max": 3
+	},
+	"varnak": {
+		"meat_min": 2,
+		"meat_max": 4
+	}
+}
+
 # Larger-world generation values. These are used or reserved for world scale,
 # vegetation density, spawn spacing, and biome content distribution.
 const LIVING_WORLD := {

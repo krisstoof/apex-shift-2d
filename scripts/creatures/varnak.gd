@@ -39,6 +39,8 @@ var night_health_bonus_active := false
 var scared_fire: Node2D
 var ecosystem_target: Node2D
 var ecosystem_target_kind := ""
+var dropped_meat := false
+var is_dead := false
 
 func _ready() -> void:
 	add_to_group("varnak")
@@ -128,6 +130,8 @@ func _physics_process(delta: float) -> void:
 
 
 func take_damage(amount: float, source: String) -> void:
+	if is_dead:
+		return
 	health = max(health - amount, 0.0)
 	if health <= 0.0:
 		_die(source)
@@ -515,14 +519,26 @@ func _get_terrain_speed_multiplier() -> float:
 
 
 func _die(source: String) -> void:
+	if is_dead:
+		return
+	is_dead = true
+	_drop_meat_once()
 	var event_name := "varnak_killed_by_trap" if source == "trap" else "varnak_killed_by_player"
 	get_node("/root/EventBus").emit_game_event(event_name, {"position": global_position})
 	get_node("/root/EventBus").post_message("Varnak killed by %s" % source)
 	if is_instance_valid(player) and global_position.distance_to(player.global_position) < 90.0:
-		player.inventory.add_item("meat", 1)
 		player.inventory.add_item("hide", 1)
 		player.inventory.add_item("bone", 1)
 	queue_free()
+
+
+func _drop_meat_once() -> void:
+	if dropped_meat:
+		return
+	dropped_meat = true
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("spawn_meat_drop_for_animal"):
+		world.spawn_meat_drop_for_animal("varnak", global_position)
 
 
 func _draw() -> void:

@@ -121,5 +121,7 @@ func _get_resource_color(resource: Node) -> Color:
 			return Color(0.36, 0.78, 0.24)
 		"berries":
 			return Color(0.88, 0.18, 0.24)
+		"meat":
+			return Color(0.88, 0.20, 0.16)
 		_:
 			return Color(0.86, 0.78, 0.45)
