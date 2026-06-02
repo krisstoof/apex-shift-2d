@@ -108,6 +108,15 @@ func is_position_in_water(position: Vector2) -> bool:
 	return false
 
 
+func is_creature_navigation_blocked(position: Vector2) -> bool:
+	if is_position_in_water(position):
+		return true
+	for hill in hill_landmarks:
+		if _is_position_in_hill_obstacle(position, hill):
+			return true
+	return false
+
+
 func get_creatures_out_of_bounds_count() -> int:
 	return _get_out_of_bounds_creatures().size()
 
@@ -292,6 +301,12 @@ func _is_position_in_pond_water(position: Vector2, pond: Dictionary, margin_mult
 	var offset := position - center
 	var normalized := Vector2(offset.x / radius, offset.y / (radius * POND_VISUAL_Y_SCALE))
 	return normalized.length_squared() <= 1.0
+
+
+func _is_position_in_hill_obstacle(position: Vector2, hill: Dictionary) -> bool:
+	var center := Vector2(hill.get("position", Vector2.ZERO))
+	var radius := float(hill.get("radius", 0.0)) * HILL_RESOURCE_BLOCK_RADIUS_FACTOR
+	return radius > 0.0 and position.distance_to(center) <= radius
 
 
 func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
