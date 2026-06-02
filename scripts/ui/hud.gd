@@ -2,6 +2,7 @@ extends CanvasLayer
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS := 30.0
+const HUD_REFRESH_INTERVAL := 0.10
 
 var player: Node
 var evolution_director: Node
@@ -12,6 +13,7 @@ var message_history: Array[String] = []
 var map_screen_open := false
 var pause_menu_open := false
 var center_notification_time := 0.0
+var hud_refresh_timer := 0.0
 var ecosystem_message_cooldowns: Dictionary = {}
 
 @onready var stats_label: Label = $Panel/StatsLabel
@@ -49,6 +51,7 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	minimap.bind(player, world_rect, biome_zones, landmarks)
 	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones, landmarks)
 	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director)
+	_refresh_hud_text()
 
 
 func _process(delta: float) -> void:
@@ -57,6 +60,16 @@ func _process(delta: float) -> void:
 	if center_notification_time > 0.0:
 		center_notification_time = max(center_notification_time - delta, 0.0)
 		center_notification_label.visible = center_notification_time > 0.0
+	hud_refresh_timer += delta
+	if hud_refresh_timer < HUD_REFRESH_INTERVAL:
+		return
+	hud_refresh_timer = 0.0
+	_refresh_hud_text()
+
+
+func _refresh_hud_text() -> void:
+	if not player or not evolution_director or not day_night_system:
+		return
 	var clock_text: String = day_night_system.get_clock_time() if day_night_system.has_method("get_clock_time") else "--:--"
 	var time_label: String = day_night_system.get_time_label() if day_night_system.has_method("get_time_label") else ""
 	clock_label.text = "%s\n%s" % [clock_text, time_label]

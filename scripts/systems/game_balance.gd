@@ -213,6 +213,14 @@ const RESOURCE_REGROWTH := {
 	"growth_tick_seconds": 5.0
 }
 
+const BIOME_VISUALS := {
+	"biome_blend_radius": 300.0,
+	"biomass_depleted_tint": Color(0.34, 0.31, 0.22),
+	"biomass_tint_max_strength": 0.38,
+	"biomass_darkening_max_strength": 0.08,
+	"biomass_visual_bucket_percent": 5.0
+}
+
 const ECOSYSTEM := {
 	"simulation_tick_seconds": 5.0,
 	"default_plant_biomass": 100.0,

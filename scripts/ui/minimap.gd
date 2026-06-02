@@ -4,10 +4,11 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const PADDING := 14.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(192, 116)
-const BIOME_BLEND_RADIUS := 420.0
+const DEFAULT_BIOME_BLEND_RADIUS := 300.0
 const BIOME_NEIGHBOR_BLEND_WEIGHT := 0.90
 const POND_MARKER_Y_SCALE := 0.62
 const HILL_MARKER_Y_SCALE := 0.58
+const MINIMAP_REDRAW_INTERVAL := 0.20
 
 var player: Node2D
 var world_rect := WORLD_CONFIG.WORLD_RECT
@@ -15,6 +16,7 @@ var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
+var minimap_redraw_timer := 0.0
 
 
 func _ready() -> void:
@@ -29,8 +31,11 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	queue_redraw()
 
 
-func _process(_delta: float) -> void:
-	queue_redraw()
+func _process(delta: float) -> void:
+	minimap_redraw_timer += delta
+	if minimap_redraw_timer >= MINIMAP_REDRAW_INTERVAL:
+		minimap_redraw_timer = 0.0
+		queue_redraw()
 
 
 func _draw() -> void:
@@ -76,7 +81,7 @@ func _ensure_biome_blend_texture() -> void:
 				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
 			)
 			var world_position := world_rect.position + uv * world_rect.size
-			image.set_pixel(x, y, _get_blended_biome_color_at(world_position, biome_zones, colors, BIOME_BLEND_RADIUS))
+			image.set_pixel(x, y, _get_blended_biome_color_at(world_position, biome_zones, colors, _get_biome_blend_radius()))
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
 
@@ -138,10 +143,15 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 func _get_biome_colors_key() -> String:
 	var parts: Array[String] = []
+	parts.append("blend:%.1f" % _get_biome_blend_radius())
 	for biome in biome_zones:
 		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
 	return "|".join(parts)
+
+
+func _get_biome_blend_radius() -> float:
+	return max(float(GAME_BALANCE.BIOME_VISUALS.get("biome_blend_radius", DEFAULT_BIOME_BLEND_RADIUS)), 1.0)
 
 
 func _draw_grid(content_rect: Rect2) -> void:
