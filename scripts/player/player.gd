@@ -13,6 +13,7 @@ const ATTACK_VISUAL_DURATION := 0.16
 var stats := PlayerStats.new()
 var inventory := Inventory.new()
 var has_spear := false
+var has_bow := false
 var torch_active := false
 var torch_remaining_seconds := 0.0
 var evolution_director: Node
@@ -20,6 +21,7 @@ var nearby_interactables: Array[Node] = []
 var recipes := {}
 var world_limits := WORLD_CONFIG.get_player_limits()
 var attack_visual_time := 0.0
+var bow_cooldown := 0.0
 var is_swimming := false
 var swim_ripple_time := 0.0
 
@@ -28,6 +30,7 @@ const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
 const WALL_SCENE := preload("res://scenes/buildings/wall.tscn")
 const STORAGE_BOX_SCENE := preload("res://scenes/buildings/storage_box.tscn")
 const TENT_SCENE := preload("res://scenes/buildings/tent.tscn")
+const ARROW_PROJECTILE_SCENE := preload("res://scenes/projectiles/arrow_projectile.tscn")
 
 @onready var interaction_area: Area2D = $InteractionArea
 @onready var attack_area: Area2D = $AttackArea
@@ -45,6 +48,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_tick_torch(delta)
 	_face_mouse()
+	bow_cooldown = max(bow_cooldown - delta, 0.0)
 	if is_swimming:
 		swim_ripple_time += delta
 		queue_redraw()
@@ -78,7 +82,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		match event.keycode:
 			KEY_SPACE:
-				_attack()
+				_melee_attack()
 			KEY_G:
 				if evolution_director:
 					evolution_director.force_generation_change()
@@ -101,7 +105,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_T:
 				_activate_torch()
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		_attack()
+		if has_bow:
+			_shoot_bow()
+		else:
+			_melee_attack()
 
 
 func receive_damage(amount: float) -> void:
@@ -151,10 +158,19 @@ func _is_in_water() -> bool:
 func debug_add_item(item_name: String, amount := 1) -> void:
 	if item_name == "spear":
 		has_spear = true
+	elif item_name == "bow":
+		debug_add_bow()
+		return
 	else:
 		inventory.add_item(item_name, amount)
 	get_node("/root/EventBus").emit_game_event("debug_item_added", {"item": item_name, "amount": amount})
 	get_node("/root/EventBus").post_message("Debug added %s" % item_name)
+
+
+func debug_add_bow() -> void:
+	has_bow = true
+	get_node("/root/EventBus").emit_game_event("debug_item_added", {"item": "bow", "amount": 1})
+	get_node("/root/EventBus").post_message("Debug gave bow")
 
 
 func debug_damage_player() -> void:
@@ -219,7 +235,7 @@ func get_interaction_prompt() -> String:
 	return ""
 
 
-func _attack() -> void:
+func _melee_attack() -> void:
 	if not stats.spend_stamina(12.0):
 		get_node("/root/EventBus").post_message("Too tired to attack")
 		return
@@ -232,6 +248,30 @@ func _attack() -> void:
 		get_node("/root/EventBus").post_message("Hit %s" % _get_attack_target_label(target))
 		return
 	get_node("/root/EventBus").post_message("Attack missed")
+
+
+func _shoot_bow() -> void:
+	if bow_cooldown > 0.0:
+		return
+	var stamina_cost := float(GAME_BALANCE.RANGED_COMBAT.get("bow_stamina_cost", 8.0))
+	if not stats.spend_stamina(stamina_cost):
+		get_node("/root/EventBus").post_message("Too tired to shoot")
+		return
+	var direction := get_global_mouse_position() - global_position
+	if direction.length_squared() <= 0.0:
+		direction = Vector2.RIGHT.rotated(rotation)
+	else:
+		direction = direction.normalized()
+	var arrow := ARROW_PROJECTILE_SCENE.instantiate() as Node2D
+	arrow.global_position = global_position + direction * 24.0
+	get_tree().current_scene.add_child(arrow)
+	if arrow.has_method("setup"):
+		arrow.setup(direction, self, float(GAME_BALANCE.RANGED_COMBAT.get("bow_damage", 28.0)), "player")
+	bow_cooldown = float(GAME_BALANCE.RANGED_COMBAT.get("bow_cooldown_seconds", 0.75))
+	get_node("/root/EventBus").emit_game_event("arrow_fired", {
+		"position": global_position,
+		"direction": direction
+	})
 
 
 func _get_attack_target() -> Node:
