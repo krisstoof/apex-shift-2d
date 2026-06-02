@@ -97,6 +97,8 @@ func get_biome_zones() -> Array[Dictionary]:
 
 
 func get_landmarks() -> Array[Dictionary]:
+	if landmarks.is_empty():
+		return WORLD_CONFIG.get_landmarks()
 	return landmarks.duplicate(true)
 
 

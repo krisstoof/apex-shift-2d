@@ -9,6 +9,7 @@ const BIOME_NEIGHBOR_BLEND_WEIGHT := 0.90
 var player: Node2D
 var world_rect := WORLD_CONFIG.WORLD_RECT
 var biome_zones: Array[Dictionary] = []
+var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
 
@@ -17,10 +18,11 @@ func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 
 
-func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary]) -> void:
+func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = []) -> void:
 	player = p_player
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
+	landmarks = p_landmarks
 	queue_redraw()
 
 
@@ -29,6 +31,7 @@ func _process(_delta: float) -> void:
 
 
 func _draw() -> void:
+	_refresh_landmarks_from_world()
 	var map_rect := Rect2(Vector2.ZERO, size)
 	var content_rect := map_rect.grow(-PADDING)
 
@@ -37,6 +40,7 @@ func _draw() -> void:
 	draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
 	draw_rect(content_rect, Color(0.35, 0.43, 0.32, 0.8), false, 1.0)
 	_draw_biomes(content_rect)
+	_draw_landmarks(content_rect)
 	_draw_grid(content_rect)
 	_draw_resources(content_rect)
 	_draw_varnaks(content_rect)
@@ -146,6 +150,47 @@ func _draw_grid(content_rect: Rect2) -> void:
 		draw_line(Vector2(content_rect.position.x, y), Vector2(content_rect.end.x, y), grid_color, 1.0)
 
 
+func _draw_landmarks(content_rect: Rect2) -> void:
+	for landmark in landmarks:
+		var center := _world_to_map(Vector2(landmark.get("position", Vector2.ZERO)), content_rect)
+		var radius := _world_radius_to_map(float(landmark.get("radius", 80.0)), content_rect)
+		match str(landmark.get("type", "")):
+			"pond":
+				_draw_pond_marker(center, radius)
+			"hill":
+				_draw_hill_marker(center, radius)
+
+
+func _refresh_landmarks_from_world() -> void:
+	if not landmarks.is_empty():
+		return
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("get_landmarks"):
+		landmarks = world.get_landmarks()
+
+
+func _draw_pond_marker(center: Vector2, radius: float) -> void:
+	var marker_radius: float = clamp(radius, 4.0, 12.0)
+	_draw_filled_ellipse(Rect2(center - Vector2(marker_radius, marker_radius * 0.62), Vector2(marker_radius * 2.0, marker_radius * 1.24)), Color(0.10, 0.36, 0.48, 0.90))
+	draw_arc(center, marker_radius * 0.82, deg_to_rad(18.0), deg_to_rad(164.0), 12, Color(0.62, 0.88, 0.82, 0.55), 1.2, true)
+
+
+func _draw_hill_marker(center: Vector2, radius: float) -> void:
+	var marker_radius: float = clamp(radius, 4.5, 13.0)
+	_draw_filled_ellipse(Rect2(center - Vector2(marker_radius, marker_radius * 0.58), Vector2(marker_radius * 2.0, marker_radius * 1.16)), Color(0.36, 0.34, 0.22, 0.82))
+	draw_arc(center + Vector2(0.0, -marker_radius * 0.10), marker_radius * 0.66, deg_to_rad(198.0), deg_to_rad(342.0), 12, Color(0.64, 0.61, 0.38, 0.55), 1.2, true)
+
+
+func _draw_filled_ellipse(rect: Rect2, ellipse_color: Color) -> void:
+	var points := PackedVector2Array()
+	var center := rect.get_center()
+	var radii := rect.size * 0.5
+	for i in range(20):
+		var angle := TAU * float(i) / 20.0
+		points.append(center + Vector2(cos(angle) * radii.x, sin(angle) * radii.y))
+	draw_colored_polygon(points, ellipse_color)
+
+
 func _draw_resources(content_rect: Rect2) -> void:
 	for resource in get_tree().get_nodes_in_group("resources"):
 		if not is_instance_valid(resource):
@@ -195,6 +240,12 @@ func _world_to_map(world_position: Vector2, content_rect: Rect2) -> Vector2:
 	normalized.x = clamp(normalized.x, 0.0, 1.0)
 	normalized.y = clamp(normalized.y, 0.0, 1.0)
 	return content_rect.position + normalized * content_rect.size
+
+
+func _world_radius_to_map(world_radius: float, content_rect: Rect2) -> float:
+	var x_scale := content_rect.size.x / world_rect.size.x
+	var y_scale := content_rect.size.y / world_rect.size.y
+	return world_radius * min(x_scale, y_scale)
 
 
 func _get_resource_color(resource: Node) -> Color:
