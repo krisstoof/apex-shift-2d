@@ -9,6 +9,10 @@ const PLAYER_EDGE_PADDING := 40.0
 const TREE_COUNT := 48
 const ROCK_COUNT := 24
 const BUSH_COUNT := 36
+const SMALL_BUSH_COUNT := 28
+const BERRY_BUSH_COUNT := 14
+const GRASS_PATCH_COUNT := 72
+const DENSE_GRASS_COUNT := 34
 
 const RESOURCE_SPAWN_MARGIN := 95.0
 const RESOURCE_MIN_DISTANCE := 90.0
@@ -145,6 +149,7 @@ const BIOME_ZONES := [
 		"tree_weight": 7.0,
 		"rock_weight": 1.0,
 		"bush_weight": 3.0,
+		"grass_weight": 5.0,
 		"dangerous": false
 	},
 	{
@@ -164,6 +169,7 @@ const BIOME_ZONES := [
 		"tree_weight": 1.0,
 		"rock_weight": 7.0,
 		"bush_weight": 1.0,
+		"grass_weight": 1.0,
 		"dangerous": false
 	},
 	{
@@ -185,6 +191,7 @@ const BIOME_ZONES := [
 		"tree_weight": 3.0,
 		"rock_weight": 2.0,
 		"bush_weight": 4.0,
+		"grass_weight": 7.0,
 		"dangerous": false
 	},
 	{
@@ -204,6 +211,7 @@ const BIOME_ZONES := [
 		"tree_weight": 2.0,
 		"rock_weight": 1.0,
 		"bush_weight": 7.0,
+		"grass_weight": 6.0,
 		"dangerous": false
 	},
 	{
@@ -224,6 +232,7 @@ const BIOME_ZONES := [
 		"tree_weight": 3.0,
 		"rock_weight": 4.0,
 		"bush_weight": 2.0,
+		"grass_weight": 2.0,
 		"dangerous": true
 	}
 ]

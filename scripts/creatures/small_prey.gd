@@ -13,6 +13,7 @@ const VARNAK_FLEE_RANGE := 180.0
 const EAT_INTERVAL_SECONDS := 6.0
 const EAT_DURATION_SECONDS := 1.1
 const IDLE_DURATION_SECONDS := 0.8
+const VEGETATION_EAT_RANGE := 170.0
 const WORLD_EDGE_PADDING := 24.0
 
 var health := 20.0
@@ -179,7 +180,8 @@ func _get_flee_origin() -> Vector2:
 
 
 func _consume_plants() -> void:
-	hunger_diet.eat("plants", 0.5)
+	var eaten_food := _consume_nearest_vegetation()
+	hunger_diet.eat("plants", max(0.5, eaten_food))
 	_sync_hunger_fields()
 	eat_cooldown = EAT_INTERVAL_SECONDS
 	var current_biome_id := _get_current_biome_id()
@@ -188,6 +190,26 @@ func _consume_plants() -> void:
 		"position": global_position,
 		"plant_consumption_rate": plant_consumption_rate
 	})
+
+
+func _consume_nearest_vegetation() -> float:
+	var nearest: Node2D
+	var nearest_distance := VEGETATION_EAT_RANGE
+	var current_biome_id := _get_current_biome_id()
+	for vegetation in get_tree().get_nodes_in_group("edible_vegetation"):
+		if not is_instance_valid(vegetation) or not vegetation is Node2D:
+			continue
+		if vegetation.get("is_edible_by_herbivores") != true:
+			continue
+		if _get_biome_id_for_position(vegetation.global_position) != current_biome_id:
+			continue
+		var distance := global_position.distance_to(vegetation.global_position)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = vegetation
+	if is_instance_valid(nearest) and nearest.has_method("consume_by_creature"):
+		return float(nearest.consume_by_creature(self, plant_consumption_rate))
+	return 0.0
 
 
 func _pick_wander_target() -> void:

@@ -21,7 +21,16 @@ const DEBUG_GRAZER_VISIBLE_COUNT := 2
 const DEBUG_SMALL_PREY_SPAWN_RADIUS := 180.0
 const DEBUG_GRAZER_SPAWN_RADIUS := 240.0
 const BIOME_DEPLETED_TINT := Color(0.42, 0.33, 0.18)
-const PLANT_RESOURCE_KINDS := ["conifer_tree", "leafy_tree", "bush", "dry_bush"]
+const PLANT_RESOURCE_KINDS := [
+	"conifer_tree",
+	"leafy_tree",
+	"bush",
+	"dry_bush",
+	"small_bush",
+	"berry_bush",
+	"grass_patch",
+	"dense_grass"
+]
 const CREATURE_BOUND_GROUPS := ["varnak", "small_prey", "grazer"]
 const CREATURE_BOUND_TELEPORT_PADDING := 36.0
 const HILL_RESOURCE_BLOCK_RADIUS_FACTOR := 0.72
@@ -165,6 +174,10 @@ func _spawn_resources() -> void:
 	_spawn_resource_kind("rock", WORLD_CONFIG.ROCK_COUNT, used_positions, player_position)
 	_spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
 	_spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
+	_spawn_resource_kind("small_bush", WORLD_CONFIG.SMALL_BUSH_COUNT, used_positions, player_position)
+	_spawn_resource_kind("berry_bush", WORLD_CONFIG.BERRY_BUSH_COUNT, used_positions, player_position)
+	_spawn_resource_kind("grass_patch", WORLD_CONFIG.GRASS_PATCH_COUNT, used_positions, player_position)
+	_spawn_resource_kind("dense_grass", WORLD_CONFIG.DENSE_GRASS_COUNT, used_positions, player_position)
 	_spawn_pond_vegetation(used_positions, player_position)
 	call_deferred("_sync_all_biome_vegetation")
 
@@ -180,8 +193,9 @@ func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vec
 		var biome := _get_biome_for_id(str(pond.get("biome_id", "")))
 		if biome.is_empty():
 			continue
+		var pond_kinds := ["dense_grass", "grass_patch", "berry_bush", "small_bush"]
 		for i in POND_VEGETATION_BONUS_COUNT:
-			var kind := "bush" if i % 2 == 0 else "dry_bush"
+			var kind := str(pond_kinds[i % pond_kinds.size()])
 			_try_spawn_resource_near_pond(kind, pond, biome, used_positions, player_position)
 
 
@@ -253,8 +267,10 @@ func _get_biome_resource_weight(biome: Dictionary, resource_kind: String) -> flo
 			return float(biome.get("tree_weight", 0.0))
 		"rock":
 			return float(biome.get("rock_weight", 0.0))
-		"bush", "dry_bush":
+		"bush", "dry_bush", "small_bush", "berry_bush":
 			return float(biome.get("bush_weight", 0.0))
+		"grass_patch", "dense_grass":
+			return float(biome.get("grass_weight", 0.0))
 		_:
 			return 0.0
 
@@ -556,6 +572,14 @@ func _get_base_resource_count(resource_kind: String) -> int:
 			return WORLD_CONFIG.BUSH_COUNT - int(ceil(float(WORLD_CONFIG.BUSH_COUNT) * 0.35))
 		"dry_bush":
 			return int(ceil(float(WORLD_CONFIG.BUSH_COUNT) * 0.35))
+		"small_bush":
+			return WORLD_CONFIG.SMALL_BUSH_COUNT
+		"berry_bush":
+			return WORLD_CONFIG.BERRY_BUSH_COUNT
+		"grass_patch":
+			return WORLD_CONFIG.GRASS_PATCH_COUNT
+		"dense_grass":
+			return WORLD_CONFIG.DENSE_GRASS_COUNT
 	return 0
 
 
