@@ -13,6 +13,7 @@ const PLAYER_FLEE_RANGE := 130.0
 const VARNAK_FLEE_RANGE := 180.0
 const EAT_INTERVAL_SECONDS := 6.0
 const EAT_DURATION_SECONDS := 1.1
+const EAT_VISUAL_DURATION := 0.48
 const IDLE_DURATION_SECONDS := 0.8
 const VEGETATION_EAT_RANGE := 170.0
 const VEGETATION_CONSUME_RANGE := 26.0
@@ -20,6 +21,7 @@ const WORLD_EDGE_PADDING := 24.0
 const AVOIDANCE_LOOKAHEAD_DISTANCE := 46.0
 const WALL_AVOID_RADIUS := 58.0
 const BIOME_RETURN_CHANCE := 0.64
+const DEBUG_FRAME_FONT_SIZE := 11
 
 var health := 20.0
 var max_health := 20.0
@@ -41,6 +43,7 @@ var home_biome_id := ""
 var wander_target := Vector2.ZERO
 var state_time := 0.0
 var eat_cooldown := 0.0
+var eat_visual_time := 0.0
 var facing_angle := 0.0
 var facing_side := 1.0
 var player: Node2D
@@ -183,6 +186,9 @@ func _physics_process(delta: float) -> void:
 		player = get_tree().get_first_node_in_group("player")
 	state_time = max(state_time - delta, 0.0)
 	eat_cooldown = max(eat_cooldown - delta, 0.0)
+	if eat_visual_time > 0.0:
+		eat_visual_time = max(eat_visual_time - delta, 0.0)
+		queue_redraw()
 	age_seconds += delta
 	hunger_diet.tick(delta, velocity.length() / max(speed, 1.0))
 	_sync_hunger_fields()
@@ -320,9 +326,13 @@ func _get_flee_origin() -> Vector2:
 
 func _consume_plants() -> void:
 	var eaten_food := _consume_target_vegetation()
+	if eaten_food <= 0.0:
+		plant_target = null
+		return
 	var biomass_impact := plant_consumption_rate
 	hunger_diet.eat("plants", max(0.5, eaten_food))
 	_sync_hunger_fields()
+	eat_visual_time = EAT_VISUAL_DURATION
 	last_food_source = "plants"
 	eat_cooldown = EAT_INTERVAL_SECONDS
 	var current_biome_id := _get_current_biome_id()
@@ -639,4 +649,85 @@ func _draw() -> void:
 	draw_line(Vector2(-12, 5), Vector2(-22, 10), Color(0.28, 0.20, 0.11), 3.0)
 	draw_line(Vector2(-4, 8), Vector2(-8, 16), Color(0.22, 0.15, 0.08), 2.0)
 	draw_line(Vector2(4, 7), Vector2(8, 15), Color(0.22, 0.15, 0.08), 2.0)
+	_draw_eating_visual()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_draw_debug_stat_frame()
+
+
+func _draw_eating_visual() -> void:
+	if eat_visual_time <= 0.0:
+		return
+	var progress := eat_visual_time / EAT_VISUAL_DURATION
+	var alpha := 0.28 + progress * 0.42
+	var bite_color := Color(0.58, 0.96, 0.30, alpha)
+	draw_arc(Vector2(14, -2), 7.0 + progress * 2.4, -0.85, 0.85, 8, bite_color, 2.0)
+	draw_circle(Vector2(19, -6), 1.8 + progress, bite_color)
+	draw_circle(Vector2(18, 4), 1.4 + progress * 0.8, bite_color.lightened(0.18))
+
+
+func _draw_debug_stat_frame() -> void:
+	if not _is_debug_overlay_visible():
+		return
+	var satiety_percent := int(round((1.0 - hunger_diet.get_hunger_ratio()) * 100.0))
+	var lines: Array[String] = [
+		"SmallPrey",
+		"HP %d/%d Sat %d%%" % [int(health), int(max_health), satiety_percent],
+		"E %d%% Act %s" % [int(round(energy * 100.0)), _get_debug_action_label()],
+		"Target %s" % _get_current_target_label(),
+		"Last %s" % _get_debug_food_label()
+	]
+	_draw_debug_lines(lines, Vector2(-58.0, -76.0))
+
+
+func _get_debug_action_label() -> String:
+	if eat_visual_time > 0.0:
+		return "eating_plants"
+	match state:
+		State.EAT:
+			return "chewing_wait"
+		State.SEEK_FOOD:
+			return "seeking_plant" if is_instance_valid(plant_target) else "no_plant"
+		State.FLEE:
+			return "fleeing"
+		State.IDLE:
+			if hunger_diet.is_starving():
+				return "starving_idle"
+			if hunger_diet.is_hungry():
+				return "hungry_idle"
+			return "idle"
+		State.WANDER:
+			if hunger_diet.is_starving():
+				return "starving_no_food"
+			if hunger_diet.is_hungry():
+				return "hungry_wander"
+			return "wandering"
+		_:
+			return State.keys()[state].to_lower()
+
+
+func _get_debug_food_label() -> String:
+	if last_food_source == "none" or last_food_source.is_empty():
+		return "not_yet"
+	return last_food_source
+
+
+func _draw_debug_lines(lines: Array[String], top_left: Vector2) -> void:
+	var font: Font = ThemeDB.fallback_font
+	var max_chars := 0
+	for line in lines:
+		max_chars = max(max_chars, line.length())
+	var width: float = max(116.0, float(max_chars) * 6.3 + 12.0)
+	var height: float = float(lines.size()) * 13.0 + 10.0
+	var rect := Rect2(top_left, Vector2(width, height))
+	draw_rect(rect, Color(0.03, 0.05, 0.04, 0.76), true)
+	draw_rect(rect, Color(0.60, 0.92, 0.48, 0.86), false, 1.3)
+	for i in range(lines.size()):
+		draw_string(font, top_left + Vector2(6.0, 15.0 + float(i) * 13.0), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1.0, DEBUG_FRAME_FONT_SIZE, Color(0.92, 0.96, 0.88))
+
+
+func _is_debug_overlay_visible() -> bool:
+	var scene := get_tree().current_scene
+	if not scene:
+		return false
+	var debug_panel := scene.get_node_or_null("HUD/DebugPanel")
+	return is_instance_valid(debug_panel) and debug_panel.visible

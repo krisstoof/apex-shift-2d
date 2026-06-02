@@ -13,7 +13,7 @@ const PLAYER_FLEE_RANGE := 105.0
 const VARNAK_FLEE_RANGE := 220.0
 const LOW_BIOMASS_PERCENT := 35.0
 const EAT_DURATION_SECONDS := 1.4
-const SCAVENGE_DURATION_SECONDS := 1.8
+const EAT_VISUAL_DURATION := 0.55
 const IDLE_DURATION_SECONDS := 0.9
 const SMALL_PREY_DETECT_RANGE := 220.0
 const SMALL_PREY_ATTACK_RANGE := 28.0
@@ -21,10 +21,13 @@ const PLANT_EAT_HUNGER_DROP := 0.45
 const MEAT_HUNGER_DROP := 0.65
 const VEGETATION_EAT_RANGE := 220.0
 const VEGETATION_CONSUME_RANGE := 34.0
+const MEAT_EAT_RANGE := 300.0
+const MEAT_CONSUME_RANGE := 34.0
 const WORLD_EDGE_PADDING := 28.0
 const AVOIDANCE_LOOKAHEAD_DISTANCE := 62.0
 const WALL_AVOID_RADIUS := 78.0
 const BIOME_RETURN_CHANCE := 0.58
+const DEBUG_FRAME_FONT_SIZE := 11
 
 var health := 45.0
 var max_health := 45.0
@@ -48,12 +51,14 @@ var biome_id := ""
 var home_biome_id := ""
 var wander_target := Vector2.ZERO
 var state_time := 0.0
+var eat_visual_time := 0.0
 var facing_angle := 0.0
 var facing_side := 1.0
 var player: Node2D
 var flee_origin := Vector2.INF
 var prey_target: Node2D
 var plant_target: Node2D
+var meat_target: Node2D
 var dropped_meat := false
 var last_food_source := "none"
 var rng := RandomNumberGenerator.new()
@@ -194,6 +199,9 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
 	state_time = max(state_time - delta, 0.0)
+	if eat_visual_time > 0.0:
+		eat_visual_time = max(eat_visual_time - delta, 0.0)
+		queue_redraw()
 	age_seconds += delta
 	hunger_diet.tick(delta, velocity.length() / max(speed, 1.0))
 	_sync_hunger_fields()
@@ -212,51 +220,72 @@ func _update_state() -> void:
 		_set_state(State.WANDER)
 		_pick_wander_target()
 		plant_target = null
+		meat_target = null
 	_sync_population_traits()
 	var biomass_percent := _get_current_biomass_percent()
-	if state == State.EAT_PLANTS and state_time <= 0.0:
-		_consume_plants()
-		_set_state(State.WANDER)
-		_pick_wander_target()
+	if state == State.EAT_PLANTS:
+		if state_time <= 0.0:
+			_consume_plants()
+			_set_state(State.WANDER)
+			_pick_wander_target()
 		return
 	if state == State.SEEK_FOOD and _try_update_plant_target():
 		return
-	if state == State.SCAVENGE and state_time <= 0.0:
-		_scavenge_food()
-		_set_state(State.WANDER)
-		_pick_wander_target()
+	if state == State.SCAVENGE and _try_update_meat_target():
 		return
 	if state == State.HUNT_SMALL_PREY:
 		if not is_instance_valid(prey_target):
 			_set_state(State.SEEK_FOOD)
 		return
+	var food_search_range := _get_food_search_range()
+	var nearest_plant := _find_nearest_edible_vegetation(food_search_range)
 	var nearest_prey := _find_nearest_small_prey()
+	var nearest_meat := _find_nearest_meat_drop(food_search_range)
 	var hunger_stage := hunger_diet.get_hunger_stage()
-	var food_target: String = hunger_diet.choose_food_target({
-		"plants": clamp(biomass_percent / 100.0, 0.0, 1.0),
-		"meat": 1.0 if is_instance_valid(nearest_prey) else 0.0,
-		"scavenger": 0.65 if biomass_percent < LOW_BIOMASS_PERCENT else 0.10
-	})
 	var risk_drive: float = hunger_diet.get_risk_drive()
-	if hunger_stage == "hungry" and food_target == "plants" and biomass_percent >= LOW_BIOMASS_PERCENT:
-		if _set_nearest_plant_target(_get_food_search_range()):
+	if hunger_stage == "hungry" and is_instance_valid(nearest_plant):
+		plant_target = nearest_plant
+		meat_target = null
+		prey_target = null
+		wander_target = _clamp_to_world(plant_target.global_position)
+		_set_state(State.SEEK_FOOD)
+		return
+	if hunger_stage == "hungry" and _can_hunt_small_prey(nearest_plant, nearest_prey, risk_drive):
+		prey_target = nearest_prey
+		plant_target = null
+		meat_target = null
+		_set_state(State.HUNT_SMALL_PREY)
+		return
+	if hunger_stage == "hungry" and not is_instance_valid(nearest_plant) and _set_nearest_meat_target(food_search_range):
+		plant_target = null
+		prey_target = null
+		_set_state(State.SCAVENGE)
+		return
+	if hunger_stage == "hungry" and biomass_percent >= LOW_BIOMASS_PERCENT:
+		if _set_nearest_plant_target(food_search_range):
 			_set_state(State.SEEK_FOOD)
 		else:
-			_set_state(State.EAT_PLANTS)
-			state_time = EAT_DURATION_SECONDS
+			_set_state(State.WANDER)
+			_pick_wander_target()
 		return
 	if hunger_diet.is_starving():
-		if food_target == "plants" and _set_nearest_plant_target(_get_food_search_range()):
+		if is_instance_valid(nearest_plant):
+			plant_target = nearest_plant
+			meat_target = null
+			prey_target = null
+			wander_target = _clamp_to_world(plant_target.global_position)
 			_set_state(State.SEEK_FOOD)
 			return
-		if hunger_diet.is_desperate() and risk_drive > 0.70 and food_target == "meat" and meat_diet + aggression > 0.12 and is_instance_valid(nearest_prey):
+		if _can_hunt_small_prey(nearest_plant, nearest_prey, risk_drive):
 			prey_target = nearest_prey
 			plant_target = null
+			meat_target = null
 			_set_state(State.HUNT_SMALL_PREY)
 			return
-		if (food_target == "scavenger" or hunger_diet.is_desperate()) and scavenger_diet > 0.0:
+		if _set_nearest_meat_target(food_search_range):
+			plant_target = null
+			prey_target = null
 			_set_state(State.SCAVENGE)
-			state_time = SCAVENGE_DURATION_SECONDS
 			return
 		_set_state(State.SEEK_FOOD)
 		return
@@ -273,7 +302,7 @@ func _update_state() -> void:
 
 func _act(_delta: float) -> void:
 	match state:
-		State.IDLE, State.EAT_PLANTS, State.SCAVENGE:
+		State.IDLE, State.EAT_PLANTS:
 			velocity = Vector2.ZERO
 		State.WANDER:
 			_move_toward(wander_target, speed * 0.55)
@@ -285,6 +314,11 @@ func _act(_delta: float) -> void:
 			_move_toward(flee_target, speed * (1.0 + fear))
 		State.HUNT_SMALL_PREY:
 			_hunt_small_prey()
+		State.SCAVENGE:
+			if is_instance_valid(meat_target):
+				_move_toward(meat_target.global_position, speed * 0.64)
+			else:
+				velocity = Vector2.ZERO
 
 
 func _hunt_small_prey() -> void:
@@ -294,8 +328,10 @@ func _hunt_small_prey() -> void:
 	var distance := global_position.distance_to(prey_target.global_position)
 	if distance <= SMALL_PREY_ATTACK_RANGE and prey_target.has_method("take_damage"):
 		prey_target.take_damage(999.0, "grazer")
-		hunger_diet.eat("meat", MEAT_HUNGER_DROP)
+		_eat_emergency_meat(MEAT_HUNGER_DROP)
 		_sync_hunger_fields()
+		eat_visual_time = EAT_VISUAL_DURATION
+		last_food_source = "small_prey_meat"
 		get_node("/root/EventBus").emit_game_event("grazer_hunted_small_prey", {
 			"biome_id": _get_current_biome_id(),
 			"position": global_position
@@ -362,9 +398,13 @@ func _face_target(target: Vector2) -> void:
 
 func _consume_plants() -> void:
 	var eaten_food := _consume_target_vegetation()
+	if eaten_food <= 0.0:
+		plant_target = null
+		return
 	var biomass_impact := plant_consumption_rate
 	hunger_diet.eat("plants", max(PLANT_EAT_HUNGER_DROP, eaten_food))
 	_sync_hunger_fields()
+	eat_visual_time = EAT_VISUAL_DURATION
 	last_food_source = "plants"
 	get_node("/root/EventBus").emit_game_event("grazer_consumed_plants", {
 		"biome_id": _get_current_biome_id(),
@@ -442,14 +482,94 @@ func _is_edible_vegetation_target(vegetation: Node) -> bool:
 	return is_instance_valid(vegetation) and vegetation is Node2D and vegetation.get("is_edible_by_herbivores") == true
 
 
-func _scavenge_food() -> void:
-	hunger_diet.eat("scavenger", MEAT_HUNGER_DROP)
+func _can_hunt_small_prey(nearest_plant: Node2D, nearest_prey: Node2D, risk_drive: float) -> bool:
+	if is_instance_valid(nearest_plant):
+		return false
+	if not is_instance_valid(nearest_prey):
+		return false
+	if not hunger_diet.is_starving():
+		return false
+	return hunger_diet.is_desperate() or risk_drive + aggression + meat_diet > 0.72
+
+
+func _try_update_meat_target() -> bool:
+	if not is_instance_valid(meat_target) or not _is_meat_drop_target(meat_target):
+		if not _set_nearest_meat_target(_get_food_search_range()):
+			_set_state(State.WANDER)
+			_pick_wander_target()
+			return true
+	wander_target = _clamp_to_world(meat_target.global_position)
+	if global_position.distance_to(meat_target.global_position) <= MEAT_CONSUME_RANGE:
+		_consume_meat_target()
+		_set_state(State.WANDER)
+		_pick_wander_target()
+	return true
+
+
+func _set_nearest_meat_target(search_range: float = MEAT_EAT_RANGE) -> bool:
+	if not _can_eat_meat_drop():
+		meat_target = null
+		return false
+	meat_target = _find_nearest_meat_drop(search_range)
+	if not is_instance_valid(meat_target):
+		return false
+	wander_target = _clamp_to_world(meat_target.global_position)
+	return true
+
+
+func _find_nearest_meat_drop(search_range: float) -> Node2D:
+	var nearest: Node2D
+	var nearest_distance := search_range
+	for resource in get_tree().get_nodes_in_group("meat_drops"):
+		var meat_drop := resource as Node2D
+		if not _is_meat_drop_target(meat_drop):
+			continue
+		var distance := global_position.distance_to(meat_drop.global_position)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = meat_drop
+	return nearest
+
+
+func _is_meat_drop_target(resource: Node) -> bool:
+	return is_instance_valid(resource) and resource is Node2D and resource.get("resource_kind") == "meat_drop" and int(resource.get("amount")) > 0
+
+
+func _can_eat_meat_drop() -> bool:
+	return meat_diet > 0.0 or scavenger_diet > 0.0
+
+
+func _get_meat_food_kind() -> String:
+	return "scavenger" if scavenger_diet >= meat_diet else "meat"
+
+
+func _consume_meat_target() -> void:
+	if not is_instance_valid(meat_target) or not _is_meat_drop_target(meat_target) or not meat_target.has_method("consume_by_creature"):
+		meat_target = null
+		return
+	var eaten_food := float(meat_target.consume_by_creature(self, 1.0))
+	if eaten_food <= 0.0:
+		meat_target = null
+		return
+	_eat_emergency_meat(max(MEAT_HUNGER_DROP, eaten_food))
 	_sync_hunger_fields()
-	last_food_source = "scavenger"
+	eat_visual_time = EAT_VISUAL_DURATION
+	last_food_source = "meat_drop"
 	get_node("/root/EventBus").emit_game_event("grazer_scavenged", {
 		"biome_id": _get_current_biome_id(),
-		"position": global_position
+		"position": global_position,
+		"food_source": "meat_drop",
+		"nutrition": eaten_food
 	})
+	meat_target = null
+
+
+func _eat_emergency_meat(nutrition: float) -> void:
+	var before_hunger := hunger_diet.hunger
+	var preferred_reduction := hunger_diet.eat(_get_meat_food_kind(), nutrition)
+	var minimum_reduction := nutrition * 0.38
+	if preferred_reduction < minimum_reduction:
+		hunger_diet.hunger = max(before_hunger - minimum_reduction, 0.0)
 
 
 func _get_flee_origin() -> Vector2:
@@ -544,6 +664,7 @@ func _enforce_world_bounds(force_retarget := false) -> void:
 		velocity = Vector2.ZERO
 		prey_target = null
 		plant_target = null
+		meat_target = null
 		_set_state(State.WANDER)
 		_pick_wander_target()
 
@@ -656,6 +777,8 @@ func _get_current_target_label() -> String:
 		return "plant"
 	if is_instance_valid(prey_target):
 		return "prey"
+	if is_instance_valid(meat_target):
+		return "meat_drop"
 	if state == State.SCAVENGE:
 		return "scavenge"
 	if state == State.FLEE:
@@ -751,7 +874,102 @@ func _draw() -> void:
 	draw_line(Vector2(-14, 10), Vector2(-19, 25), Color(0.18, 0.13, 0.08), 4.0)
 	draw_line(Vector2(8, 10), Vector2(6, 25), Color(0.18, 0.13, 0.08), 4.0)
 	draw_line(Vector2(-24, -1), Vector2(-38, 4), Color(0.24, 0.17, 0.09), 4.0)
+	_draw_eating_visual()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_draw_debug_stat_frame()
+
+
+func _draw_eating_visual() -> void:
+	if eat_visual_time <= 0.0:
+		return
+	var progress := eat_visual_time / EAT_VISUAL_DURATION
+	var alpha := 0.25 + progress * 0.45
+	var bite_color := _get_eating_visual_color(alpha)
+	draw_arc(Vector2(31, -2), 11.0 + progress * 3.0, -0.85, 0.85, 8, bite_color, 2.5)
+	draw_circle(Vector2(38, -8), 2.4 + progress * 1.2, bite_color)
+	draw_circle(Vector2(37, 5), 1.8 + progress, bite_color.lightened(0.16))
+
+
+func _get_eating_visual_color(alpha: float) -> Color:
+	match last_food_source:
+		"plants":
+			return Color(0.58, 0.95, 0.28, alpha)
+		"meat_drop", "small_prey_meat":
+			return Color(0.95, 0.12, 0.08, alpha)
+		_:
+			return Color(0.58, 0.95, 0.28, alpha)
+
+
+func _draw_debug_stat_frame() -> void:
+	if not _is_debug_overlay_visible():
+		return
+	var satiety_percent := int(round((1.0 - hunger_diet.get_hunger_ratio()) * 100.0))
+	var lines: Array[String] = [
+		"Grazer",
+		"HP %d/%d Sat %d%%" % [int(health), int(max_health), satiety_percent],
+		"E %d%% Act %s" % [int(round(energy * 100.0)), _get_debug_action_label()],
+		"Target %s" % _get_current_target_label(),
+		"Last %s" % _get_debug_food_label()
+	]
+	_draw_debug_lines(lines, Vector2(-70.0, -96.0))
+
+
+func _get_debug_action_label() -> String:
+	if eat_visual_time > 0.0:
+		return "eating_meat" if _get_debug_food_label().contains("meat") else "eating_plants"
+	match state:
+		State.EAT_PLANTS:
+			return "chewing_wait"
+		State.SEEK_FOOD:
+			return "seeking_plant" if is_instance_valid(plant_target) else "no_plant"
+		State.SCAVENGE:
+			return "seeking_meat" if is_instance_valid(meat_target) else "no_meat"
+		State.HUNT_SMALL_PREY:
+			return "hunting_prey"
+		State.FLEE:
+			return "fleeing"
+		State.IDLE:
+			if hunger_diet.is_starving():
+				return "starving_idle"
+			if hunger_diet.is_hungry():
+				return "hungry_idle"
+			return "idle"
+		State.WANDER:
+			if hunger_diet.is_starving():
+				return "starving_no_food"
+			if hunger_diet.is_hungry():
+				return "hungry_wander"
+			return "wandering"
+		_:
+			return State.keys()[state].to_lower()
+
+
+func _get_debug_food_label() -> String:
+	if last_food_source == "none" or last_food_source.is_empty():
+		return "not_yet"
+	return last_food_source
+
+
+func _draw_debug_lines(lines: Array[String], top_left: Vector2) -> void:
+	var font: Font = ThemeDB.fallback_font
+	var max_chars := 0
+	for line in lines:
+		max_chars = max(max_chars, line.length())
+	var width: float = max(132.0, float(max_chars) * 6.3 + 12.0)
+	var height: float = float(lines.size()) * 13.0 + 10.0
+	var rect := Rect2(top_left, Vector2(width, height))
+	draw_rect(rect, Color(0.03, 0.05, 0.04, 0.76), true)
+	draw_rect(rect, Color(0.76, 0.92, 0.46, 0.86), false, 1.3)
+	for i in range(lines.size()):
+		draw_string(font, top_left + Vector2(6.0, 15.0 + float(i) * 13.0), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1.0, DEBUG_FRAME_FONT_SIZE, Color(0.92, 0.96, 0.88))
+
+
+func _is_debug_overlay_visible() -> bool:
+	var scene := get_tree().current_scene
+	if not scene:
+		return false
+	var debug_panel := scene.get_node_or_null("HUD/DebugPanel")
+	return is_instance_valid(debug_panel) and debug_panel.visible
 
 
 func _draw_filled_ellipse(rect: Rect2, ellipse_color: Color) -> void:
