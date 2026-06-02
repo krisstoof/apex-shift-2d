@@ -22,6 +22,9 @@ const DEBUG_GRAZER_VISIBLE_COUNT := 2
 const DEBUG_SMALL_PREY_SPAWN_RADIUS := 180.0
 const DEBUG_GRAZER_SPAWN_RADIUS := 240.0
 const BIOME_DEPLETED_TINT := Color(0.42, 0.33, 0.18)
+const BIOME_BLEND_TEXTURE_SIZE := Vector2i(192, 118)
+const BIOME_BLEND_RADIUS := 420.0
+const BIOME_NEIGHBOR_BLEND_WEIGHT := 0.90
 const PLANT_RESOURCE_KINDS := [
 	"conifer_tree",
 	"leafy_tree",
@@ -54,8 +57,11 @@ var small_prey_spawn_timer := 0.0
 var landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
 var pond_landmarks: Array[Dictionary] = []
+var biome_blend_texture: ImageTexture
+var biome_blend_colors_key := ""
 
 func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	await get_tree().process_frame
 	resource_rng.randomize()
 	varnak_rng.randomize()
@@ -406,13 +412,6 @@ func _is_point_in_biome(point: Vector2, biome: Dictionary) -> bool:
 
 func _get_biome_points(biome: Dictionary) -> Array[Vector2]:
 	return WORLD_CONFIG.get_biome_points(biome)
-
-
-func _draw_biome_outline(points: PackedVector2Array) -> void:
-	for i in points.size():
-		var start := points[i]
-		var end := points[(i + 1) % points.size()]
-		draw_line(start, end, Color(0.05, 0.06, 0.05, 0.45), 2.0)
 
 
 func _is_valid_resource_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
@@ -1116,16 +1115,103 @@ func _data_to_vector(data: Variant) -> Vector2:
 
 
 func _draw() -> void:
-	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.14, 0.22, 0.13), true)
-	for biome_value in WORLD_CONFIG.BIOME_ZONES:
-		var biome := Dictionary(biome_value)
-		var biome_points := PackedVector2Array(_get_biome_points(biome))
-		draw_colored_polygon(biome_points, _get_biome_visual_color(biome))
-		_draw_biome_outline(biome_points)
+	_draw_biome_blend_texture()
 	_draw_landmarks()
 	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
 	if day_night_system and day_night_system.night_amount > 0.0:
 		draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.02, 0.03, 0.09, day_night_system.night_amount * 0.62), true)
+
+
+func _draw_biome_blend_texture() -> void:
+	_ensure_biome_blend_texture()
+	if biome_blend_texture:
+		draw_texture_rect(biome_blend_texture, WORLD_CONFIG.WORLD_RECT, false)
+
+
+func _ensure_biome_blend_texture() -> void:
+	var current_key := _get_biome_colors_key()
+	if biome_blend_texture and biome_blend_colors_key == current_key:
+		return
+	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
+	var biome_zones := WORLD_CONFIG.get_biome_zones()
+	var colors: Array[Color] = []
+	for biome in biome_zones:
+		colors.append(Color(biome["color"]))
+	for y in range(BIOME_BLEND_TEXTURE_SIZE.y):
+		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
+			var uv := Vector2(
+				(float(x) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.x),
+				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
+			)
+			var world_position := WORLD_CONFIG.WORLD_RECT.position + uv * WORLD_CONFIG.WORLD_RECT.size
+			image.set_pixel(x, y, _get_blended_biome_color_at(world_position, biome_zones, colors, BIOME_BLEND_RADIUS))
+	biome_blend_texture = ImageTexture.create_from_image(image)
+	biome_blend_colors_key = current_key
+
+
+func _get_blended_biome_color_at(position: Vector2, biome_zones: Array[Dictionary], colors: Array[Color], blend_radius: float) -> Color:
+	var containing_index := -1
+	var containing_edge_distance := INF
+	var edge_distances: Array[float] = []
+	for i in biome_zones.size():
+		var points := PackedVector2Array(biome_zones[i]["points"])
+		var edge_distance := _get_point_polygon_edge_distance(position, points)
+		edge_distances.append(edge_distance)
+		if containing_index == -1 and Geometry2D.is_point_in_polygon(position, points):
+			containing_index = i
+			containing_edge_distance = edge_distance
+	if containing_index == -1:
+		return _get_nearest_biome_color(edge_distances, colors)
+	var result := colors[containing_index]
+	var total_weight := 1.0
+	if containing_edge_distance >= blend_radius:
+		return result
+	for i in biome_zones.size():
+		if i == containing_index:
+			continue
+		var shared_edge_distance: float = max(containing_edge_distance, edge_distances[i])
+		if shared_edge_distance > blend_radius:
+			continue
+		var neighbor_weight: float = pow(1.0 - shared_edge_distance / blend_radius, 2.0) * BIOME_NEIGHBOR_BLEND_WEIGHT
+		result += colors[i] * neighbor_weight
+		total_weight += neighbor_weight
+	return result / total_weight
+
+
+func _get_nearest_biome_color(edge_distances: Array[float], colors: Array[Color]) -> Color:
+	var nearest_index := 0
+	var nearest_distance := INF
+	for i in edge_distances.size():
+		if edge_distances[i] < nearest_distance:
+			nearest_index = i
+			nearest_distance = edge_distances[i]
+	return colors[nearest_index]
+
+
+func _get_point_polygon_edge_distance(point: Vector2, points: PackedVector2Array) -> float:
+	var nearest_distance := INF
+	for i in points.size():
+		var start := points[i]
+		var end := points[(i + 1) % points.size()]
+		nearest_distance = min(nearest_distance, _get_distance_to_segment(point, start, end))
+	return nearest_distance
+
+
+func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> float:
+	var segment := end - start
+	var length_squared := segment.length_squared()
+	if length_squared <= 0.0001:
+		return point.distance_to(start)
+	var t: float = clamp((point - start).dot(segment) / length_squared, 0.0, 1.0)
+	return point.distance_to(start + segment * t)
+
+
+func _get_biome_colors_key() -> String:
+	var parts: Array[String] = []
+	for biome in WORLD_CONFIG.get_biome_zones():
+		var color := Color(biome["color"])
+		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
+	return "|".join(parts)
 
 
 func _get_biome_visual_color(biome: Dictionary) -> Color:
