@@ -18,6 +18,9 @@ var days_to_next_stage := 1.0
 var days_since_harvested := 0.0
 var is_harvested := false
 var can_be_harvested := true
+var player_harvestable := true
+var is_edible_by_herbivores := false
+var food_value := 0.0
 var biome_id := ""
 
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
@@ -26,6 +29,7 @@ func _ready() -> void:
 	add_to_group("resources")
 	if biome_id.is_empty():
 		biome_id = _get_biome_id_for_position(global_position)
+	_sync_resource_groups()
 	_apply_growth_stage()
 	queue_redraw()
 
@@ -33,6 +37,8 @@ func _ready() -> void:
 func setup(kind: String) -> void:
 	resource_kind = "conifer_tree" if kind == "tree" else kind
 	biome_id = _get_biome_id_for_position(global_position)
+	player_harvestable = true
+	food_value = 0.0
 	match kind:
 		"tree", "conifer_tree":
 			item_name = "wood"
@@ -59,12 +65,43 @@ func setup(kind: String) -> void:
 			mature_amount = 1
 			mature_color = Color(0.68, 0.54, 0.26)
 			mature_radius = 14.0
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.45
+		"small_bush":
+			item_name = "fiber"
+			mature_amount = 1
+			mature_color = Color(0.34, 0.74, 0.20)
+			mature_radius = 10.0
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.65
+		"berry_bush":
+			item_name = "berries"
+			mature_amount = 1
+			player_harvestable = false
+			mature_color = Color(0.25, 0.64, 0.23)
+			mature_radius = 12.0
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.9
+		"grass_patch":
+			item_name = "grass"
+			mature_amount = 1
+			player_harvestable = false
+			mature_color = Color(0.34, 0.78, 0.27)
+			mature_radius = 8.0
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2))
+		"dense_grass":
+			item_name = "grass"
+			mature_amount = 1
+			player_harvestable = false
+			mature_color = Color(0.25, 0.68, 0.20)
+			mature_radius = 12.0
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2)) * 1.5
+	_sync_resource_groups()
 	days_to_next_stage = _get_days_to_next_stage()
 	_apply_growth_stage()
 	queue_redraw()
 
 
 func interact(player: Node) -> void:
+	if not player_harvestable:
+		return
 	if not can_be_harvested:
 		get_node("/root/EventBus").post_message("%s is still regrowing" % _get_resource_label())
 		return
@@ -78,6 +115,8 @@ func interact(player: Node) -> void:
 
 
 func get_prompt() -> String:
+	if not player_harvestable:
+		return ""
 	if not can_be_harvested:
 		return "Regrowing: %s" % get_growth_debug_text()
 	return "E: gather %s x%s" % [item_name, amount]
@@ -94,7 +133,10 @@ func get_save_data() -> Dictionary:
 		"days_to_next_stage": days_to_next_stage,
 		"days_since_harvested": days_since_harvested,
 		"is_harvested": is_harvested,
-		"can_be_harvested": can_be_harvested
+		"can_be_harvested": can_be_harvested,
+		"player_harvestable": player_harvestable,
+		"is_edible_by_herbivores": is_edible_by_herbivores,
+		"food_value": food_value
 	}
 
 
@@ -158,13 +200,30 @@ func _mark_harvested() -> void:
 
 
 func _apply_growth_stage() -> void:
-	can_be_harvested = not _uses_regrowth() or growth_stage > 0
+	can_be_harvested = player_harvestable and (not _uses_regrowth() or growth_stage > 0)
+	is_edible_by_herbivores = food_value > 0.0 and (not _uses_regrowth() or growth_stage > 0)
 	amount = _get_stage_yield()
 	color = mature_color.darkened(0.45 if growth_stage <= 0 else 0.0).lerp(mature_color, _get_growth_ratio())
 	radius = max(mature_radius * _get_visual_scale(), 5.0)
 	if collision_shape:
-		collision_shape.disabled = not can_be_harvested
+		collision_shape.disabled = not player_harvestable or not can_be_harvested
 	queue_redraw()
+
+
+func consume_by_creature(_consumer: Node, _consumption_rate: float = 1.0) -> float:
+	if not is_edible_by_herbivores:
+		return 0.0
+	var consumed_value: float = food_value * max(_get_growth_ratio(), 0.25)
+	if _uses_regrowth():
+		growth_stage = max(growth_stage - 1, 0)
+		growth_progress = 0.0
+		days_since_harvested = 0.0
+		days_to_next_stage = _get_days_to_next_stage()
+		is_harvested = growth_stage <= 0
+		_apply_growth_stage()
+	else:
+		queue_free()
+	return consumed_value
 
 
 func _get_stage_yield() -> int:
@@ -196,10 +255,12 @@ func _get_regrowth_time_days() -> float:
 	match resource_kind:
 		"conifer_tree", "leafy_tree":
 			return float(GAME_BALANCE.RESOURCE_REGROWTH.get("tree_regrowth_time_days", 3))
-		"bush":
+		"bush", "small_bush", "berry_bush":
 			return float(GAME_BALANCE.RESOURCE_REGROWTH.get("bush_regrowth_time_days", 2))
 		"dry_bush":
 			return float(GAME_BALANCE.RESOURCE_REGROWTH.get("dry_bush_regrowth_time_days", 3))
+		"grass_patch", "dense_grass":
+			return float(GAME_BALANCE.RESOURCE_REGROWTH.get("grass_regrowth_time_days", 1))
 	return 0.0
 
 
@@ -222,11 +283,40 @@ func _get_growth_ratio() -> float:
 
 
 func _uses_regrowth() -> bool:
-	return resource_kind in ["conifer_tree", "leafy_tree", "bush", "dry_bush"]
+	return resource_kind in [
+		"conifer_tree",
+		"leafy_tree",
+		"bush",
+		"dry_bush",
+		"small_bush",
+		"berry_bush",
+		"grass_patch",
+		"dense_grass"
+	]
 
 
 func _get_resource_label() -> String:
 	return str(resource_kind).replace("_", " ")
+
+
+func _sync_resource_groups() -> void:
+	for group_name in ["trees", "bushes", "grass", "rocks", "vegetation", "edible_vegetation"]:
+		if is_in_group(group_name):
+			remove_from_group(group_name)
+	match resource_kind:
+		"conifer_tree", "leafy_tree":
+			add_to_group("trees")
+			add_to_group("vegetation")
+		"bush", "dry_bush", "small_bush", "berry_bush":
+			add_to_group("bushes")
+			add_to_group("vegetation")
+		"grass_patch", "dense_grass":
+			add_to_group("grass")
+			add_to_group("vegetation")
+		"rock":
+			add_to_group("rocks")
+	if food_value > 0.0:
+		add_to_group("edible_vegetation")
 
 
 func _vector_to_data(value: Vector2) -> Dictionary:
@@ -254,8 +344,14 @@ func _get_biomass_impact() -> float:
 			return float(GAME_BALANCE.ECOSYSTEM["tree_biomass_impact"])
 		"bush":
 			return float(GAME_BALANCE.ECOSYSTEM["bush_biomass_impact"])
+		"small_bush":
+			return float(GAME_BALANCE.ECOSYSTEM["small_bush_biomass_impact"])
+		"berry_bush":
+			return float(GAME_BALANCE.ECOSYSTEM["berry_bush_biomass_impact"])
 		"dry_bush":
 			return float(GAME_BALANCE.ECOSYSTEM["dry_bush_biomass_impact"])
+		"grass_patch", "dense_grass":
+			return float(GAME_BALANCE.ECOSYSTEM["grass_biomass_impact"])
 	return 0.0
 
 
@@ -285,6 +381,14 @@ func _draw() -> void:
 			_draw_bush()
 		"dry_bush":
 			_draw_dry_bush()
+		"small_bush":
+			_draw_small_bush()
+		"berry_bush":
+			_draw_berry_bush()
+		"grass_patch":
+			_draw_grass_patch()
+		"dense_grass":
+			_draw_dense_grass()
 		"rock":
 			_draw_rock()
 		_:
@@ -297,10 +401,15 @@ func _draw_depleted_plant() -> void:
 		"conifer_tree", "leafy_tree":
 			draw_rect(Rect2(-5, -2, 10, 14), Color(0.34, 0.19, 0.09), true)
 			draw_circle(Vector2.ZERO, 13.0, Color(0.17, 0.11, 0.06, 0.26))
-		"bush", "dry_bush":
+		"bush", "dry_bush", "small_bush", "berry_bush":
 			draw_line(Vector2(-12, 8), Vector2(12, -6), Color(0.33, 0.24, 0.10), 2.0)
 			draw_line(Vector2(12, 8), Vector2(-12, -5), Color(0.31, 0.22, 0.10), 2.0)
 			draw_circle(Vector2.ZERO, 10.0, Color(0.14, 0.12, 0.08, 0.20))
+		"grass_patch", "dense_grass":
+			for i in 7:
+				var angle := -PI * 0.82 + float(i) * PI * 0.27
+				var tip := Vector2(cos(angle) * 8.0, sin(angle) * 8.0)
+				draw_line(Vector2(0, 7), tip, Color(0.18, 0.32, 0.10, 0.45), 1.5)
 
 
 func _draw_conifer_tree() -> void:
@@ -338,6 +447,38 @@ func _draw_dry_bush() -> void:
 	draw_line(Vector2(7, 1), Vector2(19, 5), branch_color.darkened(0.12), 2.0)
 	draw_line(Vector2(5, -4), Vector2(12, -16), branch_color, 2.0)
 	draw_circle(Vector2.ZERO, 15.0, Color(0.50, 0.38, 0.17, 0.12))
+
+
+func _draw_small_bush() -> void:
+	draw_circle(Vector2(-6, 3), 8.0, Color(0.26, 0.58, 0.16))
+	draw_circle(Vector2(3, -3), 9.0, Color(0.36, 0.76, 0.20))
+	draw_circle(Vector2(8, 5), 7.0, Color(0.22, 0.50, 0.14))
+	draw_line(Vector2(-10, 7), Vector2(10, 7), Color(0.11, 0.24, 0.09), 1.5)
+
+
+func _draw_berry_bush() -> void:
+	_draw_small_bush()
+	var berry_color := Color(0.77, 0.12, 0.18)
+	draw_circle(Vector2(-4, -3), 2.0, berry_color)
+	draw_circle(Vector2(5, 1), 2.0, berry_color.darkened(0.08))
+	draw_circle(Vector2(1, 6), 1.7, berry_color.lightened(0.06))
+
+
+func _draw_grass_patch() -> void:
+	for i in 6:
+		var offset := -6.0 + float(i) * 2.4
+		var height := 8.0 + float(i % 3) * 2.0
+		draw_line(Vector2(offset, 7), Vector2(offset + sin(float(i)) * 3.0, 7 - height), Color(0.28, 0.70, 0.22), 1.6)
+	draw_circle(Vector2.ZERO, 8.0, Color(0.12, 0.30, 0.09, 0.12))
+
+
+func _draw_dense_grass() -> void:
+	for i in 12:
+		var offset := -10.0 + float(i) * 1.8
+		var height := 9.0 + float((i * 2) % 5) * 2.0
+		var sway := sin(float(i) * 1.7) * 4.0
+		draw_line(Vector2(offset, 10), Vector2(offset + sway, 10 - height), Color(0.22, 0.62, 0.18), 1.8)
+	draw_circle(Vector2.ZERO, 12.0, Color(0.10, 0.24, 0.08, 0.16))
 
 
 func _draw_rock() -> void:
