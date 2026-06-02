@@ -35,6 +35,7 @@ var hunger := 0.0
 var max_hunger := 1.0
 var hunger_growth_rate := 0.3
 var energy := 1.0
+var age_seconds := 0.0
 var plant_consumption_rate := 1.2
 var plant_diet := 0.85
 var meat_diet := 0.05
@@ -54,6 +55,7 @@ var flee_origin := Vector2.INF
 var prey_target: Node2D
 var plant_target: Node2D
 var dropped_meat := false
+var last_food_source := "none"
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
 
@@ -78,6 +80,7 @@ func setup(p_biome_id: String = "") -> void:
 
 func get_debug_data() -> Dictionary:
 	var data := {
+		"species": "Grazer",
 		"state": State.keys()[state],
 		"biome_id": biome_id,
 		"health": health,
@@ -85,12 +88,93 @@ func get_debug_data() -> Dictionary:
 		"speed": speed,
 		"fear": fear,
 		"aggression": aggression,
+		"age_seconds": age_seconds,
+		"fatigue": 1.0 - energy,
+		"rest": energy,
+		"current_target": _get_current_target_label(),
+		"last_food_source": last_food_source,
+		"fitness_score": _get_fitness_score(),
 		"current_niche": current_niche,
 		"home_biome_id": home_biome_id,
 		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
 	}
 	data.merge(hunger_diet.get_debug_data(), true)
 	return data
+
+
+func get_save_data() -> Dictionary:
+	return {
+		"position": _vector_to_data(global_position),
+		"facing_angle": facing_angle,
+		"facing_side": facing_side,
+		"health": health,
+		"max_health": max_health,
+		"speed": speed,
+		"fear": fear,
+		"aggression": aggression,
+		"hunger": hunger,
+		"max_hunger": max_hunger,
+		"hunger_growth_rate": hunger_growth_rate,
+		"energy": energy,
+		"age_seconds": age_seconds,
+		"plant_consumption_rate": plant_consumption_rate,
+		"plant_diet": plant_diet,
+		"meat_diet": meat_diet,
+		"scavenger_diet": scavenger_diet,
+		"current_niche": current_niche,
+		"size": size,
+		"reproduction_rate": reproduction_rate,
+		"state": int(state),
+		"biome_id": biome_id,
+		"home_biome_id": home_biome_id,
+		"wander_target": _vector_to_data(wander_target),
+		"state_time": state_time,
+		"last_food_source": last_food_source,
+		"dropped_meat": dropped_meat
+	}
+
+
+func restore_from_data(data: Dictionary) -> void:
+	global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
+	facing_angle = float(data.get("facing_angle", facing_angle))
+	facing_side = float(data.get("facing_side", facing_side))
+	max_health = max(float(data.get("max_health", max_health)), 1.0)
+	health = clamp(float(data.get("health", health)), 0.0, max_health)
+	speed = float(data.get("speed", speed))
+	fear = float(data.get("fear", fear))
+	aggression = float(data.get("aggression", aggression))
+	max_hunger = max(float(data.get("max_hunger", max_hunger)), 0.01)
+	hunger = clamp(float(data.get("hunger", hunger)), 0.0, max_hunger)
+	hunger_growth_rate = float(data.get("hunger_growth_rate", hunger_growth_rate))
+	energy = clamp(float(data.get("energy", energy)), 0.0, 1.0)
+	age_seconds = max(float(data.get("age_seconds", age_seconds)), 0.0)
+	plant_consumption_rate = float(data.get("plant_consumption_rate", plant_consumption_rate))
+	plant_diet = float(data.get("plant_diet", plant_diet))
+	meat_diet = float(data.get("meat_diet", meat_diet))
+	scavenger_diet = float(data.get("scavenger_diet", scavenger_diet))
+	current_niche = str(data.get("current_niche", current_niche))
+	size = float(data.get("size", size))
+	reproduction_rate = float(data.get("reproduction_rate", reproduction_rate))
+	state = int(data.get("state", State.WANDER))
+	if state == State.DEAD:
+		state = State.WANDER
+	biome_id = str(data.get("biome_id", biome_id))
+	home_biome_id = str(data.get("home_biome_id", home_biome_id))
+	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
+	state_time = max(float(data.get("state_time", state_time)), 0.0)
+	last_food_source = str(data.get("last_food_source", last_food_source))
+	dropped_meat = data.get("dropped_meat", dropped_meat) == true
+	hunger_diet.configure({
+		"hunger": hunger,
+		"max_hunger": max_hunger,
+		"hunger_growth_rate": hunger_growth_rate,
+		"energy": energy,
+		"plant_diet": plant_diet,
+		"meat_diet": meat_diet,
+		"scavenger_diet": scavenger_diet
+	})
+	_sync_hunger_fields()
+	queue_redraw()
 
 
 func take_damage(amount: float, source: String = "unknown") -> void:
@@ -110,6 +194,7 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
 	state_time = max(state_time - delta, 0.0)
+	age_seconds += delta
 	hunger_diet.tick(delta, velocity.length() / max(speed, 1.0))
 	_sync_hunger_fields()
 	_update_state()
@@ -280,6 +365,7 @@ func _consume_plants() -> void:
 	var biomass_impact := plant_consumption_rate
 	hunger_diet.eat("plants", max(PLANT_EAT_HUNGER_DROP, eaten_food))
 	_sync_hunger_fields()
+	last_food_source = "plants"
 	get_node("/root/EventBus").emit_game_event("grazer_consumed_plants", {
 		"biome_id": _get_current_biome_id(),
 		"position": global_position,
@@ -359,6 +445,7 @@ func _is_edible_vegetation_target(vegetation: Node) -> bool:
 func _scavenge_food() -> void:
 	hunger_diet.eat("scavenger", MEAT_HUNGER_DROP)
 	_sync_hunger_fields()
+	last_food_source = "scavenger"
 	get_node("/root/EventBus").emit_game_event("grazer_scavenged", {
 		"biome_id": _get_current_biome_id(),
 		"position": global_position
@@ -564,6 +651,26 @@ func _sync_hunger_fields() -> void:
 	scavenger_diet = hunger_diet.scavenger_diet
 
 
+func _get_current_target_label() -> String:
+	if is_instance_valid(plant_target):
+		return "plant"
+	if is_instance_valid(prey_target):
+		return "prey"
+	if state == State.SCAVENGE:
+		return "scavenge"
+	if state == State.FLEE:
+		return "threat"
+	if state == State.WANDER:
+		return "wander"
+	return "none"
+
+
+func _get_fitness_score() -> float:
+	var health_ratio: float = clamp(health / max(max_health, 1.0), 0.0, 1.0)
+	var diet_flexibility: float = clamp(meat_diet + scavenger_diet, 0.0, 1.0)
+	return clamp(health_ratio * 0.40 + (1.0 - hunger_diet.get_hunger_ratio()) * 0.30 + energy * 0.20 + diet_flexibility * 0.10, 0.0, 1.0)
+
+
 func _sync_population_traits() -> void:
 	var ecosystem := get_tree().current_scene.get_node_or_null("EcosystemDirector")
 	if not ecosystem or not ecosystem.has_method("get_grazer_traits"):
@@ -614,6 +721,16 @@ func _is_position_in_biome(position: Vector2, target_biome_id: String) -> bool:
 
 func _get_biome_id(biome: Dictionary) -> String:
 	return str(biome.get("name", "biome")).to_snake_case()
+
+
+func _vector_to_data(value: Vector2) -> Dictionary:
+	return {"x": value.x, "y": value.y}
+
+
+func _data_to_vector(data: Variant) -> Vector2:
+	if typeof(data) != TYPE_DICTIONARY:
+		return Vector2.ZERO
+	return Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
 
 
 func _draw() -> void:

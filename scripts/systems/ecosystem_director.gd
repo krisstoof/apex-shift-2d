@@ -160,12 +160,18 @@ func _initialize_biomes() -> void:
 			"overgrazing_level": 0.0,
 			"small_prey_population": _ecosystem_value("initial_small_prey_population"),
 			"grazer_population": _ecosystem_value("initial_grazer_population"),
+			"population_count": _ecosystem_value("initial_small_prey_population") + _ecosystem_value("initial_grazer_population"),
+			"average_hunger": 0.0,
+			"average_energy": 1.0,
 			"varnak_ecosystem_pressure": 0.0,
 			"food_stress": 0.0,
+			"starvation_pressure": 0.0,
 			"average_plant_diet": _ecosystem_value("initial_average_plant_diet"),
 			"average_meat_diet": _ecosystem_value("initial_average_meat_diet"),
 			"average_scavenger_diet": _ecosystem_value("initial_average_scavenger_diet"),
 			"average_aggression": _ecosystem_value("initial_average_aggression"),
+			"birth_rate": 0.0,
+			"death_rate": 0.0,
 			"current_niche": "HERBIVORE",
 			"generations_under_food_stress": 0,
 			"grazer_non_plant_food_events": 0,
@@ -247,6 +253,7 @@ func _update_ecosystem_tick() -> void:
 		var previous_status := str(state.get("status", "healthy"))
 		_update_biome_biomass(state)
 		_update_predator_pressure(state, biome_id)
+		_update_visible_creature_aggregates(state, biome_id)
 		_update_biome_populations(state)
 		state["status"] = _get_biomass_status(
 			float(state.get("plant_biomass", 0.0)),
@@ -277,6 +284,7 @@ func _update_biome_biomass(state: Dictionary) -> void:
 	state["overgrazing_pressure"] = consumption_pressure
 	state["overgrazing_level"] = clamp(consumption_pressure / _ecosystem_value("overgrazing_pressure_scale"), 0.0, 1.0)
 	state["food_stress"] = 1.0 - clamp(plant_biomass / max_biomass, 0.0, 1.0)
+	state["starvation_pressure"] = state["food_stress"]
 
 
 func _update_predator_pressure(state: Dictionary, biome_id: String) -> void:
@@ -295,6 +303,28 @@ func _update_predator_pressure(state: Dictionary, biome_id: String) -> void:
 	var pressure: float = clamp(float(varnak_count) / float(total_varnaks), 0.0, 1.0)
 	state["varnak_ecosystem_pressure"] = pressure
 	state["predator_pressure"] = pressure
+
+
+func _update_visible_creature_aggregates(state: Dictionary, biome_id: String) -> void:
+	var count := 0
+	var hunger_total := 0.0
+	var energy_total := 0.0
+	for group_name in ["small_prey", "grazer"]:
+		for creature in get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
+				continue
+			if _get_biome_id_for_position(creature.global_position) != biome_id:
+				continue
+			var data: Dictionary = creature.get_debug_data()
+			hunger_total += float(data.get("hunger_ratio", data.get("hunger", 0.0)))
+			energy_total += float(data.get("energy", 0.0))
+			count += 1
+	if count <= 0:
+		state["average_hunger"] = 0.0
+		state["average_energy"] = 1.0
+		return
+	state["average_hunger"] = hunger_total / float(count)
+	state["average_energy"] = energy_total / float(count)
 
 
 func _update_biome_populations(state: Dictionary) -> void:
@@ -316,6 +346,11 @@ func _update_biome_populations(state: Dictionary) -> void:
 	grazer_delta -= predator_pressure * _ecosystem_value("grazer_predation_rate")
 	state["small_prey_population"] = clamp(small_prey_population + small_prey_delta, 0.0, _ecosystem_value("max_small_prey_population"))
 	state["grazer_population"] = clamp(grazer_population + grazer_delta, 0.0, _ecosystem_value("max_grazer_population"))
+	var total_delta := small_prey_delta + grazer_delta
+	state["population_count"] = float(state.get("small_prey_population", 0.0)) + float(state.get("grazer_population", 0.0))
+	state["birth_rate"] = max(total_delta, 0.0)
+	state["death_rate"] = max(-total_delta, 0.0)
+	state["starvation_pressure"] = food_stress
 	_emit_population_decline_events_if_needed(state, small_prey_population, grazer_population)
 
 

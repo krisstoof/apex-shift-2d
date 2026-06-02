@@ -1206,6 +1206,24 @@ func get_varnak_save_data() -> Array[Dictionary]:
 	return varnaks
 
 
+func get_small_prey_save_data() -> Array[Dictionary]:
+	return _get_creature_save_data("small_prey")
+
+
+func get_grazer_save_data() -> Array[Dictionary]:
+	return _get_creature_save_data("grazer")
+
+
+func _get_creature_save_data(group_name: String) -> Array[Dictionary]:
+	var creatures: Array[Dictionary] = []
+	for creature in get_tree().get_nodes_in_group(group_name):
+		if not is_instance_valid(creature):
+			continue
+		if creature.has_method("get_save_data"):
+			creatures.append(creature.get_save_data())
+	return creatures
+
+
 func restore_varnaks(varnaks: Array) -> void:
 	for varnak in get_tree().get_nodes_in_group("varnak"):
 		if is_instance_valid(varnak):
@@ -1215,6 +1233,28 @@ func restore_varnaks(varnaks: Array) -> void:
 		if typeof(varnak_data) != TYPE_DICTIONARY:
 			continue
 		_restore_varnak_from_data(Dictionary(varnak_data))
+
+
+func restore_small_prey(small_prey_data: Array) -> void:
+	await _restore_creature_group("small_prey", small_prey_data, SMALL_PREY_SCENE)
+
+
+func restore_grazers(grazer_data: Array) -> void:
+	await _restore_creature_group("grazer", grazer_data, GRAZER_SCENE)
+
+
+func _restore_creature_group(group_name: String, creature_data: Array, scene: PackedScene) -> void:
+	for creature in get_tree().get_nodes_in_group(group_name):
+		if is_instance_valid(creature):
+			creature.queue_free()
+	await get_tree().process_frame
+	for data_value in creature_data:
+		if typeof(data_value) != TYPE_DICTIONARY:
+			continue
+		var creature := scene.instantiate()
+		add_child(creature)
+		if creature.has_method("restore_from_data"):
+			creature.restore_from_data(Dictionary(data_value))
 
 
 func _spawn_varnak_at(pos: Vector2) -> Node:

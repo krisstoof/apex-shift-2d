@@ -19,6 +19,8 @@ const WORLD_EDGE_PADDING := 32.0
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
 var hunger := 0.0
+var energy := 1.0
+var age_seconds := 0.0
 var speed := 105.0
 var aggression := 0.45
 var fire_fear := 0.85
@@ -40,6 +42,7 @@ var scared_fire: Node2D
 var ecosystem_target: Node2D
 var ecosystem_target_kind := ""
 var dropped_meat := false
+var last_food_source := "none"
 var is_dead := false
 
 func _ready() -> void:
@@ -69,20 +72,35 @@ func get_save_data() -> Dictionary:
 		"health": health,
 		"max_health": max_health,
 		"hunger": hunger,
+		"energy": energy,
+		"fatigue": 1.0 - energy,
+		"rest": energy,
+		"age_seconds": age_seconds,
 		"night_health_bonus_active": night_health_bonus_active,
 		"state": int(state),
 		"wander_target": _vector_to_data(wander_target),
-		"attack_cooldown": attack_cooldown
+		"attack_cooldown": attack_cooldown,
+		"last_food_source": last_food_source,
+		"dropped_meat": dropped_meat
 	}
 
 
 func get_debug_data() -> Dictionary:
 	return {
 		"state": State.keys()[state],
+		"species": "Varnak",
 		"health": health,
 		"max_health": max_health,
 		"hunger": hunger,
+		"max_hunger": 1.0,
 		"hunger_stage": _get_hunger_stage(),
+		"energy": energy,
+		"fatigue": 1.0 - energy,
+		"rest": energy,
+		"age_seconds": age_seconds,
+		"current_target": _get_current_target_label(),
+		"last_food_source": last_food_source,
+		"fitness_score": _get_fitness_score(),
 		"hunt_drive": _get_hunt_drive(),
 		"aggression": aggression,
 		"fire_fear": fire_fear,
@@ -106,10 +124,14 @@ func restore_from_data(data: Dictionary) -> void:
 	max_health = max(float(data.get("max_health", max_health)), 1.0)
 	health = clamp(float(data.get("health", health)), 0.0, max_health)
 	hunger = clamp(float(data.get("hunger", hunger)), 0.0, 1.0)
+	energy = clamp(float(data.get("energy", energy)), 0.0, 1.0)
+	age_seconds = max(float(data.get("age_seconds", age_seconds)), 0.0)
 	night_health_bonus_active = data.get("night_health_bonus_active", night_health_bonus_active) == true
 	state = int(data.get("state", State.WANDER))
 	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
 	attack_cooldown = float(data.get("attack_cooldown", attack_cooldown))
+	last_food_source = str(data.get("last_food_source", last_food_source))
+	dropped_meat = data.get("dropped_meat", dropped_meat) == true
 	queue_redraw()
 
 
@@ -119,12 +141,14 @@ func _physics_process(delta: float) -> void:
 		return
 	_update_night_health_bonus()
 	hunger = clamp(hunger + _get_hunger_growth_rate() * delta, 0.0, 1.0)
+	age_seconds += delta
 	attack_cooldown = max(attack_cooldown - delta, 0.0)
 	if attack_visual_time > 0.0:
 		attack_visual_time = max(attack_visual_time - delta, 0.0)
 		queue_redraw()
 	_update_state()
 	_act(delta)
+	_update_individual_energy(delta, velocity.length() / max(speed, 1.0))
 	move_and_slide()
 	_enforce_world_bounds()
 
@@ -271,6 +295,8 @@ func _hunt_ecosystem_target() -> void:
 		var hunted_kind := ecosystem_target_kind
 		ecosystem_target.take_damage(999.0, "varnak")
 		hunger = max(hunger - _get_hunt_feed_amount(hunted_kind), 0.0)
+		energy = clamp(energy + _get_hunt_feed_amount(hunted_kind) * 0.38, 0.0, 1.0)
+		last_food_source = hunted_kind
 		var event_name := "varnak_hunted_grazer" if hunted_kind == "grazer" else "varnak_hunted_small_prey"
 		get_node("/root/EventBus").emit_game_event(event_name, {"position": global_position})
 		get_node("/root/EventBus").post_message("Varnak hunted %s" % ("Grazer" if hunted_kind == "grazer" else "SmallPrey"))
@@ -316,7 +342,14 @@ func _get_prey_priority(group_name: String) -> float:
 func _get_hunt_drive() -> float:
 	var night_multiplier := _get_night_hunting_multiplier()
 	var prey_pressure := _get_biome_prey_pressure()
-	return clamp((hunger * 0.68 + prey_pressure * 0.20 + aggression * 0.12) * night_multiplier, 0.0, 1.0)
+	return clamp((hunger * 0.62 + (1.0 - energy) * 0.12 + prey_pressure * 0.16 + aggression * 0.10) * night_multiplier, 0.0, 1.0)
+
+
+func _update_individual_energy(delta: float, movement_intensity: float) -> void:
+	var movement_cost: float = clamp(movement_intensity, 0.0, 1.0) * 0.032
+	var hunger_recovery_penalty: float = hunger * 0.012
+	var recovery: float = 0.018 * (1.0 - hunger)
+	energy = clamp(energy - delta * (0.010 + movement_cost + hunger_recovery_penalty) + delta * recovery, 0.0, 1.0)
 
 
 func _get_hunger_stage() -> String:
@@ -327,6 +360,27 @@ func _get_hunger_stage() -> String:
 	if hunger >= _get_hungry_threshold():
 		return "hungry"
 	return "comfortable"
+
+
+func _get_current_target_label() -> String:
+	if is_instance_valid(ecosystem_target):
+		return ecosystem_target_kind
+	if is_instance_valid(scared_fire):
+		return "fire"
+	match state:
+		State.CHASE, State.ATTACK:
+			return "player"
+		State.FLEE:
+			return "avoid"
+		State.WANDER:
+			return "wander"
+		_:
+			return "none"
+
+
+func _get_fitness_score() -> float:
+	var health_ratio: float = clamp(health / max(max_health, 1.0), 0.0, 1.0)
+	return clamp(health_ratio * 0.42 + (1.0 - hunger) * 0.30 + energy * 0.18 + aggression * 0.10, 0.0, 1.0)
 
 
 func _get_hunger_growth_rate() -> float:

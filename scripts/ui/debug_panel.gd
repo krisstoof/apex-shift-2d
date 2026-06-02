@@ -12,6 +12,9 @@ const DEBUG_TABS := [
 	"Events",
 	"Tools"
 ]
+const DEBUG_STATE_REFRESH_INTERVAL := 0.15
+const STATE_LABEL_MIN_SIZE := Vector2(680.0, 430.0)
+const STATE_LINE_HEIGHT := 20.0
 
 var player: Node
 var evolution_director: Node
@@ -22,6 +25,11 @@ var tab_bar: TabBar
 var tools_scroll: ScrollContainer
 var tools_grid: GridContainer
 var tool_buttons: Array[Button] = []
+var state_refresh_timer := 0.0
+var last_state_text := ""
+var state_label_min_height := STATE_LABEL_MIN_SIZE.y
+var last_nearest_creature_text: Dictionary = {}
+var selected_debug_creatures: Dictionary = {}
 
 @onready var title_label: Label = $Panel/TitleLabel
 @onready var state_scroll: ScrollContainer = $Panel/StateScroll
@@ -79,6 +87,10 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 func _process(_delta: float) -> void:
 	if not visible:
 		return
+	state_refresh_timer += _delta
+	if state_refresh_timer < DEBUG_STATE_REFRESH_INTERVAL:
+		return
+	state_refresh_timer = 0.0
 	_set_state_text(_build_state_text())
 
 
@@ -90,13 +102,17 @@ func set_open(open: bool) -> void:
 	visible = open
 	if visible:
 		_update_active_tab_view()
-		_set_state_text(_build_state_text())
+		_set_state_text(_build_state_text(), true)
 
 
-func _set_state_text(text: String) -> void:
+func _set_state_text(text: String, force_update := false) -> void:
+	if not force_update and text == last_state_text:
+		return
+	last_state_text = text
 	state_label.text = text
 	var line_count := text.split("\n").size()
-	state_label.custom_minimum_size = Vector2(560.0, max(390.0, float(line_count) * 20.0))
+	state_label_min_height = max(state_label_min_height, max(STATE_LABEL_MIN_SIZE.y, float(line_count) * STATE_LINE_HEIGHT))
+	state_label.custom_minimum_size = Vector2(STATE_LABEL_MIN_SIZE.x, state_label_min_height)
 
 
 func _create_debug_tabs() -> void:
@@ -187,8 +203,11 @@ func _add_tool_button(label: String, callback: Callable, tab_name := "Tools") ->
 
 func _on_debug_tab_changed(tab: int) -> void:
 	active_tab = tab_bar.get_tab_title(tab)
+	last_state_text = ""
+	state_refresh_timer = 0.0
+	state_label_min_height = STATE_LABEL_MIN_SIZE.y
 	_update_active_tab_view()
-	_set_state_text(_build_state_text())
+	_set_state_text(_build_state_text(), true)
 
 
 func _update_active_tab_view() -> void:
@@ -332,6 +351,7 @@ func _build_creatures_text() -> String:
 	var varnaks := get_tree().get_nodes_in_group("varnak")
 	lines.append("Creatures")
 	lines.append("creatures_out_of_bounds_count = %d" % _get_creatures_out_of_bounds_count())
+	lines.append_array(_get_population_aggregate_lines())
 	lines.append("Varnaks %d | %s" % [varnaks.size(), _get_varnak_state_summary(varnaks)])
 	lines.append("SmallPrey visible %d | %s" % [
 		get_tree().get_nodes_in_group("small_prey").size(),
@@ -341,10 +361,10 @@ func _build_creatures_text() -> String:
 		get_tree().get_nodes_in_group("grazer").size(),
 		_get_grazer_state_summary()
 	])
-	lines.append("Avg Varnak HP %s | nearest %s" % [
-		_get_average_varnak_health_text(varnaks),
-		_get_nearest_varnak_text(varnaks)
-	])
+	lines.append("Avg Varnak HP %s" % _get_average_varnak_health_text(varnaks))
+	lines.append_array(_get_creature_debug_stat_lines("varnak", "Varnak stats"))
+	lines.append_array(_get_creature_debug_stat_lines("small_prey", "SmallPrey stats"))
+	lines.append_array(_get_creature_debug_stat_lines("grazer", "Grazer stats"))
 	return "\n".join(lines)
 
 
@@ -604,6 +624,13 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 			str(state.get("current_niche", "HERBIVORE")).to_lower(),
 			int(state.get("generations_under_food_stress", 0))
 		])
+		lines.append("  aggregate pop %.1f | hunger %d%% | energy %d%% | birth %.2f death %.2f" % [
+			float(state.get("population_count", 0.0)),
+			int(round(float(state.get("average_hunger", 0.0)) * 100.0)),
+			int(round(float(state.get("average_energy", 1.0)) * 100.0)),
+			float(state.get("birth_rate", 0.0)),
+			float(state.get("death_rate", 0.0))
+		])
 		lines.append("  diet P %.2f M %.2f S %.2f | aggr %.2f" % [
 			float(state.get("average_plant_diet", 0.85)),
 			float(state.get("average_meat_diet", 0.05)),
@@ -619,73 +646,109 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 
 
 func _get_grazer_state_summary() -> String:
-	var grazers := get_tree().get_nodes_in_group("grazer")
-	if grazers.is_empty():
-		return "none"
-	var counts := {}
+	return _get_fixed_creature_state_summary("grazer", [
+		"idle",
+		"wander",
+		"eat_plants",
+		"seek_food",
+		"flee",
+		"scavenge",
+		"hunt_small_prey",
+		"dead"
+	])
+
+
+func _get_population_aggregate_lines() -> Array[String]:
+	return [
+		"Population model: prey %d | grazers %d" % [
+			_get_ecosystem_population_total("small_prey_population"),
+			_get_ecosystem_population_total("grazer_population")
+		],
+		"Visible SmallPrey: %s" % _get_visible_creature_aggregate_text("small_prey"),
+		"Visible Grazers: %s" % _get_visible_creature_aggregate_text("grazer"),
+		"Visible Varnaks: %s" % _get_visible_creature_aggregate_text("varnak")
+	]
+
+
+func _get_visible_creature_aggregate_text(group_name: String) -> String:
+	var creatures := get_tree().get_nodes_in_group(group_name)
+	if creatures.is_empty():
+		return "0"
+	var health_total := 0.0
 	var hunger_total := 0.0
 	var energy_total := 0.0
-	var hunger_count := 0
-	for grazer in grazers:
-		if not is_instance_valid(grazer) or not grazer.has_method("get_debug_data"):
+	var fitness_total := 0.0
+	var count := 0
+	for creature in creatures:
+		if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
 			continue
-		var data: Dictionary = grazer.get_debug_data()
-		var state_name := str(data.get("state", "unknown")).to_lower()
-		counts[state_name] = int(counts.get(state_name, 0)) + 1
-		hunger_total += float(data.get("hunger", 0.0))
+		var data: Dictionary = creature.get_debug_data()
+		health_total += float(data.get("health", 0.0)) / max(float(data.get("max_health", 1.0)), 1.0)
+		hunger_total += float(data.get("hunger_ratio", data.get("hunger", 0.0)))
 		energy_total += float(data.get("energy", 0.0))
-		hunger_count += 1
-	var parts: Array[String] = []
-	for key in counts.keys():
-		parts.append("%s:%d" % [key, int(counts[key])])
-	if hunger_count > 0:
-		parts.append("hunger:%d%%" % int(round(hunger_total / float(hunger_count) * 100.0)))
-		parts.append("energy:%d%%" % int(round(energy_total / float(hunger_count) * 100.0)))
-	return ", ".join(parts)
+		fitness_total += float(data.get("fitness_score", 0.0))
+		count += 1
+	if count <= 0:
+		return "0"
+	return "%d avg HP:%d%% H:%d%% E:%d%% Fit:%d%%" % [
+		count,
+		int(round(health_total / float(count) * 100.0)),
+		int(round(hunger_total / float(count) * 100.0)),
+		int(round(energy_total / float(count) * 100.0)),
+		int(round(fitness_total / float(count) * 100.0))
+	]
 
 
 func _get_creature_state_summary(group_name: String) -> String:
+	return _get_fixed_creature_state_summary(group_name, [
+		"idle",
+		"wander",
+		"seek_food",
+		"eat",
+		"flee",
+		"dead"
+	])
+
+
+func _get_varnak_state_summary(varnaks: Array) -> String:
+	return _get_fixed_creature_state_summary("varnak", [
+		"idle",
+		"wander",
+		"stalk",
+		"chase",
+		"attack",
+		"flee",
+		"hunt_ecosystem"
+	])
+
+
+func _get_fixed_creature_state_summary(group_name: String, state_names: Array[String]) -> String:
 	var creatures := get_tree().get_nodes_in_group(group_name)
-	if creatures.is_empty():
-		return "none"
 	var counts := {}
 	var hunger_total := 0.0
 	var energy_total := 0.0
-	var hunger_count := 0
+	var count := 0
 	for creature in creatures:
 		if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
 			continue
 		var data: Dictionary = creature.get_debug_data()
 		var state_name := str(data.get("state", "unknown")).to_lower()
 		counts[state_name] = int(counts.get(state_name, 0)) + 1
-		hunger_total += float(data.get("hunger", 0.0))
+		hunger_total += float(data.get("hunger_ratio", data.get("hunger", 0.0)))
 		energy_total += float(data.get("energy", 0.0))
-		hunger_count += 1
+		count += 1
 	var parts: Array[String] = []
-	for key in counts.keys():
-		parts.append("%s:%d" % [key, int(counts[key])])
-	if hunger_count > 0:
-		parts.append("hunger:%d%%" % int(round(hunger_total / float(hunger_count) * 100.0)))
-		parts.append("energy:%d%%" % int(round(energy_total / float(hunger_count) * 100.0)))
+	for state_name in state_names:
+		parts.append("%s:%d" % [state_name, int(counts.get(state_name, 0))])
+	parts.append("hunger:%d%%" % _get_average_percent(hunger_total, count))
+	parts.append("energy:%d%%" % _get_average_percent(energy_total, count))
 	return ", ".join(parts)
 
 
-func _get_varnak_state_summary(varnaks: Array) -> String:
-	if varnaks.is_empty():
-		return "none"
-	var counts := {}
-	for varnak in varnaks:
-		if not is_instance_valid(varnak):
-			continue
-		var state_name := "unknown"
-		if varnak.has_method("get_debug_data"):
-			var data: Dictionary = varnak.get_debug_data()
-			state_name = str(data.get("state", state_name)).to_lower()
-		counts[state_name] = int(counts.get(state_name, 0)) + 1
-	var parts: Array[String] = []
-	for key in counts.keys():
-		parts.append("%s:%d" % [key, int(counts[key])])
-	return ", ".join(parts)
+func _get_average_percent(total: float, count: int) -> int:
+	if count <= 0:
+		return 0
+	return int(round(total / float(count) * 100.0))
 
 
 func _get_average_varnak_health_text(varnaks: Array) -> String:
@@ -703,6 +766,9 @@ func _get_average_varnak_health_text(varnaks: Array) -> String:
 
 
 func _get_nearest_varnak_text(varnaks: Array) -> String:
+	if varnaks.is_empty():
+		last_nearest_creature_text.erase("varnak")
+		return "none"
 	var nearest_data: Dictionary = {}
 	var nearest_distance := INF
 	for varnak in varnaks:
@@ -714,13 +780,115 @@ func _get_nearest_varnak_text(varnaks: Array) -> String:
 			nearest_distance = distance
 			nearest_data = data
 	if nearest_data.is_empty():
-		return "n/a"
-	return "%s %.0fpx hp %d/%d" % [
+		return str(last_nearest_creature_text.get("varnak", "none"))
+	var text := "%s %.0fpx hp %d/%d" % [
 		str(nearest_data.get("state", "unknown")).to_lower(),
 		nearest_distance,
 		int(nearest_data.get("health", 0.0)),
 		int(nearest_data.get("max_health", 0.0))
 	]
+	last_nearest_creature_text["varnak"] = text
+	return text
+
+
+func _get_creature_debug_stat_lines(group_name: String, label: String) -> Array[String]:
+	var creature := _get_selected_debug_creature(group_name)
+	var data: Dictionary = creature.get_debug_data() if is_instance_valid(creature) and creature.has_method("get_debug_data") else {}
+	return [
+		"%s: %s | distance %.0fpx" % [
+			label,
+			str(data.get("species", group_name)),
+			_get_debug_float(data, "distance_to_player")
+		],
+		"  state %s | target %s | last_food %s" % [
+			_get_debug_text(data, "state"),
+			_get_debug_text(data, "current_target"),
+			_get_debug_text(data, "last_food_source")
+		],
+		"  health %.0f/%.0f | speed %.0f | age %.1fs" % [
+			_get_debug_float(data, "health"),
+			_get_debug_float(data, "max_health"),
+			_get_debug_float(data, "speed"),
+			_get_debug_float(data, "age_seconds")
+		],
+		"  hunger %.0f%% | max_hunger %.2f | growth %.3f | stage %s" % [
+			_get_debug_hunger_percent(data),
+			_get_debug_float(data, "max_hunger"),
+			_get_debug_float(data, "hunger_growth_rate"),
+			_get_debug_text(data, "hunger_stage")
+		],
+		"  energy %.0f%% | fatigue %.0f%% | rest %.0f%% | fitness %.0f%%" % [
+			_get_debug_percent(data, "energy"),
+			_get_debug_percent(data, "fatigue"),
+			_get_debug_percent(data, "rest"),
+			_get_debug_percent(data, "fitness_score")
+		],
+		"  diet plant %.2f | meat %.2f | scav %.2f" % [
+			_get_debug_float(data, "plant_diet"),
+			_get_debug_float(data, "meat_diet"),
+			_get_debug_float(data, "scavenger_diet")
+		],
+		"  aggression %.2f | fear %.2f | niche %s" % [
+			_get_debug_float(data, "aggression"),
+			_get_debug_float(data, "fear"),
+			_get_debug_text(data, "current_niche")
+		],
+		"  biome %s | home %s | reproduction %.2f | consumption %.2f" % [
+			_get_debug_text(data, "biome_id"),
+			_get_debug_text(data, "home_biome_id"),
+			_get_debug_float(data, "reproduction_value", _get_debug_float(data, "reproduction_rate")),
+			_get_debug_float(data, "plant_consumption_rate")
+		]
+	]
+
+
+func _get_debug_float(data: Dictionary, key: String, fallback := 0.0) -> float:
+	return float(data.get(key, fallback))
+
+
+func _get_debug_percent(data: Dictionary, key: String) -> float:
+	return _get_debug_float(data, key) * 100.0
+
+
+func _get_debug_hunger_percent(data: Dictionary) -> float:
+	if data.has("hunger_ratio"):
+		return _get_debug_percent(data, "hunger_ratio")
+	return _get_debug_percent(data, "hunger")
+
+
+func _get_debug_text(data: Dictionary, key: String) -> String:
+	if not data.has(key):
+		return "0"
+	var value: Variant = data.get(key, "0")
+	if str(value).is_empty():
+		return "0"
+	return str(value).to_lower()
+
+
+func _get_selected_debug_creature(group_name: String) -> Node:
+	var selected: Node = selected_debug_creatures.get(group_name, null)
+	if is_instance_valid(selected) and selected.is_in_group(group_name) and selected.has_method("get_debug_data"):
+		return selected
+	var nearest := _find_nearest_debug_creature(group_name)
+	if is_instance_valid(nearest):
+		selected_debug_creatures[group_name] = nearest
+	else:
+		selected_debug_creatures.erase(group_name)
+	return nearest
+
+
+func _find_nearest_debug_creature(group_name: String) -> Node:
+	var nearest: Node
+	var nearest_distance := INF
+	for creature in get_tree().get_nodes_in_group(group_name):
+		if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
+			continue
+		var data: Dictionary = creature.get_debug_data()
+		var distance := float(data.get("distance_to_player", INF))
+		if distance >= 0.0 and distance < nearest_distance:
+			nearest_distance = distance
+			nearest = creature
+	return nearest
 
 
 func _get_campfire_state() -> String:
