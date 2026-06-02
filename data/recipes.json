@@ -2,6 +2,7 @@
   "campfire": {"wood": 3, "stone": 2},
   "spear": {"wood": 2, "stone": 1, "fiber": 1},
   "torch": {"wood": 1, "fiber": 1},
+  "bow": {"wood": 3, "fiber": 4, "bone": 1},
   "trap": {"wood": 2, "fiber": 2},
   "wall": {"wood": 3},
   "storage_box": {"wood": 4},

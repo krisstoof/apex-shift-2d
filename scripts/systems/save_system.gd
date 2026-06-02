@@ -64,6 +64,7 @@ func _get_player_data(player: Node) -> Dictionary:
 		"stats": player.stats.get_save_data(),
 		"inventory": player.inventory.get_save_data(),
 		"has_spear": player.has_spear,
+		"has_bow": player.has_bow,
 		"torch_active": player.torch_active,
 		"torch_remaining_seconds": player.torch_remaining_seconds
 	}
@@ -118,8 +119,9 @@ func _restore_player_data(player: Node, data: Dictionary) -> void:
 	player.global_position = _data_to_vector(data.get("position", {}))
 	player.stats.restore_from_data(Dictionary(data.get("stats", {})))
 	player.inventory.restore_from_data(Dictionary(data.get("inventory", {})))
-	player.has_spear = bool(data.get("has_spear", player.has_spear))
-	player.torch_active = bool(data.get("torch_active", player.torch_active))
+	player.has_spear = data.get("has_spear", player.has_spear) == true
+	player.has_bow = data.get("has_bow", player.has_bow) == true
+	player.torch_active = data.get("torch_active", player.torch_active) == true
 	player.torch_remaining_seconds = float(data.get("torch_remaining_seconds", player.torch_remaining_seconds))
 	if player.torch_active and player.torch_remaining_seconds <= 0.0:
 		player.clear_inactive_torch_state()

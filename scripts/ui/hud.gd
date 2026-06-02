@@ -61,7 +61,7 @@ func _process(delta: float) -> void:
 	clock_label.text = "%s\n%s" % [clock_text, time_label]
 	stats_label.text = "\n".join([
 		"Health: %3d  Hunger: %3d  Stamina: %3d  Rest: %3d  %s" % [player.stats.health, player.stats.hunger, player.stats.stamina, player.stats.rest, player.stats.get_condition_text()],
-		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Torch: %d %s  Spear: %s" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber"), player.inventory.get_amount("meat"), player.inventory.get_amount("torch"), _get_torch_status_text(), "yes" if player.has_spear else "no"]
+		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Torch: %d %s  Spear: %s  Bow: %s" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber"), player.inventory.get_amount("meat"), player.inventory.get_amount("torch"), _get_torch_status_text(), "yes" if player.has_spear else "no", "yes" if player.has_bow else "no"]
 	])
 	prompt_label.text = player.get_interaction_prompt() if player.has_method("get_interaction_prompt") else ""
 	message_label.text = "\n".join(message_history)

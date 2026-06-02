@@ -102,6 +102,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_eat("meat")
 			KEY_8:
 				_craft("torch")
+			KEY_9:
+				_craft("bow")
 			KEY_T:
 				_activate_torch()
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -317,6 +319,9 @@ func _craft(item_name: String) -> void:
 	if recipe.is_empty():
 		get_node("/root/EventBus").post_message("Unknown recipe: %s" % item_name)
 		return
+	if item_name == "bow" and has_bow:
+		get_node("/root/EventBus").post_message("Bow already crafted")
+		return
 	var missing := _get_missing_ingredients(recipe)
 	if not missing.is_empty():
 		get_node("/root/EventBus").post_message("Not enough resources for %s: %s" % [item_name, ", ".join(missing)])
@@ -331,6 +336,11 @@ func _craft(item_name: String) -> void:
 	if item_name == "spear":
 		has_spear = true
 		get_node("/root/EventBus").post_message("Crafted spear")
+		return
+	if item_name == "bow":
+		has_bow = true
+		get_node("/root/EventBus").emit_game_event("player_crafted_bow", {"has_bow": has_bow})
+		get_node("/root/EventBus").post_message("Crafted bow")
 		return
 	var scene: PackedScene = {
 		"campfire": CAMPFIRE_SCENE,
