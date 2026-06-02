@@ -454,7 +454,8 @@ func _update_grazer_niche_status(state: Dictionary) -> void:
 func _apply_visible_plant_consumption(payload: Dictionary) -> void:
 	var biome_id := str(payload.get("biome_id", ""))
 	var consumption := float(payload.get("plant_consumption_rate", 0.0))
-	_apply_plant_biomass_loss(biome_id, consumption)
+	var biomass_impact := float(payload.get("biomass_impact", consumption))
+	_apply_plant_biomass_loss(biome_id, max(consumption, biomass_impact))
 
 
 func _apply_harvested_plant_pressure(payload: Dictionary) -> void:
