@@ -21,6 +21,10 @@ var can_be_harvested := true
 var player_harvestable := true
 var is_edible_by_herbivores := false
 var food_value := 0.0
+var is_pond_vegetation := false
+var pond_id := ""
+var food_bonus_multiplier := 1.0
+var pond_visual_multiplier := 1.0
 var biome_id := ""
 
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
@@ -136,7 +140,11 @@ func get_save_data() -> Dictionary:
 		"can_be_harvested": can_be_harvested,
 		"player_harvestable": player_harvestable,
 		"is_edible_by_herbivores": is_edible_by_herbivores,
-		"food_value": food_value
+		"food_value": food_value,
+		"is_pond_vegetation": is_pond_vegetation,
+		"pond_id": pond_id,
+		"food_bonus_multiplier": food_bonus_multiplier,
+		"pond_visual_multiplier": pond_visual_multiplier
 	}
 
 
@@ -148,6 +156,13 @@ func restore_from_data(data: Dictionary) -> void:
 	days_since_harvested = max(float(data.get("days_since_harvested", 0.0)), 0.0)
 	is_harvested = data.get("is_harvested", growth_stage <= 0) == true
 	can_be_harvested = data.get("can_be_harvested", growth_stage > 0) == true
+	food_value = max(float(data.get("food_value", food_value)), 0.0)
+	is_pond_vegetation = data.get("is_pond_vegetation", false) == true
+	pond_id = str(data.get("pond_id", pond_id))
+	food_bonus_multiplier = max(float(data.get("food_bonus_multiplier", food_bonus_multiplier)), 1.0)
+	pond_visual_multiplier = max(float(data.get("pond_visual_multiplier", pond_visual_multiplier)), 1.0)
+	_apply_pond_visual_bonus()
+	_sync_resource_groups()
 	_apply_growth_stage()
 
 
@@ -177,6 +192,28 @@ func force_full_regrowth() -> void:
 
 func reset_growth_state() -> void:
 	force_full_regrowth()
+
+
+func set_pond_vegetation(source_pond_id: String, food_multiplier: float = 1.0, visual_multiplier: float = 1.0) -> void:
+	if is_pond_vegetation:
+		return
+	is_pond_vegetation = true
+	pond_id = source_pond_id
+	food_bonus_multiplier = max(food_multiplier, 1.0)
+	pond_visual_multiplier = max(visual_multiplier, 1.0)
+	if food_value > 0.0:
+		food_value *= food_bonus_multiplier
+	_apply_pond_visual_bonus()
+	_sync_resource_groups()
+	_apply_growth_stage()
+
+
+func _apply_pond_visual_bonus() -> void:
+	if not is_pond_vegetation:
+		return
+	if resource_kind in ["grass_patch", "dense_grass", "small_bush", "berry_bush"]:
+		mature_radius *= pond_visual_multiplier
+		mature_color = mature_color.lightened(0.08)
 
 
 func get_growth_debug_text() -> String:
@@ -300,7 +337,7 @@ func _get_resource_label() -> String:
 
 
 func _sync_resource_groups() -> void:
-	for group_name in ["trees", "bushes", "grass", "rocks", "vegetation", "edible_vegetation"]:
+	for group_name in ["trees", "bushes", "grass", "rocks", "vegetation", "edible_vegetation", "pond_vegetation"]:
 		if is_in_group(group_name):
 			remove_from_group(group_name)
 	match resource_kind:
@@ -317,6 +354,8 @@ func _sync_resource_groups() -> void:
 			add_to_group("rocks")
 	if food_value > 0.0:
 		add_to_group("edible_vegetation")
+	if is_pond_vegetation:
+		add_to_group("pond_vegetation")
 
 
 func _vector_to_data(value: Vector2) -> Dictionary:

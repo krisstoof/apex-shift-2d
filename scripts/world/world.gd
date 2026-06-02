@@ -5,6 +5,7 @@ const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const SMALL_PREY_MAX_VISIBLE_COUNT := 12
@@ -34,10 +35,13 @@ const PLANT_RESOURCE_KINDS := [
 const CREATURE_BOUND_GROUPS := ["varnak", "small_prey", "grazer"]
 const CREATURE_BOUND_TELEPORT_PADDING := 36.0
 const HILL_RESOURCE_BLOCK_RADIUS_FACTOR := 0.72
-const POND_SPEED_MULTIPLIER := 0.68
-const POND_VEGETATION_BONUS_COUNT := 3
+const POND_SPEED_MULTIPLIER := 0.42
+const POND_VISUAL_Y_SCALE := 0.62
+const POND_VEGETATION_MIN_COUNT := 18
 const POND_VEGETATION_RING_MIN_FACTOR := 0.82
 const POND_VEGETATION_RING_MAX_FACTOR := 1.35
+const POND_VEGETATION_RING_JITTER := 0.16
+const POND_VEGETATION_ANGLE_JITTER_FACTOR := 0.38
 
 var evolution_director: Node
 var day_night_system: Node
@@ -92,11 +96,16 @@ func get_landmarks() -> Array[Dictionary]:
 
 func get_terrain_speed_multiplier(position: Vector2) -> float:
 	for pond in pond_landmarks:
-		var center := Vector2(pond.get("position", Vector2.ZERO))
-		var radius := float(pond.get("radius", 0.0))
-		if position.distance_to(center) <= radius:
+		if _is_position_in_pond_water(position, pond):
 			return POND_SPEED_MULTIPLIER
 	return 1.0
+
+
+func is_position_in_water(position: Vector2) -> bool:
+	for pond in pond_landmarks:
+		if _is_position_in_pond_water(position, pond):
+			return true
+	return false
 
 
 func get_creatures_out_of_bounds_count() -> int:
@@ -193,29 +202,96 @@ func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vec
 		var biome := _get_biome_for_id(str(pond.get("biome_id", "")))
 		if biome.is_empty():
 			continue
-		var pond_kinds := ["dense_grass", "grass_patch", "berry_bush", "small_bush"]
-		for i in POND_VEGETATION_BONUS_COUNT:
+		var pond_kinds := [
+			"dense_grass",
+			"grass_patch",
+			"dense_grass",
+			"grass_patch",
+			"small_bush",
+			"dense_grass",
+			"grass_patch",
+			"berry_bush",
+			"dense_grass",
+			"grass_patch",
+			"small_bush",
+			"grass_patch"
+		]
+		var vegetation_count := _get_pond_vegetation_count()
+		var angle_phase := resource_rng.randf_range(0.0, TAU)
+		for i in vegetation_count:
 			var kind := str(pond_kinds[i % pond_kinds.size()])
-			_try_spawn_resource_near_pond(kind, pond, biome, used_positions, player_position)
+			_try_spawn_resource_near_pond(kind, pond, biome, used_positions, player_position, i, vegetation_count, angle_phase)
 
 
-func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, slot_index: int, slot_count: int, angle_phase: float) -> bool:
 	var center := Vector2(pond.get("position", Vector2.ZERO))
 	var radius := float(pond.get("radius", 100.0))
+	var slot_angle: float = TAU / float(max(slot_count, 1))
+	var base_angle: float = angle_phase + slot_angle * float(slot_index)
+	var ring_factor := _get_pond_vegetation_ring_factor(slot_index, slot_count)
+	var min_ring_factor: float = max(ring_factor - POND_VEGETATION_RING_JITTER, 1.12)
+	var max_ring_factor: float = ring_factor + POND_VEGETATION_RING_JITTER
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
-		var angle := resource_rng.randf_range(0.0, TAU)
-		var distance := resource_rng.randf_range(radius * POND_VEGETATION_RING_MIN_FACTOR, radius * POND_VEGETATION_RING_MAX_FACTOR)
+		var angle: float = base_angle + resource_rng.randf_range(-slot_angle, slot_angle) * POND_VEGETATION_ANGLE_JITTER_FACTOR
+		var distance := resource_rng.randf_range(radius * min_ring_factor, radius * max_ring_factor)
 		var candidate := center + Vector2.RIGHT.rotated(angle) * distance
+		if _is_position_in_pond_water(candidate, pond, 1.08):
+			continue
 		if not _is_point_in_biome(candidate, biome):
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
 			continue
-		if not _is_valid_resource_position(candidate, used_positions, player_position):
+		if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, _get_pond_vegetation_min_distance(), _get_pond_vegetation_player_safe_distance()):
 			continue
 		used_positions.append(candidate)
-		_spawn_resource_at(resource_kind, candidate)
+		var node := _spawn_resource_at(resource_kind, candidate)
+		if node.has_method("set_pond_vegetation"):
+			node.set_pond_vegetation(
+				str(pond.get("id", "pond")),
+				float(GAME_BALANCE.LANDMARKS.get("pond_grass_food_bonus", 1.0)),
+				float(GAME_BALANCE.LANDMARKS.get("pond_vegetation_visual_scale", 1.0))
+			)
 		return true
 	return false
+
+
+func _get_pond_vegetation_count() -> int:
+	var base_count := int(GAME_BALANCE.LANDMARKS.get("pond_vegetation_base_count", 6))
+	var bonus := float(GAME_BALANCE.LANDMARKS.get("pond_vegetation_bonus", 1.0))
+	return max(POND_VEGETATION_MIN_COUNT, int(round(float(base_count) * bonus)))
+
+
+func _get_pond_vegetation_ring_factor(index: int, count: int) -> float:
+	var inner_factor := float(GAME_BALANCE.LANDMARKS.get("pond_vegetation_inner_ring_factor", POND_VEGETATION_RING_MIN_FACTOR))
+	var outer_factor := float(GAME_BALANCE.LANDMARKS.get("pond_vegetation_outer_ring_factor", POND_VEGETATION_RING_MAX_FACTOR))
+	var band_index := (index * 5) % 4
+	match band_index:
+		0:
+			return inner_factor
+		1:
+			return lerp(inner_factor, outer_factor, 0.34)
+		2:
+			return lerp(inner_factor, outer_factor, 0.68)
+		_:
+			return outer_factor
+
+
+func _get_pond_vegetation_min_distance() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("pond_vegetation_min_distance", 46.0))
+
+
+func _get_pond_vegetation_player_safe_distance() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("pond_vegetation_player_safe_distance", 36.0))
+
+
+func _is_position_in_pond_water(position: Vector2, pond: Dictionary, margin_multiplier: float = 1.0) -> bool:
+	var center := Vector2(pond.get("position", Vector2.ZERO))
+	var radius := float(pond.get("radius", 0.0)) * margin_multiplier
+	if radius <= 0.0:
+		return false
+	var offset := position - center
+	var normalized := Vector2(offset.x / radius, offset.y / (radius * POND_VISUAL_Y_SCALE))
+	return normalized.length_squared() <= 1.0
 
 
 func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
@@ -299,10 +375,14 @@ func _draw_biome_outline(points: PackedVector2Array) -> void:
 
 
 func _is_valid_resource_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
-	if candidate.distance_to(player_position) < WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE:
+	return _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE)
+
+
+func _is_valid_resource_position_with_min_distance(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2, min_distance: float, player_safe_distance: float = WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE) -> bool:
+	if candidate.distance_to(player_position) < player_safe_distance:
 		return false
 	for used_position in used_positions:
-		if candidate.distance_to(used_position) < WORLD_CONFIG.RESOURCE_MIN_DISTANCE:
+		if candidate.distance_to(used_position) < min_distance:
 			return false
 	return true
 
@@ -1043,7 +1123,7 @@ func _draw_hill_landmark(landmark: Dictionary) -> void:
 func _draw_pond_landmark(landmark: Dictionary) -> void:
 	var center := Vector2(landmark.get("position", Vector2.ZERO))
 	var radius := float(landmark.get("radius", 100.0))
-	_draw_filled_ellipse(Rect2(center - Vector2(radius, radius * 0.62), Vector2(radius * 2.0, radius * 1.24)), Color(0.08, 0.25, 0.33, 0.76))
+	_draw_filled_ellipse(Rect2(center - Vector2(radius, radius * POND_VISUAL_Y_SCALE), Vector2(radius * 2.0, radius * POND_VISUAL_Y_SCALE * 2.0)), Color(0.08, 0.25, 0.33, 0.76))
 	_draw_filled_ellipse(Rect2(center - Vector2(radius * 0.72, radius * 0.40), Vector2(radius * 1.44, radius * 0.80)), Color(0.12, 0.39, 0.47, 0.52))
 	draw_arc(center, radius * 0.78, deg_to_rad(12.0), deg_to_rad(168.0), 28, Color(0.52, 0.78, 0.75, 0.34), 4.0)
 

@@ -318,6 +318,7 @@ func _build_world_text() -> String:
 		get_tree().get_nodes_in_group("pond_landmarks").size(),
 		get_tree().get_nodes_in_group("water_sources").size()
 	])
+	lines.append("Pond vegetation: %d" % get_tree().get_nodes_in_group("pond_vegetation").size())
 	lines.append("Growth: %s" % _get_resource_growth_text())
 	return "\n".join(lines)
 

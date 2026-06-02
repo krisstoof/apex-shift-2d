@@ -20,6 +20,8 @@ var nearby_interactables: Array[Node] = []
 var recipes := {}
 var world_limits := WORLD_CONFIG.get_player_limits()
 var attack_visual_time := 0.0
+var is_swimming := false
+var swim_ripple_time := 0.0
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -43,6 +45,9 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_tick_torch(delta)
 	_face_mouse()
+	if is_swimming:
+		swim_ripple_time += delta
+		queue_redraw()
 	if attack_visual_time > 0.0:
 		attack_visual_time = max(attack_visual_time - delta, 0.0)
 		queue_redraw()
@@ -53,8 +58,13 @@ func _process(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	_face_mouse()
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	var wants_run := Input.is_key_pressed(KEY_SHIFT) and stats.can_run() and input_vector.length() > 0.0
-	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier() * _get_terrain_speed_multiplier()
+	var terrain_speed := _get_terrain_speed_multiplier()
+	var was_swimming := is_swimming
+	is_swimming = _is_in_water()
+	if is_swimming != was_swimming:
+		queue_redraw()
+	var wants_run := Input.is_key_pressed(KEY_SHIFT) and stats.can_run() and input_vector.length() > 0.0 and not is_swimming
+	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier() * terrain_speed
 	velocity = input_vector * speed
 	move_and_slide()
 	global_position.x = clamp(global_position.x, -world_limits.x, world_limits.x)
@@ -129,6 +139,13 @@ func _get_terrain_speed_multiplier() -> float:
 	if world and world.has_method("get_terrain_speed_multiplier"):
 		return float(world.get_terrain_speed_multiplier(global_position))
 	return 1.0
+
+
+func _is_in_water() -> bool:
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("is_position_in_water"):
+		return world.is_position_in_water(global_position) == true
+	return false
 
 
 func debug_add_item(item_name: String, amount := 1) -> void:
@@ -347,8 +364,19 @@ func _face_mouse() -> void:
 func _draw() -> void:
 	_draw_torch_light()
 	_draw_attack_visual()
-	draw_circle(Vector2.ZERO, 14.0, Color(0.2, 0.48, 1.0))
-	draw_line(Vector2.ZERO, Vector2(18, 0), Color.WHITE, 3.0)
+	if is_swimming:
+		_draw_swimming_body()
+	else:
+		draw_circle(Vector2.ZERO, 14.0, Color(0.2, 0.48, 1.0))
+		draw_line(Vector2.ZERO, Vector2(18, 0), Color.WHITE, 3.0)
+
+
+func _draw_swimming_body() -> void:
+	var ripple_phase := sin(swim_ripple_time * 8.0) * 0.5 + 0.5
+	draw_arc(Vector2.ZERO, 23.0 + ripple_phase * 4.0, deg_to_rad(20.0), deg_to_rad(160.0), 24, Color(0.72, 0.93, 1.0, 0.45), 2.0)
+	draw_arc(Vector2.ZERO, 28.0 - ripple_phase * 3.0, deg_to_rad(200.0), deg_to_rad(340.0), 24, Color(0.72, 0.93, 1.0, 0.34), 2.0)
+	draw_circle(Vector2.ZERO, 10.5, Color(0.18, 0.42, 0.92))
+	draw_line(Vector2.ZERO, Vector2(15, 0), Color(0.86, 0.95, 1.0), 2.0)
 
 
 func _draw_torch_light() -> void:
