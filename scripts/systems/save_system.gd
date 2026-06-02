@@ -47,10 +47,12 @@ func _collect_save_data() -> Dictionary:
 	var evolution_director := scene.get_node("EvolutionDirector")
 	var ecosystem_director := scene.get_node("EcosystemDirector")
 	return {
-		"version": 2,
+		"version": 3,
 		"player": _get_player_data(player),
 		"resources": world.get_resource_save_data(),
 		"varnaks": world.get_varnak_save_data(),
+		"small_prey": world.get_small_prey_save_data(),
+		"grazers": world.get_grazer_save_data(),
 		"buildings": _get_buildings_data(),
 		"day_night": day_night_system.get_save_data(),
 		"evolution": evolution_director.get_save_data(),
@@ -113,6 +115,10 @@ func _restore_save_data(data: Dictionary) -> void:
 	await world.restore_resources(Array(data.get("resources", [])))
 	await _restore_buildings(Array(data.get("buildings", [])))
 	await world.restore_varnaks(Array(data.get("varnaks", [])))
+	if data.has("small_prey"):
+		await world.restore_small_prey(Array(data.get("small_prey", [])))
+	if data.has("grazers"):
+		await world.restore_grazers(Array(data.get("grazers", [])))
 
 
 func _restore_player_data(player: Node, data: Dictionary) -> void:
