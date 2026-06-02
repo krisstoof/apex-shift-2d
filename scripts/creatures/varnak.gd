@@ -9,10 +9,10 @@ const ATTACK_RANGE := 42.0
 const ATTACK_ARC := deg_to_rad(78.0)
 const ATTACK_VISUAL_DURATION := 0.14
 const BASE_HEALTH := 90.0
-const HUNGER_GROWTH_RATE := 0.045
-const HUNT_DETECTION_RANGE := 260.0
-const HUNT_PLAYER_SAFE_DISTANCE := 135.0
-const HUNT_HUNGER_THRESHOLD := 0.35
+const HUNGER_GROWTH_RATE := 0.18
+const HUNT_DETECTION_RANGE := 620.0
+const HUNT_PLAYER_SAFE_DISTANCE := 160.0
+const HUNT_HUNGER_THRESHOLD := 0.32
 const HUNT_FEED_AMOUNT := 0.55
 const WORLD_EDGE_PADDING := 32.0
 
@@ -80,6 +80,8 @@ func get_debug_data() -> Dictionary:
 		"health": health,
 		"max_health": max_health,
 		"hunger": hunger,
+		"hunger_stage": _get_hunger_stage(),
+		"hunt_drive": _get_hunt_drive(),
 		"aggression": aggression,
 		"fire_fear": fire_fear,
 		"trap_awareness": trap_awareness,
@@ -114,7 +116,7 @@ func _physics_process(delta: float) -> void:
 		player = get_tree().get_first_node_in_group("player")
 		return
 	_update_night_health_bonus()
-	hunger = clamp(hunger + HUNGER_GROWTH_RATE * delta, 0.0, 1.0)
+	hunger = clamp(hunger + _get_hunger_growth_rate() * delta, 0.0, 1.0)
 	attack_cooldown = max(attack_cooldown - delta, 0.0)
 	if attack_visual_time > 0.0:
 		attack_visual_time = max(attack_visual_time - delta, 0.0)
@@ -235,6 +237,8 @@ func _act(delta: float) -> void:
 func _should_prioritize_player(distance: float, detect_range: float, close_chase_range: float, effective_aggression: float) -> bool:
 	if distance <= close_chase_range:
 		return true
+	if state == State.HUNT_ECOSYSTEM and distance <= _get_player_intrusion_radius() * (0.72 + effective_aggression):
+		return true
 	if state == State.CHASE or state == State.STALK or state == State.ATTACK:
 		return distance < detect_range
 	if effective_aggression > 0.62 and distance < detect_range:
@@ -245,11 +249,12 @@ func _should_prioritize_player(distance: float, detect_range: float, close_chase
 
 
 func _should_hunt_ecosystem(player_distance: float) -> bool:
-	if player_distance < HUNT_PLAYER_SAFE_DISTANCE:
+	var player_safe_distance := _get_player_intrusion_radius() * 0.66
+	if player_distance < player_safe_distance:
 		return false
-	if hunger >= HUNT_HUNGER_THRESHOLD:
+	if hunger >= _get_hungry_threshold():
 		return true
-	return _get_biome_prey_pressure() > 0.35 and player_distance > HUNT_PLAYER_SAFE_DISTANCE * 1.4
+	return _get_biome_prey_pressure() > 0.35 and player_distance > player_safe_distance * 1.4 and _get_hunt_drive() > 0.32
 
 
 func _hunt_ecosystem_target() -> void:
@@ -261,7 +266,7 @@ func _hunt_ecosystem_target() -> void:
 	if distance <= ATTACK_RANGE and attack_cooldown <= 0.0 and ecosystem_target.has_method("take_damage"):
 		var hunted_kind := ecosystem_target_kind
 		ecosystem_target.take_damage(999.0, "varnak")
-		hunger = max(hunger - HUNT_FEED_AMOUNT, 0.0)
+		hunger = max(hunger - _get_hunt_feed_amount(hunted_kind), 0.0)
 		var event_name := "varnak_hunted_grazer" if hunted_kind == "grazer" else "varnak_hunted_small_prey"
 		get_node("/root/EventBus").emit_game_event(event_name, {"position": global_position})
 		get_node("/root/EventBus").post_message("Varnak hunted %s" % ("Grazer" if hunted_kind == "grazer" else "SmallPrey"))
@@ -278,6 +283,7 @@ func _hunt_ecosystem_target() -> void:
 func _find_ecosystem_target() -> Node2D:
 	var best_target: Node2D
 	var best_score := INF
+	var detect_range := _get_prey_detect_radius()
 	for group_name in ["small_prey", "grazer"]:
 		for creature in get_tree().get_nodes_in_group(group_name):
 			if not is_instance_valid(creature):
@@ -285,13 +291,73 @@ func _find_ecosystem_target() -> Node2D:
 			if not _get_world_rect().has_point(creature.global_position):
 				continue
 			var distance := global_position.distance_to(creature.global_position)
-			if distance > HUNT_DETECTION_RANGE:
+			if distance > detect_range:
 				continue
-			var score := distance * (1.35 if group_name == "grazer" else 1.0)
+			var prey_priority := _get_prey_priority(str(group_name))
+			var score: float = distance / max(prey_priority, 0.05)
 			if score < best_score:
 				best_score = score
 				best_target = creature
 	return best_target
+
+
+func _get_prey_priority(group_name: String) -> float:
+	var base_priority := float(GAME_BALANCE.VARNAK_HUNTING.get("prey_chase_priority", 0.65))
+	var hunger_bias: float = clamp(hunger, 0.0, 1.0)
+	if group_name == "grazer":
+		return base_priority * lerp(0.72, 1.22, hunger_bias)
+	return base_priority * lerp(1.18, 0.92, hunger_bias)
+
+
+func _get_hunt_drive() -> float:
+	var night_multiplier := _get_night_hunting_multiplier()
+	var prey_pressure := _get_biome_prey_pressure()
+	return clamp((hunger * 0.68 + prey_pressure * 0.20 + aggression * 0.12) * night_multiplier, 0.0, 1.0)
+
+
+func _get_hunger_stage() -> String:
+	if hunger >= _get_desperate_threshold():
+		return "desperate"
+	if hunger >= _get_starving_threshold():
+		return "starving"
+	if hunger >= _get_hungry_threshold():
+		return "hungry"
+	return "comfortable"
+
+
+func _get_hunger_growth_rate() -> float:
+	return float(GAME_BALANCE.VARNAK_HUNTING.get("hunger_growth_rate", HUNGER_GROWTH_RATE))
+
+
+func _get_hungry_threshold() -> float:
+	return float(GAME_BALANCE.VARNAK_HUNTING.get("hungry_threshold", HUNT_HUNGER_THRESHOLD))
+
+
+func _get_starving_threshold() -> float:
+	return float(GAME_BALANCE.VARNAK_HUNTING.get("starving_threshold", 0.58))
+
+
+func _get_desperate_threshold() -> float:
+	return float(GAME_BALANCE.VARNAK_HUNTING.get("desperate_threshold", 0.80))
+
+
+func _get_prey_detect_radius() -> float:
+	var radius := float(GAME_BALANCE.VARNAK_HUNTING.get("prey_detect_radius", HUNT_DETECTION_RANGE))
+	return radius * _get_night_hunting_multiplier()
+
+
+func _get_player_intrusion_radius() -> float:
+	return float(GAME_BALANCE.VARNAK_HUNTING.get("player_intrusion_radius", HUNT_PLAYER_SAFE_DISTANCE))
+
+
+func _get_night_hunting_multiplier() -> float:
+	if day_night_system and day_night_system.is_night():
+		return float(GAME_BALANCE.VARNAK_HUNTING.get("night_hunting_multiplier", 1.25))
+	return 1.0
+
+
+func _get_hunt_feed_amount(hunted_kind: String) -> float:
+	return HUNT_FEED_AMOUNT * (1.25 if hunted_kind == "grazer" else 1.0)
 
 
 func _get_ecosystem_target_kind(target: Node) -> String:
