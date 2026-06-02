@@ -398,8 +398,36 @@ func _move_toward(target: Vector2, move_speed: float) -> void:
 	if direction.length_squared() <= 1.0:
 		velocity = Vector2.ZERO
 		return
-	velocity = direction.normalized() * move_speed * _get_terrain_speed_multiplier()
-	_face_target(target)
+	var move_direction := _get_navigation_direction(direction.normalized(), target)
+	velocity = move_direction * move_speed * _get_terrain_speed_multiplier()
+	_face_target(global_position + move_direction)
+
+
+func _get_navigation_direction(desired_direction: Vector2, target: Vector2) -> Vector2:
+	if _is_navigation_position_valid(global_position + desired_direction * 58.0):
+		return desired_direction
+	var candidates := [
+		desired_direction.rotated(0.64),
+		desired_direction.rotated(-0.64),
+		desired_direction.rotated(1.18),
+		desired_direction.rotated(-1.18),
+		desired_direction.rotated(PI)
+	]
+	for candidate_direction in candidates:
+		if _is_navigation_position_valid(global_position + candidate_direction * 58.0):
+			return candidate_direction
+	var fallback := (target - global_position).normalized()
+	return fallback if fallback.length_squared() > 0.0 else Vector2.RIGHT
+
+
+func _is_navigation_position_valid(position: Vector2) -> bool:
+	var clamped_position := _clamp_to_world(position)
+	if clamped_position.distance_squared_to(position) > 0.01:
+		return false
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("is_creature_navigation_blocked") and world.is_creature_navigation_blocked(position) == true:
+		return false
+	return true
 
 
 func _face_target(target: Vector2) -> void:
@@ -471,10 +499,15 @@ func _get_flee_origin() -> Vector2:
 
 func _pick_wander_target() -> void:
 	var rect := _get_world_rect()
-	wander_target = Vector2(
-		randf_range(rect.position.x, rect.end.x),
-		randf_range(rect.position.y, rect.end.y)
-	)
+	for _attempt in 24:
+		var candidate := Vector2(
+			randf_range(rect.position.x, rect.end.x),
+			randf_range(rect.position.y, rect.end.y)
+		)
+		if _is_navigation_position_valid(candidate):
+			wander_target = candidate
+			return
+	wander_target = _clamp_to_world(global_position)
 
 
 func debug_return_to_world() -> void:

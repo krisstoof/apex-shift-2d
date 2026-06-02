@@ -1,10 +1,12 @@
 extends Control
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const PADDING := 10.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(96, 58)
 const BIOME_BLEND_RADIUS := 420.0
 const BIOME_NEIGHBOR_BLEND_WEIGHT := 0.90
+const POND_MARKER_Y_SCALE := 0.62
 
 var player: Node2D
 var world_rect := WORLD_CONFIG.WORLD_RECT
@@ -156,7 +158,7 @@ func _draw_landmarks(content_rect: Rect2) -> void:
 		var radius := _world_radius_to_map(float(landmark.get("radius", 80.0)), content_rect)
 		match str(landmark.get("type", "")):
 			"pond":
-				_draw_pond_marker(center, radius)
+				_draw_pond_marker(center, radius, landmark)
 			"hill":
 				_draw_hill_marker(center, radius)
 
@@ -169,10 +171,48 @@ func _refresh_landmarks_from_world() -> void:
 		landmarks = world.get_landmarks()
 
 
-func _draw_pond_marker(center: Vector2, radius: float) -> void:
+func _draw_pond_marker(center: Vector2, radius: float, landmark: Dictionary) -> void:
 	var marker_radius: float = clamp(radius, 4.0, 12.0)
-	_draw_filled_ellipse(Rect2(center - Vector2(marker_radius, marker_radius * 0.62), Vector2(marker_radius * 2.0, marker_radius * 1.24)), Color(0.10, 0.36, 0.48, 0.90))
-	draw_arc(center, marker_radius * 0.82, deg_to_rad(18.0), deg_to_rad(164.0), 12, Color(0.62, 0.88, 0.82, 0.55), 1.2, true)
+	_draw_filled_pond_marker(center, marker_radius, landmark, 1.0, Color(0.10, 0.36, 0.48, 0.90))
+	_draw_filled_pond_marker(center, marker_radius, landmark, 0.68, Color(0.16, 0.50, 0.58, 0.58))
+
+
+func _draw_filled_pond_marker(center: Vector2, radius: float, landmark: Dictionary, radius_factor: float, marker_color: Color) -> void:
+	var points := PackedVector2Array()
+	var sample_count := _get_pond_shape_sample_count()
+	for i in range(sample_count):
+		var angle := TAU * float(i) / float(sample_count)
+		var shape_scale := _get_pond_shape_scale(landmark, angle)
+		points.append(center + Vector2(
+			cos(angle) * radius * radius_factor * shape_scale,
+			sin(angle) * radius * POND_MARKER_Y_SCALE * radius_factor * shape_scale
+		))
+	draw_colored_polygon(points, marker_color)
+
+
+func _get_pond_shape_scale(landmark: Dictionary, angle: float) -> float:
+	var irregularity: float = float(clamp(float(GAME_BALANCE.LANDMARKS.get("pond_shape_irregularity", 0.16)), 0.0, 0.45))
+	if irregularity <= 0.0:
+		return 1.0
+	var seed: float = _get_pond_shape_seed(landmark)
+	var wave: float = (
+		sin(angle * 2.0 + seed) * 0.55
+		+ sin(angle * 3.0 - seed * 1.7) * 0.32
+		+ sin(angle * 5.0 + seed * 0.6) * 0.18
+	) / 1.05
+	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.25, 1.0 + irregularity * 1.25)
+
+
+func _get_pond_shape_seed(landmark: Dictionary) -> float:
+	var pond_id := str(landmark.get("id", "pond"))
+	var seed := 0
+	for i in pond_id.length():
+		seed = (seed + pond_id.unicode_at(i) * (i + 3)) % 997
+	return float(seed) / 997.0 * TAU
+
+
+func _get_pond_shape_sample_count() -> int:
+	return max(16, int(GAME_BALANCE.LANDMARKS.get("pond_shape_sample_count", 48)))
 
 
 func _draw_hill_marker(center: Vector2, radius: float) -> void:

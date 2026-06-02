@@ -38,13 +38,16 @@ const PLANT_RESOURCE_KINDS := [
 const CREATURE_BOUND_GROUPS := ["varnak", "small_prey", "grazer"]
 const CREATURE_BOUND_TELEPORT_PADDING := 36.0
 const HILL_RESOURCE_BLOCK_RADIUS_FACTOR := 0.72
-const POND_SPEED_MULTIPLIER := 0.42
 const POND_VISUAL_Y_SCALE := 0.62
 const POND_VEGETATION_MIN_COUNT := 18
 const POND_VEGETATION_RING_MIN_FACTOR := 0.82
 const POND_VEGETATION_RING_MAX_FACTOR := 1.35
 const POND_VEGETATION_RING_JITTER := 0.16
 const POND_VEGETATION_ANGLE_JITTER_FACTOR := 0.38
+const WATER_ZONE_LAND := "land"
+const WATER_ZONE_SHORE := "shore"
+const WATER_ZONE_SHALLOW := "shallow_water"
+const WATER_ZONE_DEEP := "deep_water"
 
 var evolution_director: Node
 var day_night_system: Node
@@ -103,17 +106,34 @@ func get_landmarks() -> Array[Dictionary]:
 
 
 func get_terrain_speed_multiplier(position: Vector2) -> float:
-	for pond in pond_landmarks:
-		if _is_position_in_pond_water(position, pond):
-			return POND_SPEED_MULTIPLIER
+	match get_water_zone(position):
+		WATER_ZONE_DEEP:
+			return _get_pond_deep_speed_multiplier()
+		WATER_ZONE_SHALLOW:
+			return _get_pond_shallow_speed_multiplier()
 	return 1.0
 
 
-func is_position_in_water(position: Vector2) -> bool:
+func get_water_zone(position: Vector2) -> String:
+	var best_zone := WATER_ZONE_LAND
 	for pond in pond_landmarks:
-		if _is_position_in_pond_water(position, pond):
-			return true
-	return false
+		var zone := _get_pond_water_zone(position, pond)
+		if zone == WATER_ZONE_DEEP:
+			return WATER_ZONE_DEEP
+		if zone == WATER_ZONE_SHALLOW:
+			best_zone = WATER_ZONE_SHALLOW
+		elif zone == WATER_ZONE_SHORE and best_zone == WATER_ZONE_LAND:
+			best_zone = WATER_ZONE_SHORE
+	return best_zone
+
+
+func is_position_in_water(position: Vector2) -> bool:
+	var zone := get_water_zone(position)
+	return zone == WATER_ZONE_DEEP or zone == WATER_ZONE_SHALLOW
+
+
+func is_position_in_deep_water(position: Vector2) -> bool:
+	return get_water_zone(position) == WATER_ZONE_DEEP
 
 
 func is_resource_position_blocked_by_water(resource_kind: String, position: Vector2) -> bool:
@@ -127,7 +147,7 @@ func is_resource_position_blocked_by_water(resource_kind: String, position: Vect
 
 
 func is_creature_navigation_blocked(position: Vector2) -> bool:
-	if is_position_in_water(position):
+	if is_position_in_deep_water(position):
 		return true
 	for hill in hill_landmarks:
 		if _is_position_in_hill_obstacle(position, hill):
@@ -136,7 +156,7 @@ func is_creature_navigation_blocked(position: Vector2) -> bool:
 
 
 func is_creature_spawn_blocked_by_water(position: Vector2) -> bool:
-	return is_position_in_water(position)
+	return is_position_in_deep_water(position)
 
 
 func get_creatures_out_of_bounds_count() -> int:
@@ -188,7 +208,8 @@ func _create_landmark_area(landmark: Dictionary, group_name: String) -> void:
 	area.set_meta("biome_id", str(landmark.get("biome_id", "")))
 	area.set_meta("gameplay_tags", landmark.get("gameplay_tags", []))
 	if str(landmark.get("type", "")) == "pond":
-		area.set_meta("terrain_speed_multiplier", POND_SPEED_MULTIPLIER)
+		area.set_meta("deep_water_speed_multiplier", _get_pond_deep_speed_multiplier())
+		area.set_meta("shallow_water_speed_multiplier", _get_pond_shallow_speed_multiplier())
 	area.add_to_group("landmarks")
 	area.add_to_group(group_name)
 	if str(landmark.get("type", "")) == "pond":
@@ -255,8 +276,6 @@ func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vec
 
 
 func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, slot_index: int, slot_count: int, angle_phase: float) -> bool:
-	var center := Vector2(pond.get("position", Vector2.ZERO))
-	var radius := float(pond.get("radius", 100.0))
 	var slot_angle: float = TAU / float(max(slot_count, 1))
 	var base_angle: float = angle_phase + slot_angle * float(slot_index)
 	var ring_factor := _get_pond_vegetation_ring_factor(slot_index, slot_count)
@@ -264,8 +283,8 @@ func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biom
 	var max_ring_factor: float = ring_factor + POND_VEGETATION_RING_JITTER
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
 		var angle: float = base_angle + resource_rng.randf_range(-slot_angle, slot_angle) * POND_VEGETATION_ANGLE_JITTER_FACTOR
-		var distance := resource_rng.randf_range(radius * min_ring_factor, radius * max_ring_factor)
-		var candidate := center + Vector2.RIGHT.rotated(angle) * distance
+		var distance_factor := resource_rng.randf_range(min_ring_factor, max_ring_factor)
+		var candidate := _get_pond_shape_position(pond, angle, distance_factor)
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
 		if not _is_point_in_biome(candidate, biome):
@@ -316,13 +335,88 @@ func _get_pond_vegetation_player_safe_distance() -> float:
 
 
 func _is_position_in_pond_water(position: Vector2, pond: Dictionary, margin_multiplier: float = 1.0) -> bool:
+	return _get_pond_water_ratio(position, pond) <= margin_multiplier
+
+
+func _get_pond_shape_position(pond: Dictionary, angle: float, radius_factor: float) -> Vector2:
 	var center := Vector2(pond.get("position", Vector2.ZERO))
-	var radius := float(pond.get("radius", 0.0)) * margin_multiplier
+	var radius := float(pond.get("radius", 0.0))
+	var shape_scale := _get_pond_shape_scale(pond, angle)
+	return center + Vector2(
+		cos(angle) * radius * radius_factor * shape_scale,
+		sin(angle) * radius * POND_VISUAL_Y_SCALE * radius_factor * shape_scale
+	)
+
+
+func _get_pond_water_ratio(position: Vector2, pond: Dictionary) -> float:
+	var center := Vector2(pond.get("position", Vector2.ZERO))
+	var radius := float(pond.get("radius", 0.0))
 	if radius <= 0.0:
-		return false
+		return INF
 	var offset := position - center
 	var normalized := Vector2(offset.x / radius, offset.y / (radius * POND_VISUAL_Y_SCALE))
-	return normalized.length_squared() <= 1.0
+	var shape_scale := _get_pond_shape_scale(pond, normalized.angle())
+	return normalized.length() / max(shape_scale, 0.1)
+
+
+func _get_pond_shape_scale(pond: Dictionary, angle: float) -> float:
+	var irregularity: float = _get_pond_shape_irregularity()
+	if irregularity <= 0.0:
+		return 1.0
+	var seed: float = _get_pond_shape_seed(pond)
+	var wave: float = (
+		sin(angle * 2.0 + seed) * 0.55
+		+ sin(angle * 3.0 - seed * 1.7) * 0.32
+		+ sin(angle * 5.0 + seed * 0.6) * 0.18
+	) / 1.05
+	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.25, 1.0 + irregularity * 1.25)
+
+
+func _get_pond_shape_seed(pond: Dictionary) -> float:
+	var pond_id := str(pond.get("id", "pond"))
+	var seed := 0
+	for i in pond_id.length():
+		seed = (seed + pond_id.unicode_at(i) * (i + 3)) % 997
+	return float(seed) / 997.0 * TAU
+
+
+func _get_pond_shape_irregularity() -> float:
+	return float(clamp(float(GAME_BALANCE.LANDMARKS.get("pond_shape_irregularity", 0.16)), 0.0, 0.45))
+
+
+func _get_pond_shape_sample_count() -> int:
+	return max(16, int(GAME_BALANCE.LANDMARKS.get("pond_shape_sample_count", 48)))
+
+
+func _get_pond_water_zone(position: Vector2, pond: Dictionary) -> String:
+	var ratio := _get_pond_water_ratio(position, pond)
+	if ratio <= _get_pond_deep_water_radius_factor():
+		return WATER_ZONE_DEEP
+	if ratio <= _get_pond_shallow_water_radius_factor():
+		return WATER_ZONE_SHALLOW
+	if ratio <= _get_pond_shore_radius_factor():
+		return WATER_ZONE_SHORE
+	return WATER_ZONE_LAND
+
+
+func _get_pond_deep_water_radius_factor() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("pond_deep_water_radius_factor", 0.68))
+
+
+func _get_pond_shallow_water_radius_factor() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("pond_shallow_water_radius_factor", 1.0))
+
+
+func _get_pond_shore_radius_factor() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("pond_shore_radius_factor", 1.12))
+
+
+func _get_pond_deep_speed_multiplier() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("pond_deep_speed_multiplier", 0.42))
+
+
+func _get_pond_shallow_speed_multiplier() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("pond_shallow_speed_multiplier", 0.68))
 
 
 func _get_resource_water_margin_multiplier(resource_kind: String) -> float:
@@ -582,13 +676,13 @@ func _get_safe_restored_resource_position(resource_kind: String, requested_posit
 		return position
 	var direction := position - center
 	var base_angle := direction.angle() if direction.length_squared() > 0.001 else 0.0
-	var base_distance: float = radius * max(_get_resource_water_margin_multiplier(resource_kind) + 0.08, 1.16)
+	var base_radius_factor: float = max(_get_resource_water_margin_multiplier(resource_kind) + 0.08, 1.16)
 	var used_positions := _get_existing_resource_positions()
 	var player_position := _get_player_position()
 	for attempt in 48:
 		var angle := base_angle + float(attempt) * 0.83
-		var distance: float = base_distance + floor(float(attempt) / 8.0) * WORLD_CONFIG.RESOURCE_MIN_DISTANCE
-		var candidate := _clamp_position_to_world(center + Vector2.RIGHT.rotated(angle) * distance)
+		var radius_factor: float = base_radius_factor + floor(float(attempt) / 8.0) * WORLD_CONFIG.RESOURCE_MIN_DISTANCE / radius
+		var candidate := _clamp_position_to_world(_get_pond_shape_position(pond, angle, radius_factor))
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
@@ -599,8 +693,8 @@ func _get_safe_restored_resource_position(resource_kind: String, requested_posit
 			return candidate
 	for attempt in 48:
 		var angle := base_angle - float(attempt) * 0.83
-		var distance: float = base_distance + floor(float(attempt) / 8.0) * WORLD_CONFIG.RESOURCE_MIN_DISTANCE
-		var candidate := _clamp_position_to_world(center + Vector2.RIGHT.rotated(angle) * distance)
+		var radius_factor: float = base_radius_factor + floor(float(attempt) / 8.0) * WORLD_CONFIG.RESOURCE_MIN_DISTANCE / radius
+		var candidate := _clamp_position_to_world(_get_pond_shape_position(pond, angle, radius_factor))
 		if not is_resource_position_blocked_by_water(resource_kind, candidate) and not _is_resource_blocked_by_hill(resource_kind, candidate) and not _get_biome_for_position(candidate).is_empty():
 			return candidate
 	return position
@@ -1368,11 +1462,77 @@ func _draw_hill_landmark(landmark: Dictionary) -> void:
 
 
 func _draw_pond_landmark(landmark: Dictionary) -> void:
-	var center := Vector2(landmark.get("position", Vector2.ZERO))
-	var radius := float(landmark.get("radius", 100.0))
-	_draw_filled_ellipse(Rect2(center - Vector2(radius, radius * POND_VISUAL_Y_SCALE), Vector2(radius * 2.0, radius * POND_VISUAL_Y_SCALE * 2.0)), Color(0.08, 0.25, 0.33, 0.76))
-	_draw_filled_ellipse(Rect2(center - Vector2(radius * 0.72, radius * 0.40), Vector2(radius * 1.44, radius * 0.80)), Color(0.12, 0.39, 0.47, 0.52))
-	draw_arc(center, radius * 0.78, deg_to_rad(12.0), deg_to_rad(168.0), 28, Color(0.52, 0.78, 0.75, 0.34), 4.0)
+	var deep_factor := _get_pond_deep_water_radius_factor()
+	_draw_filled_pond_shape(landmark, _get_pond_shore_radius_factor(), Color(0.16, 0.28, 0.21, 0.34))
+	_draw_filled_pond_shape(landmark, _get_pond_shallow_water_radius_factor(), Color(0.12, 0.37, 0.43, 0.48))
+	_draw_filled_pond_shape(landmark, deep_factor, Color(0.06, 0.22, 0.32, 0.76))
+	_draw_filled_pond_shape(landmark, deep_factor * 0.72, Color(0.10, 0.35, 0.45, 0.44))
+	_draw_pond_shoreline_details(landmark)
+	_draw_pond_aquatic_vegetation(landmark)
+
+
+func _draw_filled_pond_shape(pond: Dictionary, radius_factor: float, pond_color: Color) -> void:
+	var points := PackedVector2Array()
+	var sample_count := _get_pond_shape_sample_count()
+	for i in range(sample_count):
+		var angle := TAU * float(i) / float(sample_count)
+		points.append(_get_pond_shape_position(pond, angle, radius_factor))
+	draw_colored_polygon(points, pond_color)
+
+
+func _draw_pond_shoreline_details(pond: Dictionary) -> void:
+	var detail_count := _get_pond_shore_detail_count()
+	for i in range(detail_count):
+		var angle := TAU * (float(i) / float(detail_count)) + (_get_pond_detail_noise(pond, i, 1) - 0.5) * 0.34
+		var radius_factor := 1.01 + _get_pond_detail_noise(pond, i, 2) * 0.12
+		var position := _get_pond_shape_position(pond, angle, radius_factor)
+		var size := 8.0 + _get_pond_detail_noise(pond, i, 3) * 10.0
+		var color := Color(0.22, 0.32, 0.20, 0.34).lerp(Color(0.31, 0.26, 0.15, 0.38), _get_pond_detail_noise(pond, i, 4))
+		_draw_filled_ellipse(Rect2(position - Vector2(size, size * 0.34), Vector2(size * 2.0, size * 0.68)), color)
+
+
+func _draw_pond_aquatic_vegetation(pond: Dictionary) -> void:
+	var vegetation_count := _get_pond_aquatic_vegetation_count()
+	for i in range(vegetation_count):
+		var near_shore := i % 3 != 0
+		var angle := TAU * (float(i) / float(vegetation_count)) + (_get_pond_detail_noise(pond, i, 5) - 0.5) * 0.72
+		if near_shore:
+			var reed_position := _get_pond_shape_position(pond, angle, 0.82 + _get_pond_detail_noise(pond, i, 6) * 0.24)
+			_draw_reed_cluster(reed_position, angle, 3 + int(_get_pond_detail_noise(pond, i, 7) * 3.0))
+		else:
+			var lily_position := _get_pond_shape_position(pond, angle, 0.36 + _get_pond_detail_noise(pond, i, 8) * 0.42)
+			_draw_lily_pad(lily_position, angle)
+
+
+func _draw_reed_cluster(position: Vector2, angle: float, blade_count: int) -> void:
+	for blade_index in range(blade_count):
+		var offset := Vector2.RIGHT.rotated(angle + PI * 0.5) * (float(blade_index) - float(blade_count - 1) * 0.5) * 3.0
+		var base := position + offset
+		var height := 14.0 + float(blade_index % 3) * 4.0
+		var lean := Vector2.RIGHT.rotated(angle - 0.45 + float(blade_index) * 0.20) * 4.0
+		draw_line(base, base + Vector2(0.0, -height) + lean, Color(0.47, 0.55, 0.25, 0.82), 2.0)
+		draw_line(base + Vector2(1.5, 0.0), base + Vector2(1.5, -height * 0.74) - lean * 0.4, Color(0.25, 0.43, 0.20, 0.78), 1.4)
+
+
+func _draw_lily_pad(position: Vector2, angle: float) -> void:
+	var radius := 7.0
+	_draw_filled_ellipse(Rect2(position - Vector2(radius, radius * 0.62), Vector2(radius * 2.0, radius * 1.24)), Color(0.18, 0.45, 0.22, 0.82))
+	var notch_start := position + Vector2.RIGHT.rotated(angle) * 1.5
+	draw_line(notch_start, notch_start + Vector2.RIGHT.rotated(angle) * radius, Color(0.08, 0.23, 0.15, 0.55), 1.2)
+
+
+func _get_pond_detail_noise(pond: Dictionary, index: int, salt: int) -> float:
+	var seed: float = _get_pond_shape_seed(pond)
+	var value: float = sin(seed * float(salt + 1) + float(index) * 12.9898 + float(salt) * 78.233) * 43758.5453
+	return value - floor(value)
+
+
+func _get_pond_shore_detail_count() -> int:
+	return max(0, int(GAME_BALANCE.LANDMARKS.get("pond_shore_detail_count", 18)))
+
+
+func _get_pond_aquatic_vegetation_count() -> int:
+	return max(0, int(GAME_BALANCE.LANDMARKS.get("pond_aquatic_vegetation_count", 12)))
 
 
 func _draw_filled_ellipse(rect: Rect2, ellipse_color: Color) -> void:
