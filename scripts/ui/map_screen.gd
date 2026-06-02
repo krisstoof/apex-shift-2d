@@ -148,8 +148,20 @@ func _draw_grid(map_rect: Rect2) -> void:
 
 func _draw_resources(map_rect: Rect2) -> void:
 	for resource in get_tree().get_nodes_in_group("resources"):
-		if is_instance_valid(resource):
-			draw_circle(_world_to_map(resource.global_position, map_rect), 3.0, _get_resource_color(resource))
+		if not is_instance_valid(resource):
+			continue
+		if not _should_draw_resource_on_map(resource):
+			continue
+		draw_circle(_world_to_map(resource.global_position, map_rect), 3.0, _get_resource_color(resource))
+
+
+func _should_draw_resource_on_map(resource: Node) -> bool:
+	var resource_kind := str(resource.get("resource_kind"))
+	if resource_kind in ["grass_patch", "dense_grass", "berry_bush"]:
+		return false
+	if resource.get("player_harvestable") == false:
+		return false
+	return true
 
 
 func _draw_landmarks(map_rect: Rect2) -> void:
