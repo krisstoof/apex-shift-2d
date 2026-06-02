@@ -2,8 +2,8 @@ extends Control
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
-const PADDING := 10.0
-const BIOME_BLEND_TEXTURE_SIZE := Vector2i(96, 58)
+const PADDING := 14.0
+const BIOME_BLEND_TEXTURE_SIZE := Vector2i(192, 116)
 const BIOME_BLEND_RADIUS := 420.0
 const BIOME_NEIGHBOR_BLEND_WEIGHT := 0.90
 const POND_MARKER_Y_SCALE := 0.62
@@ -173,7 +173,7 @@ func _refresh_landmarks_from_world() -> void:
 
 
 func _draw_pond_marker(center: Vector2, radius: float, landmark: Dictionary) -> void:
-	var marker_radius: float = clamp(radius, 4.0, 12.0)
+	var marker_radius: float = clamp(radius, 7.0, 24.0)
 	_draw_filled_pond_marker(center, marker_radius, landmark, 1.0, Color(0.10, 0.36, 0.48, 0.90))
 	_draw_filled_pond_marker(center, marker_radius, landmark, 0.68, Color(0.16, 0.50, 0.58, 0.58))
 
@@ -217,7 +217,7 @@ func _get_pond_shape_sample_count() -> int:
 
 
 func _draw_hill_marker(center: Vector2, radius: float, landmark: Dictionary) -> void:
-	var marker_radius: float = clamp(radius, 4.5, 13.0)
+	var marker_radius: float = clamp(radius, 8.0, 25.0)
 	_draw_filled_hill_marker(center + Vector2(marker_radius * 0.08, marker_radius * 0.10), marker_radius, landmark, 1.0, Color(0.12, 0.13, 0.08, 0.38))
 	_draw_filled_hill_marker(center, marker_radius, landmark, 1.0, Color(0.38, 0.36, 0.22, 0.90))
 	_draw_filled_hill_marker(center + Vector2(-marker_radius * 0.08, -marker_radius * 0.08), marker_radius, landmark, 0.56, Color(0.58, 0.55, 0.32, 0.58))
@@ -278,7 +278,7 @@ func _draw_resources(content_rect: Rect2) -> void:
 		if not is_instance_valid(resource):
 			continue
 		var color := _get_resource_color(resource)
-		draw_circle(_world_to_map(resource.global_position, content_rect), 2.2, color)
+		draw_circle(_world_to_map(resource.global_position, content_rect), 3.3, color)
 
 
 func _draw_varnaks(content_rect: Rect2) -> void:
@@ -286,23 +286,23 @@ func _draw_varnaks(content_rect: Rect2) -> void:
 		if not is_instance_valid(varnak):
 			continue
 		var pos := _world_to_map(varnak.global_position, content_rect)
-		draw_circle(pos, 3.3, Color(0.88, 0.22, 0.16))
-		draw_circle(pos, 1.4, Color(1.0, 0.82, 0.42))
+		draw_circle(pos, 5.2, Color(0.88, 0.22, 0.16))
+		draw_circle(pos, 2.2, Color(1.0, 0.82, 0.42))
 
 
 func _draw_player(content_rect: Rect2) -> void:
 	if not is_instance_valid(player):
 		return
 	var pos := _world_to_map(player.global_position, content_rect)
-	draw_circle(pos, 4.2, Color(0.17, 0.48, 1.0))
-	draw_circle(pos, 2.0, Color.WHITE)
+	draw_circle(pos, 6.4, Color(0.17, 0.48, 1.0))
+	draw_circle(pos, 3.0, Color.WHITE)
 
 
 func _draw_zone_label(map_rect: Rect2) -> void:
-	var label_rect := Rect2(0.0, map_rect.size.y - 24.0, map_rect.size.x, 24.0)
+	var label_rect := Rect2(0.0, map_rect.size.y - 30.0, map_rect.size.x, 30.0)
 	draw_rect(label_rect, Color(0.03, 0.04, 0.04, 0.88), true)
 	draw_line(label_rect.position, label_rect.position + Vector2(label_rect.size.x, 0.0), Color(0.74, 0.78, 0.68, 0.55), 1.0)
-	draw_string(get_theme_default_font(), label_rect.position + Vector2(8.0, 17.0), "Zone: %s" % _get_player_zone_name(), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color(0.90, 0.92, 0.84))
+	draw_string(get_theme_default_font(), label_rect.position + Vector2(10.0, 21.0), "Zone: %s" % _get_player_zone_name(), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 15, Color(0.90, 0.92, 0.84))
 
 
 func _get_player_zone_name() -> String:
