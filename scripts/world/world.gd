@@ -38,6 +38,7 @@ const PLANT_RESOURCE_KINDS := [
 const CREATURE_BOUND_GROUPS := ["varnak", "small_prey", "grazer"]
 const CREATURE_BOUND_TELEPORT_PADDING := 36.0
 const HILL_RESOURCE_BLOCK_RADIUS_FACTOR := 0.72
+const HILL_VISUAL_Y_SCALE := 0.58
 const POND_VISUAL_Y_SCALE := 0.62
 const POND_VEGETATION_MIN_COUNT := 18
 const POND_VEGETATION_RING_MIN_FACTOR := 0.82
@@ -431,9 +432,65 @@ func _get_resource_water_margin_multiplier(resource_kind: String) -> float:
 
 
 func _is_position_in_hill_obstacle(position: Vector2, hill: Dictionary) -> bool:
+	return _get_hill_shape_ratio(position, hill) <= HILL_RESOURCE_BLOCK_RADIUS_FACTOR
+
+
+func _get_hill_shape_position(hill: Dictionary, angle: float, radius_factor: float, offset: Vector2 = Vector2.ZERO) -> Vector2:
 	var center := Vector2(hill.get("position", Vector2.ZERO))
-	var radius := float(hill.get("radius", 0.0)) * HILL_RESOURCE_BLOCK_RADIUS_FACTOR
-	return radius > 0.0 and position.distance_to(center) <= radius
+	var radius := float(hill.get("radius", 0.0))
+	var shape_scale := _get_hill_shape_scale(hill, angle)
+	return center + offset + Vector2(
+		cos(angle) * radius * radius_factor * shape_scale,
+		sin(angle) * radius * HILL_VISUAL_Y_SCALE * radius_factor * shape_scale
+	)
+
+
+func _get_hill_shape_ratio(position: Vector2, hill: Dictionary) -> float:
+	var center := Vector2(hill.get("position", Vector2.ZERO))
+	var radius := float(hill.get("radius", 0.0))
+	if radius <= 0.0:
+		return INF
+	var offset := position - center
+	var normalized := Vector2(offset.x / radius, offset.y / (radius * HILL_VISUAL_Y_SCALE))
+	var shape_scale := _get_hill_shape_scale(hill, normalized.angle())
+	return normalized.length() / max(shape_scale, 0.1)
+
+
+func _get_hill_shape_scale(hill: Dictionary, angle: float) -> float:
+	var irregularity: float = _get_hill_shape_irregularity()
+	if irregularity <= 0.0:
+		return 1.0
+	var seed: float = _get_hill_shape_seed(hill)
+	var wave: float = (
+		sin(angle * 2.0 + seed) * 0.50
+		+ sin(angle * 4.0 - seed * 1.35) * 0.28
+		+ sin(angle * 6.0 + seed * 0.4) * 0.16
+	) / 0.94
+	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.15, 1.0 + irregularity * 1.15)
+
+
+func _get_hill_shape_seed(hill: Dictionary) -> float:
+	var hill_id := str(hill.get("id", "hill"))
+	var seed := 0
+	for i in hill_id.length():
+		seed = (seed + hill_id.unicode_at(i) * (i + 5)) % 997
+	return float(seed) / 997.0 * TAU
+
+
+func _get_hill_shape_irregularity() -> float:
+	return float(clamp(float(GAME_BALANCE.LANDMARKS.get("hill_shape_irregularity", 0.10)), 0.0, 0.35))
+
+
+func _get_hill_shape_sample_count() -> int:
+	return max(16, int(GAME_BALANCE.LANDMARKS.get("hill_shape_sample_count", 40)))
+
+
+func _get_hill_mid_elevation_factor() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("hill_mid_elevation_factor", 0.70))
+
+
+func _get_hill_peak_elevation_factor() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("hill_peak_elevation_factor", 0.38))
 
 
 func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
@@ -1450,15 +1507,36 @@ func _draw_landmarks() -> void:
 
 
 func _draw_hill_landmark(landmark: Dictionary) -> void:
-	var center := Vector2(landmark.get("position", Vector2.ZERO))
 	var radius := float(landmark.get("radius", 120.0))
-	var base_color := Color(0.28, 0.31, 0.20, 0.72)
-	var ridge_color := Color(0.43, 0.43, 0.29, 0.58)
-	_draw_filled_ellipse(Rect2(center - Vector2(radius, radius * 0.55), Vector2(radius * 2.0, radius * 1.1)), base_color)
-	_draw_filled_ellipse(Rect2(center - Vector2(radius * 0.62, radius * 0.34), Vector2(radius * 1.24, radius * 0.68)), Color(0.35, 0.37, 0.24, 0.38))
-	draw_arc(center, radius * 0.76, deg_to_rad(196.0), deg_to_rad(344.0), 28, ridge_color, 5.0)
-	draw_arc(center + Vector2(radius * 0.10, -radius * 0.08), radius * 0.46, deg_to_rad(200.0), deg_to_rad(330.0), 24, ridge_color.darkened(0.15), 3.0)
-	draw_line(center + Vector2(-radius * 0.44, radius * 0.12), center + Vector2(radius * 0.38, -radius * 0.10), Color(0.18, 0.20, 0.13, 0.28), 3.0)
+	_draw_filled_hill_shape(landmark, 1.04, Color(0.12, 0.14, 0.09, 0.28), Vector2(radius * 0.05, radius * 0.07))
+	_draw_filled_hill_shape(landmark, 1.0, Color(0.30, 0.34, 0.20, 0.86))
+	_draw_filled_hill_shape(landmark, _get_hill_mid_elevation_factor(), Color(0.40, 0.42, 0.25, 0.62))
+	_draw_filled_hill_shape(landmark, _get_hill_peak_elevation_factor(), Color(0.53, 0.52, 0.32, 0.50), Vector2(-radius * 0.05, -radius * 0.05))
+	_draw_hill_slope_marks(landmark)
+
+
+func _draw_filled_hill_shape(hill: Dictionary, radius_factor: float, hill_color: Color, offset: Vector2 = Vector2.ZERO) -> void:
+	var points := PackedVector2Array()
+	var sample_count := _get_hill_shape_sample_count()
+	for i in range(sample_count):
+		var angle := TAU * float(i) / float(sample_count)
+		points.append(_get_hill_shape_position(hill, angle, radius_factor, offset))
+	draw_colored_polygon(points, hill_color)
+
+
+func _draw_hill_slope_marks(hill: Dictionary) -> void:
+	var center := Vector2(hill.get("position", Vector2.ZERO))
+	var radius := float(hill.get("radius", 120.0))
+	var light_color := Color(0.63, 0.62, 0.40, 0.42)
+	var dark_color := Color(0.16, 0.18, 0.10, 0.32)
+	var light_start := center + Vector2(-radius * 0.44, -radius * 0.12)
+	var light_end := center + Vector2(radius * 0.12, -radius * 0.24)
+	var dark_start := center + Vector2(-radius * 0.20, radius * 0.18)
+	var dark_end := center + Vector2(radius * 0.46, radius * 0.02)
+	draw_line(light_start, light_end, light_color, 4.0)
+	draw_line(center + Vector2(-radius * 0.24, -radius * 0.02), center + Vector2(radius * 0.28, -radius * 0.10), light_color.darkened(0.08), 2.6)
+	draw_line(dark_start, dark_end, dark_color, 4.0)
+	draw_line(center + Vector2(-radius * 0.08, radius * 0.30), center + Vector2(radius * 0.34, radius * 0.14), dark_color, 2.4)
 
 
 func _draw_pond_landmark(landmark: Dictionary) -> void:
