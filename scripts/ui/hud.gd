@@ -45,8 +45,9 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	var world := get_tree().current_scene.get_node_or_null("World")
 	var world_rect: Rect2 = world.get_world_rect() if world and world.has_method("get_world_rect") else WORLD_CONFIG.WORLD_RECT
 	var biome_zones: Array[Dictionary] = world.get_biome_zones() if world and world.has_method("get_biome_zones") else WORLD_CONFIG.get_biome_zones()
-	minimap.bind(player, world_rect, biome_zones)
-	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones)
+	var landmarks: Array[Dictionary] = world.get_landmarks() if world and world.has_method("get_landmarks") else WORLD_CONFIG.get_landmarks()
+	minimap.bind(player, world_rect, biome_zones, landmarks)
+	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones, landmarks)
 	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director)
 
 

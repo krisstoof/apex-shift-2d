@@ -12,6 +12,7 @@ var evolution_director: Node
 var day_night_system: Node
 var world_rect := WORLD_CONFIG.WORLD_RECT
 var biome_zones: Array[Dictionary] = []
+var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
 
@@ -22,12 +23,13 @@ func _ready() -> void:
 	visible = false
 
 
-func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node, p_world_rect: Rect2, p_biome_zones: Array[Dictionary]) -> void:
+func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = []) -> void:
 	player = p_player
 	evolution_director = p_evolution_director
 	day_night_system = p_day_night_system
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
+	landmarks = p_landmarks
 	queue_redraw()
 
 
@@ -39,6 +41,7 @@ func _process(_delta: float) -> void:
 func _draw() -> void:
 	if not visible:
 		return
+	_refresh_landmarks_from_world()
 	var screen_rect := Rect2(Vector2.ZERO, size)
 	var inner_rect := screen_rect.grow(-PADDING)
 	var info_width: float = min(360.0, inner_rect.size.x * 0.32)
@@ -57,9 +60,11 @@ func _draw_map_panel(rect: Rect2) -> void:
 	draw_rect(map_rect, Color(0.10, 0.14, 0.10), true)
 	_draw_biomes(map_rect)
 	_draw_grid(map_rect)
+	_draw_landmarks(map_rect)
 	_draw_resources(map_rect)
 	_draw_varnaks(map_rect)
 	_draw_player(map_rect)
+	_draw_map_legend(map_rect)
 	draw_rect(map_rect, Color(0.30, 0.36, 0.28, 0.85), false, 1.0)
 
 
@@ -68,6 +73,8 @@ func _draw_info_panel(rect: Rect2) -> void:
 	draw_rect(rect, Color(0.70, 0.74, 0.66, 0.78), false, 1.0)
 	var profile: Dictionary = evolution_director.get_profile() if evolution_director else {}
 	var live_varnaks := get_tree().get_nodes_in_group("varnak").size()
+	var pond_count := _get_landmark_count("pond")
+	var hill_count := _get_landmark_count("hill")
 	var zone_name := _get_player_zone_name()
 	var time_label := _get_time_label()
 	var lines := [
@@ -75,6 +82,7 @@ func _draw_info_panel(rect: Rect2) -> void:
 		"",
 		"Zone: %s" % zone_name,
 		"Day: %d  Time: %s %s" % [day_night_system.get_day() if day_night_system else 1, _get_clock_time(), time_label],
+		"Ponds: %d  Hills: %d" % [pond_count, hill_count],
 		"Live Varnaks: %d" % live_varnaks,
 		"",
 		"Player",
@@ -139,6 +147,91 @@ func _draw_resources(map_rect: Rect2) -> void:
 	for resource in get_tree().get_nodes_in_group("resources"):
 		if is_instance_valid(resource):
 			draw_circle(_world_to_map(resource.global_position, map_rect), 3.0, _get_resource_color(resource))
+
+
+func _draw_landmarks(map_rect: Rect2) -> void:
+	for landmark in landmarks:
+		var center := _world_to_map(Vector2(landmark.get("position", Vector2.ZERO)), map_rect)
+		var radius := _world_radius_to_map(float(landmark.get("radius", 80.0)), map_rect)
+		match str(landmark.get("type", "")):
+			"pond":
+				_draw_pond_marker(center, radius)
+				_draw_landmark_label(center, _get_landmark_label(landmark), Color(0.72, 0.92, 0.88))
+			"hill":
+				_draw_hill_marker(center, radius)
+				_draw_landmark_label(center, _get_landmark_label(landmark), Color(0.86, 0.82, 0.56))
+
+
+func _refresh_landmarks_from_world() -> void:
+	if not landmarks.is_empty():
+		return
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("get_landmarks"):
+		landmarks = world.get_landmarks()
+
+
+func _draw_pond_marker(center: Vector2, radius: float) -> void:
+	var marker_radius: float = clamp(radius, 8.0, 34.0)
+	_draw_filled_ellipse(Rect2(center - Vector2(marker_radius, marker_radius * 0.62), Vector2(marker_radius * 2.0, marker_radius * 1.24)), Color(0.08, 0.31, 0.43, 0.92))
+	_draw_filled_ellipse(Rect2(center - Vector2(marker_radius * 0.64, marker_radius * 0.34), Vector2(marker_radius * 1.28, marker_radius * 0.68)), Color(0.15, 0.48, 0.56, 0.62))
+	draw_arc(center, marker_radius * 0.82, deg_to_rad(18.0), deg_to_rad(164.0), 18, Color(0.62, 0.88, 0.82, 0.55), 2.0, true)
+
+
+func _draw_hill_marker(center: Vector2, radius: float) -> void:
+	var marker_radius: float = clamp(radius, 9.0, 38.0)
+	_draw_filled_ellipse(Rect2(center - Vector2(marker_radius, marker_radius * 0.58), Vector2(marker_radius * 2.0, marker_radius * 1.16)), Color(0.34, 0.33, 0.22, 0.86))
+	_draw_filled_ellipse(Rect2(center - Vector2(marker_radius * 0.62, marker_radius * 0.34), Vector2(marker_radius * 1.24, marker_radius * 0.68)), Color(0.43, 0.42, 0.27, 0.48))
+	draw_arc(center + Vector2(0.0, -marker_radius * 0.10), marker_radius * 0.66, deg_to_rad(198.0), deg_to_rad(342.0), 18, Color(0.64, 0.61, 0.38, 0.55), 2.0, true)
+
+
+func _draw_filled_ellipse(rect: Rect2, ellipse_color: Color) -> void:
+	var points := PackedVector2Array()
+	var center := rect.get_center()
+	var radii := rect.size * 0.5
+	for i in range(28):
+		var angle := TAU * float(i) / 28.0
+		points.append(center + Vector2(cos(angle) * radii.x, sin(angle) * radii.y))
+	draw_colored_polygon(points, ellipse_color)
+
+
+func _draw_landmark_label(center: Vector2, label: String, color: Color) -> void:
+	if label.is_empty():
+		return
+	var font := get_theme_default_font()
+	var label_size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12)
+	var label_position := center + Vector2(-label_size.x * 0.5, 22.0)
+	draw_rect(Rect2(label_position + Vector2(-4.0, -12.0), label_size + Vector2(8.0, 16.0)), Color(0.02, 0.025, 0.02, 0.58), true)
+	draw_string(font, label_position, label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12, color)
+
+
+func _get_landmark_label(landmark: Dictionary) -> String:
+	var landmark_id := str(landmark.get("id", ""))
+	if landmark_id.is_empty():
+		return ""
+	var words := landmark_id.replace("_", " ").split(" ")
+	var label_parts: Array[String] = []
+	for word in words:
+		if str(word).is_empty():
+			continue
+		label_parts.append(str(word).capitalize())
+	return " ".join(label_parts)
+
+
+func _draw_map_legend(map_rect: Rect2) -> void:
+	var legend_rect := Rect2(map_rect.position + Vector2(14.0, 14.0), Vector2(154.0, 118.0))
+	draw_rect(legend_rect, Color(0.025, 0.032, 0.028, 0.78), true)
+	draw_rect(legend_rect, Color(0.70, 0.74, 0.66, 0.34), false, 1.0)
+	var font := get_theme_default_font()
+	draw_string(font, legend_rect.position + Vector2(10.0, 20.0), "Legend", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color(0.95, 0.92, 0.78))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 40.0), "Pond", Color(0.12, 0.47, 0.56))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 60.0), "Hill", Color(0.48, 0.45, 0.28))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 80.0), "Resource", Color(0.67, 0.95, 0.34))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 100.0), "Varnak", Color(0.88, 0.22, 0.16))
+
+
+func _draw_legend_entry(position: Vector2, label: String, color: Color) -> void:
+	draw_circle(position + Vector2(5.0, -4.0), 4.5, color)
+	draw_string(get_theme_default_font(), position + Vector2(16.0, 0.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12, Color(0.86, 0.88, 0.82))
 
 
 func _draw_varnaks(map_rect: Rect2) -> void:
@@ -252,6 +345,12 @@ func _world_to_map(world_position: Vector2, map_rect: Rect2) -> Vector2:
 	return map_rect.position + normalized * map_rect.size
 
 
+func _world_radius_to_map(world_radius: float, map_rect: Rect2) -> float:
+	var x_scale := map_rect.size.x / world_rect.size.x
+	var y_scale := map_rect.size.y / world_rect.size.y
+	return world_radius * min(x_scale, y_scale)
+
+
 func _get_player_zone_name() -> String:
 	if not is_instance_valid(player):
 		return "Unknown"
@@ -259,6 +358,14 @@ func _get_player_zone_name() -> String:
 		if Geometry2D.is_point_in_polygon(player.global_position, PackedVector2Array(biome["points"])):
 			return str(biome.get("name", "Unknown"))
 	return "Wilderness"
+
+
+func _get_landmark_count(landmark_type: String) -> int:
+	var count := 0
+	for landmark in landmarks:
+		if str(landmark.get("type", "")) == landmark_type:
+			count += 1
+	return count
 
 
 func _get_time_label() -> String:
