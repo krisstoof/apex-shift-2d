@@ -135,6 +135,10 @@ func is_creature_navigation_blocked(position: Vector2) -> bool:
 	return false
 
 
+func is_creature_spawn_blocked_by_water(position: Vector2) -> bool:
+	return is_position_in_water(position)
+
+
 func get_creatures_out_of_bounds_count() -> int:
 	return _get_out_of_bounds_creatures().size()
 
@@ -674,11 +678,9 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
 		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(SMALL_PREY_PLAYER_SAFE_DISTANCE, SMALL_PREY_VISIBLE_SPAWN_RADIUS)
 		var candidate := player_position + offset
-		if candidate.distance_to(player_position) < SMALL_PREY_PLAYER_SAFE_DISTANCE:
-			continue
 		if not _is_point_in_biome(candidate, biome):
 			continue
-		if not _is_valid_small_prey_position(candidate, used_positions):
+		if not _is_valid_small_prey_position(candidate, used_positions, player_position):
 			continue
 		used_positions.append(candidate)
 		_spawn_small_prey_at(candidate, _get_biome_id(biome))
@@ -686,11 +688,14 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 	return false
 
 
-func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vector2]) -> bool:
-	for used_position in used_positions:
-		if candidate.distance_to(used_position) < SMALL_PREY_MIN_DISTANCE:
-			return false
-	return true
+func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	return _is_valid_creature_spawn_position(
+		candidate,
+		used_positions,
+		SMALL_PREY_MIN_DISTANCE,
+		player_position,
+		SMALL_PREY_PLAYER_SAFE_DISTANCE
+	)
 
 
 func _get_biome_for_position(position: Vector2) -> Dictionary:
@@ -882,12 +887,25 @@ func _try_spawn_grazer_near_player(biome: Dictionary, player_position: Vector2, 
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):
 			continue
-		if not _is_valid_grazer_position(candidate, used_positions):
+		if not _is_valid_grazer_position(candidate, used_positions, player_position):
 			continue
 		used_positions.append(candidate)
 		_spawn_grazer_at(candidate, _get_biome_id(biome))
 		return true
 	return false
+
+
+func _is_valid_creature_spawn_position(candidate: Vector2, used_positions: Array[Vector2], min_distance: float, player_position: Vector2, player_safe_distance: float) -> bool:
+	if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
+		return false
+	if is_creature_spawn_blocked_by_water(candidate):
+		return false
+	if candidate.distance_to(player_position) < player_safe_distance:
+		return false
+	for used_position in used_positions:
+		if candidate.distance_to(used_position) < min_distance:
+			return false
+	return true
 
 
 func _get_existing_grazer_positions() -> Array[Vector2]:
@@ -898,11 +916,14 @@ func _get_existing_grazer_positions() -> Array[Vector2]:
 	return positions
 
 
-func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2]) -> bool:
-	for used_position in used_positions:
-		if candidate.distance_to(used_position) < GRAZER_MIN_DISTANCE:
-			return false
-	return true
+func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	return _is_valid_creature_spawn_position(
+		candidate,
+		used_positions,
+		GRAZER_MIN_DISTANCE,
+		player_position,
+		GRAZER_PLAYER_SAFE_DISTANCE
+	)
 
 
 func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
@@ -1079,25 +1100,42 @@ func _pick_varnak_spawn_point() -> Vector2:
 
 func _get_debug_animal_spawn_position() -> Vector2:
 	var player_position := _get_player_position()
-	var offset := Vector2(180.0, 0.0)
-	var candidate := player_position + offset
 	var player_limits := WORLD_CONFIG.get_player_limits()
-	candidate.x = clamp(candidate.x, -player_limits.x, player_limits.x)
-	candidate.y = clamp(candidate.y, -player_limits.y, player_limits.y)
-	return candidate
+	for attempt in 24:
+		var angle := float(attempt) * TAU / 24.0
+		var distance: float = 180.0 + floor(float(attempt) / 8.0) * 48.0
+		var candidate := player_position + Vector2.RIGHT.rotated(angle) * distance
+		candidate.x = clamp(candidate.x, -player_limits.x, player_limits.x)
+		candidate.y = clamp(candidate.y, -player_limits.y, player_limits.y)
+		if WORLD_CONFIG.WORLD_RECT.has_point(candidate) and not is_creature_spawn_blocked_by_water(candidate):
+			return candidate
+	return _get_fallback_dry_creature_spawn_position(player_position)
 
 
 func _get_debug_creature_spawn_position(biome: Dictionary, radius: float, index: int, total: int) -> Vector2:
 	var player_position := _get_player_position()
 	var player_limits := WORLD_CONFIG.get_player_limits()
-	for attempt in 12:
+	for attempt in 24:
 		var angle := TAU * float(index + attempt) / float(max(total, 1)) + float(attempt) * 0.35
 		var candidate := player_position + Vector2.RIGHT.rotated(angle) * (radius + float(attempt) * 18.0)
 		candidate.x = clamp(candidate.x, -player_limits.x, player_limits.x)
 		candidate.y = clamp(candidate.y, -player_limits.y, player_limits.y)
-		if _is_point_in_biome(candidate, biome):
+		if _is_point_in_biome(candidate, biome) and WORLD_CONFIG.WORLD_RECT.has_point(candidate) and not is_creature_spawn_blocked_by_water(candidate):
 			return candidate
-	return player_position
+	return _get_fallback_dry_creature_spawn_position(player_position)
+
+
+func _get_fallback_dry_creature_spawn_position(origin: Vector2) -> Vector2:
+	var player_limits := WORLD_CONFIG.get_player_limits()
+	for attempt in 48:
+		var angle := float(attempt) * TAU / 48.0
+		var distance: float = 160.0 + floor(float(attempt) / 12.0) * 60.0
+		var candidate := origin + Vector2.RIGHT.rotated(angle) * distance
+		candidate.x = clamp(candidate.x, -player_limits.x, player_limits.x)
+		candidate.y = clamp(candidate.y, -player_limits.y, player_limits.y)
+		if WORLD_CONFIG.WORLD_RECT.has_point(candidate) and not is_creature_spawn_blocked_by_water(candidate):
+			return candidate
+	return _clamp_position_to_world(origin)
 
 
 func _debug_remove_nearest_creatures(group_name: String, count: int) -> int:
@@ -1156,6 +1194,10 @@ func _is_point_in_dangerous_biome(point: Vector2) -> bool:
 
 
 func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2) -> bool:
+	if not WORLD_CONFIG.WORLD_RECT.has_point(point):
+		return false
+	if is_creature_spawn_blocked_by_water(point):
+		return false
 	if point.distance_to(player_position) < WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE:
 		return false
 	for varnak in get_tree().get_nodes_in_group("varnak"):
