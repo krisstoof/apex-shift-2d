@@ -19,6 +19,7 @@ const SMALL_PREY_ATTACK_RANGE := 28.0
 const PLANT_EAT_HUNGER_DROP := 0.45
 const MEAT_HUNGER_DROP := 0.65
 const VEGETATION_EAT_RANGE := 220.0
+const VEGETATION_CONSUME_RANGE := 34.0
 const WORLD_EDGE_PADDING := 28.0
 
 var health := 45.0
@@ -46,6 +47,7 @@ var facing_side := 1.0
 var player: Node2D
 var flee_origin := Vector2.INF
 var prey_target: Node2D
+var plant_target: Node2D
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
 
@@ -114,12 +116,15 @@ func _update_state() -> void:
 	if state == State.FLEE:
 		_set_state(State.WANDER)
 		_pick_wander_target()
+		plant_target = null
 	_sync_population_traits()
 	var biomass_percent := _get_current_biomass_percent()
 	if state == State.EAT_PLANTS and state_time <= 0.0:
 		_consume_plants()
 		_set_state(State.WANDER)
 		_pick_wander_target()
+		return
+	if state == State.SEEK_FOOD and _try_update_plant_target():
 		return
 	if state == State.SCAVENGE and state_time <= 0.0:
 		_scavenge_food()
@@ -139,12 +144,19 @@ func _update_state() -> void:
 	var hunger_ratio: float = hunger_diet.get_hunger_ratio()
 	var risk_drive: float = hunger_diet.get_risk_drive()
 	if hunger_ratio > 0.28 and food_target == "plants" and biomass_percent >= LOW_BIOMASS_PERCENT:
-		_set_state(State.EAT_PLANTS)
-		state_time = EAT_DURATION_SECONDS
+		if _set_nearest_plant_target():
+			_set_state(State.SEEK_FOOD)
+		else:
+			_set_state(State.EAT_PLANTS)
+			state_time = EAT_DURATION_SECONDS
 		return
 	if hunger_ratio > 0.55 and biomass_percent < LOW_BIOMASS_PERCENT:
+		if food_target == "plants" and _set_nearest_plant_target():
+			_set_state(State.SEEK_FOOD)
+			return
 		if risk_drive > 0.74 and food_target == "meat" and meat_diet + aggression > 0.12 and is_instance_valid(nearest_prey):
 			prey_target = nearest_prey
+			plant_target = null
 			_set_state(State.HUNT_SMALL_PREY)
 			return
 		if food_target == "scavenger" and scavenger_diet > 0.0:
@@ -221,34 +233,73 @@ func _face_target(target: Vector2) -> void:
 
 
 func _consume_plants() -> void:
-	var eaten_food := _consume_nearest_vegetation()
+	var eaten_food := _consume_target_vegetation()
+	var biomass_impact := plant_consumption_rate
 	hunger_diet.eat("plants", max(PLANT_EAT_HUNGER_DROP, eaten_food))
 	_sync_hunger_fields()
 	get_node("/root/EventBus").emit_game_event("grazer_consumed_plants", {
 		"biome_id": _get_current_biome_id(),
 		"position": global_position,
-		"plant_consumption_rate": plant_consumption_rate
+		"plant_consumption_rate": plant_consumption_rate,
+		"biomass_impact": biomass_impact
 	})
+	plant_target = null
 
 
-func _consume_nearest_vegetation() -> float:
-	var nearest: Node2D
-	var nearest_distance := VEGETATION_EAT_RANGE
-	var current_biome_id := _get_current_biome_id()
-	for vegetation in get_tree().get_nodes_in_group("edible_vegetation"):
-		if not is_instance_valid(vegetation) or not vegetation is Node2D:
-			continue
-		if vegetation.get("is_edible_by_herbivores") != true:
-			continue
-		if _get_biome_id_for_position(vegetation.global_position) != current_biome_id:
-			continue
-		var distance := global_position.distance_to(vegetation.global_position)
-		if distance < nearest_distance:
-			nearest_distance = distance
-			nearest = vegetation
+func _consume_target_vegetation() -> float:
+	if is_instance_valid(plant_target) and _is_edible_vegetation_target(plant_target):
+		var distance := global_position.distance_to(plant_target.global_position)
+		if distance <= VEGETATION_CONSUME_RANGE and plant_target.has_method("consume_by_creature"):
+			return float(plant_target.consume_by_creature(self, plant_consumption_rate))
+	return _consume_nearest_vegetation(VEGETATION_CONSUME_RANGE)
+
+
+func _consume_nearest_vegetation(search_range: float = VEGETATION_EAT_RANGE) -> float:
+	var nearest := _find_nearest_edible_vegetation(search_range)
 	if is_instance_valid(nearest) and nearest.has_method("consume_by_creature"):
 		return float(nearest.consume_by_creature(self, plant_consumption_rate))
 	return 0.0
+
+
+func _try_update_plant_target() -> bool:
+	if not is_instance_valid(plant_target) or not _is_edible_vegetation_target(plant_target):
+		if not _set_nearest_plant_target():
+			_set_state(State.WANDER)
+			_pick_wander_target()
+			return true
+	wander_target = _clamp_to_world(plant_target.global_position)
+	if global_position.distance_to(plant_target.global_position) <= VEGETATION_CONSUME_RANGE:
+		_set_state(State.EAT_PLANTS)
+		state_time = EAT_DURATION_SECONDS
+	return true
+
+
+func _set_nearest_plant_target() -> bool:
+	plant_target = _find_nearest_edible_vegetation(VEGETATION_EAT_RANGE)
+	if not is_instance_valid(plant_target):
+		return false
+	wander_target = _clamp_to_world(plant_target.global_position)
+	return true
+
+
+func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
+	var nearest: Node2D
+	var nearest_distance := search_range
+	var current_biome_id := _get_current_biome_id()
+	for vegetation in get_tree().get_nodes_in_group("edible_vegetation"):
+		if not _is_edible_vegetation_target(vegetation):
+			continue
+		var distance := global_position.distance_to(vegetation.global_position)
+		if _get_biome_id_for_position(vegetation.global_position) != current_biome_id:
+			distance *= 1.6
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = vegetation
+	return nearest
+
+
+func _is_edible_vegetation_target(vegetation: Node) -> bool:
+	return is_instance_valid(vegetation) and vegetation is Node2D and vegetation.get("is_edible_by_herbivores") == true
 
 
 func _scavenge_food() -> void:
@@ -318,6 +369,7 @@ func _enforce_world_bounds(force_retarget := false) -> void:
 		global_position = clamped_position
 		velocity = Vector2.ZERO
 		prey_target = null
+		plant_target = null
 		_set_state(State.WANDER)
 		_pick_wander_target()
 
