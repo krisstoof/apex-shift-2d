@@ -33,8 +33,8 @@ func _ready() -> void:
 	add_to_group("resources")
 	if biome_id.is_empty():
 		biome_id = _get_biome_id_for_position(global_position)
-	_sync_resource_groups()
 	_apply_growth_stage()
+	_sync_resource_groups()
 	queue_redraw()
 
 
@@ -64,6 +64,7 @@ func setup(kind: String) -> void:
 			mature_amount = 1
 			mature_color = Color(0.72, 0.12, 0.10)
 			mature_radius = 10.0
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("meat_food_value", 0.65))
 		"bush":
 			item_name = "fiber"
 			mature_amount = 2
@@ -102,9 +103,9 @@ func setup(kind: String) -> void:
 			mature_color = Color(0.25, 0.68, 0.20)
 			mature_radius = 12.0
 			food_value = float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2)) * 1.5
-	_sync_resource_groups()
 	days_to_next_stage = _get_days_to_next_stage()
 	_apply_growth_stage()
+	_sync_resource_groups()
 	queue_redraw()
 
 
@@ -257,16 +258,19 @@ func _mark_harvested() -> void:
 
 func _apply_growth_stage() -> void:
 	can_be_harvested = player_harvestable and (not _uses_regrowth() or growth_stage > 0)
-	is_edible_by_herbivores = food_value > 0.0 and (not _uses_regrowth() or growth_stage > 0)
+	is_edible_by_herbivores = resource_kind != "meat_drop" and food_value > 0.0 and (not _uses_regrowth() or growth_stage > 0)
 	amount = _get_stage_yield()
 	color = mature_color.darkened(0.45 if growth_stage <= 0 else 0.0).lerp(mature_color, _get_growth_ratio())
 	radius = max(mature_radius * _get_visual_scale(), 5.0)
 	if collision_shape:
 		collision_shape.disabled = not player_harvestable or not can_be_harvested
+	_sync_resource_groups()
 	queue_redraw()
 
 
 func consume_by_creature(_consumer: Node, _consumption_rate: float = 1.0) -> float:
+	if resource_kind == "meat_drop":
+		return _consume_meat_by_creature(_consumer)
 	if not is_edible_by_herbivores:
 		return 0.0
 	var consumed_value: float = food_value * max(_get_growth_ratio(), 0.25)
@@ -279,6 +283,24 @@ func consume_by_creature(_consumer: Node, _consumption_rate: float = 1.0) -> flo
 		_apply_growth_stage()
 	else:
 		queue_free()
+	return consumed_value
+
+
+func _consume_meat_by_creature(consumer: Node) -> float:
+	if amount <= 0:
+		return 0.0
+	var consumed_value: float = max(food_value, float(GAME_BALANCE.ANIMAL_AI.get("meat_food_value", 0.65)))
+	amount = max(amount - 1, 0)
+	get_node("/root/EventBus").emit_game_event("meat_consumed_by_creature", {
+		"consumer": str(consumer.name) if is_instance_valid(consumer) else "creature",
+		"amount": 1,
+		"remaining": amount,
+		"position": global_position
+	})
+	if amount <= 0:
+		queue_free()
+	else:
+		queue_redraw()
 	return consumed_value
 
 
@@ -356,7 +378,7 @@ func _get_resource_label() -> String:
 
 
 func _sync_resource_groups() -> void:
-	for group_name in ["trees", "bushes", "grass", "rocks", "vegetation", "edible_vegetation", "pond_vegetation"]:
+	for group_name in ["trees", "bushes", "grass", "rocks", "vegetation", "edible_vegetation", "pond_vegetation", "meat_drops"]:
 		if is_in_group(group_name):
 			remove_from_group(group_name)
 	match resource_kind:
@@ -371,7 +393,9 @@ func _sync_resource_groups() -> void:
 			add_to_group("vegetation")
 		"rock":
 			add_to_group("rocks")
-	if food_value > 0.0:
+		"meat_drop":
+			add_to_group("meat_drops")
+	if is_edible_by_herbivores:
 		add_to_group("edible_vegetation")
 	if is_pond_vegetation:
 		add_to_group("pond_vegetation")

@@ -2,6 +2,8 @@ extends RefCounted
 class_name HungerDiet
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const BASE_HUNGER_TIME_SCALE := 0.05
+const MOVEMENT_HUNGER_TIME_SCALE := 0.06
 
 var hunger := 0.0
 var max_hunger := 1.0
@@ -34,8 +36,11 @@ func configure(traits: Dictionary, defaults: Dictionary = {}) -> void:
 
 
 func tick(delta: float, movement_intensity: float = 0.0) -> void:
-	hunger = clamp(hunger + hunger_growth_rate * delta, 0.0, max_hunger)
-	var energy_delta: float = delta * (0.015 + clamp(movement_intensity, 0.0, 1.0) * 0.035)
+	var movement_factor: float = clamp(movement_intensity, 0.0, 1.0)
+	var base_hunger_delta: float = hunger_growth_rate * BASE_HUNGER_TIME_SCALE * delta
+	var movement_hunger_delta: float = hunger_growth_rate * movement_factor * MOVEMENT_HUNGER_TIME_SCALE * delta
+	hunger = clamp(hunger + base_hunger_delta + movement_hunger_delta, 0.0, max_hunger)
+	var energy_delta: float = delta * (0.015 + movement_factor * 0.035)
 	energy = clamp(energy - energy_delta + delta * 0.02 * (1.0 - get_hunger_ratio()), 0.0, 1.0)
 
 
