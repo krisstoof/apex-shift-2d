@@ -14,7 +14,8 @@ var slots := [
 	{"key": "5", "name": "Box", "kind": "storage_box"},
 	{"key": "6", "name": "Tent", "kind": "tent"},
 	{"key": "7", "name": "Eat", "kind": "eat"},
-	{"key": "8/T", "name": "Torch", "kind": "torch"}
+	{"key": "8/T", "name": "Torch", "kind": "torch"},
+	{"key": "9", "name": "Bow", "kind": "bow"}
 ]
 
 func bind(p_player: Node) -> void:
@@ -62,6 +63,8 @@ func _is_available(kind: String) -> bool:
 			return player.inventory.has_item("meat", 1)
 		"torch":
 			return player.inventory.has_item("torch", 1) or player.is_torch_active() or _has_recipe_items("torch")
+		"bow":
+			return player.has_bow or _has_recipe_items("bow")
 		_:
 			return true
 
@@ -127,3 +130,8 @@ func _draw_icon(kind: String, rect: Rect2, available: bool) -> void:
 			draw_line(center + Vector2(-10, 15), center + Vector2(8, -13), color, 4.0)
 			draw_circle(center + Vector2(9, -15), 8.0, Color(0.92, 0.28, 0.08) if available else color)
 			draw_circle(center + Vector2(9, -17), 4.0, Color(1.0, 0.82, 0.22) if available else Color(0.09, 0.10, 0.11))
+		"bow":
+			draw_arc(center + Vector2(-4, 0), 18.0, deg_to_rad(-62.0), deg_to_rad(62.0), 16, color, 3.0)
+			draw_line(center + Vector2(4, -16), center + Vector2(4, 16), color.darkened(0.22), 2.0)
+			draw_line(center + Vector2(-15, 0), center + Vector2(18, 0), color, 2.0)
+			draw_polygon([center + Vector2(18, 0), center + Vector2(10, -4), center + Vector2(10, 4)], [color])
