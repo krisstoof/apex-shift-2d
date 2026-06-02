@@ -1,6 +1,9 @@
 extends Control
 
+const ICON_BAR_REDRAW_INTERVAL := 0.20
+
 var player: Node
+var redraw_timer := 0.0
 
 var slots := [
 	{"key": "Shift", "name": "Run", "kind": "run"},
@@ -23,8 +26,11 @@ func bind(p_player: Node) -> void:
 	queue_redraw()
 
 
-func _process(_delta: float) -> void:
-	queue_redraw()
+func _process(delta: float) -> void:
+	redraw_timer += delta
+	if redraw_timer >= ICON_BAR_REDRAW_INTERVAL:
+		redraw_timer = 0.0
+		queue_redraw()
 
 
 func _draw() -> void:
