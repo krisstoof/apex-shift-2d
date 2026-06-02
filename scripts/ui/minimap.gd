@@ -277,8 +277,19 @@ func _draw_resources(content_rect: Rect2) -> void:
 	for resource in get_tree().get_nodes_in_group("resources"):
 		if not is_instance_valid(resource):
 			continue
+		if not _should_draw_resource_on_minimap(resource):
+			continue
 		var color := _get_resource_color(resource)
 		draw_circle(_world_to_map(resource.global_position, content_rect), 3.3, color)
+
+
+func _should_draw_resource_on_minimap(resource: Node) -> bool:
+	var resource_kind := str(resource.get("resource_kind"))
+	if resource_kind in ["grass_patch", "dense_grass", "berry_bush"]:
+		return false
+	if resource.get("player_harvestable") == false:
+		return false
+	return true
 
 
 func _draw_varnaks(content_rect: Rect2) -> void:
