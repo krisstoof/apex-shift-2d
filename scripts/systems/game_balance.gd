@@ -152,8 +152,14 @@ const LANDMARKS := {
 	"hill_spawn_margin": 220.0,
 	"pond_spawn_margin": 260.0,
 	"landmark_min_distance": 420.0,
-	"pond_vegetation_bonus": 1.45,
-	"pond_grass_food_bonus": 1.30,
+	"pond_vegetation_bonus": 2.0,
+	"pond_vegetation_base_count": 14,
+	"pond_vegetation_min_distance": 28.0,
+	"pond_vegetation_player_safe_distance": 36.0,
+	"pond_vegetation_inner_ring_factor": 1.18,
+	"pond_vegetation_outer_ring_factor": 1.48,
+	"pond_grass_food_bonus": 1.45,
+	"pond_vegetation_visual_scale": 1.28,
 	"dense_vegetation_resource_bonus": 1.60,
 	"animal_hotspot_population_bonus": 1.25
 }

@@ -254,6 +254,8 @@ func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
 		if not _is_edible_vegetation_target(vegetation):
 			continue
 		var distance := global_position.distance_to(vegetation.global_position)
+		if vegetation.is_in_group("pond_vegetation"):
+			distance *= 0.75
 		if _get_biome_id_for_position(vegetation.global_position) != current_biome_id:
 			distance *= 1.8
 		if distance < nearest_distance:
