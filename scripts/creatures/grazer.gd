@@ -21,6 +21,9 @@ const MEAT_HUNGER_DROP := 0.65
 const VEGETATION_EAT_RANGE := 220.0
 const VEGETATION_CONSUME_RANGE := 34.0
 const WORLD_EDGE_PADDING := 28.0
+const AVOIDANCE_LOOKAHEAD_DISTANCE := 62.0
+const WALL_AVOID_RADIUS := 78.0
+const BIOME_RETURN_CHANCE := 0.58
 
 var health := 45.0
 var max_health := 45.0
@@ -40,6 +43,7 @@ var size := 1.35
 var reproduction_rate := 0.35
 var state := State.WANDER
 var biome_id := ""
+var home_biome_id := ""
 var wander_target := Vector2.ZERO
 var state_time := 0.0
 var facing_angle := 0.0
@@ -59,12 +63,15 @@ func _ready() -> void:
 	_load_species_data()
 	if biome_id.is_empty():
 		biome_id = _get_biome_id_for_position(global_position)
+	if home_biome_id.is_empty():
+		home_biome_id = biome_id
 	_pick_wander_target()
 	queue_redraw()
 
 
 func setup(p_biome_id: String = "") -> void:
 	biome_id = p_biome_id
+	home_biome_id = p_biome_id
 
 
 func get_debug_data() -> Dictionary:
@@ -77,6 +84,7 @@ func get_debug_data() -> Dictionary:
 		"fear": fear,
 		"aggression": aggression,
 		"current_niche": current_niche,
+		"home_biome_id": home_biome_id,
 		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
 	}
 	data.merge(hunger_diet.get_debug_data(), true)
@@ -218,8 +226,41 @@ func _move_toward(target: Vector2, move_speed: float) -> void:
 	if direction.length_squared() <= 1.0:
 		velocity = Vector2.ZERO
 		return
-	velocity = direction.normalized() * move_speed * _get_terrain_speed_multiplier()
-	_face_target(target)
+	var move_direction := _get_navigation_direction(direction.normalized(), target)
+	velocity = move_direction * move_speed * _get_terrain_speed_multiplier()
+	_face_target(global_position + move_direction)
+
+
+func _get_navigation_direction(desired_direction: Vector2, target: Vector2) -> Vector2:
+	var avoidance := _get_wall_avoidance_vector()
+	var adjusted_direction := (desired_direction + avoidance * 1.2).normalized()
+	if _is_navigation_position_valid(global_position + adjusted_direction * AVOIDANCE_LOOKAHEAD_DISTANCE):
+		return adjusted_direction
+	var candidates := [
+		desired_direction.rotated(0.68),
+		desired_direction.rotated(-0.68),
+		desired_direction.rotated(1.18),
+		desired_direction.rotated(-1.18),
+		desired_direction.rotated(PI)
+	]
+	for candidate_direction in candidates:
+		if _is_navigation_position_valid(global_position + candidate_direction * AVOIDANCE_LOOKAHEAD_DISTANCE):
+			return candidate_direction
+	var fallback := (target - global_position).normalized()
+	return fallback if fallback.length_squared() > 0.0 else Vector2.RIGHT
+
+
+func _get_wall_avoidance_vector() -> Vector2:
+	var avoidance := Vector2.ZERO
+	for wall in get_tree().get_nodes_in_group("walls"):
+		if not is_instance_valid(wall) or not wall is Node2D:
+			continue
+		var wall_node := wall as Node2D
+		var offset: Vector2 = global_position - wall_node.global_position
+		var distance: float = offset.length()
+		if distance > 0.0 and distance < WALL_AVOID_RADIUS:
+			avoidance += offset.normalized() * (1.0 - distance / WALL_AVOID_RADIUS)
+	return avoidance
 
 
 func _face_target(target: Vector2) -> void:
@@ -345,13 +386,21 @@ func _find_nearest_small_prey() -> Node2D:
 
 
 func _pick_wander_target() -> void:
-	var current_biome_id := _get_current_biome_id()
-	for _attempt in 16:
+	var preferred_biome_id := _get_preferred_wander_biome_id()
+	for _attempt in 24:
 		var candidate := global_position + Vector2(
 			rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS),
 			rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS)
 		)
-		if _is_position_in_biome(candidate, current_biome_id):
+		if _is_navigation_position_valid(candidate) and _is_position_in_biome(candidate, preferred_biome_id):
+			wander_target = _clamp_to_world(candidate)
+			return
+	for _attempt in 12:
+		var candidate := global_position + Vector2(
+			rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS),
+			rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS)
+		)
+		if _is_navigation_position_valid(candidate):
 			wander_target = _clamp_to_world(candidate)
 			return
 	var limits := WORLD_CONFIG.get_player_limits()
@@ -359,6 +408,31 @@ func _pick_wander_target() -> void:
 		clamp(global_position.x + rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS), -limits.x, limits.x),
 		clamp(global_position.y + rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS), -limits.y, limits.y)
 	))
+
+
+func _get_preferred_wander_biome_id() -> String:
+	var current_biome_id := _get_current_biome_id()
+	if home_biome_id.is_empty():
+		home_biome_id = current_biome_id
+	if not home_biome_id.is_empty() and current_biome_id != home_biome_id and rng.randf() < BIOME_RETURN_CHANCE:
+		return home_biome_id
+	if rng.randf() < 0.76:
+		return current_biome_id
+	return home_biome_id
+
+
+func _is_navigation_position_valid(position: Vector2) -> bool:
+	var clamped_position := _clamp_to_world(position)
+	if clamped_position.distance_squared_to(position) > 0.01:
+		return false
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("is_creature_navigation_blocked") and world.is_creature_navigation_blocked(position) == true:
+		return false
+	for wall in get_tree().get_nodes_in_group("walls"):
+		var wall_node := wall as Node2D
+		if is_instance_valid(wall_node) and position.distance_to(wall_node.global_position) < WALL_AVOID_RADIUS * 0.72:
+			return false
+	return true
 
 
 func debug_return_to_world() -> void:
