@@ -116,6 +116,16 @@ func is_position_in_water(position: Vector2) -> bool:
 	return false
 
 
+func is_resource_position_blocked_by_water(resource_kind: String, position: Vector2) -> bool:
+	if not _is_plant_resource_kind(resource_kind):
+		return false
+	var margin_multiplier := _get_resource_water_margin_multiplier(resource_kind)
+	for pond in pond_landmarks:
+		if _is_position_in_pond_water(position, pond, margin_multiplier):
+			return true
+	return false
+
+
 func is_creature_navigation_blocked(position: Vector2) -> bool:
 	if is_position_in_water(position):
 		return true
@@ -252,7 +262,7 @@ func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biom
 		var angle: float = base_angle + resource_rng.randf_range(-slot_angle, slot_angle) * POND_VEGETATION_ANGLE_JITTER_FACTOR
 		var distance := resource_rng.randf_range(radius * min_ring_factor, radius * max_ring_factor)
 		var candidate := center + Vector2.RIGHT.rotated(angle) * distance
-		if _is_position_in_pond_water(candidate, pond, 1.08):
+		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
 		if not _is_point_in_biome(candidate, biome):
 			continue
@@ -311,6 +321,17 @@ func _is_position_in_pond_water(position: Vector2, pond: Dictionary, margin_mult
 	return normalized.length_squared() <= 1.0
 
 
+func _get_resource_water_margin_multiplier(resource_kind: String) -> float:
+	match resource_kind:
+		"conifer_tree", "leafy_tree", "tree":
+			return float(GAME_BALANCE.LANDMARKS.get("pond_tree_water_margin", 1.22))
+		"bush", "dry_bush", "small_bush", "berry_bush":
+			return float(GAME_BALANCE.LANDMARKS.get("pond_bush_water_margin", 1.12))
+		"grass_patch", "dense_grass":
+			return float(GAME_BALANCE.LANDMARKS.get("pond_grass_water_margin", 1.04))
+	return 1.0
+
+
 func _is_position_in_hill_obstacle(position: Vector2, hill: Dictionary) -> bool:
 	var center := Vector2(hill.get("position", Vector2.ZERO))
 	var radius := float(hill.get("radius", 0.0)) * HILL_RESOURCE_BLOCK_RADIUS_FACTOR
@@ -359,6 +380,8 @@ func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], 
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
+		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
 			continue
 		if _is_point_in_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
@@ -534,10 +557,61 @@ func restore_resources(resources: Array) -> void:
 			continue
 		var data := Dictionary(resource_data)
 		var kind := str(data.get("kind", "tree"))
-		var pos := _data_to_vector(data.get("position", {}))
+		var pos := _get_safe_restored_resource_position(kind, _data_to_vector(data.get("position", {})))
+		data["position"] = _vector_to_data(pos)
+		data["biome_id"] = _get_biome_id_for_position(pos)
 		var resource := _spawn_resource_at(kind, pos)
 		if resource.has_method("restore_from_data"):
 			resource.restore_from_data(data)
+
+
+func _get_safe_restored_resource_position(resource_kind: String, requested_position: Vector2) -> Vector2:
+	var position := _clamp_position_to_world(requested_position)
+	if not is_resource_position_blocked_by_water(resource_kind, position) and not _is_resource_blocked_by_hill(resource_kind, position):
+		return position
+	var pond := _get_nearest_pond_landmark(position)
+	if pond.is_empty():
+		return position
+	var center := Vector2(pond.get("position", Vector2.ZERO))
+	var radius := float(pond.get("radius", 0.0))
+	if radius <= 0.0:
+		return position
+	var direction := position - center
+	var base_angle := direction.angle() if direction.length_squared() > 0.001 else 0.0
+	var base_distance: float = radius * max(_get_resource_water_margin_multiplier(resource_kind) + 0.08, 1.16)
+	var used_positions := _get_existing_resource_positions()
+	var player_position := _get_player_position()
+	for attempt in 48:
+		var angle := base_angle + float(attempt) * 0.83
+		var distance: float = base_distance + floor(float(attempt) / 8.0) * WORLD_CONFIG.RESOURCE_MIN_DISTANCE
+		var candidate := _clamp_position_to_world(center + Vector2.RIGHT.rotated(angle) * distance)
+		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			continue
+		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			continue
+		if _get_biome_for_position(candidate).is_empty():
+			continue
+		if _is_valid_resource_position(candidate, used_positions, player_position):
+			return candidate
+	for attempt in 48:
+		var angle := base_angle - float(attempt) * 0.83
+		var distance: float = base_distance + floor(float(attempt) / 8.0) * WORLD_CONFIG.RESOURCE_MIN_DISTANCE
+		var candidate := _clamp_position_to_world(center + Vector2.RIGHT.rotated(angle) * distance)
+		if not is_resource_position_blocked_by_water(resource_kind, candidate) and not _is_resource_blocked_by_hill(resource_kind, candidate) and not _get_biome_for_position(candidate).is_empty():
+			return candidate
+	return position
+
+
+func _get_nearest_pond_landmark(position: Vector2) -> Dictionary:
+	var nearest: Dictionary = {}
+	var nearest_distance := INF
+	for pond in pond_landmarks:
+		var center := Vector2(pond.get("position", Vector2.ZERO))
+		var distance := position.distance_squared_to(center)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = pond
+	return nearest
 
 
 func _sync_visible_small_prey() -> void:
@@ -756,6 +830,8 @@ func _try_spawn_resource_in_biome(resource_kind: String, biome: Dictionary, used
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
+		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
 			continue
 		if _is_point_in_scaled_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
