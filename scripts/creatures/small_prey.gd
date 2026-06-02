@@ -1,6 +1,7 @@
 extends CharacterBody2D
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
 const SPECIES_PATH := "res://data/species/small_prey.json"
 
@@ -126,10 +127,10 @@ func _update_state() -> void:
 		return
 	if state == State.SEEK_FOOD and _try_update_plant_target():
 		return
-	if eat_cooldown <= 0.0 and hunger_diet.get_hunger_ratio() > 0.25:
-		if _set_nearest_plant_target():
+	if eat_cooldown <= 0.0 and hunger_diet.is_hungry():
+		if _set_nearest_plant_target(_get_food_search_range()):
 			_set_state(State.SEEK_FOOD)
-		else:
+		elif hunger_diet.is_starving():
 			_set_state(State.EAT)
 			state_time = EAT_DURATION_SECONDS
 		return
@@ -268,7 +269,7 @@ func _consume_nearest_vegetation(search_range: float = VEGETATION_EAT_RANGE) -> 
 
 func _try_update_plant_target() -> bool:
 	if not is_instance_valid(plant_target) or not _is_edible_vegetation_target(plant_target):
-		if not _set_nearest_plant_target():
+		if not _set_nearest_plant_target(_get_food_search_range()):
 			_set_state(State.WANDER)
 			_pick_wander_target()
 			return true
@@ -279,12 +280,21 @@ func _try_update_plant_target() -> bool:
 	return true
 
 
-func _set_nearest_plant_target() -> bool:
-	plant_target = _find_nearest_edible_vegetation(VEGETATION_EAT_RANGE)
+func _set_nearest_plant_target(search_range: float = VEGETATION_EAT_RANGE) -> bool:
+	plant_target = _find_nearest_edible_vegetation(search_range)
 	if not is_instance_valid(plant_target):
 		return false
 	wander_target = _clamp_to_world(plant_target.global_position)
 	return true
+
+
+func _get_food_search_range() -> float:
+	var base_range: float = max(VEGETATION_EAT_RANGE, hunger_diet.get_food_search_radius())
+	if hunger_diet.is_starving():
+		base_range *= 1.18
+	if hunger_diet.is_desperate():
+		base_range *= 1.28
+	return base_range
 
 
 func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
@@ -450,7 +460,10 @@ func _load_species_data() -> void:
 		"energy": energy,
 		"plant_diet": plant_diet,
 		"meat_diet": meat_diet,
-		"scavenger_diet": scavenger_diet
+		"scavenger_diet": scavenger_diet,
+		"hungry_threshold": GAME_BALANCE.ANIMAL_AI.get("hungry_threshold", 0.35),
+		"starving_threshold": GAME_BALANCE.ANIMAL_AI.get("starving_threshold", 0.60),
+		"desperate_threshold": GAME_BALANCE.ANIMAL_AI.get("desperate_threshold", 0.82)
 	})
 	_sync_hunger_fields()
 

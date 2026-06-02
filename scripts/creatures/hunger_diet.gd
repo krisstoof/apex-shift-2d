@@ -1,6 +1,8 @@
 extends RefCounted
 class_name HungerDiet
 
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+
 var hunger := 0.0
 var max_hunger := 1.0
 var hunger_growth_rate := 0.2
@@ -8,6 +10,9 @@ var energy := 1.0
 var plant_diet := 1.0
 var meat_diet := 0.0
 var scavenger_diet := 0.0
+var hungry_threshold := 0.35
+var starving_threshold := 0.60
+var desperate_threshold := 0.82
 
 
 func configure(traits: Dictionary, defaults: Dictionary = {}) -> void:
@@ -17,9 +22,15 @@ func configure(traits: Dictionary, defaults: Dictionary = {}) -> void:
 	plant_diet = float(traits.get("plant_diet", defaults.get("plant_diet", plant_diet)))
 	meat_diet = float(traits.get("meat_diet", defaults.get("meat_diet", meat_diet)))
 	scavenger_diet = float(traits.get("scavenger_diet", defaults.get("scavenger_diet", scavenger_diet)))
+	hungry_threshold = float(traits.get("hungry_threshold", defaults.get("hungry_threshold", GAME_BALANCE.ANIMAL_AI.get("hungry_threshold", hungry_threshold))))
+	starving_threshold = float(traits.get("starving_threshold", defaults.get("starving_threshold", GAME_BALANCE.ANIMAL_AI.get("starving_threshold", starving_threshold))))
+	desperate_threshold = float(traits.get("desperate_threshold", defaults.get("desperate_threshold", GAME_BALANCE.ANIMAL_AI.get("desperate_threshold", desperate_threshold))))
 	max_hunger = max(max_hunger, 0.01)
 	hunger = clamp(float(traits.get("hunger", defaults.get("hunger", hunger))), 0.0, max_hunger)
 	energy = clamp(energy, 0.0, 1.0)
+	hungry_threshold = clamp(hungry_threshold, 0.01, 0.98)
+	starving_threshold = clamp(max(starving_threshold, hungry_threshold + 0.01), 0.02, 0.99)
+	desperate_threshold = clamp(max(desperate_threshold, starving_threshold + 0.01), 0.03, 1.0)
 
 
 func tick(delta: float, movement_intensity: float = 0.0) -> void:
@@ -64,6 +75,35 @@ func get_hunger_ratio() -> float:
 	return clamp(hunger / max_hunger, 0.0, 1.0)
 
 
+func get_hunger_stage() -> String:
+	var ratio := get_hunger_ratio()
+	if ratio >= desperate_threshold:
+		return "desperate"
+	if ratio >= starving_threshold:
+		return "starving"
+	if ratio >= hungry_threshold:
+		return "hungry"
+	return "comfortable"
+
+
+func is_hungry() -> bool:
+	return get_hunger_ratio() >= hungry_threshold
+
+
+func is_starving() -> bool:
+	return get_hunger_ratio() >= starving_threshold
+
+
+func is_desperate() -> bool:
+	return get_hunger_ratio() >= desperate_threshold
+
+
+func get_food_search_radius() -> float:
+	if is_desperate():
+		return float(GAME_BALANCE.ANIMAL_AI.get("desperate_food_search_radius", 780.0))
+	return float(GAME_BALANCE.ANIMAL_AI.get("food_search_radius", 520.0))
+
+
 func get_risk_drive() -> float:
 	return clamp(get_hunger_ratio() * 0.75 + (1.0 - energy) * 0.25, 0.0, 1.0)
 
@@ -73,6 +113,7 @@ func get_debug_data() -> Dictionary:
 		"hunger": hunger,
 		"max_hunger": max_hunger,
 		"hunger_ratio": get_hunger_ratio(),
+		"hunger_stage": get_hunger_stage(),
 		"hunger_growth_rate": hunger_growth_rate,
 		"energy": energy,
 		"plant_diet": plant_diet,
