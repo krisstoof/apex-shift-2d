@@ -59,6 +59,11 @@ func setup(kind: String) -> void:
 			mature_amount = 2
 			mature_color = Color(0.45, 0.45, 0.5)
 			mature_radius = 15.0
+		"meat_drop":
+			item_name = "meat"
+			mature_amount = 1
+			mature_color = Color(0.72, 0.12, 0.10)
+			mature_radius = 10.0
 		"bush":
 			item_name = "fiber"
 			mature_amount = 2
@@ -111,6 +116,11 @@ func interact(player: Node) -> void:
 		return
 	player.inventory.add_item(item_name, amount)
 	get_node("/root/EventBus").post_message("Collected %s x%d" % [item_name, amount])
+	if resource_kind == "meat_drop":
+		get_node("/root/EventBus").emit_game_event("meat_collected", {
+			"amount": amount,
+			"position": global_position
+		})
 	_emit_plant_resource_harvested()
 	if _uses_regrowth():
 		_mark_harvested()
@@ -131,6 +141,8 @@ func get_save_data() -> Dictionary:
 		"kind": resource_kind,
 		"position": _vector_to_data(global_position),
 		"biome_id": biome_id,
+		"amount": amount,
+		"mature_amount": mature_amount,
 		"growth_stage": growth_stage,
 		"max_growth_stage": max_growth_stage,
 		"growth_progress": growth_progress,
@@ -150,6 +162,8 @@ func get_save_data() -> Dictionary:
 
 func restore_from_data(data: Dictionary) -> void:
 	biome_id = str(data.get("biome_id", _get_biome_id_for_position(global_position)))
+	mature_amount = max(int(data.get("mature_amount", mature_amount)), 0)
+	amount = max(int(data.get("amount", mature_amount)), 0)
 	growth_stage = clamp(int(data.get("growth_stage", max_growth_stage)), 0, max_growth_stage)
 	growth_progress = max(float(data.get("growth_progress", 0.0)), 0.0)
 	days_to_next_stage = max(float(data.get("days_to_next_stage", _get_days_to_next_stage())), 0.1)
@@ -206,6 +220,11 @@ func set_pond_vegetation(source_pond_id: String, food_multiplier: float = 1.0, v
 	_apply_pond_visual_bonus()
 	_sync_resource_groups()
 	_apply_growth_stage()
+
+
+func set_loot_amount(loot_amount: int) -> void:
+	mature_amount = max(loot_amount, 1)
+	amount = mature_amount
 
 
 func _apply_pond_visual_bonus() -> void:
@@ -430,6 +449,8 @@ func _draw() -> void:
 			_draw_dense_grass()
 		"rock":
 			_draw_rock()
+		"meat_drop":
+			_draw_meat_drop()
 		_:
 			_draw_bush()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -524,3 +545,10 @@ func _draw_rock() -> void:
 	draw_polygon([Vector2(-17, 8), Vector2(-9, -13), Vector2(10, -12), Vector2(18, 5), Vector2(3, 16)], [Color(0.38, 0.39, 0.42)])
 	draw_polygon([Vector2(-9, -13), Vector2(10, -12), Vector2(3, 1), Vector2(-14, 4)], [Color(0.55, 0.56, 0.60)])
 	draw_line(Vector2(-5, -8), Vector2(4, 10), Color(0.22, 0.23, 0.25), 2.0)
+
+
+func _draw_meat_drop() -> void:
+	draw_circle(Vector2(-4, 2), 8.0, Color(0.58, 0.06, 0.05))
+	draw_circle(Vector2(5, -2), 7.0, Color(0.78, 0.15, 0.12))
+	draw_circle(Vector2(1, 5), 5.0, Color(0.45, 0.03, 0.03))
+	draw_line(Vector2(-7, -3), Vector2(7, 6), Color(0.95, 0.62, 0.48, 0.55), 2.0)

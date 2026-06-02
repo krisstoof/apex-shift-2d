@@ -45,6 +45,7 @@ var facing_side := 1.0
 var player: Node2D
 var flee_origin := Vector2.INF
 var plant_target: Node2D
+var dropped_meat := false
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
 
@@ -418,6 +419,7 @@ func _set_state(next_state: State) -> void:
 
 func _die(source: String) -> void:
 	state = State.DEAD
+	_drop_meat_once()
 	var event_name := "small_prey_killed_by_player"
 	if source == "varnak":
 		event_name = "small_prey_killed_by_varnak"
@@ -430,6 +432,15 @@ func _die(source: String) -> void:
 	})
 	get_node("/root/EventBus").post_message("Small prey killed")
 	queue_free()
+
+
+func _drop_meat_once() -> void:
+	if dropped_meat:
+		return
+	dropped_meat = true
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("spawn_meat_drop_for_animal"):
+		world.spawn_meat_drop_for_animal("small_prey", global_position)
 
 
 func _load_species_data() -> void:

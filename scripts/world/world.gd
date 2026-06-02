@@ -317,6 +317,32 @@ func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
 	return node
 
 
+func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
+	var amount := _get_meat_drop_amount(animal_kind)
+	if amount <= 0:
+		return null
+	var node := _spawn_resource_at("meat_drop", _clamp_position_to_world(drop_position))
+	if node.has_method("set_loot_amount"):
+		node.set_loot_amount(amount)
+	get_node("/root/EventBus").emit_game_event("animal_dropped_meat", {
+		"animal_kind": animal_kind,
+		"amount": amount,
+		"position": node.global_position
+	})
+	return node
+
+
+func _get_meat_drop_amount(animal_kind: String) -> int:
+	var loot: Dictionary = GAME_BALANCE.ANIMAL_LOOT.get(animal_kind, {})
+	if loot.is_empty():
+		return 0
+	var min_amount := int(loot.get("meat_min", 0))
+	var max_amount := int(loot.get("meat_max", min_amount))
+	if max_amount < min_amount:
+		max_amount = min_amount
+	return resource_rng.randi_range(min_amount, max_amount)
+
+
 func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
 		var biome := _pick_resource_biome(resource_kind)
