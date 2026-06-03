@@ -160,9 +160,17 @@ func _initialize_biomes() -> void:
 			"overgrazing_level": 0.0,
 			"small_prey_population": _ecosystem_value("initial_small_prey_population"),
 			"grazer_population": _ecosystem_value("initial_grazer_population"),
+			"varnak_population": 0.0,
 			"population_count": _ecosystem_value("initial_small_prey_population") + _ecosystem_value("initial_grazer_population"),
 			"average_hunger": 0.0,
 			"average_energy": 1.0,
+			"average_varnak_hunger": 0.0,
+			"average_varnak_energy": 1.0,
+			"average_varnak_fitness": 0.0,
+			"average_varnak_meat_diet": 1.0,
+			"average_varnak_scavenger_diet": 0.45,
+			"average_varnak_hunt_drive": 0.0,
+			"varnak_generation": 1,
 			"varnak_ecosystem_pressure": 0.0,
 			"food_stress": 0.0,
 			"starvation_pressure": 0.0,
@@ -191,6 +199,7 @@ func _restore_biome_states(saved_states: Dictionary) -> void:
 		for key in saved_state.keys():
 			state[key] = saved_state[key]
 		state["biome_id"] = biome_id
+		_ensure_biome_state_defaults(state)
 		state["plant_biomass_percent"] = _get_state_biomass_percent(state)
 		state["status"] = _get_biomass_status(
 			float(state.get("plant_biomass", 0.0)),
@@ -199,6 +208,17 @@ func _restore_biome_states(saved_states: Dictionary) -> void:
 		var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
 		state["food_stress"] = 1.0 if max_biomass <= 0.0 else 1.0 - clamp(float(state.get("plant_biomass", 0.0)) / max_biomass, 0.0, 1.0)
 		biome_states[biome_id] = state
+
+
+func _ensure_biome_state_defaults(state: Dictionary) -> void:
+	state["varnak_population"] = float(state.get("varnak_population", 0.0))
+	state["average_varnak_hunger"] = float(state.get("average_varnak_hunger", 0.0))
+	state["average_varnak_energy"] = float(state.get("average_varnak_energy", 1.0))
+	state["average_varnak_fitness"] = float(state.get("average_varnak_fitness", 0.0))
+	state["average_varnak_meat_diet"] = float(state.get("average_varnak_meat_diet", 1.0))
+	state["average_varnak_scavenger_diet"] = float(state.get("average_varnak_scavenger_diet", 0.45))
+	state["average_varnak_hunt_drive"] = float(state.get("average_varnak_hunt_drive", 0.0))
+	state["varnak_generation"] = int(state.get("varnak_generation", 1))
 
 
 func _get_debug_biome_id(position: Vector2) -> String:
@@ -290,26 +310,59 @@ func _update_biome_biomass(state: Dictionary) -> void:
 func _update_predator_pressure(state: Dictionary, biome_id: String) -> void:
 	var varnak_count := 0
 	var total_varnaks := 0
+	var hunger_total := 0.0
+	var energy_total := 0.0
+	var fitness_total := 0.0
+	var meat_diet_total := 0.0
+	var scavenger_diet_total := 0.0
+	var hunt_drive_total := 0.0
+	var generation_total := 0
 	for varnak in get_tree().get_nodes_in_group("varnak"):
-		if not is_instance_valid(varnak):
+		if not is_instance_valid(varnak) or not varnak.has_method("get_debug_data"):
 			continue
 		total_varnaks += 1
 		if _get_biome_id_for_position(varnak.global_position) == biome_id:
 			varnak_count += 1
+			var data: Dictionary = varnak.get_debug_data()
+			hunger_total += float(data.get("hunger_ratio", data.get("hunger", 0.0)))
+			energy_total += float(data.get("energy", 0.0))
+			fitness_total += float(data.get("fitness_score", 0.0))
+			meat_diet_total += float(data.get("meat_diet", 1.0))
+			scavenger_diet_total += float(data.get("scavenger_diet", 0.45))
+			hunt_drive_total += float(data.get("hunt_drive", 0.0))
+			generation_total += int(data.get("generation", 1))
+	state["varnak_population"] = float(varnak_count)
 	if total_varnaks <= 0:
 		state["varnak_ecosystem_pressure"] = 0.0
 		state["predator_pressure"] = 0.0
+		state["average_varnak_hunger"] = 0.0
+		state["average_varnak_energy"] = 1.0
+		state["average_varnak_fitness"] = 0.0
+		state["average_varnak_hunt_drive"] = 0.0
 		return
 	var pressure: float = clamp(float(varnak_count) / float(total_varnaks), 0.0, 1.0)
 	state["varnak_ecosystem_pressure"] = pressure
 	state["predator_pressure"] = pressure
+	if varnak_count <= 0:
+		state["average_varnak_hunger"] = 0.0
+		state["average_varnak_energy"] = 1.0
+		state["average_varnak_fitness"] = 0.0
+		state["average_varnak_hunt_drive"] = 0.0
+		return
+	state["average_varnak_hunger"] = hunger_total / float(varnak_count)
+	state["average_varnak_energy"] = energy_total / float(varnak_count)
+	state["average_varnak_fitness"] = fitness_total / float(varnak_count)
+	state["average_varnak_meat_diet"] = meat_diet_total / float(varnak_count)
+	state["average_varnak_scavenger_diet"] = scavenger_diet_total / float(varnak_count)
+	state["average_varnak_hunt_drive"] = hunt_drive_total / float(varnak_count)
+	state["varnak_generation"] = int(round(float(generation_total) / float(varnak_count)))
 
 
 func _update_visible_creature_aggregates(state: Dictionary, biome_id: String) -> void:
 	var count := 0
 	var hunger_total := 0.0
 	var energy_total := 0.0
-	for group_name in ["small_prey", "grazer"]:
+	for group_name in ["small_prey", "grazer", "varnak"]:
 		for creature in get_tree().get_nodes_in_group(group_name):
 			if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
 				continue
@@ -333,6 +386,7 @@ func _update_biome_populations(state: Dictionary) -> void:
 	var food_stress := float(state.get("food_stress", 0.0))
 	var small_prey_population := float(state.get("small_prey_population", 0.0))
 	var grazer_population := float(state.get("grazer_population", 0.0))
+	var varnak_population := float(state.get("varnak_population", 0.0))
 	var omnivore_resilience := (
 		float(state.get("average_meat_diet", _ecosystem_value("initial_average_meat_diet")))
 		+ float(state.get("average_scavenger_diet", _ecosystem_value("initial_average_scavenger_diet")))
@@ -347,7 +401,7 @@ func _update_biome_populations(state: Dictionary) -> void:
 	state["small_prey_population"] = clamp(small_prey_population + small_prey_delta, 0.0, _ecosystem_value("max_small_prey_population"))
 	state["grazer_population"] = clamp(grazer_population + grazer_delta, 0.0, _ecosystem_value("max_grazer_population"))
 	var total_delta := small_prey_delta + grazer_delta
-	state["population_count"] = float(state.get("small_prey_population", 0.0)) + float(state.get("grazer_population", 0.0))
+	state["population_count"] = float(state.get("small_prey_population", 0.0)) + float(state.get("grazer_population", 0.0)) + varnak_population
 	state["birth_rate"] = max(total_delta, 0.0)
 	state["death_rate"] = max(-total_delta, 0.0)
 	state["starvation_pressure"] = food_stress
@@ -410,6 +464,8 @@ func _on_game_event(event_name: String, payload: Dictionary) -> void:
 			_apply_visible_plant_consumption(payload)
 		"grazer_scavenged", "grazer_hunted_small_prey":
 			_record_grazer_non_plant_food(payload)
+		"varnak_killed_by_player", "varnak_killed_by_trap":
+			_apply_varnak_death(payload)
 		"plant_resource_harvested":
 			_apply_harvested_plant_pressure(payload)
 
@@ -429,6 +485,15 @@ func _apply_grazer_death(payload: Dictionary) -> void:
 		return
 	var state: Dictionary = biome_states[biome_id]
 	state["grazer_population"] = max(float(state.get("grazer_population", 0.0)) - 1.0, 0.0)
+	biome_states[biome_id] = state
+
+
+func _apply_varnak_death(payload: Dictionary) -> void:
+	var biome_id := str(payload.get("biome_id", ""))
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	state["varnak_population"] = max(float(state.get("varnak_population", 0.0)) - 1.0, 0.0)
 	biome_states[biome_id] = state
 
 
