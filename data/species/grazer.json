@@ -1,6 +1,9 @@
 {
   "id": "grazer",
+  "species_id": "grazer",
   "display_name": "Grazer",
+  "species_name": "Grazer",
+  "generation": 1,
   "tier": 2,
   "base_traits": {
     "health": 45,
