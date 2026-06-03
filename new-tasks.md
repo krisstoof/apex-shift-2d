@@ -366,7 +366,28 @@ Kilka ognisk nie mnoży efektu.
 Debug pokazuje campfire_regen_active.
 Wartości są konfigurowalne w GameBalance.
 
-Issue 16: [PERFORMANCE] Cleanup and optimize living world systems
+Issue 16: [BUG] Fix campfire stamina regeneration behavior
+
+Cel
+Poprawić regenerację staminy przy ognisku.
+Problem
+Wcześniej planowaliśmy, że przy ognisku gracz powinien szybciej regenerować staminę/rest, ale nowa uwaga wskazuje, że regeneracja staminy przy ognisku nadal wymaga poprawki.
+Zakres
+
+czy gracz jest w zasięgu aktywnego ogniska
+czy ognisko jest aktywne
+czy stamina regen multiplier jest stosowany
+czy efekt nie stackuje się od wielu ognisk
+czy HUD/debug pokazuje aktywny efekt
+Acceptance Criteria
+
+Stamina regeneruje się szybciej przy aktywnym ognisku.
+Po odejściu od ogniska regeneracja wraca do normalnej.
+Kilka ognisk nie mnoży efektu.
+Debug pokazuje campfire_regen_active.
+Wartości są konfigurowalne w GameBalance.
+
+Issue 17: [PERFORMANCE] Cleanup and optimize living world systems
 Labels: type: refactor, type: performance, area: world, area: ecosystem, area: ai, priority: high, stage: cleanup
 Cel
 Wyczyścić i zoptymalizować kod po rozbudowie ekosystemu.
@@ -398,7 +419,7 @@ Debug panel pozostaje responsywny.
 Brak oczywistych duplikacji kodu między SmallPrey, Grazerem i Varnakiem.
 Najczęstsze magic numbers są przeniesione do GameBalance.
 
-Issue 17: [TESTS] Add unit tests for ecosystem and creature helpers
+Issue 18: [TESTS] Add unit tests for ecosystem and creature helpers
 Labels: type: test, area: tests, area: ecosystem, area: creatures, priority: high, stage: validation
 Cel
 Dodać testy jednostkowe dla logiki ekosystemu i pomocniczych systemów stworzeń.
@@ -420,7 +441,7 @@ Istnieją testy dla przechodzenia etapów odrastania zasobów.
 Istnieją testy dla wyboru jedzenia według diety.
 Testy można uruchomić lokalnie jako część procesu walidacji.
 
-Issue 18: [TESTS] Add integration tests for living world flows
+Issue 19: [TESTS] Add integration tests for living world flows
 Labels: type: test, area: tests, area: world, area: ecosystem, area: ai, priority: high, stage: validation
 Cel
 Dodać testy integracyjne lub scenariusze automatyczne dla głównych przepływów żywego świata.
@@ -445,7 +466,7 @@ Testy wykrywają brak mięsa po śmierci zwierzęcia.
 Testy sprawdzają save/load ekosystemu.
 Testy są opisane w dokumentacji projektu.
 
-Issue 19: [DOCS] Update application overview after ecosystem stabilization
+Issue 20: [DOCS] Update application overview after ecosystem stabilization
 Labels: type: documentation, area: docs, area: ecosystem, priority: medium, stage: validation
 Cel
 Zaktualizować dokumentację po wdrożeniu stabilizacji ekosystemu.
