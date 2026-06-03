@@ -74,7 +74,7 @@ func _refresh_hud_text() -> void:
 	var time_label: String = day_night_system.get_time_label() if day_night_system.has_method("get_time_label") else ""
 	clock_label.text = "%s\n%s" % [clock_text, time_label]
 	stats_label.text = "\n".join([
-		"Health: %3d  Hunger: %3d  Stamina: %3d  Rest: %3d  %s" % [player.stats.health, player.stats.hunger, player.stats.stamina, player.stats.rest, player.stats.get_condition_text()],
+		"Health: %3d  Hunger: %3d  Stamina: %3d  Rest: %3d  %s%s" % [player.stats.health, player.stats.hunger, player.stats.stamina, player.stats.rest, player.stats.get_condition_text(), _get_campfire_regen_status_text()],
 		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Torch: %d %s  Spear: %s  Bow: %s" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber"), player.inventory.get_amount("meat"), player.inventory.get_amount("torch"), _get_torch_status_text(), "yes" if player.has_spear else "no", "yes" if player.has_bow else "no"]
 	])
 	prompt_label.text = player.get_interaction_prompt() if player.has_method("get_interaction_prompt") else ""
@@ -86,6 +86,12 @@ func _on_message(new_message: String) -> void:
 	message_history.append(new_message)
 	if message_history.size() > 4:
 		message_history.pop_front()
+
+
+func _get_campfire_regen_status_text() -> String:
+	if player and player.stats and player.stats.campfire_regen_active:
+		return " campfire_regen_active"
+	return ""
 
 
 func _on_game_event(event_name: String, payload: Dictionary) -> void:

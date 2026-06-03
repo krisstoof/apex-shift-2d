@@ -73,6 +73,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	global_position.x = clamp(global_position.x, -world_limits.x, world_limits.x)
 	global_position.y = clamp(global_position.y, -world_limits.y, world_limits.y)
+	_update_campfire_regen_state()
 	stats.tick(delta, wants_run)
 
 
@@ -155,6 +156,28 @@ func _is_in_water() -> bool:
 	if world and world.has_method("is_position_in_water"):
 		return world.is_position_in_water(global_position) == true
 	return false
+
+
+func _update_campfire_regen_state() -> void:
+	var nearest_active_distance := INF
+	var regen_active := false
+	for campfire_node in get_tree().get_nodes_in_group("campfires"):
+		if not is_instance_valid(campfire_node):
+			continue
+		if campfire_node.get("active") != true:
+			continue
+		var campfire := campfire_node as Node2D
+		if not campfire:
+			continue
+		var distance := global_position.distance_to(campfire.global_position)
+		nearest_active_distance = min(nearest_active_distance, distance)
+		var radius := GAME_BALANCE.CAMPFIRE_STAMINA_REGEN_RADIUS
+		var custom_radius: Variant = campfire_node.get("stamina_regen_radius")
+		if custom_radius != null:
+			radius = float(custom_radius)
+		if distance <= radius:
+			regen_active = true
+	stats.set_campfire_regen(regen_active, nearest_active_distance if regen_active else -1.0)
 
 
 func debug_add_item(item_name: String, amount := 1) -> void:
