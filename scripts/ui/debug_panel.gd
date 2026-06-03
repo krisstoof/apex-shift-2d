@@ -839,6 +839,7 @@ func _get_creature_debug_stat_lines(group_name: String, label: String) -> Array[
 			_get_debug_text(data, "current_target"),
 			_get_debug_text(data, "last_food_source")
 		],
+		"  decision %s" % _get_debug_text(data, "decision_reason"),
 		"  health %.0f/%.0f | speed %.0f | age %.1fs" % [
 			_get_debug_float(data, "health"),
 			_get_debug_float(data, "max_health"),

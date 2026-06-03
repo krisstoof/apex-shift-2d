@@ -127,7 +127,11 @@ const ANIMAL_AI := {
 	"food_search_radius": 520.0,
 	"desperate_food_search_radius": 780.0,
 	"prey_detect_radius": 260.0,
-	"water_search_radius": 680.0
+	"water_search_radius": 680.0,
+	"target_lock_seconds": 0.85,
+	"failed_food_retarget_seconds": 0.55,
+	"grazer_predation_min_drive": 0.82,
+	"grazer_predation_min_aggression": 0.22
 }
 
 # Predator behavior tuning for Varnaks when they participate in the ecosystem
@@ -143,7 +147,13 @@ const VARNAK_HUNTING := {
 	"player_chase_priority": 0.85,
 	"night_hunting_multiplier": 1.25,
 	"fire_avoidance_priority": 1.10,
-	"torch_avoidance_priority": 0.75
+	"torch_avoidance_priority": 0.75,
+	"target_lock_seconds": 1.10,
+	"local_patrol_radius": 320.0,
+	"hungry_roam_radius": 720.0,
+	"starving_roam_radius": 1120.0,
+	"hunting_roam_target_reached_distance": 90.0,
+	"cross_biome_hunt_drive": 0.55
 }
 
 # Ranged combat values reserved for the bow and arrow projectile systems.

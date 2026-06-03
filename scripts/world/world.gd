@@ -8,12 +8,18 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
+const VARNAK_SPAWN_TICK_SECONDS := 5.5
 const SMALL_PREY_MAX_VISIBLE_COUNT := 12
 const SMALL_PREY_MAX_VISIBLE_PER_BIOME := 5
 const SMALL_PREY_VISIBLE_SPAWN_RADIUS := 850.0
 const SMALL_PREY_PLAYER_SAFE_DISTANCE := 240.0
 const SMALL_PREY_MIN_DISTANCE := 190.0
 const INITIAL_GRAZER_VISIBLE_COUNT := 3
+const GRAZER_INITIAL_PLAYER_SAFE_DISTANCE := 720.0
+const VARNAK_MAX_VISIBLE_COUNT := 4
+const VARNAK_MAX_VISIBLE_PER_BIOME := 2
+const VARNAK_VISIBLE_SPAWN_RADIUS := 1250.0
+const VARNAK_MIN_DISTANCE := 360.0
 const GRAZER_VISIBLE_SPAWN_RADIUS := 1000.0
 const GRAZER_PLAYER_SAFE_DISTANCE := 340.0
 const GRAZER_MIN_DISTANCE := 300.0
@@ -59,6 +65,7 @@ var varnak_rng := RandomNumberGenerator.new()
 var small_prey_rng := RandomNumberGenerator.new()
 var grazer_rng := RandomNumberGenerator.new()
 var small_prey_spawn_timer := 0.0
+var varnak_spawn_timer := 0.0
 var landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
 var pond_landmarks: Array[Dictionary] = []
@@ -85,7 +92,7 @@ func _ready() -> void:
 	_spawn_resources()
 	_sync_visible_small_prey()
 	_spawn_initial_grazers()
-	_spawn_varnaks()
+	_sync_visible_varnaks()
 	queue_redraw()
 
 
@@ -94,6 +101,10 @@ func _process(delta: float) -> void:
 	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
 		small_prey_spawn_timer = 0.0
 		_sync_visible_small_prey()
+	varnak_spawn_timer += delta
+	if varnak_spawn_timer >= VARNAK_SPAWN_TICK_SECONDS:
+		varnak_spawn_timer = 0.0
+		_sync_visible_varnaks()
 	world_background_redraw_timer += delta
 	var current_night_amount := _get_night_amount()
 	if world_background_redraw_timer >= WORLD_BACKGROUND_REDRAW_INTERVAL or abs(current_night_amount - last_drawn_night_amount) >= NIGHT_REDRAW_MIN_DELTA:
@@ -1021,25 +1032,61 @@ func _is_point_in_scaled_biome(point: Vector2, biome: Dictionary) -> bool:
 
 func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
 	var small_prey := SMALL_PREY_SCENE.instantiate()
-	add_child(small_prey)
 	small_prey.global_position = pos
 	if small_prey.has_method("setup"):
 		small_prey.setup(biome_id)
+	add_child(small_prey)
 	return small_prey
 
 
 func _spawn_initial_grazers() -> void:
 	var player_position := _get_player_position()
-	var player_biome := _get_biome_for_position(player_position)
-	if player_biome.is_empty():
+	var grazer_biomes := _get_initial_grazer_biomes()
+	if grazer_biomes.is_empty():
 		return
 	var spawned := 0
 	var used_positions := _get_existing_grazer_positions()
-	for _i in INITIAL_GRAZER_VISIBLE_COUNT:
-		if _try_spawn_grazer_near_player(player_biome, player_position, used_positions):
+	for i in INITIAL_GRAZER_VISIBLE_COUNT:
+		var biome := Dictionary(grazer_biomes[i % grazer_biomes.size()])
+		if _try_spawn_grazer_in_biome(biome, player_position, used_positions):
 			spawned += 1
 	if spawned > 0:
-		get_node("/root/EventBus").post_message("%d Grazer%s entered the ecosystem" % [spawned, "" if spawned == 1 else "s"])
+		get_node("/root/EventBus").post_message("%d Grazer%s dispersed into the ecosystem" % [spawned, "" if spawned == 1 else "s"])
+
+
+func _get_initial_grazer_biomes() -> Array[Dictionary]:
+	var biomes: Array[Dictionary] = []
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		if biome.get("dangerous", false) == true:
+			continue
+		biomes.append(biome)
+	biomes.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_score := float(a.get("grass_weight", 1.0)) + float(a.get("bush_weight", 1.0)) * 0.35
+		var b_score := float(b.get("grass_weight", 1.0)) + float(b.get("bush_weight", 1.0)) * 0.35
+		return a_score > b_score
+	)
+	return biomes
+
+
+func _try_spawn_grazer_in_biome(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
+	var spawn_area := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+		var candidate := Vector2(
+			grazer_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
+			grazer_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
+		)
+		if not _is_point_in_biome(candidate, biome):
+			continue
+		if not _is_valid_initial_grazer_position(candidate, used_positions, player_position):
+			continue
+		used_positions.append(candidate)
+		var grazer := _spawn_grazer_at(candidate, _get_biome_id(biome))
+		grazer.set("hunger", grazer_rng.randf_range(0.04, 0.22))
+		grazer.set("energy", grazer_rng.randf_range(0.78, 1.0))
+		grazer.set("decision_reason", "initial_map_distribution")
+		return true
+	return false
 
 
 func _try_spawn_grazer_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
@@ -1077,6 +1124,24 @@ func _get_existing_grazer_positions() -> Array[Vector2]:
 	return positions
 
 
+func _get_existing_varnak_positions() -> Array[Vector2]:
+	var positions: Array[Vector2] = []
+	for varnak in get_tree().get_nodes_in_group("varnak"):
+		if is_instance_valid(varnak):
+			positions.append(varnak.global_position)
+	return positions
+
+
+func _get_visible_varnak_count(biome_id: String) -> int:
+	var count := 0
+	for varnak in get_tree().get_nodes_in_group("varnak"):
+		if not is_instance_valid(varnak):
+			continue
+		if _get_biome_id_for_position(varnak.global_position) == biome_id:
+			count += 1
+	return count
+
+
 func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
 	return _is_valid_creature_spawn_position(
 		candidate,
@@ -1087,33 +1152,81 @@ func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2
 	)
 
 
+func _is_valid_initial_grazer_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	if not _is_valid_creature_spawn_position(
+		candidate,
+		used_positions,
+		GRAZER_MIN_DISTANCE,
+		player_position,
+		GRAZER_INITIAL_PLAYER_SAFE_DISTANCE
+	):
+		return false
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("is_creature_navigation_blocked") and world.is_creature_navigation_blocked(candidate) == true:
+		return false
+	return true
+
+
+func _try_spawn_varnak_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
+	for _attempt in WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS:
+		var offset := Vector2.RIGHT.rotated(varnak_rng.randf_range(0.0, TAU)) * varnak_rng.randf_range(WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE, VARNAK_VISIBLE_SPAWN_RADIUS)
+		var candidate := player_position + offset
+		if not _is_point_in_biome(candidate, biome):
+			continue
+		if not _is_valid_varnak_spawn_position(candidate, player_position, used_positions):
+			continue
+		used_positions.append(candidate)
+		var varnak := _spawn_varnak_at(candidate)
+		varnak.set("hunger", varnak_rng.randf_range(0.12, 0.42))
+		varnak.set("energy", varnak_rng.randf_range(0.72, 0.96))
+		varnak.set("decision_reason", "entered_visible_area")
+		return true
+	return false
+
+
 func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
 	var grazer := GRAZER_SCENE.instantiate()
-	add_child(grazer)
 	grazer.global_position = pos
 	if grazer.has_method("setup"):
 		grazer.setup(biome_id)
+	add_child(grazer)
 	return grazer
 
 
-func _spawn_varnaks() -> void:
-	for _i in WORLD_CONFIG.VARNAK_TARGET_COUNT:
-		if not _try_spawn_missing_varnak():
-			push_warning("Could not find a safe initial Varnak spawn point")
+func _sync_visible_varnaks() -> void:
+	var player_position := _get_player_position()
+	_prune_distant_varnaks(player_position)
+	var player_biome := _get_biome_for_position(player_position)
+	if player_biome.is_empty():
+		return
+	if player_biome.get("dangerous", false) != true:
+		return
+	var biome_id := _get_biome_id(player_biome)
+	var current_biome_count := _get_visible_varnak_count(biome_id)
+	var global_count := get_tree().get_nodes_in_group("varnak").size()
+	var spawn_budget: int = min(VARNAK_MAX_VISIBLE_PER_BIOME - current_biome_count, VARNAK_MAX_VISIBLE_COUNT - global_count)
+	if spawn_budget <= 0:
+		return
+	var spawned := 0
+	var used_positions := _get_existing_varnak_positions()
+	for _i in spawn_budget:
+		if _try_spawn_varnak_near_player(player_biome, player_position, used_positions):
+			spawned += 1
+	if spawned > 0:
+		get_node("/root/EventBus").post_message("%d Varnak%s entered the area" % [spawned, "" if spawned == 1 else "s"])
+
+
+func _prune_distant_varnaks(player_position: Vector2) -> void:
+	var despawn_distance := VARNAK_VISIBLE_SPAWN_RADIUS * 1.45
+	for varnak in get_tree().get_nodes_in_group("varnak"):
+		if not is_instance_valid(varnak):
+			continue
+		if varnak.global_position.distance_to(player_position) > despawn_distance:
+			varnak.queue_free()
 
 
 func respawn_missing_varnaks() -> void:
-	var missing_count := WORLD_CONFIG.VARNAK_TARGET_COUNT - get_tree().get_nodes_in_group("varnak").size()
-	if missing_count <= 0:
-		return
-	var spawned := 0
-	for _i in missing_count:
-		if not _try_spawn_missing_varnak():
-			push_warning("Could not find a safe Varnak spawn point")
-			continue
-		spawned += 1
-	if spawned > 0:
-		get_node("/root/EventBus").post_message("%d Varnak%s returned after sleep" % [spawned, "" if spawned == 1 else "s"])
+	_sync_visible_varnaks()
 
 
 func respawn_varnaks() -> void:
@@ -1121,7 +1234,7 @@ func respawn_varnaks() -> void:
 		if is_instance_valid(varnak):
 			varnak.queue_free()
 	await get_tree().process_frame
-	_spawn_varnaks()
+	_sync_visible_varnaks()
 	get_node("/root/EventBus").post_message("Varnaks respawned with current profile")
 
 
@@ -1252,51 +1365,27 @@ func _restore_creature_group(group_name: String, creature_data: Array, scene: Pa
 		if typeof(data_value) != TYPE_DICTIONARY:
 			continue
 		var creature := scene.instantiate()
-		add_child(creature)
 		if creature.has_method("restore_from_data"):
 			creature.restore_from_data(Dictionary(data_value))
+		add_child(creature)
 
 
 func _spawn_varnak_at(pos: Vector2) -> Node:
 	var varnak := VARNAK_SCENE.instantiate()
-	add_child(varnak)
 	varnak.global_position = pos
 	varnak.apply_profile(evolution_director.get_profile())
 	varnak.day_night_system = day_night_system
+	add_child(varnak)
 	return varnak
 
 
 func _restore_varnak_from_data(data: Dictionary) -> void:
 	var varnak := VARNAK_SCENE.instantiate()
-	add_child(varnak)
 	varnak.apply_profile(evolution_director.get_profile())
 	varnak.day_night_system = day_night_system
 	if varnak.has_method("restore_from_data"):
 		varnak.restore_from_data(data)
-
-
-func _try_spawn_missing_varnak() -> bool:
-	var player_position := _get_player_position()
-	for _attempt in WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS:
-		var point := _pick_varnak_spawn_point()
-		if _is_valid_varnak_spawn_position(point, player_position):
-			_spawn_varnak_at(point)
-			return true
-	return false
-
-
-func _pick_varnak_spawn_point() -> Vector2:
-	var total_weight := 0.0
-	for point_value in WORLD_CONFIG.VARNAK_SPAWN_POINTS:
-		total_weight += _get_varnak_spawn_weight(_scale_world_point(Vector2(point_value)))
-	var roll := varnak_rng.randf_range(0.0, total_weight)
-	var cursor := 0.0
-	for point_value in WORLD_CONFIG.VARNAK_SPAWN_POINTS:
-		var point := _scale_world_point(Vector2(point_value))
-		cursor += _get_varnak_spawn_weight(point)
-		if roll <= cursor:
-			return point
-	return _scale_world_point(Vector2(WORLD_CONFIG.VARNAK_SPAWN_POINTS[0]))
+	add_child(varnak)
 
 
 func _get_debug_animal_spawn_position() -> Vector2:
@@ -1394,15 +1483,18 @@ func _is_point_in_dangerous_biome(point: Vector2) -> bool:
 	return false
 
 
-func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2) -> bool:
+func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2, used_positions: Array[Vector2] = []) -> bool:
 	if not WORLD_CONFIG.WORLD_RECT.has_point(point):
 		return false
 	if is_creature_spawn_blocked_by_water(point):
 		return false
 	if point.distance_to(player_position) < WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE:
 		return false
+	for used_position in used_positions:
+		if point.distance_to(used_position) < VARNAK_MIN_DISTANCE:
+			return false
 	for varnak in get_tree().get_nodes_in_group("varnak"):
-		if is_instance_valid(varnak) and varnak.global_position.distance_to(point) < 80.0:
+		if is_instance_valid(varnak) and varnak.global_position.distance_to(point) < VARNAK_MIN_DISTANCE:
 			return false
 	return true
 
