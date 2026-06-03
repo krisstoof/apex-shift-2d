@@ -1,6 +1,9 @@
 {
   "id": "small_prey",
+  "species_id": "small_prey",
   "display_name": "Small Prey",
+  "species_name": "Small Prey",
+  "generation": 1,
   "tier": 1,
   "base_traits": {
     "health": 20,
@@ -14,5 +17,9 @@
     "scavenger_diet": 0.0,
     "plant_consumption_rate": 0.4,
     "reproduction_rate": 0.6
+  },
+  "evolution": {
+    "mutation_rate": 0.02,
+    "selection_pressure": "predator_food_survival"
   }
 }

@@ -56,15 +56,32 @@ func get_biome_status(biome_id: String) -> String:
 	return str(get_biome_state(biome_id).get("status", "unknown"))
 
 
+func get_small_prey_traits(biome_id: String) -> Dictionary:
+	var state := get_biome_state(biome_id)
+	if state.is_empty():
+		return {}
+	return {
+		"biome_id": biome_id,
+		"generation": int(state.get("small_prey_generation", 1)),
+		"fear": float(state.get("average_small_prey_fear", _ecosystem_value("initial_small_prey_fear"))),
+		"speed": float(state.get("average_small_prey_speed", _ecosystem_value("initial_small_prey_speed"))),
+		"reproduction_value": float(state.get("average_small_prey_reproduction", _ecosystem_value("initial_small_prey_reproduction"))),
+		"plant_diet": 1.0
+	}
+
+
 func get_grazer_traits(biome_id: String) -> Dictionary:
 	var state := get_biome_state(biome_id)
 	if state.is_empty():
 		return {}
 	return {
+		"biome_id": biome_id,
+		"generation": int(state.get("grazer_generation", 1)),
 		"plant_diet": float(state.get("average_plant_diet", _ecosystem_value("initial_average_plant_diet"))),
 		"meat_diet": float(state.get("average_meat_diet", _ecosystem_value("initial_average_meat_diet"))),
 		"scavenger_diet": float(state.get("average_scavenger_diet", _ecosystem_value("initial_average_scavenger_diet"))),
 		"aggression": float(state.get("average_aggression", _ecosystem_value("initial_average_aggression"))),
+		"reproduction_rate": float(state.get("average_grazer_reproduction", _ecosystem_value("initial_grazer_reproduction"))),
 		"current_niche": str(state.get("current_niche", "HERBIVORE"))
 	}
 
@@ -164,6 +181,12 @@ func _initialize_biomes() -> void:
 			"population_count": _ecosystem_value("initial_small_prey_population") + _ecosystem_value("initial_grazer_population"),
 			"average_hunger": 0.0,
 			"average_energy": 1.0,
+			"small_prey_generation": 1,
+			"small_prey_pressure_ticks": 0,
+			"average_small_prey_fear": _ecosystem_value("initial_small_prey_fear"),
+			"average_small_prey_speed": _ecosystem_value("initial_small_prey_speed"),
+			"average_small_prey_reproduction": _ecosystem_value("initial_small_prey_reproduction"),
+			"average_small_prey_fitness": 0.0,
 			"average_varnak_hunger": 0.0,
 			"average_varnak_energy": 1.0,
 			"average_varnak_fitness": 0.0,
@@ -178,6 +201,10 @@ func _initialize_biomes() -> void:
 			"average_meat_diet": _ecosystem_value("initial_average_meat_diet"),
 			"average_scavenger_diet": _ecosystem_value("initial_average_scavenger_diet"),
 			"average_aggression": _ecosystem_value("initial_average_aggression"),
+			"grazer_generation": 1,
+			"grazer_pressure_ticks": 0,
+			"average_grazer_reproduction": _ecosystem_value("initial_grazer_reproduction"),
+			"average_grazer_fitness": 0.0,
 			"birth_rate": 0.0,
 			"death_rate": 0.0,
 			"current_niche": "HERBIVORE",
@@ -211,6 +238,16 @@ func _restore_biome_states(saved_states: Dictionary) -> void:
 
 
 func _ensure_biome_state_defaults(state: Dictionary) -> void:
+	state["small_prey_generation"] = int(state.get("small_prey_generation", 1))
+	state["small_prey_pressure_ticks"] = int(state.get("small_prey_pressure_ticks", 0))
+	state["average_small_prey_fear"] = float(state.get("average_small_prey_fear", _ecosystem_value("initial_small_prey_fear")))
+	state["average_small_prey_speed"] = float(state.get("average_small_prey_speed", _ecosystem_value("initial_small_prey_speed")))
+	state["average_small_prey_reproduction"] = float(state.get("average_small_prey_reproduction", _ecosystem_value("initial_small_prey_reproduction")))
+	state["average_small_prey_fitness"] = float(state.get("average_small_prey_fitness", 0.0))
+	state["grazer_generation"] = int(state.get("grazer_generation", 1))
+	state["grazer_pressure_ticks"] = int(state.get("grazer_pressure_ticks", 0))
+	state["average_grazer_reproduction"] = float(state.get("average_grazer_reproduction", _ecosystem_value("initial_grazer_reproduction")))
+	state["average_grazer_fitness"] = float(state.get("average_grazer_fitness", 0.0))
 	state["varnak_population"] = float(state.get("varnak_population", 0.0))
 	state["average_varnak_hunger"] = float(state.get("average_varnak_hunger", 0.0))
 	state["average_varnak_energy"] = float(state.get("average_varnak_energy", 1.0))
@@ -280,6 +317,7 @@ func _update_ecosystem_tick() -> void:
 			float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
 		)
 		_update_grazer_niche_shift(state)
+		_update_species_generations(state)
 		biome_states[biome_id] = state
 		_emit_vegetation_changed(state)
 		_emit_status_event_if_needed(previous_status, state)
@@ -362,6 +400,16 @@ func _update_visible_creature_aggregates(state: Dictionary, biome_id: String) ->
 	var count := 0
 	var hunger_total := 0.0
 	var energy_total := 0.0
+	var small_prey_count := 0
+	var small_prey_generation_total := 0
+	var small_prey_fear_total := 0.0
+	var small_prey_speed_total := 0.0
+	var small_prey_reproduction_total := 0.0
+	var small_prey_fitness_total := 0.0
+	var grazer_count := 0
+	var grazer_generation_total := 0
+	var grazer_reproduction_total := 0.0
+	var grazer_fitness_total := 0.0
 	for group_name in ["small_prey", "grazer", "varnak"]:
 		for creature in get_tree().get_nodes_in_group(group_name):
 			if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
@@ -372,6 +420,34 @@ func _update_visible_creature_aggregates(state: Dictionary, biome_id: String) ->
 			hunger_total += float(data.get("hunger_ratio", data.get("hunger", 0.0)))
 			energy_total += float(data.get("energy", 0.0))
 			count += 1
+			if group_name == "small_prey":
+				small_prey_count += 1
+				small_prey_generation_total += int(data.get("generation", 1))
+				small_prey_fear_total += float(data.get("fear", _ecosystem_value("initial_small_prey_fear")))
+				small_prey_speed_total += float(data.get("speed", _ecosystem_value("initial_small_prey_speed")))
+				small_prey_reproduction_total += float(data.get("reproduction_value", _ecosystem_value("initial_small_prey_reproduction")))
+				small_prey_fitness_total += float(data.get("fitness_score", 0.0))
+			elif group_name == "grazer":
+				grazer_count += 1
+				grazer_generation_total += int(data.get("generation", 1))
+				grazer_reproduction_total += float(data.get("reproduction_rate", _ecosystem_value("initial_grazer_reproduction")))
+				grazer_fitness_total += float(data.get("fitness_score", 0.0))
+	if small_prey_count > 0:
+		var visible_small_prey_generation := int(round(float(small_prey_generation_total) / float(small_prey_count)))
+		state["small_prey_generation"] = max(int(state.get("small_prey_generation", 1)), visible_small_prey_generation)
+		state["average_small_prey_fear"] = small_prey_fear_total / float(small_prey_count)
+		state["average_small_prey_speed"] = small_prey_speed_total / float(small_prey_count)
+		state["average_small_prey_reproduction"] = small_prey_reproduction_total / float(small_prey_count)
+		state["average_small_prey_fitness"] = small_prey_fitness_total / float(small_prey_count)
+	else:
+		state["average_small_prey_fitness"] = 0.0
+	if grazer_count > 0:
+		var visible_grazer_generation := int(round(float(grazer_generation_total) / float(grazer_count)))
+		state["grazer_generation"] = max(int(state.get("grazer_generation", 1)), visible_grazer_generation)
+		state["average_grazer_reproduction"] = grazer_reproduction_total / float(grazer_count)
+		state["average_grazer_fitness"] = grazer_fitness_total / float(grazer_count)
+	else:
+		state["average_grazer_fitness"] = 0.0
 	if count <= 0:
 		state["average_hunger"] = 0.0
 		state["average_energy"] = 1.0
@@ -549,6 +625,59 @@ func _update_grazer_niche_status(state: Dictionary) -> void:
 		"average_scavenger_diet": float(state.get("average_scavenger_diet", 0.0)),
 		"average_aggression": float(state.get("average_aggression", 0.0))
 	})
+
+
+func _update_species_generations(state: Dictionary) -> void:
+	var required_ticks: int = max(int(round(_ecosystem_value("species_generation_ticks_required"))), 1)
+	var threshold: float = _ecosystem_value("species_generation_pressure_threshold")
+	var predator_pressure := float(state.get("predator_pressure", 0.0))
+	var food_stress := float(state.get("food_stress", 0.0))
+	var small_prey_population := float(state.get("small_prey_population", 0.0))
+	var grazer_population := float(state.get("grazer_population", 0.0))
+	var small_prey_pressure: float = clamp(predator_pressure * 0.75 + food_stress * 0.25, 0.0, 1.0)
+	var grazer_pressure: float = clamp(food_stress * 0.70 + predator_pressure * 0.30, 0.0, 1.0)
+	if small_prey_population > 0.0 and small_prey_pressure >= threshold:
+		state["small_prey_pressure_ticks"] = int(state.get("small_prey_pressure_ticks", 0)) + 1
+		if int(state.get("small_prey_pressure_ticks", 0)) >= required_ticks:
+			state["small_prey_generation"] = int(state.get("small_prey_generation", 1)) + 1
+			state["average_small_prey_fear"] = clamp(
+				float(state.get("average_small_prey_fear", _ecosystem_value("initial_small_prey_fear"))) + _ecosystem_value("small_prey_fear_shift_rate"),
+				0.2,
+				1.8
+			)
+			state["average_small_prey_speed"] = clamp(
+				float(state.get("average_small_prey_speed", _ecosystem_value("initial_small_prey_speed"))) + _ecosystem_value("small_prey_speed_shift_rate"),
+				35.0,
+				150.0
+			)
+			state["average_small_prey_reproduction"] = clamp(
+				float(state.get("average_small_prey_reproduction", _ecosystem_value("initial_small_prey_reproduction"))) - _ecosystem_value("small_prey_reproduction_shift_rate") * food_stress,
+				0.12,
+				1.2
+			)
+			state["small_prey_pressure_ticks"] = 0
+	else:
+		state["small_prey_pressure_ticks"] = 0
+	if grazer_population > 0.0 and grazer_pressure >= threshold:
+		state["grazer_pressure_ticks"] = int(state.get("grazer_pressure_ticks", 0)) + 1
+		if int(state.get("grazer_pressure_ticks", 0)) >= required_ticks:
+			state["grazer_generation"] = int(state.get("grazer_generation", 1)) + 1
+			state["average_aggression"] = clamp(
+				float(state.get("average_aggression", _ecosystem_value("initial_average_aggression"))) + _ecosystem_value("grazer_generation_aggression_shift_rate"),
+				0.0,
+				1.0
+			)
+			var reproduction_delta: float = _ecosystem_value("grazer_generation_reproduction_shift_rate")
+			if food_stress > predator_pressure:
+				reproduction_delta *= -1.0
+			state["average_grazer_reproduction"] = clamp(
+				float(state.get("average_grazer_reproduction", _ecosystem_value("initial_grazer_reproduction"))) + reproduction_delta,
+				0.08,
+				1.0
+			)
+			state["grazer_pressure_ticks"] = 0
+	else:
+		state["grazer_pressure_ticks"] = 0
 
 
 func _apply_visible_plant_consumption(payload: Dictionary) -> void:

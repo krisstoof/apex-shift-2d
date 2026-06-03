@@ -647,6 +647,20 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 			float(state.get("average_scavenger_diet", 0.10)),
 			float(state.get("average_aggression", 0.15))
 		])
+		lines.append("  prey gen %d | fear %.2f | speed %d | repro %.2f | fit %d%%" % [
+			int(state.get("small_prey_generation", 1)),
+			float(state.get("average_small_prey_fear", 0.90)),
+			int(round(float(state.get("average_small_prey_speed", 90.0)))),
+			float(state.get("average_small_prey_reproduction", 0.60)),
+			int(round(float(state.get("average_small_prey_fitness", 0.0)) * 100.0))
+		])
+		lines.append("  grazer gen %d | repro %.2f | fit %d%% | pressure G%d P%d" % [
+			int(state.get("grazer_generation", 1)),
+			float(state.get("average_grazer_reproduction", 0.35)),
+			int(round(float(state.get("average_grazer_fitness", 0.0)) * 100.0)),
+			int(state.get("grazer_pressure_ticks", 0)),
+			int(state.get("small_prey_pressure_ticks", 0))
+		])
 		lines.append("  varnak %.2f | food stress %.2f | over %.2f" % [
 			float(state.get("varnak_ecosystem_pressure", state.get("predator_pressure", 0.0))),
 			float(state.get("food_stress", 0.0)),

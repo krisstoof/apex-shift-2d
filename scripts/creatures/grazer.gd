@@ -29,6 +29,9 @@ const WALL_AVOID_RADIUS := 78.0
 const BIOME_RETURN_CHANCE := 0.58
 const DEBUG_FRAME_FONT_SIZE := 11
 
+var species_id := "grazer"
+var species_name := "Grazer"
+var generation := 1
 var health := 45.0
 var max_health := 45.0
 var speed := 70.0
@@ -49,6 +52,7 @@ var reproduction_rate := 0.35
 var state := State.WANDER
 var biome_id := ""
 var home_biome_id := ""
+var population_biome_id := ""
 var wander_target := Vector2.ZERO
 var state_time := 0.0
 var eat_visual_time := 0.0
@@ -81,13 +85,17 @@ func _ready() -> void:
 func setup(p_biome_id: String = "") -> void:
 	biome_id = p_biome_id
 	home_biome_id = p_biome_id
+	population_biome_id = p_biome_id
 
 
 func get_debug_data() -> Dictionary:
 	var data := {
-		"species": "Grazer",
+		"species": species_name,
+		"species_id": species_id,
+		"generation": generation,
 		"state": State.keys()[state],
 		"biome_id": biome_id,
+		"population_biome_id": population_biome_id,
 		"health": health,
 		"max_health": max_health,
 		"speed": speed,
@@ -100,6 +108,7 @@ func get_debug_data() -> Dictionary:
 		"last_food_source": last_food_source,
 		"fitness_score": _get_fitness_score(),
 		"current_niche": current_niche,
+		"reproduction_rate": reproduction_rate,
 		"home_biome_id": home_biome_id,
 		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
 	}
@@ -109,6 +118,9 @@ func get_debug_data() -> Dictionary:
 
 func get_save_data() -> Dictionary:
 	return {
+		"species_id": species_id,
+		"species_name": species_name,
+		"generation": generation,
 		"position": _vector_to_data(global_position),
 		"facing_angle": facing_angle,
 		"facing_side": facing_side,
@@ -132,6 +144,7 @@ func get_save_data() -> Dictionary:
 		"state": int(state),
 		"biome_id": biome_id,
 		"home_biome_id": home_biome_id,
+		"population_biome_id": population_biome_id,
 		"wander_target": _vector_to_data(wander_target),
 		"state_time": state_time,
 		"last_food_source": last_food_source,
@@ -140,6 +153,9 @@ func get_save_data() -> Dictionary:
 
 
 func restore_from_data(data: Dictionary) -> void:
+	species_id = str(data.get("species_id", species_id))
+	species_name = str(data.get("species_name", species_name))
+	generation = max(int(data.get("generation", generation)), 1)
 	global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
 	facing_angle = float(data.get("facing_angle", facing_angle))
 	facing_side = float(data.get("facing_side", facing_side))
@@ -165,6 +181,7 @@ func restore_from_data(data: Dictionary) -> void:
 		state = State.WANDER
 	biome_id = str(data.get("biome_id", biome_id))
 	home_biome_id = str(data.get("home_biome_id", home_biome_id))
+	population_biome_id = str(data.get("population_biome_id", population_biome_id))
 	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
 	state_time = max(float(data.get("state_time", state_time)), 0.0)
 	last_food_source = str(data.get("last_food_source", last_food_source))
@@ -708,6 +725,9 @@ func _die(source: String) -> void:
 	var event_name := "grazer_killed_by_varnak" if source == "varnak" else "grazer_killed_by_player"
 	get_node("/root/EventBus").emit_game_event(event_name, {
 		"biome_id": _get_current_biome_id(),
+		"species_id": species_id,
+		"generation": generation,
+		"fitness_score": _get_fitness_score(),
 		"position": global_position,
 		"source": source
 	})
@@ -730,7 +750,11 @@ func _load_species_data() -> void:
 	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(SPECIES_PATH))
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return
-	var traits: Variant = Dictionary(parsed).get("base_traits", {})
+	var profile := Dictionary(parsed)
+	species_id = str(profile.get("species_id", profile.get("id", species_id)))
+	species_name = str(profile.get("species_name", profile.get("display_name", species_name)))
+	generation = max(int(profile.get("generation", generation)), 1)
+	var traits: Variant = profile.get("base_traits", {})
 	if typeof(traits) != TYPE_DICTIONARY:
 		return
 	var base_traits := Dictionary(traits)
@@ -801,10 +825,13 @@ func _sync_population_traits() -> void:
 	var traits: Dictionary = ecosystem.get_grazer_traits(_get_current_biome_id())
 	if traits.is_empty():
 		return
+	generation = max(int(traits.get("generation", generation)), 1)
+	population_biome_id = str(traits.get("biome_id", population_biome_id))
 	plant_diet = float(traits.get("plant_diet", plant_diet))
 	meat_diet = float(traits.get("meat_diet", meat_diet))
 	scavenger_diet = float(traits.get("scavenger_diet", scavenger_diet))
 	aggression = float(traits.get("aggression", aggression))
+	reproduction_rate = clamp(float(traits.get("reproduction_rate", reproduction_rate)), 0.0, 1.5)
 	current_niche = str(traits.get("current_niche", current_niche))
 	hunger_diet.plant_diet = plant_diet
 	hunger_diet.meat_diet = meat_diet
@@ -815,6 +842,7 @@ func _get_current_biome_id() -> String:
 	var current_biome_id := _get_biome_id_for_position(global_position)
 	if not current_biome_id.is_empty():
 		biome_id = current_biome_id
+		population_biome_id = current_biome_id
 	return biome_id
 
 
@@ -905,7 +933,7 @@ func _draw_debug_stat_frame() -> void:
 		return
 	var satiety_percent := int(round((1.0 - hunger_diet.get_hunger_ratio()) * 100.0))
 	var lines: Array[String] = [
-		"Grazer",
+		"%s G%d" % [species_name, generation],
 		"HP %d/%d Sat %d%%" % [int(health), int(max_health), satiety_percent],
 		"E %d%% Act %s" % [int(round(energy * 100.0)), _get_debug_action_label()],
 		"Target %s" % _get_current_target_label(),
