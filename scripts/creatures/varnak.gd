@@ -47,6 +47,7 @@ var facing_side := 1.0
 var attack_cooldown := 0.0
 var attack_visual_time := 0.0
 var eat_visual_time := 0.0
+var target_lock_time := 0.0
 var night_health_bonus_active := false
 var scared_fire: Node2D
 var ecosystem_target: Node2D
@@ -54,6 +55,7 @@ var ecosystem_target_kind := ""
 var meat_target: Node2D
 var dropped_meat := false
 var last_food_source := "none"
+var decision_reason := "spawn"
 var is_dead := false
 var meat_diet := 1.0
 var scavenger_diet := 0.45
@@ -127,6 +129,7 @@ func get_debug_data() -> Dictionary:
 		"rest": energy,
 		"age_seconds": age_seconds,
 		"current_target": _get_current_target_label(),
+		"decision_reason": decision_reason,
 		"last_food_source": last_food_source,
 		"fitness_score": _get_fitness_score(),
 		"hunt_drive": _get_hunt_drive(),
@@ -186,6 +189,7 @@ func _physics_process(delta: float) -> void:
 	)
 	age_seconds += delta
 	attack_cooldown = max(attack_cooldown - delta, 0.0)
+	target_lock_time = max(target_lock_time - delta, 0.0)
 	if attack_visual_time > 0.0:
 		attack_visual_time = max(attack_visual_time - delta, 0.0)
 		queue_redraw()
@@ -227,12 +231,14 @@ func _update_night_health_bonus() -> void:
 func _update_state() -> void:
 	scared_fire = _nearest_active_campfire()
 	if scared_fire and fire_fear > 0.25:
+		decision_reason = "active_campfire_fear"
 		state = State.FLEE
 		if randf() < 0.012:
 			get_node("/root/EventBus").emit_game_event("varnak_scared_by_fire", {"position": global_position})
 			get_node("/root/EventBus").post_message("Varnak scared by fire")
 		return
 	if state == State.FLEE:
+		decision_reason = "threat_lost_return_wander"
 		state = State.WANDER
 	if not is_instance_valid(ecosystem_target):
 		ecosystem_target = null
@@ -250,6 +256,7 @@ func _update_state() -> void:
 		effective_aggression *= GAME_BALANCE.TORCH_AGGRESSION_MULTIPLIER
 		close_chase_range *= GAME_BALANCE.TORCH_CLOSE_CHASE_RANGE_MULTIPLIER
 		if distance > ATTACK_RANGE:
+			decision_reason = "torch_protects_player"
 			state = State.FLEE
 			return
 	if _should_prioritize_player(distance, detect_range, close_chase_range, effective_aggression):
@@ -257,15 +264,22 @@ func _update_state() -> void:
 		ecosystem_target_kind = ""
 		meat_target = null
 		if distance < 34.0:
+			decision_reason = "player_in_attack_range"
 			state = State.ATTACK
 		elif distance < detect_range:
+			decision_reason = "player_priority_aggression"
 			state = State.CHASE if effective_aggression > 0.5 or distance < close_chase_range else State.STALK
 		return
 	if state == State.EAT_MEAT and _try_update_meat_target():
+		decision_reason = "locked_meat_target" if is_instance_valid(meat_target) else decision_reason
+		return
+	if state == State.HUNT_ECOSYSTEM and target_lock_time > 0.0 and is_instance_valid(ecosystem_target) and _should_hunt_ecosystem(distance):
+		decision_reason = "locked_ecosystem_prey"
 		return
 	if hunger >= _get_hungry_threshold() and _set_nearest_meat_target(_get_meat_search_range()):
 		ecosystem_target = null
 		ecosystem_target_kind = ""
+		decision_reason = "hungry_scavenge_meat"
 		state = State.EAT_MEAT
 		return
 	var prey := _find_ecosystem_target()
@@ -273,13 +287,23 @@ func _update_state() -> void:
 		ecosystem_target = prey
 		ecosystem_target_kind = _get_ecosystem_target_kind(prey)
 		meat_target = null
+		target_lock_time = _get_target_lock_seconds()
+		decision_reason = "hunt_drive_ecosystem_prey"
 		state = State.HUNT_ECOSYSTEM
 		return
+	if _should_roam_for_food(distance):
+		_pick_hunt_roam_target()
+		decision_reason = "hungry_hunt_roam"
+		state = State.WANDER
+		return
 	if distance < 34.0:
+		decision_reason = "player_too_close"
 		state = State.ATTACK
 	elif distance < detect_range:
+		decision_reason = "player_detected_patrol"
 		state = State.CHASE if effective_aggression > 0.5 or distance < close_chase_range else State.STALK
-	elif global_position.distance_to(wander_target) < 20.0:
+	elif global_position.distance_to(wander_target) < _get_wander_target_reached_distance():
+		decision_reason = "wander_target_reached"
 		state = State.WANDER
 		_pick_wander_target()
 
@@ -351,6 +375,7 @@ func _should_hunt_ecosystem(player_distance: float) -> bool:
 
 func _hunt_ecosystem_target() -> void:
 	if not is_instance_valid(ecosystem_target):
+		decision_reason = "ecosystem_target_lost"
 		state = State.WANDER
 		_pick_wander_target()
 		return
@@ -369,6 +394,7 @@ func _hunt_ecosystem_target() -> void:
 		attack_cooldown = 1.0
 		ecosystem_target = null
 		ecosystem_target_kind = ""
+		decision_reason = "finished_hunt_feed"
 		state = State.WANDER
 		queue_redraw()
 		return
@@ -393,10 +419,14 @@ func _set_nearest_meat_target(search_range: float) -> bool:
 	if not _can_eat_meat_drop():
 		meat_target = null
 		return false
+	if target_lock_time > 0.0 and is_instance_valid(meat_target) and _is_meat_drop_target(meat_target):
+		wander_target = _clamp_to_world(meat_target.global_position)
+		return true
 	meat_target = _find_nearest_meat_drop(search_range)
 	if not is_instance_valid(meat_target):
 		return false
 	wander_target = _clamp_to_world(meat_target.global_position)
+	target_lock_time = _get_target_lock_seconds()
 	return true
 
 
@@ -698,6 +728,16 @@ func _get_flee_origin() -> Vector2:
 
 func _pick_wander_target() -> void:
 	var rect := _get_world_rect()
+	var current_biome_id := _get_current_biome_id()
+	var local_radius := _get_local_patrol_radius()
+	for _attempt in 24:
+		var candidate := global_position + Vector2(
+			randf_range(-local_radius, local_radius),
+			randf_range(-local_radius, local_radius)
+		)
+		if _is_navigation_position_valid(candidate) and (current_biome_id.is_empty() or _get_biome_id_for_position(candidate) == current_biome_id):
+			wander_target = _clamp_to_world(candidate)
+			return
 	for _attempt in 24:
 		var candidate := Vector2(
 			randf_range(rect.position.x, rect.end.x),
@@ -707,6 +747,24 @@ func _pick_wander_target() -> void:
 			wander_target = candidate
 			return
 	wander_target = _clamp_to_world(global_position)
+
+
+func _pick_hunt_roam_target() -> void:
+	var current_biome_id := _get_current_biome_id()
+	var roam_radius := _get_hunt_roam_radius()
+	var allow_cross_biome := _can_cross_biome_for_hunt()
+	for _attempt in 36:
+		var angle := randf_range(0.0, TAU)
+		var distance := randf_range(roam_radius * 0.55, roam_radius)
+		var candidate := _clamp_to_world(global_position + Vector2.RIGHT.rotated(angle) * distance)
+		if not _is_navigation_position_valid(candidate):
+			continue
+		if not allow_cross_biome and not current_biome_id.is_empty() and _get_biome_id_for_position(candidate) != current_biome_id:
+			continue
+		wander_target = candidate
+		target_lock_time = max(target_lock_time, _get_target_lock_seconds() * 2.0)
+		return
+	_pick_wander_target()
 
 
 func debug_return_to_world() -> void:
@@ -721,15 +779,29 @@ func _enforce_world_bounds(force_retarget := false) -> void:
 		ecosystem_target = null
 		ecosystem_target_kind = ""
 		meat_target = null
+		decision_reason = "world_bounds_retarget"
 		state = State.WANDER
 		_pick_wander_target()
 
 
 func _get_bounded_flee_target(away: Vector2) -> Vector2:
-	var target := _clamp_to_world(global_position + away * 180.0)
-	if target.distance_squared_to(global_position) <= 16.0:
-		target = _get_world_rect().get_center()
-	return target
+	var direction := away.normalized()
+	if direction.length_squared() <= 0.0:
+		direction = Vector2.RIGHT
+	var candidates := [
+		direction,
+		direction.rotated(0.62),
+		direction.rotated(-0.62),
+		direction.rotated(1.18),
+		direction.rotated(-1.18),
+		direction.rotated(PI * 0.5),
+		direction.rotated(-PI * 0.5)
+	]
+	for candidate_direction in candidates:
+		var candidate := _clamp_to_world(global_position + candidate_direction * 180.0)
+		if candidate.distance_squared_to(global_position) > 16.0 and _is_navigation_position_valid(candidate):
+			return candidate
+	return _clamp_to_world(global_position + direction * 90.0)
 
 
 func _clamp_to_world(position: Vector2) -> Vector2:
@@ -749,6 +821,44 @@ func _get_terrain_speed_multiplier() -> float:
 	if world and world.has_method("get_terrain_speed_multiplier"):
 		return float(world.get_terrain_speed_multiplier(global_position))
 	return 1.0
+
+
+func _get_target_lock_seconds() -> float:
+	return float(GAME_BALANCE.VARNAK_HUNTING.get("target_lock_seconds", 1.10))
+
+
+func _get_local_patrol_radius() -> float:
+	return float(GAME_BALANCE.VARNAK_HUNTING.get("local_patrol_radius", 320.0))
+
+
+func _get_hunt_roam_radius() -> float:
+	if hunger >= _get_starving_threshold():
+		return float(GAME_BALANCE.VARNAK_HUNTING.get("starving_roam_radius", 1120.0))
+	return float(GAME_BALANCE.VARNAK_HUNTING.get("hungry_roam_radius", 720.0))
+
+
+func _get_wander_target_reached_distance() -> float:
+	if decision_reason == "hungry_hunt_roam":
+		return float(GAME_BALANCE.VARNAK_HUNTING.get("hunting_roam_target_reached_distance", 90.0))
+	return 20.0
+
+
+func _can_cross_biome_for_hunt() -> bool:
+	if hunger >= _get_starving_threshold():
+		return true
+	return _get_hunt_drive() >= float(GAME_BALANCE.VARNAK_HUNTING.get("cross_biome_hunt_drive", 0.55))
+
+
+func _should_roam_for_food(player_distance: float) -> bool:
+	if hunger < _get_hungry_threshold():
+		return false
+	if player_distance < _get_player_intrusion_radius() * 0.70:
+		return false
+	if state != State.WANDER and state != State.IDLE:
+		return false
+	if decision_reason == "hungry_hunt_roam" and global_position.distance_to(wander_target) > _get_wander_target_reached_distance():
+		return false
+	return true
 
 
 func _die(source: String) -> void:
@@ -835,6 +945,7 @@ func _draw_debug_stat_frame() -> void:
 		"HP %d/%d Sat %d%%" % [int(health), int(max_health), satiety_percent],
 		"E %d%% Act %s" % [int(round(energy * 100.0)), _get_debug_action_label()],
 		"Target %s" % _get_current_target_label(),
+		"Why %s" % decision_reason,
 		"Last %s" % _get_debug_food_label()
 	]
 	_draw_debug_lines(lines, Vector2(-72.0, -102.0))

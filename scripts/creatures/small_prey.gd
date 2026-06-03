@@ -48,6 +48,7 @@ var wander_target := Vector2.ZERO
 var state_time := 0.0
 var eat_cooldown := 0.0
 var eat_visual_time := 0.0
+var target_lock_time := 0.0
 var facing_angle := 0.0
 var facing_side := 1.0
 var player: Node2D
@@ -55,6 +56,7 @@ var flee_origin := Vector2.INF
 var plant_target: Node2D
 var dropped_meat := false
 var last_food_source := "none"
+var decision_reason := "spawn"
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
 
@@ -94,6 +96,7 @@ func get_debug_data() -> Dictionary:
 		"fatigue": 1.0 - energy,
 		"rest": energy,
 		"current_target": _get_current_target_label(),
+		"decision_reason": decision_reason,
 		"last_food_source": last_food_source,
 		"fitness_score": _get_fitness_score(),
 		"home_biome_id": home_biome_id,
@@ -202,6 +205,7 @@ func _physics_process(delta: float) -> void:
 		player = get_tree().get_first_node_in_group("player")
 	state_time = max(state_time - delta, 0.0)
 	eat_cooldown = max(eat_cooldown - delta, 0.0)
+	target_lock_time = max(target_lock_time - delta, 0.0)
 	if eat_visual_time > 0.0:
 		eat_visual_time = max(eat_visual_time - delta, 0.0)
 		queue_redraw()
@@ -217,35 +221,47 @@ func _physics_process(delta: float) -> void:
 func _update_state() -> void:
 	flee_origin = _get_flee_origin()
 	if flee_origin != Vector2.INF:
+		decision_reason = "threat_detected"
 		_set_state(State.FLEE)
 		return
 	if state == State.FLEE:
+		decision_reason = "threat_lost_return_wander"
 		_set_state(State.WANDER)
 		_pick_wander_target()
 		plant_target = null
 	_sync_population_traits()
 	if state == State.EAT:
+		decision_reason = "eating_target_plant"
 		if state_time <= 0.0:
 			_consume_plants()
+			decision_reason = "finished_eating"
 			_set_state(State.WANDER)
 			_pick_wander_target()
 		return
 	if state == State.SEEK_FOOD and _try_update_plant_target():
+		decision_reason = "locked_food_target" if is_instance_valid(plant_target) else decision_reason
 		return
 	if eat_cooldown <= 0.0 and hunger_diet.is_hungry():
 		if _set_nearest_plant_target(_get_food_search_range()):
+			decision_reason = "hungry_seek_plant"
 			_set_state(State.SEEK_FOOD)
 		elif hunger_diet.is_starving():
+			decision_reason = "starving_no_plant"
 			_set_state(State.EAT)
 			state_time = EAT_DURATION_SECONDS
+		else:
+			decision_reason = "hungry_no_food_wander"
+			target_lock_time = _get_failed_food_retarget_seconds()
 		return
 	match state:
 		State.IDLE:
 			if state_time <= 0.0:
+				decision_reason = "idle_complete"
 				_set_state(State.WANDER)
 				_pick_wander_target()
 		State.WANDER:
 			if global_position.distance_to(wander_target) < WANDER_REACHED_DISTANCE:
+				decision_reason = "wander_target_reached"
 				_set_state(State.IDLE)
 				state_time = IDLE_DURATION_SECONDS
 		State.SEEK_FOOD:
@@ -391,10 +407,14 @@ func _try_update_plant_target() -> bool:
 
 
 func _set_nearest_plant_target(search_range: float = VEGETATION_EAT_RANGE) -> bool:
+	if target_lock_time > 0.0 and is_instance_valid(plant_target) and _is_edible_vegetation_target(plant_target):
+		wander_target = _clamp_to_world(plant_target.global_position)
+		return true
 	plant_target = _find_nearest_edible_vegetation(search_range)
 	if not is_instance_valid(plant_target):
 		return false
 	wander_target = _clamp_to_world(plant_target.global_position)
+	target_lock_time = _get_target_lock_seconds()
 	return true
 
 
@@ -489,15 +509,29 @@ func _enforce_world_bounds(force_retarget := false) -> void:
 		global_position = clamped_position
 		velocity = Vector2.ZERO
 		plant_target = null
+		decision_reason = "world_bounds_retarget"
 		_set_state(State.WANDER)
 		_pick_wander_target()
 
 
 func _get_bounded_flee_target(away: Vector2) -> Vector2:
-	var target := _clamp_to_world(global_position + away * WANDER_RADIUS)
-	if target.distance_squared_to(global_position) <= 16.0:
-		target = _get_world_rect().get_center()
-	return target
+	var direction := away.normalized()
+	if direction.length_squared() <= 0.0:
+		direction = Vector2.RIGHT
+	var candidates := [
+		direction,
+		direction.rotated(0.62),
+		direction.rotated(-0.62),
+		direction.rotated(1.18),
+		direction.rotated(-1.18),
+		direction.rotated(PI * 0.5),
+		direction.rotated(-PI * 0.5)
+	]
+	for candidate_direction in candidates:
+		var candidate := _clamp_to_world(global_position + candidate_direction * WANDER_RADIUS)
+		if candidate.distance_squared_to(global_position) > 16.0 and _is_navigation_position_valid(candidate):
+			return candidate
+	return _clamp_to_world(global_position + direction * WANDER_RADIUS * 0.45)
 
 
 func _clamp_to_world(position: Vector2) -> Vector2:
@@ -631,6 +665,14 @@ func _get_current_target_label() -> String:
 	return "none"
 
 
+func _get_target_lock_seconds() -> float:
+	return float(GAME_BALANCE.ANIMAL_AI.get("target_lock_seconds", 0.85))
+
+
+func _get_failed_food_retarget_seconds() -> float:
+	return float(GAME_BALANCE.ANIMAL_AI.get("failed_food_retarget_seconds", 0.55))
+
+
 func _get_fitness_score() -> float:
 	var health_ratio: float = clamp(health / max(max_health, 1.0), 0.0, 1.0)
 	return clamp(health_ratio * 0.45 + (1.0 - hunger_diet.get_hunger_ratio()) * 0.35 + energy * 0.20, 0.0, 1.0)
@@ -715,6 +757,7 @@ func _draw_debug_stat_frame() -> void:
 		"HP %d/%d Sat %d%%" % [int(health), int(max_health), satiety_percent],
 		"E %d%% Act %s" % [int(round(energy * 100.0)), _get_debug_action_label()],
 		"Target %s" % _get_current_target_label(),
+		"Why %s" % decision_reason,
 		"Last %s" % _get_debug_food_label()
 	]
 	_draw_debug_lines(lines, Vector2(-58.0, -76.0))
