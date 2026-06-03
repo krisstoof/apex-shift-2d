@@ -627,9 +627,10 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 			int(round(float(state.get("plant_biomass_percent", 0.0)))),
 			str(state.get("status", "unknown"))
 		])
-		lines.append("  SmallPrey %d | Grazers %d | niche %s | stress %d" % [
+		lines.append("  SmallPrey %d | Grazers %d | Varnaks %d | niche %s | stress %d" % [
 			int(round(float(state.get("small_prey_population", 0.0)))),
 			int(round(float(state.get("grazer_population", 0.0)))),
+			int(round(float(state.get("varnak_population", 0.0)))),
 			str(state.get("current_niche", "HERBIVORE")).to_lower(),
 			int(state.get("generations_under_food_stress", 0))
 		])
@@ -651,6 +652,13 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 			float(state.get("food_stress", 0.0)),
 			float(state.get("overgrazing_level", state.get("overgrazing_pressure", 0.0)))
 		])
+		lines.append("  varnak gen %d | hunger %d%% | energy %d%% | fit %d%% | hunt %.2f" % [
+			int(state.get("varnak_generation", 1)),
+			int(round(float(state.get("average_varnak_hunger", 0.0)) * 100.0)),
+			int(round(float(state.get("average_varnak_energy", 1.0)) * 100.0)),
+			int(round(float(state.get("average_varnak_fitness", 0.0)) * 100.0)),
+			float(state.get("average_varnak_hunt_drive", 0.0))
+		])
 	return lines
 
 
@@ -669,9 +677,10 @@ func _get_grazer_state_summary() -> String:
 
 func _get_population_aggregate_lines() -> Array[String]:
 	return [
-		"Population model: prey %d | grazers %d" % [
+		"Population model: prey %d | grazers %d | varnaks %d" % [
 			_get_ecosystem_population_total("small_prey_population"),
-			_get_ecosystem_population_total("grazer_population")
+			_get_ecosystem_population_total("grazer_population"),
+			_get_ecosystem_population_total("varnak_population")
 		],
 		"Visible SmallPrey: %s" % _get_visible_creature_aggregate_text("small_prey"),
 		"Visible Grazers: %s" % _get_visible_creature_aggregate_text("grazer"),
@@ -805,9 +814,10 @@ func _get_creature_debug_stat_lines(group_name: String, label: String) -> Array[
 	var creature := _get_selected_debug_creature(group_name)
 	var data: Dictionary = creature.get_debug_data() if is_instance_valid(creature) and creature.has_method("get_debug_data") else {}
 	return [
-		"%s: %s | distance %.0fpx" % [
+		"%s: %s | gen %d | distance %.0fpx" % [
 			label,
 			str(data.get("species", group_name)),
+			int(data.get("generation", 0)),
 			_get_debug_float(data, "distance_to_player")
 		],
 		"  state %s | target %s | last_food %s" % [

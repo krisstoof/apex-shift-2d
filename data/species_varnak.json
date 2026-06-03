@@ -1,6 +1,10 @@
 {
+  "species_id": "varnak",
   "species_name": "Varnak",
   "generation": 1,
+  "max_hunger": 1.0,
+  "meat_diet": 1.0,
+  "scavenger_diet": 0.45,
   "aggression": 0.45,
   "fire_fear": 0.85,
   "trap_awareness": 0.10,

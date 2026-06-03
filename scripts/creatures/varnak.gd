@@ -23,6 +23,10 @@ const MOVEMENT_HUNGER_TIME_SCALE := 0.06
 
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
+var species_id := "varnak"
+var species_name := "Varnak"
+var generation := 1
+var population_biome_id := ""
 var hunger := 0.0
 var energy := 1.0
 var age_seconds := 0.0
@@ -62,6 +66,11 @@ func _ready() -> void:
 
 
 func apply_profile(profile: Dictionary) -> void:
+	species_id = str(profile.get("species_id", species_id))
+	species_name = str(profile.get("species_name", species_name))
+	generation = max(int(profile.get("generation", generation)), 1)
+	meat_diet = clamp(float(profile.get("meat_diet", meat_diet)), 0.0, 1.0)
+	scavenger_diet = clamp(float(profile.get("scavenger_diet", scavenger_diet)), 0.0, 1.0)
 	aggression = float(profile.get("aggression", aggression))
 	fire_fear = float(profile.get("fire_fear", fire_fear))
 	trap_awareness = float(profile.get("trap_awareness", trap_awareness))
@@ -75,6 +84,10 @@ func apply_profile(profile: Dictionary) -> void:
 
 func get_save_data() -> Dictionary:
 	return {
+		"species_id": species_id,
+		"species_name": species_name,
+		"generation": generation,
+		"population_biome_id": _get_current_biome_id(),
 		"position": _vector_to_data(global_position),
 		"facing_angle": facing_angle,
 		"facing_side": facing_side,
@@ -99,10 +112,14 @@ func get_save_data() -> Dictionary:
 func get_debug_data() -> Dictionary:
 	return {
 		"state": State.keys()[state],
-		"species": "Varnak",
+		"species": species_name,
+		"species_id": species_id,
+		"generation": generation,
+		"population_biome_id": _get_current_biome_id(),
 		"health": health,
 		"max_health": max_health,
 		"hunger": hunger,
+		"hunger_ratio": hunger,
 		"max_hunger": 1.0,
 		"hunger_stage": _get_hunger_stage(),
 		"energy": energy,
@@ -113,6 +130,7 @@ func get_debug_data() -> Dictionary:
 		"last_food_source": last_food_source,
 		"fitness_score": _get_fitness_score(),
 		"hunt_drive": _get_hunt_drive(),
+		"plant_diet": 0.0,
 		"meat_diet": meat_diet,
 		"scavenger_diet": scavenger_diet,
 		"aggression": aggression,
@@ -131,6 +149,10 @@ func get_debug_data() -> Dictionary:
 
 
 func restore_from_data(data: Dictionary) -> void:
+	species_id = str(data.get("species_id", species_id))
+	species_name = str(data.get("species_name", species_name))
+	generation = max(int(data.get("generation", generation)), 1)
+	population_biome_id = str(data.get("population_biome_id", population_biome_id))
 	global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
 	facing_angle = float(data.get("facing_angle", data.get("rotation", facing_angle)))
 	facing_side = float(data.get("facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0))
@@ -540,6 +562,13 @@ func _get_ecosystem_target_kind(target: Node) -> String:
 	return "small_prey"
 
 
+func _get_current_biome_id() -> String:
+	var current_biome_id := _get_biome_id_for_position(global_position)
+	if not current_biome_id.is_empty():
+		population_biome_id = current_biome_id
+	return population_biome_id
+
+
 func _get_biome_prey_pressure() -> float:
 	var ecosystem := get_tree().current_scene.get_node_or_null("EcosystemDirector")
 	if not ecosystem or not ecosystem.has_method("get_biome_state"):
@@ -728,7 +757,13 @@ func _die(source: String) -> void:
 	is_dead = true
 	_drop_meat_once()
 	var event_name := "varnak_killed_by_trap" if source == "trap" else "varnak_killed_by_player"
-	get_node("/root/EventBus").emit_game_event(event_name, {"position": global_position})
+	get_node("/root/EventBus").emit_game_event(event_name, {
+		"position": global_position,
+		"biome_id": _get_current_biome_id(),
+		"species_id": species_id,
+		"generation": generation,
+		"fitness_score": _get_fitness_score()
+	})
 	get_node("/root/EventBus").post_message("Varnak killed by %s" % source)
 	if is_instance_valid(player) and global_position.distance_to(player.global_position) < 90.0:
 		player.inventory.add_item("hide", 1)
