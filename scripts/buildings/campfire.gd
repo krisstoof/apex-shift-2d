@@ -4,6 +4,7 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
 @export var fear_radius := GAME_BALANCE.CAMPFIRE_SAFE_RADIUS
 @export var light_radius := GAME_BALANCE.CAMPFIRE_LIGHT_RADIUS
+@export var stamina_regen_radius := GAME_BALANCE.CAMPFIRE_STAMINA_REGEN_RADIUS
 
 var active := true
 var day_night_system: Node

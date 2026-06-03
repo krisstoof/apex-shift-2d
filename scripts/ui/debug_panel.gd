@@ -285,7 +285,7 @@ func _build_state_text() -> String:
 func _build_overview_text(profile: Dictionary) -> String:
 	var lines: Array[String] = []
 	lines.append("Day %d | %s | night %.2f" % [_get_day(), _get_day_phase(), _get_night_amount()])
-	lines.append("Player HP %d | H %d | Sta %d | Rest %d" % [int(player.stats.health), int(player.stats.hunger), int(player.stats.stamina), int(player.stats.rest)])
+	lines.append("Player HP %d | H %d | Sta %d | Rest %d | campfire_regen_active %s" % [int(player.stats.health), int(player.stats.hunger), int(player.stats.stamina), int(player.stats.rest), _get_campfire_regen_active_text()])
 	lines.append("Biome %s" % _get_current_biome_name())
 	lines.append("Live Varnaks %d | SmallPrey %d | Grazers %d" % [
 		get_tree().get_nodes_in_group("varnak").size(),
@@ -306,6 +306,11 @@ func _build_player_text() -> String:
 		int(player.stats.hunger),
 		int(player.stats.stamina),
 		int(player.stats.rest)
+	])
+	lines.append("campfire_regen_active %s | stamina_regen %.1f/s | distance %s" % [
+		_get_campfire_regen_active_text(),
+		player.stats.get_stamina_regen_rate(),
+		_get_campfire_regen_distance_text()
 	])
 	lines.append("Inventory")
 	lines.append("Wood %d | Stone %d | Fiber %d | Meat %d" % [
@@ -950,6 +955,18 @@ func _get_campfire_state() -> String:
 		if campfire.get("active") == true:
 			active_count += 1
 	return "%d active / %d total" % [active_count, total_count]
+
+
+func _get_campfire_regen_active_text() -> String:
+	if not player or not player.stats:
+		return "false"
+	return "true" if player.stats.campfire_regen_active else "false"
+
+
+func _get_campfire_regen_distance_text() -> String:
+	if not player or not player.stats or not player.stats.campfire_regen_active:
+		return "none"
+	return "%.0f" % player.stats.campfire_regen_distance
 
 
 func _get_torch_state() -> String:

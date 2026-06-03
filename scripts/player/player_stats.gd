@@ -14,6 +14,8 @@ var health := MAX_HEALTH
 var hunger := MAX_HUNGER
 var stamina := MAX_STAMINA
 var rest := MAX_REST
+var campfire_regen_active := false
+var campfire_regen_distance := -1.0
 
 func tick(delta: float, running: bool) -> void:
 	hunger = max(hunger - GAME_BALANCE.PLAYER_HUNGER_DECAY_RATE * delta, 0.0)
@@ -92,12 +94,23 @@ func get_condition_text() -> String:
 	return "steady"
 
 
+func set_campfire_regen(active: bool, nearest_distance := -1.0) -> void:
+	campfire_regen_active = active
+	campfire_regen_distance = nearest_distance if active else -1.0
+
+
+func get_stamina_regen_rate() -> float:
+	return _get_stamina_regen()
+
+
 func _get_stamina_regen() -> float:
 	var regen := GAME_BALANCE.PLAYER_BASE_STAMINA_REGEN
 	if hunger < LOW_HUNGER:
 		regen *= GAME_BALANCE.PLAYER_LOW_HUNGER_STAMINA_REGEN_MULTIPLIER
 	if rest < EXHAUSTED_REST:
 		regen *= GAME_BALANCE.PLAYER_EXHAUSTED_REST_STAMINA_REGEN_MULTIPLIER
+	if campfire_regen_active:
+		regen *= GAME_BALANCE.PLAYER_CAMPFIRE_STAMINA_REGEN_MULTIPLIER
 	return regen
 
 
