@@ -18,6 +18,7 @@ var game_session
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	_resume_tree_if_paused()
 	game_session = get_node("/root/GameSession")
 	_build_ui()
 	_refresh_save_state()
@@ -140,7 +141,13 @@ func _on_exit_pressed() -> void:
 
 
 func _change_to_game_scene() -> void:
+	_resume_tree_if_paused()
 	var error := get_tree().change_scene_to_file(GAME_SCENE_PATH)
 	if error != OK:
 		game_session.request_new_game()
 		status_label.text = "Could not start the game."
+
+
+func _resume_tree_if_paused(tree: SceneTree = get_tree()) -> void:
+	if tree:
+		tree.paused = false

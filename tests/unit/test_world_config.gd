@@ -1,6 +1,7 @@
 extends RefCounted
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -50,11 +51,19 @@ func _test_landmark_config_is_valid(failures: Array[String]) -> void:
 	TEST_UTILS.expect(not landmarks.is_empty(), failures, "Landmark list should not be empty")
 	var pond_count := 0
 	var hill_count := 0
+	var pond_biomes: Dictionary = {}
+	var hill_biomes: Dictionary = {}
 	for landmark in landmarks:
 		match str(landmark.get("type", "")):
 			"pond":
 				pond_count += 1
+				pond_biomes[str(landmark.get("biome_id", ""))] = true
 			"hill":
 				hill_count += 1
+				hill_biomes[str(landmark.get("biome_id", ""))] = true
 	TEST_UTILS.expect(pond_count > 0, failures, "There should be at least one pond landmark")
 	TEST_UTILS.expect(hill_count > 0, failures, "There should be at least one hill landmark")
+	TEST_UTILS.expect_equal(pond_count, int(GAME_BALANCE.LANDMARKS.get("pond_count", 0)), failures, "Pond landmark count should match the tuned balance target")
+	TEST_UTILS.expect_equal(hill_count, int(GAME_BALANCE.LANDMARKS.get("hill_count", 0)), failures, "Hill landmark count should match the tuned balance target")
+	TEST_UTILS.expect(pond_biomes.size() >= min(pond_count, 3), failures, "Reduced pond landmarks should still cover multiple biomes for navigation readability")
+	TEST_UTILS.expect(hill_biomes.size() >= min(hill_count, 4), failures, "Reduced hill landmarks should still cover multiple biomes for navigation readability")

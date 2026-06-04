@@ -1,6 +1,8 @@
 extends RefCounted
 class_name WorldConfig
 
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+
 const WORLD_SCALE := 2.2
 const BASE_WORLD_RECT := Rect2(-1440, -880, 2880, 1760)
 const WORLD_RECT := Rect2(BASE_WORLD_RECT.position * WORLD_SCALE, BASE_WORLD_RECT.size * WORLD_SCALE)
@@ -130,6 +132,23 @@ const LANDMARKS := [
 		"biome_id": "redfang_wilds",
 		"gameplay_tags": ["water_source", "danger"]
 	}
+]
+
+const HILL_LANDMARK_PRIORITY := [
+	"westwood_old_hill",
+	"stoneback_spine",
+	"hearth_watch_hill",
+	"south_thicket_mound",
+	"redfang_teeth",
+	"redfang_lookout"
+]
+
+const POND_LANDMARK_PRIORITY := [
+	"westwood_shade_pond",
+	"hearth_mirror_pond",
+	"redfang_darkwater",
+	"south_thicket_pool",
+	"stoneback_basin"
 ]
 
 const BIOME_ZONES := [
@@ -263,10 +282,50 @@ static func get_biome_zones() -> Array[Dictionary]:
 
 
 static func get_landmarks() -> Array[Dictionary]:
+	var filtered_landmarks: Array[Dictionary] = _get_balanced_landmark_selection()
 	var scaled_landmarks: Array[Dictionary] = []
-	for landmark_value in LANDMARKS:
+	for landmark_value in filtered_landmarks:
 		var landmark := Dictionary(landmark_value).duplicate(true)
 		landmark["position"] = scale_world_point(Vector2(landmark["position"]))
 		landmark["radius"] = float(landmark["radius"]) * WORLD_SCALE
 		scaled_landmarks.append(landmark)
 	return scaled_landmarks
+
+
+static func _get_balanced_landmark_selection() -> Array[Dictionary]:
+	var selected: Array[Dictionary] = []
+	selected.append_array(_select_landmarks_by_priority("hill", int(GAME_BALANCE.LANDMARKS.get("hill_count", 5)), HILL_LANDMARK_PRIORITY))
+	selected.append_array(_select_landmarks_by_priority("pond", int(GAME_BALANCE.LANDMARKS.get("pond_count", 3)), POND_LANDMARK_PRIORITY))
+	return selected
+
+
+static func _select_landmarks_by_priority(landmark_type: String, target_count: int, priority_ids: Array) -> Array[Dictionary]:
+	var candidates: Array[Dictionary] = []
+	for landmark_value in LANDMARKS:
+		var landmark := Dictionary(landmark_value)
+		if str(landmark.get("type", "")) == landmark_type:
+			candidates.append(landmark)
+	var clamped_count := clampi(target_count, 0, candidates.size())
+	if clamped_count >= candidates.size():
+		return candidates
+	var selected_ids: Dictionary = {}
+	var selected: Array[Dictionary] = []
+	for priority_id_value in priority_ids:
+		if selected.size() >= clamped_count:
+			break
+		var priority_id := str(priority_id_value)
+		for candidate in candidates:
+			if str(candidate.get("id", "")) != priority_id:
+				continue
+			selected.append(candidate)
+			selected_ids[priority_id] = true
+			break
+	if selected.size() < clamped_count:
+		for candidate in candidates:
+			var candidate_id := str(candidate.get("id", ""))
+			if selected_ids.has(candidate_id):
+				continue
+			selected.append(candidate)
+			if selected.size() >= clamped_count:
+				break
+	return selected

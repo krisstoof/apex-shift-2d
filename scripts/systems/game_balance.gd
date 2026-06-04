@@ -226,10 +226,10 @@ const RANGED_COMBAT := {
 # Landmark generation and biome modifiers for ponds, hills, dense vegetation,
 # and future animal hotspots.
 const LANDMARKS := {
-	"hill_count": 8,
-	"pond_count": 5,
-	"dense_vegetation_zone_count": 7,
-	"animal_hotspot_count": 4,
+	"hill_count": 5,
+	"pond_count": 3,
+	"dense_vegetation_zone_count": 5,
+	"animal_hotspot_count": 3,
 	"hill_spawn_margin": 220.0,
 	"hill_shape_irregularity": 0.10,
 	"hill_shape_sample_count": 40,
