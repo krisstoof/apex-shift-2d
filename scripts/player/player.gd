@@ -28,6 +28,7 @@ var is_swimming := false
 var swim_ripple_time := 0.0
 var is_dead := false
 var death_reason := "unknown"
+var god_mode := false
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -83,7 +84,10 @@ func _physics_process(delta: float) -> void:
 	global_position.x = clamp(global_position.x, -world_limits.x, world_limits.x)
 	global_position.y = clamp(global_position.y, -world_limits.y, world_limits.y)
 	_update_campfire_regen_state()
+	var previous_health := stats.health
 	stats.tick(delta, wants_run)
+	if god_mode and stats.health < previous_health:
+		stats.health = previous_health
 	if not is_dead and stats.health <= 0.0:
 		_die("hunger")
 
@@ -127,13 +131,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			_melee_attack()
 
 
-func receive_damage(amount: float, source: String = "unknown") -> void:
+func receive_damage(amount: float, source: String = "unknown") -> bool:
 	if is_dead:
-		return
+		return false
+	if god_mode:
+		if source == "debug damage":
+			get_node("/root/EventBus").post_message("God mode blocked damage")
+		return false
 	stats.damage(amount)
 	get_node("/root/EventBus").post_message("Player hit for %s" % int(amount))
 	if stats.health <= 0.0:
 		_die(source)
+	return true
 
 
 func activate_torch() -> bool:
@@ -222,8 +231,8 @@ func debug_add_bow() -> void:
 
 
 func debug_damage_player() -> void:
-	receive_damage(GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT, "debug damage")
-	get_node("/root/EventBus").emit_game_event("debug_player_damaged", {"amount": GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT})
+	if receive_damage(GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT, "debug damage"):
+		get_node("/root/EventBus").emit_game_event("debug_player_damaged", {"amount": GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT})
 
 
 func debug_heal_player() -> void:
@@ -270,6 +279,22 @@ func clear_inactive_torch_state() -> void:
 	torch_active = false
 	torch_remaining_seconds = 0.0
 	queue_redraw()
+
+
+func set_god_mode(enabled: bool) -> void:
+	god_mode = enabled
+	if stats and stats.has_method("set_god_mode"):
+		stats.set_god_mode(enabled)
+	get_node("/root/EventBus").post_message("God mode %s" % ("enabled" if god_mode else "disabled"))
+
+
+func toggle_god_mode() -> bool:
+	set_god_mode(not god_mode)
+	return god_mode
+
+
+func is_god_mode_enabled() -> bool:
+	return god_mode
 
 
 func recover_from_sleep() -> void:

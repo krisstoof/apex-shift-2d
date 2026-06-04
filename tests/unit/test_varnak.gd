@@ -62,7 +62,7 @@ class TestPlayer:
 	var damage_taken := 0.0
 	var torch_active := false
 
-	func receive_damage(amount: float) -> void:
+	func receive_damage(amount: float, _source: String = "unknown") -> void:
 		damage_taken += amount
 
 	func is_torch_active() -> bool:
