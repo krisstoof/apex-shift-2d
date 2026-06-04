@@ -18,7 +18,6 @@ func _ready() -> void:
 	days_until_next_generation = _roll_generation_interval()
 	species_profile = _load_default_profile()
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
-	print("[Evolution] Initial profile: %s" % species_profile)
 
 
 func get_profile() -> Dictionary:
@@ -99,7 +98,6 @@ func _change_generation(reason: String) -> void:
 	wall_attacks = 0
 	days_since_generation = 0
 	days_until_next_generation = _roll_generation_interval()
-	print("[Evolution] Generation changed (%s): %s" % [reason, species_profile])
 	get_node("/root/EventBus").emit_game_event("generation_changed", {"profile": get_profile(), "reason": reason})
 	get_node("/root/EventBus").emit_game_event("center_notification", {"text": "Generation %d evolved" % int(species_profile.get("generation", 1))})
 	get_node("/root/EventBus").post_message("Generation changed")

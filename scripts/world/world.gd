@@ -52,6 +52,7 @@ const POND_VEGETATION_RING_MIN_FACTOR := 0.82
 const POND_VEGETATION_RING_MAX_FACTOR := 1.35
 const POND_VEGETATION_RING_JITTER := 0.16
 const POND_VEGETATION_ANGLE_JITTER_FACTOR := 0.38
+const INITIAL_SPAWN_BATCH_SIZE := 4
 const WATER_ZONE_LAND := "land"
 const WATER_ZONE_SHORE := "shore"
 const WATER_ZONE_SHALLOW := "shallow_water"
@@ -78,6 +79,8 @@ var world_background_redraw_timer := 0.0
 var last_drawn_night_amount := -1.0
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
+var pending_biome_vegetation_syncs: Dictionary = {}
+var biome_vegetation_sync_scheduled := false
 const GROUP_CACHE_TTL_SECONDS := 0.12
 
 func _ready() -> void:
@@ -93,7 +96,7 @@ func _ready() -> void:
 	evolution_director.profile_changed.connect(_on_profile_changed)
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	_create_landmarks()
-	_spawn_resources()
+	await _spawn_resources()
 	_sync_visible_small_prey()
 	_spawn_initial_grazers()
 	_sync_visible_varnaks()
@@ -282,23 +285,28 @@ func _spawn_resources() -> void:
 	var dry_bush_count := int(ceil(float(WORLD_CONFIG.BUSH_COUNT) * 0.35))
 	var green_bush_count := WORLD_CONFIG.BUSH_COUNT - dry_bush_count
 
-	_spawn_resource_kind("conifer_tree", conifer_count, used_positions, player_position)
-	_spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
-	_spawn_resource_kind("rock", WORLD_CONFIG.ROCK_COUNT, used_positions, player_position)
-	_spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
-	_spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
-	_spawn_resource_kind("small_bush", WORLD_CONFIG.SMALL_BUSH_COUNT, used_positions, player_position)
-	_spawn_resource_kind("berry_bush", WORLD_CONFIG.BERRY_BUSH_COUNT, used_positions, player_position)
-	_spawn_resource_kind("grass_patch", WORLD_CONFIG.GRASS_PATCH_COUNT, used_positions, player_position)
-	_spawn_resource_kind("dense_grass", WORLD_CONFIG.DENSE_GRASS_COUNT, used_positions, player_position)
-	_spawn_pond_vegetation(used_positions, player_position)
+	await _spawn_resource_kind("conifer_tree", conifer_count, used_positions, player_position)
+	await _spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
+	await _spawn_resource_kind("rock", WORLD_CONFIG.ROCK_COUNT, used_positions, player_position)
+	await _spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
+	await _spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
+	await _spawn_resource_kind("small_bush", WORLD_CONFIG.SMALL_BUSH_COUNT, used_positions, player_position)
+	await _spawn_resource_kind("berry_bush", WORLD_CONFIG.BERRY_BUSH_COUNT, used_positions, player_position)
+	await _spawn_resource_kind("grass_patch", WORLD_CONFIG.GRASS_PATCH_COUNT, used_positions, player_position)
+	await _spawn_resource_kind("dense_grass", WORLD_CONFIG.DENSE_GRASS_COUNT, used_positions, player_position)
+	await _spawn_pond_vegetation(used_positions, player_position)
 	call_deferred("_sync_all_biome_vegetation")
 
 
 func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
+	var spawned_since_yield := 0
 	for _i in count:
 		if not _try_spawn_resource(resource_kind, used_positions, player_position):
 			push_warning("Could not find a valid spawn position for %s" % resource_kind)
+		spawned_since_yield += 1
+		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
+			spawned_since_yield = 0
+			await get_tree().process_frame
 
 
 func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -322,9 +330,14 @@ func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vec
 		]
 		var vegetation_count := _get_pond_vegetation_count()
 		var angle_phase := resource_rng.randf_range(0.0, TAU)
+		var spawned_since_yield := 0
 		for i in vegetation_count:
 			var kind := str(pond_kinds[i % pond_kinds.size()])
 			_try_spawn_resource_near_pond(kind, pond, biome, used_positions, player_position, i, vegetation_count, angle_phase)
+			spawned_since_yield += 1
+			if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
+				spawned_since_yield = 0
+				await get_tree().process_frame
 
 
 func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, slot_index: int, slot_count: int, angle_phase: float) -> bool:
@@ -940,14 +953,17 @@ func _get_biome_id_for_position(position: Vector2) -> String:
 
 
 func _sync_all_biome_vegetation() -> void:
+	var changed := false
 	for biome in WORLD_CONFIG.get_biome_zones():
-		_sync_biome_vegetation(_get_biome_id(biome))
+		changed = _sync_biome_vegetation(_get_biome_id(biome)) or changed
+	if changed:
+		queue_redraw()
 
 
-func _sync_biome_vegetation(biome_id: String) -> void:
+func _sync_biome_vegetation(biome_id: String) -> bool:
 	var biome := _get_biome_for_id(biome_id)
 	if biome.is_empty():
-		return
+		return false
 	var used_positions := _get_existing_resource_positions()
 	var changed := false
 	for resource_kind in PLANT_RESOURCE_KINDS:
@@ -960,7 +976,8 @@ func _sync_biome_vegetation(biome_id: String) -> void:
 				if _try_spawn_resource_in_biome(kind, biome, used_positions, _get_player_position()):
 					changed = true
 	if changed:
-		queue_redraw()
+		return true
+	return false
 
 
 func _get_biome_for_id(biome_id: String) -> Dictionary:
@@ -1564,9 +1581,30 @@ func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 			call_deferred("respawn_missing_varnaks")
 	elif event_name == "ecosystem_vegetation_changed":
 		var biome_id := str(_payload.get("biome_id", ""))
+		_queue_biome_vegetation_sync(biome_id)
+
+
+func _queue_biome_vegetation_sync(biome_id: String) -> void:
+	if biome_id.is_empty():
+		return
+	pending_biome_vegetation_syncs[biome_id] = true
+	if biome_vegetation_sync_scheduled:
+		return
+	biome_vegetation_sync_scheduled = true
+	call_deferred("_flush_pending_biome_vegetation_syncs")
+
+
+func _flush_pending_biome_vegetation_syncs() -> void:
+	biome_vegetation_sync_scheduled = false
+	if pending_biome_vegetation_syncs.is_empty():
+		return
+	var changed := false
+	var biome_ids := pending_biome_vegetation_syncs.keys()
+	pending_biome_vegetation_syncs.clear()
+	for biome_id_value in biome_ids:
+		changed = _sync_biome_vegetation(str(biome_id_value)) or changed
+	if changed:
 		queue_redraw()
-		if not biome_id.is_empty():
-			call_deferred("_sync_biome_vegetation", biome_id)
 
 
 func _vector_to_data(value: Vector2) -> Dictionary:

@@ -212,9 +212,8 @@ func _initialize_biomes() -> void:
 			"grazer_non_plant_food_events": 0,
 			"predator_pressure": 0.0,
 			"status": _get_biomass_status(default_plant_biomass, max_plant_biomass)
-		}
+	}
 	initialized = true
-	print("[Ecosystem] Initialized biome states: %s" % biome_states)
 
 
 func _restore_biome_states(saved_states: Dictionary) -> void:
@@ -321,7 +320,6 @@ func _update_ecosystem_tick() -> void:
 		biome_states[biome_id] = state
 		_emit_vegetation_changed(state)
 		_emit_status_event_if_needed(previous_status, state)
-	print("[Ecosystem] Tick: %s" % biome_states)
 
 
 func _update_biome_biomass(state: Dictionary) -> void:
