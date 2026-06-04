@@ -323,7 +323,7 @@ func _act(delta: float) -> void:
 			velocity = Vector2.ZERO
 			_face_target(player.global_position)
 			if attack_cooldown <= 0.0 and player.has_method("receive_damage") and _is_player_in_attack_arc():
-				player.receive_damage(10.0 + aggression * 8.0)
+				player.receive_damage(10.0 + aggression * 8.0, "varnak")
 				get_node("/root/EventBus").emit_game_event("varnak_attacked_player", {"damage": 10.0 + aggression * 8.0})
 				attack_visual_time = ATTACK_VISUAL_DURATION
 				queue_redraw()

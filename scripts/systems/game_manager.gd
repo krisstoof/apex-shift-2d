@@ -9,10 +9,16 @@ extends Node
 @onready var save_system: Node = get_parent().get_node("SaveSystem")
 @onready var game_session = get_node("/root/GameSession")
 
+var game_over_active := false
+
 func _ready() -> void:
 	await _wait_for_world_boot()
 	player.evolution_director = evolution_director
 	hud.bind(player, evolution_director, day_night_system, ecosystem_director)
+	if player.has_signal("died"):
+		var died_callable := Callable(self, "_on_player_died")
+		if not player.is_connected("died", died_callable):
+			player.connect("died", died_callable)
 	await _apply_boot_action()
 	get_node("/root/EventBus").post_message("Apex Shift 2D prototype ready")
 
@@ -36,3 +42,13 @@ func _wait_for_world_boot() -> void:
 func _apply_boot_action() -> void:
 	if game_session.consume_load_save_request():
 		await save_system.load_game()
+
+
+func _on_player_died(reason: String) -> void:
+	if game_over_active:
+		return
+	game_over_active = true
+	var day_survived: int = int(day_night_system.get_day()) if day_night_system.has_method("get_day") else 1
+	if hud.has_method("show_game_over"):
+		hud.show_game_over(day_survived, reason)
+	get_tree().paused = true
