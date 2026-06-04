@@ -9,6 +9,7 @@ func run() -> Array[String]:
 	_test_request_new_game_creates_bootstrap_seed(failures)
 	_test_set_bootstrap_world_state_round_trips_landmarks(failures)
 	_test_extract_bootstrap_world_data_reads_seed_and_landmarks(failures)
+	_test_extract_bootstrap_world_data_falls_back_without_world_block(failures)
 	return failures
 
 
@@ -55,3 +56,14 @@ func _test_extract_bootstrap_world_data_reads_seed_and_landmarks(failures: Array
 	TEST_UTILS.expect_equal(int(bootstrap.get("world_seed", 0)), 777, failures, "Bootstrap extraction should read world seed from save data")
 	var landmarks: Array = Array(bootstrap.get("landmarks", []))
 	TEST_UTILS.expect_equal(landmarks.size(), 1, failures, "Bootstrap extraction should read saved landmark overrides")
+
+
+func _test_extract_bootstrap_world_data_falls_back_without_world_block(failures: Array[String]) -> void:
+	var game_session := GAME_SESSION_SCRIPT.new()
+	var bootstrap: Dictionary = game_session.call("_extract_bootstrap_world_data", {
+		"version": 1,
+		"player": {"position": {"x": 0.0, "y": 0.0}}
+	})
+	TEST_UTILS.expect(int(bootstrap.get("world_seed", 0)) > 0, failures, "Bootstrap extraction should generate a fallback world seed when an older save has no world block")
+	var landmarks: Array = Array(bootstrap.get("landmarks", []))
+	TEST_UTILS.expect_equal(landmarks.size(), 0, failures, "Bootstrap extraction should keep an empty landmark override list for older saves without world data")

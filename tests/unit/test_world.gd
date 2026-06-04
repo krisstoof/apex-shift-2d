@@ -14,6 +14,7 @@ func run() -> Array[String]:
 	_test_hills_block_navigation(failures)
 	_test_terrain_speed_multiplier_changes_in_water(failures)
 	_test_landmark_save_data_round_trip_vectors(failures)
+	_test_world_save_data_includes_seed_and_landmark_fields(failures)
 	_test_biomes_have_sample_texture_assets(failures)
 	_test_biome_terrain_accent_layout_is_dense_and_inside_biome(failures)
 	_test_biome_terrain_accent_layout_stays_async_when_queue_is_pending(failures)
@@ -97,6 +98,32 @@ func _test_landmark_save_data_round_trip_vectors(failures: Array[String]) -> voi
 		var restored_position := Vector2(restored_landmark.get("position", Vector2.ZERO))
 		TEST_UTILS.expect_close(restored_position.x, 120.0, failures, "Deserialized landmark save data should restore position X")
 		TEST_UTILS.expect_close(restored_position.y, -90.0, failures, "Deserialized landmark save data should restore position Y")
+	world.free()
+
+
+func _test_world_save_data_includes_seed_and_landmark_fields(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.world_seed = 2468
+	world.landmarks = [{
+		"id": "test_hill",
+		"type": "hill",
+		"position": Vector2(200.0, 150.0),
+		"radius": 180.0,
+		"biome_id": "stoneback_ridge",
+		"gameplay_tags": ["high_ground", "rocky"]
+	}]
+	var save_data: Dictionary = world.get_save_data()
+	TEST_UTILS.expect_equal(int(save_data.get("world_seed", 0)), 2468, failures, "World save data should include the generated world seed")
+	var landmarks_data: Array = Array(save_data.get("landmarks", []))
+	TEST_UTILS.expect_equal(landmarks_data.size(), 1, failures, "World save data should include the final landmark layout")
+	if landmarks_data.size() == 1:
+		var exported := Dictionary(landmarks_data[0])
+		TEST_UTILS.expect_equal(str(exported.get("id", "")), "test_hill", failures, "World save data should preserve landmark ids")
+		TEST_UTILS.expect_equal(str(exported.get("type", "")), "hill", failures, "World save data should preserve landmark types")
+		TEST_UTILS.expect_equal(str(exported.get("biome_id", "")), "stoneback_ridge", failures, "World save data should preserve landmark biome ids")
+		TEST_UTILS.expect_close(float(exported.get("radius", 0.0)), 180.0, failures, "World save data should preserve landmark radii")
+		var gameplay_tags: Array = Array(exported.get("gameplay_tags", []))
+		TEST_UTILS.expect_equal(gameplay_tags.size(), 2, failures, "World save data should preserve gameplay tags for restored landmarks")
 	world.free()
 
 
