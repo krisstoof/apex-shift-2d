@@ -13,6 +13,7 @@ func run() -> Array[String]:
 	_test_non_plant_resources_ignore_water_blocking(failures)
 	_test_hills_block_navigation(failures)
 	_test_terrain_speed_multiplier_changes_in_water(failures)
+	_test_landmark_save_data_round_trip_vectors(failures)
 	_test_biomes_have_sample_texture_assets(failures)
 	_test_biome_terrain_accent_layout_is_dense_and_inside_biome(failures)
 	_test_biome_terrain_accent_layout_stays_async_when_queue_is_pending(failures)
@@ -69,6 +70,33 @@ func _test_terrain_speed_multiplier_changes_in_water(failures: Array[String]) ->
 	var land_speed: float = float(world.get_terrain_speed_multiplier(Vector2(160.0, 0.0)))
 	TEST_UTILS.expect(deep_speed < shallow_speed, failures, "Deep water should slow movement more than shallow water")
 	TEST_UTILS.expect(shallow_speed < land_speed, failures, "Shallow water should still slow movement more than land")
+	world.free()
+
+
+func _test_landmark_save_data_round_trip_vectors(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.landmarks = [{
+		"id": "test_pond",
+		"type": "pond",
+		"position": Vector2(120.0, -90.0),
+		"radius": 140.0,
+		"biome_id": "westwood",
+		"gameplay_tags": ["water_source"]
+	}]
+	var save_data: Array = world.get_landmark_save_data()
+	TEST_UTILS.expect_equal(save_data.size(), 1, failures, "World should export landmark save data")
+	if save_data.size() == 1:
+		var exported := Dictionary(save_data[0])
+		var position_data := Dictionary(exported.get("position", {}))
+		TEST_UTILS.expect_close(float(position_data.get("x", 0.0)), 120.0, failures, "Landmark save data should preserve position X")
+		TEST_UTILS.expect_close(float(position_data.get("y", 0.0)), -90.0, failures, "Landmark save data should preserve position Y")
+	var restored: Array = world.call("_deserialize_landmark_save_data", save_data)
+	TEST_UTILS.expect_equal(restored.size(), 1, failures, "World should deserialize landmark save data")
+	if restored.size() == 1:
+		var restored_landmark := Dictionary(restored[0])
+		var restored_position := Vector2(restored_landmark.get("position", Vector2.ZERO))
+		TEST_UTILS.expect_close(restored_position.x, 120.0, failures, "Deserialized landmark save data should restore position X")
+		TEST_UTILS.expect_close(restored_position.y, -90.0, failures, "Deserialized landmark save data should restore position Y")
 	world.free()
 
 

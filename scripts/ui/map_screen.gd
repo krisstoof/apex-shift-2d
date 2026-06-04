@@ -185,8 +185,6 @@ func _draw_landmarks(map_rect: Rect2) -> void:
 
 
 func _refresh_landmarks_from_world() -> void:
-	if not landmarks.is_empty():
-		return
 	var world := get_tree().current_scene.get_node_or_null("World")
 	if world and world.has_method("get_landmarks"):
 		landmarks = world.get_landmarks()

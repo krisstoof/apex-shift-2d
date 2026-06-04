@@ -48,6 +48,7 @@ func _collect_save_data() -> Dictionary:
 	var ecosystem_director := scene.get_node("EcosystemDirector")
 	return {
 		"version": 3,
+		"world": world.get_save_data(),
 		"player": _get_player_data(player),
 		"resources": world.get_resource_save_data(),
 		"varnaks": world.get_varnak_save_data(),
@@ -107,7 +108,13 @@ func _restore_save_data(data: Dictionary) -> void:
 	var day_night_system := scene.get_node("DayNightSystem")
 	var evolution_director := scene.get_node("EvolutionDirector")
 	var ecosystem_director := scene.get_node("EcosystemDirector")
+	var game_session := get_node_or_null("/root/GameSession")
+	var world_data := Dictionary(data.get("world", {}))
 
+	if not world_data.is_empty():
+		await world.restore_landmarks(Array(world_data.get("landmarks", [])), int(world_data.get("world_seed", 0)))
+		if game_session and game_session.has_method("set_bootstrap_world_state"):
+			game_session.set_bootstrap_world_state(int(world_data.get("world_seed", 0)), Array(world_data.get("landmarks", [])))
 	_restore_player_data(player, Dictionary(data.get("player", {})))
 	evolution_director.restore_from_data(Dictionary(data.get("evolution", {})))
 	ecosystem_director.load_save_data(Dictionary(data.get("ecosystem", {})))

@@ -7,6 +7,7 @@ const WORLD_SCALE := 2.2
 const BASE_WORLD_RECT := Rect2(-1440, -880, 2880, 1760)
 const WORLD_RECT := Rect2(BASE_WORLD_RECT.position * WORLD_SCALE, BASE_WORLD_RECT.size * WORLD_SCALE)
 const PLAYER_EDGE_PADDING := 40.0
+const PLAYER_START_POSITION := Vector2(-2450.0, 1450.0)
 
 const TREE_COUNT := 48
 const ROCK_COUNT := 24
@@ -282,14 +283,22 @@ static func get_biome_zones() -> Array[Dictionary]:
 
 
 static func get_landmarks() -> Array[Dictionary]:
-	var filtered_landmarks: Array[Dictionary] = _get_balanced_landmark_selection()
-	var scaled_landmarks: Array[Dictionary] = []
-	for landmark_value in filtered_landmarks:
-		var landmark := Dictionary(landmark_value).duplicate(true)
-		landmark["position"] = scale_world_point(Vector2(landmark["position"]))
-		landmark["radius"] = float(landmark["radius"]) * WORLD_SCALE
-		scaled_landmarks.append(landmark)
-	return scaled_landmarks
+	return generate_landmarks(1)
+
+
+static func generate_landmarks(world_seed: int) -> Array[Dictionary]:
+	var selected_landmarks: Array[Dictionary] = _get_balanced_landmark_selection()
+	var biomes: Array[Dictionary] = get_biome_zones()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = abs(world_seed) if world_seed != 0 else 1
+	var generated: Array[Dictionary] = []
+	for landmark_value in selected_landmarks:
+		var landmark := _scale_landmark(Dictionary(landmark_value))
+		var biome_id := str(landmark.get("biome_id", ""))
+		var biome := _get_biome_by_id(biome_id, biomes)
+		landmark["position"] = _generate_landmark_position(landmark, biome, generated, rng)
+		generated.append(landmark)
+	return generated
 
 
 static func _get_balanced_landmark_selection() -> Array[Dictionary]:
@@ -329,3 +338,114 @@ static func _select_landmarks_by_priority(landmark_type: String, target_count: i
 			if selected.size() >= clamped_count:
 				break
 	return selected
+
+
+static func _scale_landmark(landmark: Dictionary) -> Dictionary:
+	var scaled := landmark.duplicate(true)
+	scaled["position"] = scale_world_point(Vector2(landmark.get("position", Vector2.ZERO)))
+	scaled["radius"] = float(landmark.get("radius", 120.0)) * WORLD_SCALE
+	return scaled
+
+
+static func _get_biome_by_id(target_biome_id: String, biomes: Array[Dictionary]) -> Dictionary:
+	for biome_value in biomes:
+		var biome := Dictionary(biome_value)
+		if _get_biome_id(biome) == target_biome_id:
+			return biome
+	return {}
+
+
+static func _generate_landmark_position(landmark: Dictionary, biome: Dictionary, placed_landmarks: Array[Dictionary], rng: RandomNumberGenerator) -> Vector2:
+	var fallback_position := Vector2(landmark.get("position", Vector2.ZERO))
+	if biome.is_empty():
+		return fallback_position
+	var points := PackedVector2Array(biome.get("points", []))
+	if points.is_empty():
+		return fallback_position
+	var bounds := _get_polygon_bounds(points)
+	var radius := float(landmark.get("radius", 120.0))
+	var spawn_margin := _get_landmark_spawn_margin(str(landmark.get("type", "")))
+	var world_margin := spawn_margin + radius
+	var player_safe_distance := float(GAME_BALANCE.LANDMARKS.get("landmark_player_safe_distance", 760.0))
+	var min_landmark_distance := float(GAME_BALANCE.LANDMARKS.get("landmark_min_distance", 420.0))
+	for _attempt in 96:
+		var candidate := Vector2(
+			rng.randf_range(bounds.position.x, bounds.end.x),
+			rng.randf_range(bounds.position.y, bounds.end.y)
+		)
+		if not Geometry2D.is_point_in_polygon(candidate, points):
+			continue
+		if not _is_landmark_inside_world_bounds(candidate, world_margin):
+			continue
+		if candidate.distance_to(PLAYER_START_POSITION) < player_safe_distance + radius:
+			continue
+		if _is_landmark_too_close_to_others(candidate, radius, placed_landmarks, min_landmark_distance):
+			continue
+		return candidate
+	return _find_landmark_fallback_position(fallback_position, points, radius, world_margin, placed_landmarks, min_landmark_distance)
+
+
+static func _is_landmark_inside_world_bounds(position: Vector2, margin: float) -> bool:
+	return (
+		position.x >= WORLD_RECT.position.x + margin
+		and position.x <= WORLD_RECT.end.x - margin
+		and position.y >= WORLD_RECT.position.y + margin
+		and position.y <= WORLD_RECT.end.y - margin
+	)
+
+
+static func _is_landmark_too_close_to_others(position: Vector2, radius: float, placed_landmarks: Array[Dictionary], min_landmark_distance: float) -> bool:
+	for placed_value in placed_landmarks:
+		var placed := Dictionary(placed_value)
+		var placed_position := Vector2(placed.get("position", Vector2.ZERO))
+		var placed_radius := float(placed.get("radius", 120.0))
+		var required_distance: float = maxf(min_landmark_distance, radius + placed_radius + 40.0)
+		if position.distance_to(placed_position) < required_distance:
+			return true
+	return false
+
+
+static func _find_landmark_fallback_position(fallback_position: Vector2, points: PackedVector2Array, radius: float, world_margin: float, placed_landmarks: Array[Dictionary], min_landmark_distance: float) -> Vector2:
+	if Geometry2D.is_point_in_polygon(fallback_position, points) and _is_landmark_inside_world_bounds(fallback_position, world_margin) and not _is_landmark_too_close_to_others(fallback_position, radius, placed_landmarks, min_landmark_distance):
+		return fallback_position
+	var bounds := _get_polygon_bounds(points)
+	var center: Vector2 = bounds.get_center()
+	for ring in range(1, 7):
+		var ring_distance: float = float(ring) * maxf(radius * 0.9, 120.0)
+		for angle_step in range(24):
+			var angle := TAU * float(angle_step) / 24.0
+			var candidate: Vector2 = center + Vector2.RIGHT.rotated(angle) * ring_distance
+			if not Geometry2D.is_point_in_polygon(candidate, points):
+				continue
+			if not _is_landmark_inside_world_bounds(candidate, world_margin):
+				continue
+			if _is_landmark_too_close_to_others(candidate, radius, placed_landmarks, min_landmark_distance):
+				continue
+			return candidate
+	return fallback_position
+
+
+static func _get_landmark_spawn_margin(landmark_type: String) -> float:
+	match landmark_type:
+		"pond":
+			return float(GAME_BALANCE.LANDMARKS.get("pond_spawn_margin", 260.0))
+		"hill":
+			return float(GAME_BALANCE.LANDMARKS.get("hill_spawn_margin", 220.0))
+	return float(GAME_BALANCE.LANDMARKS.get("landmark_min_distance", 420.0)) * 0.5
+
+
+static func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
+	if points.is_empty():
+		return Rect2(Vector2.ZERO, Vector2.ONE)
+	var min_point := points[0]
+	var max_point := points[0]
+	for point in points:
+		min_point.x = min(min_point.x, point.x)
+		min_point.y = min(min_point.y, point.y)
+		max_point.x = max(max_point.x, point.x)
+		max_point.y = max(max_point.y, point.y)
+	return Rect2(min_point, max_point - min_point)
+
+
+static func _get_biome_id(biome: Dictionary) -> String:
+	return str(biome.get("name", "")).to_snake_case()

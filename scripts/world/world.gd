@@ -101,6 +101,7 @@ var small_prey_rng := RandomNumberGenerator.new()
 var grazer_rng := RandomNumberGenerator.new()
 var small_prey_spawn_timer := 0.0
 var varnak_spawn_timer := 0.0
+var world_seed := 0
 var landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
 var pond_landmarks: Array[Dictionary] = []
@@ -178,6 +179,27 @@ func get_landmarks() -> Array[Dictionary]:
 	if landmarks.is_empty():
 		return WORLD_CONFIG.get_landmarks()
 	return landmarks.duplicate(true)
+
+
+func get_world_seed() -> int:
+	return world_seed
+
+
+func get_landmark_save_data() -> Array[Dictionary]:
+	var landmark_data: Array[Dictionary] = []
+	for landmark_value in landmarks:
+		var landmark := Dictionary(landmark_value).duplicate(true)
+		landmark["position"] = _vector_to_data(Vector2(landmark.get("position", Vector2.ZERO)))
+		landmark["radius"] = float(landmark.get("radius", 0.0))
+		landmark_data.append(landmark)
+	return landmark_data
+
+
+func get_save_data() -> Dictionary:
+	return {
+		"world_seed": world_seed,
+		"landmarks": get_landmark_save_data()
+	}
 
 
 func is_boot_ready() -> bool:
@@ -287,7 +309,22 @@ func debug_teleport_out_of_bounds_creatures() -> void:
 
 
 func _create_landmarks() -> void:
-	landmarks = WORLD_CONFIG.get_landmarks()
+	var game_session := get_node_or_null("/root/GameSession")
+	var bootstrap_landmarks: Array[Dictionary] = []
+	if game_session and game_session.has_method("get_bootstrap_landmarks"):
+		bootstrap_landmarks = game_session.get_bootstrap_landmarks()
+	if game_session and game_session.has_method("get_bootstrap_world_seed"):
+		world_seed = int(game_session.get_bootstrap_world_seed())
+	elif world_seed == 0:
+		world_seed = 1
+	if bootstrap_landmarks.is_empty():
+		landmarks = WORLD_CONFIG.generate_landmarks(world_seed)
+	else:
+		landmarks = _deserialize_landmark_save_data(bootstrap_landmarks)
+	_rebuild_landmark_runtime_state()
+
+
+func _rebuild_landmark_runtime_state() -> void:
 	hill_landmarks.clear()
 	pond_landmarks.clear()
 	pond_water_search_radius = 0.0
@@ -303,6 +340,31 @@ func _create_landmarks() -> void:
 				_create_landmark_area(landmark, "pond_landmarks")
 	if not pond_landmarks.is_empty():
 		pond_water_search_radius = max(max_pond_radius * 1.2, 1.0)
+
+
+func restore_landmarks(landmark_data: Array, restored_world_seed: int = 0) -> void:
+	for landmark_area in get_tree().get_nodes_in_group("landmarks"):
+		if is_instance_valid(landmark_area):
+			landmark_area.queue_free()
+	await get_tree().process_frame
+	world_seed = restored_world_seed if restored_world_seed != 0 else world_seed
+	landmarks = _deserialize_landmark_save_data(landmark_data)
+	if landmarks.is_empty():
+		landmarks = WORLD_CONFIG.generate_landmarks(world_seed)
+	_rebuild_landmark_runtime_state()
+	queue_redraw()
+
+
+func _deserialize_landmark_save_data(landmark_data: Array) -> Array[Dictionary]:
+	var restored_landmarks: Array[Dictionary] = []
+	for landmark_value in landmark_data:
+		if typeof(landmark_value) != TYPE_DICTIONARY:
+			continue
+		var landmark := Dictionary(landmark_value).duplicate(true)
+		landmark["position"] = _data_to_vector(landmark.get("position", {}))
+		landmark["radius"] = float(landmark.get("radius", 0.0))
+		restored_landmarks.append(landmark)
+	return restored_landmarks
 
 
 func _create_landmark_area(landmark: Dictionary, group_name: String) -> void:
