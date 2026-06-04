@@ -1,6 +1,7 @@
 extends Control
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const BENCHMARK_RUNNER := preload("res://scripts/systems/benchmark_runner.gd")
 const DEBUG_TABS := [
 	"Overview",
 	"Player",
@@ -30,6 +31,8 @@ var last_state_text := ""
 var state_label_min_height := STATE_LABEL_MIN_SIZE.y
 var last_nearest_creature_text: Dictionary = {}
 var selected_debug_creatures: Dictionary = {}
+var benchmark_runner: Node
+var benchmark_button: Button
 
 @onready var title_label: Label = $Panel/TitleLabel
 @onready var state_scroll: ScrollContainer = $Panel/StateScroll
@@ -255,6 +258,7 @@ func _create_future_tool_buttons() -> void:
 	_add_tool_button("Force vegetation regrowth", _on_force_full_vegetation_regrowth_pressed, "Ecosystem")
 	_add_tool_button("Reset resource growth", _on_reset_resource_growth_pressed, "World")
 	_add_tool_button("Teleport OOB creatures", _on_teleport_out_of_bounds_pressed, "Creatures")
+	benchmark_button = _add_tool_button("Run 60s benchmark", _on_run_benchmark_pressed, "Tools")
 
 
 func _build_state_text() -> String:
@@ -1122,6 +1126,59 @@ func _on_reset_resource_growth_pressed() -> void:
 
 func _on_teleport_out_of_bounds_pressed() -> void:
 	_call_optional_world_debug_method("debug_teleport_out_of_bounds_creatures", "Creature bounds debug is not available yet")
+
+
+func _on_run_benchmark_pressed() -> void:
+	_start_benchmark()
+
+
+func _start_benchmark() -> void:
+	if is_instance_valid(benchmark_runner):
+		_post_debug_message("Benchmark is already running")
+		return
+	var scene := get_tree().current_scene
+	if not scene:
+		_post_debug_message("Benchmark could not start: no active scene")
+		return
+	benchmark_runner = BENCHMARK_RUNNER.new()
+	scene.add_child(benchmark_runner)
+	if benchmark_button:
+		benchmark_button.text = "Benchmark 60s / starting..."
+	if benchmark_runner.has_signal("finished"):
+		benchmark_runner.finished.connect(_on_benchmark_finished)
+	if benchmark_runner.has_signal("benchmark_progress"):
+		benchmark_runner.benchmark_progress.connect(_on_benchmark_progress)
+	if benchmark_runner.has_method("start"):
+		var started: bool = benchmark_runner.call("start") == true
+		if started:
+			_post_debug_message("Benchmark started for 60 seconds")
+		else:
+			_reset_benchmark_button()
+			benchmark_runner.queue_free()
+			benchmark_runner = null
+			_post_debug_message("Benchmark could not start")
+
+
+func _on_benchmark_progress(elapsed_seconds: float, remaining_seconds: float) -> void:
+	if benchmark_button:
+		benchmark_button.text = "Benchmark %.0fs left" % ceil(remaining_seconds)
+	_post_debug_message("Benchmark running: %.0fs elapsed, %.0fs left" % [floor(elapsed_seconds), ceil(remaining_seconds)])
+
+
+func _on_benchmark_finished(log_path: String, json_path: String) -> void:
+	if is_instance_valid(benchmark_runner):
+		benchmark_runner.queue_free()
+	benchmark_runner = null
+	_reset_benchmark_button()
+	if log_path.is_empty() and json_path.is_empty():
+		_post_debug_message("Benchmark finished")
+	else:
+		_post_debug_message("Benchmark finished. Logs saved to %s and %s" % [log_path, json_path])
+
+
+func _reset_benchmark_button() -> void:
+	if benchmark_button:
+		benchmark_button.text = "Run 60s benchmark"
 
 
 func _call_optional_world_debug_method(method_name: String, missing_message: String) -> void:
