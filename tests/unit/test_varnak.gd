@@ -80,6 +80,8 @@ func run() -> Array[String]:
 	_test_varnak_can_wander(failures)
 	_test_varnak_does_not_leave_world_bounds(failures)
 	_test_varnak_searches_prey_when_hungry(failures)
+	_test_varnak_does_not_hunt_when_not_hungry(failures)
+	_test_varnak_prefers_nearest_valid_prey(failures)
 	_test_varnak_detects_nearby_small_prey(failures)
 	_test_varnak_detects_nearby_grazer(failures)
 	_test_varnak_detects_player_when_hungry(failures)
@@ -96,6 +98,7 @@ func run() -> Array[String]:
 	_test_varnak_takes_damage(failures)
 	_test_varnak_dies_at_zero_health(failures)
 	_test_varnak_drops_meat_on_death(failures)
+	_test_varnak_does_not_duplicate_meat_drop_on_repeated_death(failures)
 	_test_varnak_removed_from_ecosystem_after_death(failures)
 	return failures
 
@@ -181,6 +184,38 @@ func _test_varnak_searches_prey_when_hungry(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(varnak.state, varnak.State.HUNT_ECOSYSTEM, failures, "Hungry Varnak should hunt ecosystem prey")
 	TEST_UTILS.expect_equal(varnak.ecosystem_target_kind, "small_prey", failures, "Varnak should lock a small prey target")
 	prey.queue_free()
+	varnak.queue_free()
+
+
+func _test_varnak_does_not_hunt_when_not_hungry(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	var world := _ensure_world()
+	_spawn_target(world, "small_prey", Vector2(150.0, 0.0))
+	_set_player(varnak, Vector2(2000.0, 0.0))
+	varnak.hunger = 0.10
+	varnak.energy = 1.0
+	varnak.global_position = Vector2.ZERO
+	varnak.call("_update_state")
+	TEST_UTILS.expect(varnak.state != varnak.State.HUNT_ECOSYSTEM, failures, "Comfortable Varnak should not hunt prey")
+	TEST_UTILS.expect_equal(varnak.ecosystem_target_kind, "", failures, "Comfortable Varnak should not lock a prey target")
+	varnak.queue_free()
+
+
+func _test_varnak_prefers_nearest_valid_prey(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	var world := _ensure_world()
+	var near_prey := _spawn_target(world, "small_prey", Vector2(120.0, 0.0))
+	var far_prey := _spawn_target(world, "small_prey", Vector2(260.0, 0.0))
+	_set_player(varnak, Vector2(2000.0, 0.0))
+	varnak.hunger = 0.55
+	varnak.energy = 1.0
+	varnak.global_position = Vector2.ZERO
+	varnak.call("_update_state")
+	TEST_UTILS.expect_equal(varnak.state, varnak.State.HUNT_ECOSYSTEM, failures, "Hungry Varnak should enter hunting state")
+	TEST_UTILS.expect_equal(varnak.ecosystem_target, near_prey, failures, "Varnak should choose the nearest valid prey")
+	TEST_UTILS.expect(varnak.ecosystem_target != far_prey, failures, "Varnak should not prefer a farther prey over a nearer one")
+	near_prey.queue_free()
+	far_prey.queue_free()
 	varnak.queue_free()
 
 
@@ -386,6 +421,16 @@ func _test_varnak_drops_meat_on_death(failures: Array[String]) -> void:
 	world.spawned_meat_amount = 0
 	varnak.take_damage(999.0, "player")
 	TEST_UTILS.expect(world.spawned_meat_amount > 0, failures, "Dead varnak should spawn meat")
+	varnak.queue_free()
+
+
+func _test_varnak_does_not_duplicate_meat_drop_on_repeated_death(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	var world := _ensure_world()
+	world.spawned_meat_amount = 0
+	varnak.take_damage(999.0, "player")
+	varnak.take_damage(999.0, "player")
+	TEST_UTILS.expect_equal(world.spawned_meat_amount, 1, failures, "Varnak death should drop meat only once")
 	varnak.queue_free()
 
 

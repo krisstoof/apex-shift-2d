@@ -839,8 +839,8 @@ func _sync_visible_small_prey() -> void:
 		return
 	var spawned := 0
 	var used_positions := _get_existing_small_prey_positions()
-	for _i in spawn_budget:
-		if _try_spawn_small_prey_near_player(player_biome, player_position, used_positions):
+	for slot_index in spawn_budget:
+		if _try_spawn_small_prey_near_player(player_biome, player_position, used_positions, slot_index, spawn_budget):
 			spawned += 1
 	if spawned > 0:
 		get_node("/root/EventBus").post_message("%d SmallPrey entered the ecosystem" % spawned)
@@ -876,7 +876,7 @@ func _get_existing_small_prey_positions() -> Array[Vector2]:
 	return positions
 
 
-func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
+func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2], slot_index: int, slot_count: int) -> bool:
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
 		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(SMALL_PREY_PLAYER_SAFE_DISTANCE, SMALL_PREY_VISIBLE_SPAWN_RADIUS)
 		var candidate := player_position + offset
@@ -886,6 +886,27 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 			continue
 		used_positions.append(candidate)
 		_spawn_small_prey_at(candidate, _get_biome_id(biome))
+		return true
+	var player_limits: Vector2 = WORLD_CONFIG.get_player_limits()
+	for distance_step in 8:
+		var distance_factor: float = float(distance_step) / 7.0
+		var distance: float = lerp(SMALL_PREY_PLAYER_SAFE_DISTANCE, SMALL_PREY_VISIBLE_SPAWN_RADIUS, distance_factor)
+		for angle_step in 48:
+			var angle: float = TAU * float(angle_step) / 48.0 + float(slot_index) * 0.21
+			var candidate: Vector2 = player_position + Vector2.RIGHT.rotated(angle) * distance
+			candidate.x = clamp(candidate.x, -player_limits.x, player_limits.x)
+			candidate.y = clamp(candidate.y, -player_limits.y, player_limits.y)
+			if not _is_point_in_biome(candidate, biome):
+				continue
+			if not _is_valid_small_prey_position(candidate, used_positions, player_position):
+				continue
+			used_positions.append(candidate)
+			_spawn_small_prey_at(candidate, _get_biome_id(biome))
+			return true
+	var fallback: Vector2 = _get_fallback_dry_creature_spawn_position(player_position)
+	if _is_point_in_biome(fallback, biome) and _is_valid_small_prey_position(fallback, used_positions, player_position):
+		used_positions.append(fallback)
+		_spawn_small_prey_at(fallback, _get_biome_id(biome))
 		return true
 	return false
 

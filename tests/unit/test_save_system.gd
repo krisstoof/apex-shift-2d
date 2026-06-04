@@ -70,6 +70,9 @@ func _test_get_player_data_contains_expected_fields(failures: Array[String]) -> 
 	var save_system := SAVE_SYSTEM_SCRIPT.new()
 	var player := _make_player()
 	player.stats.health = 88.0
+	player.stats.hunger = 64.0
+	player.stats.stamina = 55.0
+	player.stats.rest = 72.0
 	player.inventory.add_item("wood", 2)
 	player.has_spear = true
 	player.torch_active = true
@@ -80,6 +83,13 @@ func _test_get_player_data_contains_expected_fields(failures: Array[String]) -> 
 	TEST_UTILS.expect(data.has("inventory"), failures, "Player save data should contain inventory")
 	TEST_UTILS.expect(data.get("has_spear", false) == true, failures, "Player save data should contain spear state")
 	TEST_UTILS.expect(data.get("torch_active", false) == true, failures, "Player save data should contain torch state")
+	var stats: Dictionary = Dictionary(data.get("stats", {}))
+	var inventory: Dictionary = Dictionary(data.get("inventory", {}))
+	TEST_UTILS.expect_close(float(stats.get("health", 0.0)), 88.0, failures, "Player save data should capture health")
+	TEST_UTILS.expect_close(float(stats.get("hunger", 0.0)), 64.0, failures, "Player save data should capture hunger")
+	TEST_UTILS.expect_close(float(stats.get("stamina", 0.0)), 55.0, failures, "Player save data should capture stamina")
+	TEST_UTILS.expect_close(float(stats.get("rest", 0.0)), 72.0, failures, "Player save data should capture rest")
+	TEST_UTILS.expect_equal(int(inventory.get("wood", 0)), 2, failures, "Player save data should capture inventory items")
 
 
 func _test_restore_player_data_restores_player_state(failures: Array[String]) -> void:
@@ -96,9 +106,15 @@ func _test_restore_player_data_restores_player_state(failures: Array[String]) ->
 	})
 	TEST_UTILS.expect_close(player.global_position.x, 42.0, failures, "Player X should be restored")
 	TEST_UTILS.expect_close(player.global_position.y, -12.0, failures, "Player Y should be restored")
+	TEST_UTILS.expect_close(player.stats.health, 75.0, failures, "Player health should be restored")
+	TEST_UTILS.expect_close(player.stats.hunger, 60.0, failures, "Player hunger should be restored")
+	TEST_UTILS.expect_close(player.stats.stamina, 70.0, failures, "Player stamina should be restored")
+	TEST_UTILS.expect_close(player.stats.rest, 80.0, failures, "Player rest should be restored")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("wood"), 3, failures, "Player inventory should be restored")
 	TEST_UTILS.expect(player.torch_active, failures, "Player torch state should be restored")
 	TEST_UTILS.expect(player.has_spear == true, failures, "Player spear state should be restored")
 	TEST_UTILS.expect(player.has_bow == true, failures, "Player bow state should be restored")
+	TEST_UTILS.expect_close(player.torch_remaining_seconds, 12.5, failures, "Player torch duration should be restored")
 
 
 func _test_get_building_data_contains_expected_fields(failures: Array[String]) -> void:
