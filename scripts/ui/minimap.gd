@@ -4,11 +4,11 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const PADDING := 14.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(192, 116)
-const DEFAULT_BIOME_BLEND_RADIUS := 300.0
-const BIOME_NEIGHBOR_BLEND_WEIGHT := 0.90
 const POND_MARKER_Y_SCALE := 0.62
 const HILL_MARKER_Y_SCALE := 0.58
 const MINIMAP_REDRAW_INTERVAL := 0.20
+const MINIMAP_VIEW_MARGIN_FACTOR := 1.22
+const MINIMAP_FALLBACK_VIEW_WORLD_SIZE := Vector2(1280.0, 760.0)
 
 var player: Node2D
 var world_rect := WORLD_CONFIG.WORLD_RECT
@@ -19,6 +19,7 @@ var biome_blend_colors_key := ""
 var minimap_redraw_timer := 0.0
 var cached_resources: Array[Node] = []
 var resources_cache_timer := 0.0
+var camera_world_size_override := Vector2.ZERO
 const RESOURCES_CACHE_INTERVAL := 0.5
 
 
@@ -53,29 +54,38 @@ func _draw() -> void:
 	_refresh_landmarks_from_world()
 	var map_rect := Rect2(Vector2.ZERO, size)
 	var content_rect := map_rect.grow(-PADDING)
+	var view_world_rect := _get_minimap_view_world_rect(content_rect)
 
 	draw_rect(map_rect, Color(0.04, 0.05, 0.05, 0.86), true)
 	draw_rect(map_rect, Color(0.74, 0.78, 0.68, 0.9), false, 1.0)
 	draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
 	draw_rect(content_rect, Color(0.35, 0.43, 0.32, 0.8), false, 1.0)
-	_draw_biomes(content_rect)
-	_draw_landmarks(content_rect)
-	_draw_grid(content_rect)
-	_draw_resources(content_rect)
-	_draw_varnaks(content_rect)
-	_draw_player(content_rect)
+	_draw_biomes(content_rect, view_world_rect)
+	_draw_landmarks(content_rect, view_world_rect)
+	_draw_grid(content_rect, view_world_rect)
+	_draw_resources(content_rect, view_world_rect)
+	_draw_varnaks(content_rect, view_world_rect)
+	_draw_player(content_rect, view_world_rect)
 	_draw_zone_label(map_rect)
 
 
-func _draw_biomes(content_rect: Rect2) -> void:
+func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if biome_zones.is_empty():
 		return
-	_ensure_biome_blend_texture()
-	if biome_blend_texture:
-		draw_texture_rect(biome_blend_texture, content_rect, false)
+	_ensure_biome_texture()
+	if not biome_blend_texture:
+		return
+	var visible_world_rect := world_rect.intersection(view_world_rect)
+	if visible_world_rect.size.x <= 0.0 or visible_world_rect.size.y <= 0.0:
+		return
+	var destination_rect := _world_rect_to_map_rect(visible_world_rect, content_rect, view_world_rect)
+	var source_rect := _world_rect_to_texture_region(visible_world_rect)
+	if destination_rect.size.x <= 0.0 or destination_rect.size.y <= 0.0:
+		return
+	draw_texture_rect_region(biome_blend_texture, destination_rect, source_rect)
 
 
-func _ensure_biome_blend_texture() -> void:
+func _ensure_biome_texture() -> void:
 	if biome_zones.is_empty():
 		return
 	var current_key := _get_biome_colors_key()
@@ -92,48 +102,25 @@ func _ensure_biome_blend_texture() -> void:
 				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
 			)
 			var world_position := world_rect.position + uv * world_rect.size
-			image.set_pixel(x, y, _get_blended_biome_color_at(world_position, biome_zones, colors, _get_biome_blend_radius()))
+			image.set_pixel(x, y, _get_direct_biome_color_at(world_position, biome_zones, colors))
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
 
 
-func _get_blended_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color], blend_radius: float) -> Color:
-	var containing_index := -1
-	var containing_edge_distance := INF
-	var edge_distances: Array[float] = []
+func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
+	var nearest_index := -1
+	var nearest_distance := INF
 	for i in zones.size():
 		var points := PackedVector2Array(zones[i]["points"])
+		if Geometry2D.is_point_in_polygon(position, points):
+			return colors[i]
 		var edge_distance := _get_point_polygon_edge_distance(position, points)
-		edge_distances.append(edge_distance)
-		if containing_index == -1 and Geometry2D.is_point_in_polygon(position, points):
-			containing_index = i
-			containing_edge_distance = edge_distance
-	if containing_index == -1:
-		return _get_nearest_biome_color(edge_distances, colors)
-	var result := colors[containing_index]
-	var total_weight := 1.0
-	if containing_edge_distance >= blend_radius:
-		return result
-	for i in zones.size():
-		if i == containing_index:
-			continue
-		var shared_edge_distance: float = max(containing_edge_distance, edge_distances[i])
-		if shared_edge_distance > blend_radius:
-			continue
-		var neighbor_weight: float = pow(1.0 - shared_edge_distance / blend_radius, 2.0) * BIOME_NEIGHBOR_BLEND_WEIGHT
-		result += colors[i] * neighbor_weight
-		total_weight += neighbor_weight
-	return result / total_weight
-
-
-func _get_nearest_biome_color(edge_distances: Array[float], colors: Array[Color]) -> Color:
-	var nearest_index := 0
-	var nearest_distance := INF
-	for i in edge_distances.size():
-		if edge_distances[i] < nearest_distance:
+		if edge_distance < nearest_distance:
+			nearest_distance = edge_distance
 			nearest_index = i
-			nearest_distance = edge_distances[i]
-	return colors[nearest_index]
+	if nearest_index >= 0:
+		return colors[nearest_index]
+	return Color.BLACK
 
 
 func _get_point_polygon_edge_distance(point: Vector2, points: PackedVector2Array) -> float:
@@ -154,29 +141,36 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 func _get_biome_colors_key() -> String:
 	var parts: Array[String] = []
-	parts.append("blend:%.1f" % _get_biome_blend_radius())
 	for biome in biome_zones:
 		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
 	return "|".join(parts)
 
 
-func _get_biome_blend_radius() -> float:
-	return max(float(GAME_BALANCE.BIOME_VISUALS.get("biome_blend_radius", DEFAULT_BIOME_BLEND_RADIUS)), 1.0)
-
-
-func _draw_grid(content_rect: Rect2) -> void:
+func _draw_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	var grid_color := Color(0.23, 0.31, 0.22, 0.55)
-	for i in range(1, 4):
-		var x := content_rect.position.x + content_rect.size.x * float(i) / 4.0
-		var y := content_rect.position.y + content_rect.size.y * float(i) / 4.0
-		draw_line(Vector2(x, content_rect.position.y), Vector2(x, content_rect.end.y), grid_color, 1.0)
-		draw_line(Vector2(content_rect.position.x, y), Vector2(content_rect.end.x, y), grid_color, 1.0)
+	var grid_step := 320.0
+	var start_x: float = floorf(view_world_rect.position.x / grid_step) * grid_step
+	while start_x <= view_world_rect.end.x:
+		var from := _world_to_map(Vector2(start_x, view_world_rect.position.y), content_rect, view_world_rect)
+		var to := _world_to_map(Vector2(start_x, view_world_rect.end.y), content_rect, view_world_rect)
+		draw_line(from, to, grid_color, 1.0)
+		start_x += grid_step
+	var start_y: float = floorf(view_world_rect.position.y / grid_step) * grid_step
+	while start_y <= view_world_rect.end.y:
+		var from := _world_to_map(Vector2(view_world_rect.position.x, start_y), content_rect, view_world_rect)
+		var to := _world_to_map(Vector2(view_world_rect.end.x, start_y), content_rect, view_world_rect)
+		draw_line(from, to, grid_color, 1.0)
+		start_y += grid_step
 
 
-func _draw_landmarks(content_rect: Rect2) -> void:
+func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for landmark in landmarks:
-		var center := _world_to_map(Vector2(landmark.get("position", Vector2.ZERO)), content_rect)
+		var world_position := Vector2(landmark.get("position", Vector2.ZERO))
+		var radius_world := float(landmark.get("radius", 80.0))
+		if not _intersects_view_circle(world_position, radius_world, view_world_rect):
+			continue
+		var center := _world_to_map(world_position, content_rect, view_world_rect)
 		var radius := _world_radius_to_map(float(landmark.get("radius", 80.0)), content_rect)
 		match str(landmark.get("type", "")):
 			"pond":
@@ -294,14 +288,16 @@ func _draw_filled_ellipse(rect: Rect2, ellipse_color: Color) -> void:
 	draw_colored_polygon(points, ellipse_color)
 
 
-func _draw_resources(content_rect: Rect2) -> void:
+func _draw_resources(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for resource in cached_resources:
 		if not is_instance_valid(resource):
 			continue
 		if not _should_draw_resource_on_minimap(resource):
 			continue
+		if not view_world_rect.has_point(resource.global_position):
+			continue
 		var color := _get_resource_color(resource)
-		draw_circle(_world_to_map(resource.global_position, content_rect), 3.3, color)
+		draw_circle(_world_to_map(resource.global_position, content_rect, view_world_rect), 3.3, color)
 
 
 func _should_draw_resource_on_minimap(resource: Node) -> bool:
@@ -313,19 +309,21 @@ func _should_draw_resource_on_minimap(resource: Node) -> bool:
 	return true
 
 
-func _draw_varnaks(content_rect: Rect2) -> void:
+func _draw_varnaks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for varnak in get_tree().get_nodes_in_group("varnak"):
 		if not is_instance_valid(varnak):
 			continue
-		var pos := _world_to_map(varnak.global_position, content_rect)
+		if not view_world_rect.has_point(varnak.global_position):
+			continue
+		var pos := _world_to_map(varnak.global_position, content_rect, view_world_rect)
 		draw_circle(pos, 5.2, Color(0.88, 0.22, 0.16))
 		draw_circle(pos, 2.2, Color(1.0, 0.82, 0.42))
 
 
-func _draw_player(content_rect: Rect2) -> void:
+func _draw_player(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if not is_instance_valid(player):
 		return
-	var pos := _world_to_map(player.global_position, content_rect)
+	var pos := _world_to_map(player.global_position, content_rect, view_world_rect)
 	draw_circle(pos, 6.4, Color(0.17, 0.48, 1.0))
 	draw_circle(pos, 3.0, Color.WHITE)
 
@@ -346,20 +344,96 @@ func _get_player_zone_name() -> String:
 	return "Wilderness"
 
 
-func _world_to_map(world_position: Vector2, content_rect: Rect2) -> Vector2:
+func _world_to_map(world_position: Vector2, content_rect: Rect2, view_world_rect: Rect2) -> Vector2:
 	var normalized := Vector2(
-		inverse_lerp(world_rect.position.x, world_rect.end.x, world_position.x),
-		inverse_lerp(world_rect.position.y, world_rect.end.y, world_position.y)
+		inverse_lerp(view_world_rect.position.x, view_world_rect.end.x, world_position.x),
+		inverse_lerp(view_world_rect.position.y, view_world_rect.end.y, world_position.y)
 	)
-	normalized.x = clamp(normalized.x, 0.0, 1.0)
-	normalized.y = clamp(normalized.y, 0.0, 1.0)
 	return content_rect.position + normalized * content_rect.size
 
 
 func _world_radius_to_map(world_radius: float, content_rect: Rect2) -> float:
-	var x_scale := content_rect.size.x / world_rect.size.x
-	var y_scale := content_rect.size.y / world_rect.size.y
+	var view_world_rect: Rect2 = _get_minimap_view_world_rect(content_rect)
+	var x_scale: float = content_rect.size.x / maxf(view_world_rect.size.x, 1.0)
+	var y_scale: float = content_rect.size.y / maxf(view_world_rect.size.y, 1.0)
 	return world_radius * min(x_scale, y_scale)
+
+
+func _get_minimap_view_world_rect(content_rect: Rect2) -> Rect2:
+	var center: Vector2 = player.global_position if is_instance_valid(player) else world_rect.get_center()
+	var view_size: Vector2 = _get_minimap_view_world_size(content_rect)
+	return Rect2(center - view_size * 0.5, view_size)
+
+
+func _get_minimap_view_world_size(content_rect: Rect2) -> Vector2:
+	var camera_world_size: Vector2 = _get_player_camera_world_size()
+	var padded_size: Vector2 = camera_world_size * MINIMAP_VIEW_MARGIN_FACTOR
+	return _fit_world_size_to_content_aspect(padded_size, content_rect)
+
+
+func _get_player_camera_world_size() -> Vector2:
+	if camera_world_size_override != Vector2.ZERO:
+		return camera_world_size_override
+	var viewport_size: Vector2 = get_viewport_rect().size
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		return MINIMAP_FALLBACK_VIEW_WORLD_SIZE
+	var camera: Camera2D = _get_player_camera()
+	if camera == null:
+		return MINIMAP_FALLBACK_VIEW_WORLD_SIZE
+	var zoom: Vector2 = camera.zoom
+	return Vector2(
+		maxf(viewport_size.x * absf(zoom.x), 1.0),
+		maxf(viewport_size.y * absf(zoom.y), 1.0)
+	)
+
+
+func _get_player_camera() -> Camera2D:
+	if not is_instance_valid(player):
+		return null
+	return player.get_node_or_null("Camera2D") as Camera2D
+
+
+func _fit_world_size_to_content_aspect(size_world: Vector2, content_rect: Rect2) -> Vector2:
+	var aspect: float = content_rect.size.x / maxf(content_rect.size.y, 1.0)
+	var fitted: Vector2 = size_world
+	if fitted.x / maxf(fitted.y, 1.0) < aspect:
+		fitted.x = fitted.y * aspect
+	else:
+		fitted.y = fitted.x / aspect
+	fitted.x = min(fitted.x, world_rect.size.x)
+	fitted.y = min(fitted.y, world_rect.size.y)
+	return fitted
+
+
+func _world_rect_to_map_rect(target_world_rect: Rect2, content_rect: Rect2, view_world_rect: Rect2) -> Rect2:
+	var top_left := _world_to_map(target_world_rect.position, content_rect, view_world_rect)
+	var bottom_right := _world_to_map(target_world_rect.end, content_rect, view_world_rect)
+	return Rect2(top_left, bottom_right - top_left)
+
+
+func _world_rect_to_texture_region(target_world_rect: Rect2) -> Rect2:
+	var texture_size := Vector2(float(BIOME_BLEND_TEXTURE_SIZE.x), float(BIOME_BLEND_TEXTURE_SIZE.y))
+	var start_uv := Vector2(
+		inverse_lerp(world_rect.position.x, world_rect.end.x, target_world_rect.position.x),
+		inverse_lerp(world_rect.position.y, world_rect.end.y, target_world_rect.position.y)
+	)
+	var end_uv := Vector2(
+		inverse_lerp(world_rect.position.x, world_rect.end.x, target_world_rect.end.x),
+		inverse_lerp(world_rect.position.y, world_rect.end.y, target_world_rect.end.y)
+	)
+	start_uv.x = clamp(start_uv.x, 0.0, 1.0)
+	start_uv.y = clamp(start_uv.y, 0.0, 1.0)
+	end_uv.x = clamp(end_uv.x, 0.0, 1.0)
+	end_uv.y = clamp(end_uv.y, 0.0, 1.0)
+	return Rect2(start_uv * texture_size, (end_uv - start_uv) * texture_size)
+
+
+func _intersects_view_circle(center: Vector2, radius: float, view_world_rect: Rect2) -> bool:
+	var closest_point := Vector2(
+		clamp(center.x, view_world_rect.position.x, view_world_rect.end.x),
+		clamp(center.y, view_world_rect.position.y, view_world_rect.end.y)
+	)
+	return center.distance_squared_to(closest_point) <= radius * radius
 
 
 func _get_resource_color(resource: Node) -> Color:

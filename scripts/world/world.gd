@@ -27,9 +27,41 @@ const DEBUG_SMALL_PREY_VISIBLE_COUNT := 3
 const DEBUG_GRAZER_VISIBLE_COUNT := 2
 const DEBUG_SMALL_PREY_SPAWN_RADIUS := 180.0
 const DEBUG_GRAZER_SPAWN_RADIUS := 240.0
-const BIOME_BLEND_TEXTURE_SIZE := Vector2i(192, 118)
-const DEFAULT_BIOME_BLEND_RADIUS := 300.0
-const BIOME_NEIGHBOR_BLEND_WEIGHT := 0.90
+const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
+const BIOME_TERRAIN_ACCENT_COUNTS := {
+	"westwood": 26,
+	"stoneback_ridge": 22,
+	"hearth_meadow": 30,
+	"south_thicket": 28,
+	"redfang_wilds": 22
+}
+const BIOME_TERRAIN_TEXTURES := {
+	"westwood": {
+		"texture_path": "res://assets/textures/biomes/westwood_sample.png",
+		"mix": 0.86,
+		"seed": 0.38
+	},
+	"stoneback_ridge": {
+		"texture_path": "res://assets/textures/biomes/stoneback_ridge_sample.png",
+		"mix": 0.90,
+		"seed": 0.63
+	},
+	"hearth_meadow": {
+		"texture_path": "res://assets/textures/biomes/hearth_meadow_sample.png",
+		"mix": 0.88,
+		"seed": 0.19
+	},
+	"south_thicket": {
+		"texture_path": "res://assets/textures/biomes/south_thicket_sample.png",
+		"mix": 0.88,
+		"seed": 0.91
+	},
+	"redfang_wilds": {
+		"texture_path": "res://assets/textures/biomes/redfang_wilds_sample.png",
+		"mix": 0.92,
+		"seed": 0.77
+	}
+}
 const WORLD_BACKGROUND_REDRAW_INTERVAL := 0.20
 const NIGHT_REDRAW_MIN_DELTA := 0.03
 const PLANT_RESOURCE_KINDS := [
@@ -53,6 +85,8 @@ const POND_VEGETATION_RING_MAX_FACTOR := 1.35
 const POND_VEGETATION_RING_JITTER := 0.16
 const POND_VEGETATION_ANGLE_JITTER_FACTOR := 0.38
 const INITIAL_SPAWN_BATCH_SIZE := 4
+const INITIAL_BOOT_STEP_FRAME_BREAKS := 1
+const BIOME_TERRAIN_ACCENT_BUILD_BATCH_SIZE := 1
 const WATER_ZONE_LAND := "land"
 const WATER_ZONE_SHORE := "shore"
 const WATER_ZONE_SHALLOW := "shallow_water"
@@ -73,8 +107,10 @@ var pond_landmarks: Array[Dictionary] = []
 var pond_water_search_radius := 0.0
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
-var biome_blend_weights: Array[PackedFloat32Array] = []
-var biome_blend_weights_key := ""
+var biome_sample_images: Dictionary = {}
+var biome_terrain_accent_cache: Dictionary = {}
+var pending_biome_terrain_accent_biomes: Array[Dictionary] = []
+var biome_terrain_accent_cache_build_running := false
 var world_background_redraw_timer := 0.0
 var last_drawn_night_amount := -1.0
 var group_nodes_cache: Dictionary = {}
@@ -87,7 +123,7 @@ const GROUP_CACHE_TTL_SECONDS := 0.12
 signal world_initialized
 
 func _ready() -> void:
-	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	await get_tree().process_frame
 	resource_rng.randomize()
 	varnak_rng.randomize()
@@ -99,10 +135,15 @@ func _ready() -> void:
 	evolution_director.profile_changed.connect(_on_profile_changed)
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	_create_landmarks()
+	_queue_biome_terrain_accent_cache_rebuild()
 	await _spawn_resources()
+	await _yield_initial_boot_step()
 	_sync_visible_small_prey()
+	await _yield_initial_boot_step()
 	_spawn_initial_grazers()
+	await _yield_initial_boot_step()
 	_sync_visible_varnaks()
+	await _yield_initial_boot_step()
 	boot_ready = true
 	world_initialized.emit()
 	queue_redraw()
@@ -155,6 +196,11 @@ func get_cached_group_nodes(group_name: String) -> Array:
 func clear_cached_group_nodes() -> void:
 	group_nodes_cache.clear()
 	group_nodes_cache_timestamps.clear()
+
+
+func _yield_initial_boot_step() -> void:
+	for _i in INITIAL_BOOT_STEP_FRAME_BREAKS:
+		await get_tree().process_frame
 
 
 func get_terrain_speed_multiplier(position: Vector2) -> float:
@@ -1627,7 +1673,7 @@ func _data_to_vector(data: Variant) -> Vector2:
 
 
 func _draw() -> void:
-	_draw_biome_blend_texture()
+	_draw_biomes()
 	_draw_landmarks()
 	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
 	var night_amount := _get_night_amount()
@@ -1641,6 +1687,265 @@ func _get_night_amount() -> float:
 	return clamp(float(day_night_system.night_amount), 0.0, 1.0)
 
 
+func _draw_biomes() -> void:
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var points := PackedVector2Array(biome["points"])
+		var base_color := _get_biome_visual_color(biome)
+		draw_colored_polygon(points, base_color)
+		_draw_biome_terrain_accents(biome, base_color)
+
+
+func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
+	var accents: Array = _get_biome_terrain_accent_layout(biome)
+	var biome_id := _get_biome_id(biome)
+	for accent_value in accents:
+		var accent := Dictionary(accent_value)
+		var position := Vector2(accent.get("position", Vector2.ZERO))
+		var rotation := float(accent.get("rotation", 0.0))
+		var scale := float(accent.get("scale", 1.0))
+		var tint := float(accent.get("tint", 0.0))
+		match str(accent.get("kind", "")):
+			"grass":
+				_draw_biome_grass_accent(position, rotation, scale, base_color.lightened(0.12 + tint * 0.10), base_color.darkened(0.16))
+			"leaf":
+				_draw_biome_leaf_accent(position, rotation, scale, base_color.lightened(0.08 + tint * 0.08), base_color.darkened(0.20))
+			"plate":
+				_draw_biome_plate_accent(position, rotation, scale, base_color.lightened(0.18 + tint * 0.06), base_color.darkened(0.24))
+			"thicket":
+				_draw_biome_thicket_accent(position, rotation, scale, base_color.lightened(0.10 + tint * 0.08), base_color.darkened(0.18))
+			"crack":
+				_draw_biome_crack_accent(position, rotation, scale, base_color.lightened(0.14), base_color.darkened(0.28))
+			_:
+				if biome_id == "hearth_meadow":
+					_draw_biome_grass_accent(position, rotation, scale, base_color.lightened(0.12), base_color.darkened(0.16))
+
+
+func _rebuild_biome_terrain_accent_cache() -> void:
+	biome_terrain_accent_cache.clear()
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		_get_biome_terrain_accent_layout(Dictionary(biome_value))
+
+
+func _queue_biome_terrain_accent_cache_rebuild() -> void:
+	biome_terrain_accent_cache.clear()
+	pending_biome_terrain_accent_biomes.clear()
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		pending_biome_terrain_accent_biomes.append(Dictionary(biome_value))
+	if biome_terrain_accent_cache_build_running:
+		return
+	biome_terrain_accent_cache_build_running = true
+	call_deferred("_build_pending_biome_terrain_accent_cache")
+
+
+func _build_pending_biome_terrain_accent_cache() -> void:
+	var built_since_yield := 0
+	while not pending_biome_terrain_accent_biomes.is_empty():
+		var biome := Dictionary(pending_biome_terrain_accent_biomes.pop_front())
+		var biome_id := _get_biome_id(biome)
+		biome_terrain_accent_cache[biome_id] = _build_biome_terrain_accent_layout(biome)
+		built_since_yield += 1
+		queue_redraw()
+		if built_since_yield >= BIOME_TERRAIN_ACCENT_BUILD_BATCH_SIZE and not pending_biome_terrain_accent_biomes.is_empty():
+			built_since_yield = 0
+			await get_tree().process_frame
+	biome_terrain_accent_cache_build_running = false
+
+
+func _get_biome_terrain_accent_layout(biome: Dictionary) -> Array:
+	var biome_id := _get_biome_id(biome)
+	if biome_terrain_accent_cache.has(biome_id):
+		return biome_terrain_accent_cache[biome_id]
+	if _is_biome_terrain_accent_pending(biome_id):
+		return []
+	var accents := _build_biome_terrain_accent_layout(biome)
+	biome_terrain_accent_cache[biome_id] = accents
+	return accents
+
+
+func _is_biome_terrain_accent_pending(biome_id: String) -> bool:
+	for pending_biome in pending_biome_terrain_accent_biomes:
+		if _get_biome_id(pending_biome) == biome_id:
+			return true
+	return false
+
+
+func _build_biome_terrain_accent_layout(biome: Dictionary) -> Array:
+	var biome_id := _get_biome_id(biome)
+	var points := PackedVector2Array(biome["points"])
+	var bounds := _get_polygon_bounds(points)
+	var target_count := _get_biome_terrain_accent_target_count(biome)
+	var accents: Array = []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _get_string_seed(biome_id)
+	var attempts := 0
+	while accents.size() < target_count and attempts < target_count * 22:
+		attempts += 1
+		var candidate := Vector2(
+			rng.randf_range(bounds.position.x, bounds.end.x),
+			rng.randf_range(bounds.position.y, bounds.end.y)
+		)
+		if not Geometry2D.is_point_in_polygon(candidate, points):
+			continue
+		accents.append({
+			"kind": _pick_biome_accent_kind(biome_id, rng.randf()),
+			"position": candidate,
+			"rotation": rng.randf_range(-0.55, 0.55),
+			"scale": rng.randf_range(0.95, 1.45),
+			"tint": rng.randf_range(-0.10, 0.22)
+		})
+	return accents
+
+
+func _get_biome_terrain_accent_target_count(biome: Dictionary) -> int:
+	var biome_id := _get_biome_id(biome)
+	var points := PackedVector2Array(biome["points"])
+	var area := _get_polygon_area(points)
+	var area_scale := clampf(area / 900000.0, 0.85, 1.45)
+	return clampi(int(round(float(BIOME_TERRAIN_ACCENT_COUNTS.get(biome_id, 20)) * area_scale)), 14, 36)
+
+
+func _pick_biome_accent_kind(biome_id: String, roll: float) -> String:
+	match biome_id:
+		"westwood":
+			return "leaf" if roll < 0.72 else "crack"
+		"stoneback_ridge":
+			return "plate" if roll < 0.78 else "crack"
+		"hearth_meadow":
+			return "grass" if roll < 0.84 else "leaf"
+		"south_thicket":
+			return "thicket" if roll < 0.78 else "leaf"
+		"redfang_wilds":
+			return "plate" if roll < 0.58 else "crack"
+	return "leaf"
+
+
+func _draw_biome_grass_accent(position: Vector2, rotation: float, scale: float, light_color: Color, dark_color: Color) -> void:
+	var blades := [
+		[Vector2(-6.0, 8.0), Vector2(-2.0, -8.0)],
+		[Vector2(-1.0, 10.0), Vector2(1.0, -11.0)],
+		[Vector2(5.0, 8.0), Vector2(4.0, -6.0)]
+	]
+	for blade in blades:
+		var start := _transform_biome_accent_point(blade[0], position, rotation, scale)
+		var end := _transform_biome_accent_point(blade[1], position, rotation, scale)
+		draw_line(start, end, light_color, max(1.0, 2.2 * scale))
+	var shadow_start := _transform_biome_accent_point(Vector2(-6.0, 10.0), position, rotation, scale)
+	var shadow_end := _transform_biome_accent_point(Vector2(6.0, 10.0), position, rotation, scale)
+	draw_line(shadow_start, shadow_end, dark_color, max(1.0, 1.2 * scale))
+
+
+func _draw_biome_leaf_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
+	var leaf := PackedVector2Array([
+		Vector2(-11.0, 1.0),
+		Vector2(-3.0, -7.0),
+		Vector2(7.0, -4.0),
+		Vector2(12.0, 2.0),
+		Vector2(6.0, 8.0),
+		Vector2(-5.0, 7.0)
+	])
+	var transformed := _transform_biome_accent_points(leaf, position, rotation, scale)
+	draw_colored_polygon(transformed, fill_color)
+	draw_polyline(_close_polyline(transformed), outline_color, max(1.0, 1.2 * scale))
+	var vein_start := _transform_biome_accent_point(Vector2(-7.0, 3.0), position, rotation, scale)
+	var vein_end := _transform_biome_accent_point(Vector2(7.0, -2.0), position, rotation, scale)
+	draw_line(vein_start, vein_end, outline_color.darkened(0.06), max(1.0, 1.0 * scale))
+
+
+func _draw_biome_plate_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
+	var plate := PackedVector2Array([
+		Vector2(-14.0, -2.0),
+		Vector2(-6.0, -10.0),
+		Vector2(8.0, -9.0),
+		Vector2(15.0, -1.0),
+		Vector2(11.0, 9.0),
+		Vector2(-8.0, 10.0)
+	])
+	var transformed := _transform_biome_accent_points(plate, position, rotation, scale)
+	draw_colored_polygon(transformed, fill_color)
+	draw_polyline(_close_polyline(transformed), outline_color, max(1.0, 1.6 * scale))
+	var crack_start := _transform_biome_accent_point(Vector2(-5.0, 1.0), position, rotation, scale)
+	var crack_mid := _transform_biome_accent_point(Vector2(1.0, -3.0), position, rotation, scale)
+	var crack_end := _transform_biome_accent_point(Vector2(7.0, 2.0), position, rotation, scale)
+	draw_polyline(PackedVector2Array([crack_start, crack_mid, crack_end]), outline_color.darkened(0.10), max(1.0, 1.2 * scale))
+
+
+func _draw_biome_thicket_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
+	_draw_biome_leaf_accent(position + Vector2(-4.0, 0.0).rotated(rotation) * scale, rotation - 0.20, scale * 0.78, fill_color, outline_color)
+	_draw_biome_leaf_accent(position + Vector2(6.0, 2.0).rotated(rotation) * scale, rotation + 0.18, scale * 0.70, fill_color.lightened(0.04), outline_color)
+	var stem_start := _transform_biome_accent_point(Vector2(-2.0, 9.0), position, rotation, scale)
+	var stem_end := _transform_biome_accent_point(Vector2(-1.0, -6.0), position, rotation, scale)
+	draw_line(stem_start, stem_end, outline_color.darkened(0.05), max(1.0, 1.4 * scale))
+
+
+func _draw_biome_crack_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
+	var ridge := PackedVector2Array([
+		Vector2(-12.0, 6.0),
+		Vector2(-4.0, -2.0),
+		Vector2(0.0, 1.0),
+		Vector2(8.0, -6.0),
+		Vector2(13.0, 2.0)
+	])
+	var transformed := _transform_biome_accent_points(ridge, position, rotation, scale)
+	draw_polyline(transformed, outline_color, max(1.0, 1.8 * scale))
+	var chip := PackedVector2Array([
+		Vector2(-3.0, 3.0),
+		Vector2(2.0, -3.0),
+		Vector2(5.0, 2.0),
+		Vector2(1.0, 5.0)
+	])
+	draw_colored_polygon(_transform_biome_accent_points(chip, position, rotation + 0.25, scale * 0.52), fill_color.darkened(0.06))
+
+
+func _transform_biome_accent_point(point: Vector2, position: Vector2, rotation: float, scale: float) -> Vector2:
+	return position + point.rotated(rotation) * scale
+
+
+func _transform_biome_accent_points(points: PackedVector2Array, position: Vector2, rotation: float, scale: float) -> PackedVector2Array:
+	var transformed := PackedVector2Array()
+	for point in points:
+		transformed.append(_transform_biome_accent_point(point, position, rotation, scale))
+	return transformed
+
+
+func _close_polyline(points: PackedVector2Array) -> PackedVector2Array:
+	var closed := PackedVector2Array(points)
+	if not closed.is_empty():
+		closed.append(closed[0])
+	return closed
+
+
+func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
+	if points.is_empty():
+		return Rect2(Vector2.ZERO, Vector2.ONE)
+	var min_point := points[0]
+	var max_point := points[0]
+	for point in points:
+		min_point.x = min(min_point.x, point.x)
+		min_point.y = min(min_point.y, point.y)
+		max_point.x = max(max_point.x, point.x)
+		max_point.y = max(max_point.y, point.y)
+	return Rect2(min_point, max_point - min_point)
+
+
+func _get_polygon_area(points: PackedVector2Array) -> float:
+	if points.size() < 3:
+		return 0.0
+	var area := 0.0
+	for i in points.size():
+		var current := points[i]
+		var next := points[(i + 1) % points.size()]
+		area += current.x * next.y - next.x * current.y
+	return abs(area) * 0.5
+
+
+func _get_string_seed(text: String) -> int:
+	var seed := 17
+	for character in text:
+		seed = int((seed * 31 + character.unicode_at(0)) % 2147483647)
+	return seed
+
+
 func _draw_biome_blend_texture() -> void:
 	_ensure_biome_blend_texture()
 	if biome_blend_texture:
@@ -1652,110 +1957,34 @@ func _ensure_biome_blend_texture() -> void:
 	if biome_blend_texture and biome_blend_colors_key == current_key:
 		return
 	var biome_zones := WORLD_CONFIG.get_biome_zones()
-	_ensure_biome_blend_weights(biome_zones)
 	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
-	var colors: Array[Color] = []
-	for biome in biome_zones:
-		colors.append(_get_biome_visual_color(biome))
-	var pixel_index := 0
 	for y in range(BIOME_BLEND_TEXTURE_SIZE.y):
 		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
-			var weights: PackedFloat32Array = biome_blend_weights[pixel_index]
-			image.set_pixel(x, y, _get_weighted_biome_color(weights, colors))
-			pixel_index += 1
+			var world_position := WORLD_CONFIG.WORLD_RECT.position + Vector2(
+				(float(x) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.x) * WORLD_CONFIG.WORLD_RECT.size.x,
+				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y) * WORLD_CONFIG.WORLD_RECT.size.y
+			)
+			image.set_pixel(x, y, _get_biome_surface_color_at(world_position, biome_zones))
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
 
 
-func _ensure_biome_blend_weights(biome_zones: Array[Dictionary]) -> void:
-	var current_key := _get_biome_blend_weights_key(biome_zones)
-	var expected_count := BIOME_BLEND_TEXTURE_SIZE.x * BIOME_BLEND_TEXTURE_SIZE.y
-	if biome_blend_weights_key == current_key and biome_blend_weights.size() == expected_count:
-		return
-	biome_blend_weights.clear()
-	var blend_radius := _get_biome_blend_radius()
-	for y in range(BIOME_BLEND_TEXTURE_SIZE.y):
-		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
-			var uv := Vector2(
-				(float(x) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.x),
-				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
-			)
-			var world_position := WORLD_CONFIG.WORLD_RECT.position + uv * WORLD_CONFIG.WORLD_RECT.size
-			biome_blend_weights.append(_get_biome_blend_weights_at(world_position, biome_zones, blend_radius))
-	biome_blend_weights_key = current_key
-
-
-func _get_biome_blend_weights_key(biome_zones: Array[Dictionary]) -> String:
-	var parts: Array[String] = []
-	parts.append("%dx%d" % [BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y])
-	parts.append("blend:%.1f" % _get_biome_blend_radius())
-	for biome in biome_zones:
-		var point_parts: Array[String] = []
-		for point in PackedVector2Array(biome["points"]):
-			point_parts.append("%.1f,%.1f" % [point.x, point.y])
-		parts.append(";".join(point_parts))
-	return "|".join(parts)
-
-
-func _get_biome_blend_weights_at(position: Vector2, biome_zones: Array[Dictionary], blend_radius: float) -> PackedFloat32Array:
-	var containing_index := -1
-	var containing_edge_distance := INF
-	var edge_distances: Array[float] = []
-	var weights := PackedFloat32Array()
-	weights.resize(biome_zones.size())
-	for i in biome_zones.size():
-		var points := PackedVector2Array(biome_zones[i]["points"])
-		var edge_distance := _get_point_polygon_edge_distance(position, points)
-		edge_distances.append(edge_distance)
-		if containing_index == -1 and Geometry2D.is_point_in_polygon(position, points):
-			containing_index = i
-			containing_edge_distance = edge_distance
-	if containing_index == -1:
-		weights[_get_nearest_biome_index(edge_distances)] = 1.0
-		return weights
-	weights[containing_index] = 1.0
-	var total_weight := 1.0
-	if containing_edge_distance >= blend_radius:
-		return weights
-	for i in biome_zones.size():
-		if i == containing_index:
-			continue
-		var shared_edge_distance: float = max(containing_edge_distance, edge_distances[i])
-		if shared_edge_distance > blend_radius:
-			continue
-		var neighbor_weight: float = pow(1.0 - shared_edge_distance / blend_radius, 2.0) * BIOME_NEIGHBOR_BLEND_WEIGHT
-		weights[i] = neighbor_weight
-		total_weight += neighbor_weight
-	for i in weights.size():
-		weights[i] = weights[i] / total_weight
-	return weights
-
-
-func _get_nearest_biome_index(edge_distances: Array[float]) -> int:
-	var nearest_index := 0
+func _get_biome_surface_color_at(position: Vector2, biome_zones: Array[Dictionary]) -> Color:
+	var nearest_index := -1
 	var nearest_distance := INF
-	for i in edge_distances.size():
-		if edge_distances[i] < nearest_distance:
+	for i in biome_zones.size():
+		var biome: Dictionary = biome_zones[i]
+		var points := PackedVector2Array(biome["points"])
+		if Geometry2D.is_point_in_polygon(position, points):
+			return _get_biome_terrain_color(biome, position, _get_biome_visual_color(biome))
+		var edge_distance := _get_point_polygon_edge_distance(position, points)
+		if edge_distance < nearest_distance:
+			nearest_distance = edge_distance
 			nearest_index = i
-			nearest_distance = edge_distances[i]
-	return nearest_index
-
-
-func _get_weighted_biome_color(weights: PackedFloat32Array, colors: Array[Color]) -> Color:
-	if colors.is_empty():
-		return Color.BLACK
-	var result := Color(0.0, 0.0, 0.0, 0.0)
-	var total_weight := 0.0
-	var color_count: int = min(weights.size(), colors.size())
-	for i in color_count:
-		var weight := weights[i]
-		if weight <= 0.0:
-			continue
-		result += colors[i] * weight
-		total_weight += weight
-	if total_weight <= 0.0:
-		return colors[0]
-	return result / total_weight
+	if nearest_index >= 0:
+		var nearest_biome: Dictionary = biome_zones[nearest_index]
+		return _get_biome_terrain_color(nearest_biome, position, _get_biome_visual_color(nearest_biome))
+	return Color.BLACK
 
 
 func _get_point_polygon_edge_distance(point: Vector2, points: PackedVector2Array) -> float:
@@ -1778,10 +2007,9 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 func _get_biome_colors_key() -> String:
 	var parts: Array[String] = []
-	parts.append("blend:%.1f" % _get_biome_blend_radius())
 	for biome in WORLD_CONFIG.get_biome_zones():
 		var color := _get_biome_visual_color(biome)
-		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
+		parts.append("%.3f:%.3f:%.3f:%s" % [color.r, color.g, color.b, _get_biome_terrain_texture_key(biome)])
 	return "|".join(parts)
 
 
@@ -1802,8 +2030,228 @@ func _get_biome_visual_color(biome: Dictionary) -> Color:
 	return base_color.lerp(depleted_tint, stress * tint_strength).darkened(stress * darkening_strength)
 
 
-func _get_biome_blend_radius() -> float:
-	return max(float(GAME_BALANCE.BIOME_VISUALS.get("biome_blend_radius", DEFAULT_BIOME_BLEND_RADIUS)), 1.0)
+func _get_biome_terrain_color(biome: Dictionary, world_position: Vector2, base_color: Color) -> Color:
+	var terrain_pattern: Dictionary = _get_biome_terrain_pattern(biome)
+	if terrain_pattern.is_empty():
+		return base_color
+	var sampled_color: Color = _sample_biome_texture_color(terrain_pattern, world_position)
+	var texture_mix: float = clampf(float(terrain_pattern.get("mix", 0.88)), 0.0, 1.0)
+	return base_color.lerp(sampled_color, texture_mix)
+
+
+func _sample_biome_terrain_pattern(terrain_pattern: Dictionary, world_position: Vector2) -> float:
+	return _sample_biome_texture_luminance(terrain_pattern, world_position)
+
+
+func _sample_biome_texture_color(terrain_pattern: Dictionary, world_position: Vector2) -> Color:
+	var texture_image := _get_biome_texture_image(terrain_pattern)
+	if texture_image.is_empty():
+		return Color.BLACK
+	var texture_position := _get_biome_texture_position(terrain_pattern, world_position, texture_image)
+	return texture_image.get_pixel(texture_position.x, texture_position.y)
+
+
+func _sample_biome_texture_luminance(terrain_pattern: Dictionary, world_position: Vector2) -> float:
+	var texture_color := _sample_biome_texture_color(terrain_pattern, world_position)
+	return clamp(texture_color.get_luminance(), 0.0, 1.0)
+
+
+func _sample_forest_floor_pattern(local_position: Vector2, seed: float) -> float:
+	var leaf_a: float = _sample_jagged_shape(local_position, seed, 0.86, 0.34, 0.56, 5, 0.22, 0.055, 0.60, 0.20, 0.14)
+	var leaf_b: float = _sample_jagged_shape(local_position + Vector2(0.28, 0.18), seed + 1.7, 0.78, 0.28, 0.48, 5, 0.20, 0.050, 0.56, 0.18, 0.12)
+	var twig: float = _get_line_mask(sin((local_position.x - local_position.y) * 2.15 + seed * 4.9), 0.06, 0.05)
+	var litter_edges: float = max(_get_cell_edge_mask(local_position.x * 0.84 + seed * 1.4, 0.08), _get_cell_edge_mask(local_position.y * 0.73 - seed * 1.1, 0.08))
+	return clamp(leaf_a * 0.56 + leaf_b * 0.42 + twig * 0.18 + litter_edges * 0.18, 0.0, 1.0)
+
+
+func _sample_rock_noise_pattern(local_position: Vector2, seed: float) -> float:
+	var plate_a: float = _sample_jagged_shape(local_position, seed, 1.08, 0.72, 0.52, 7, 0.28, 0.045, 0.72, 0.22, 0.20)
+	var plate_b: float = _sample_jagged_shape(local_position + Vector2(0.34, -0.18), seed + 2.4, 0.84, 0.54, 0.40, 6, 0.24, 0.040, 0.60, 0.18, 0.16)
+	var seam: float = _get_line_mask(sin((local_position.x + local_position.y) * 1.75 + seed * 7.3), 0.08, 0.06)
+	var shard_edges: float = max(_get_cell_edge_mask(local_position.x * 0.66 + seed * 0.8, 0.06), _get_cell_edge_mask(local_position.y * 0.70 - seed * 0.5, 0.06))
+	return clamp(plate_a * 0.54 + plate_b * 0.34 + seam * 0.24 + shard_edges * 0.16, 0.0, 1.0)
+
+
+func _sample_grass_streak_pattern(local_position: Vector2, seed: float) -> float:
+	var cluster_cell := Vector2(floor(local_position.x * 0.85), floor(local_position.y * 0.85))
+	var cluster_density: float = _get_pattern_hash(cluster_cell, seed * 4.9)
+	if cluster_density < 0.30:
+		return 0.0
+	var blade_a: float = _sample_jagged_shape(local_position, seed, 0.66, 0.16, 0.86, 4, 0.16, 0.040, 0.78, 0.14, 0.12)
+	var blade_b: float = _sample_jagged_shape(local_position + Vector2(0.16, 0.20), seed + 1.2, 0.58, 0.14, 0.78, 4, 0.14, 0.036, 0.72, 0.12, 0.10)
+	var blade_c: float = _sample_jagged_shape(local_position + Vector2(-0.22, 0.08), seed + 2.1, 0.50, 0.12, 0.72, 4, 0.12, 0.032, 0.66, 0.12, 0.10)
+	var dark_blades: float = _get_line_mask(sin((local_position.x * 0.65 - local_position.y * 1.45) * 3.7 + seed * 2.8), 0.05, 0.05)
+	return clamp(cluster_density * 0.22 + blade_a * 0.44 + blade_b * 0.34 + blade_c * 0.26 + dark_blades * 0.18, 0.0, 1.0)
+
+
+func _sample_dense_thicket_pattern(local_position: Vector2, seed: float) -> float:
+	var canopy: float = _sample_jagged_shape(local_position, seed, 0.74, 0.30, 0.62, 5, 0.20, 0.050, 0.72, 0.18, 0.16)
+	var clusters: float = _sample_jagged_shape(local_position + Vector2(0.18, -0.14), seed + 2.4, 0.58, 0.22, 0.50, 5, 0.16, 0.040, 0.60, 0.16, 0.12)
+	var stalks: float = _get_line_mask(sin((local_position.x - local_position.y) * 4.05 + seed * 4.7), 0.06, 0.05)
+	var thicket_edges: float = max(_get_cell_edge_mask(local_position.x * 0.66 + seed * 0.6, 0.08), _get_cell_edge_mask(local_position.y * 0.69 - seed * 0.8, 0.08))
+	return clamp(canopy * 0.42 + clusters * 0.26 + stalks * 0.18 + thicket_edges * 0.18, 0.0, 1.0)
+
+
+func _sample_dry_cracked_earth_pattern(local_position: Vector2, seed: float) -> float:
+	var crack_plate_a: float = _sample_jagged_shape(local_position, seed, 2.28, 0.98, 0.82, 7, 0.34, 0.080, 0.96, 0.28, 0.18)
+	var crack_plate_b: float = _sample_jagged_shape(local_position + Vector2(-0.36, 0.24), seed + 1.8, 1.72, 0.74, 0.60, 6, 0.28, 0.070, 0.82, 0.20, 0.14)
+	var crack_plate_c: float = _sample_jagged_shape(local_position + Vector2(0.22, -0.30), seed + 3.1, 1.18, 0.58, 0.48, 5, 0.22, 0.060, 0.66, 0.14, 0.11)
+	var crack_lines: float = _get_line_mask(sin((local_position.x * 0.94 + local_position.y * 0.48) * 3.65 + seed * 8.0), 0.11, 0.06)
+	var cross_cracks: float = _get_line_mask(sin((local_position.x * 0.42 - local_position.y * 1.16) * 2.78 - seed * 5.3), 0.10, 0.06)
+	var cell_edges: float = max(
+		_get_cell_edge_mask(local_position.x * 0.40 + seed * 1.7, 0.14),
+		_get_cell_edge_mask(local_position.y * 0.33 - seed * 0.9, 0.14)
+	)
+	var plate_map: float = max(crack_plate_a, max(crack_plate_b * 0.92, crack_plate_c * 0.82))
+	var crack_map: float = max(crack_lines, max(cross_cracks, cell_edges))
+	var chip_scatter: float = _get_cell_edge_mask(local_position.x * 0.61 + local_position.y * 0.19 + seed * 1.2, 0.05) * 0.10
+	return clamp(plate_map * 2.0 - crack_map * 0.48 + chip_scatter + 0.02, 0.0, 1.0)
+
+
+func _get_pattern_hash(grid_position: Vector2, seed: float) -> float:
+	var value: float = sin(grid_position.x * 127.1 + grid_position.y * 311.7 + seed * 913.7) * 43758.5453
+	return value - floor(value)
+
+
+func _sample_jagged_shape(
+	local_position: Vector2,
+	seed: float,
+	cell_size: float,
+	radius_x: float,
+	radius_y: float,
+	vertex_count: int,
+	jitter: float,
+	outline_width: float,
+	outline_strength: float,
+	fill_strength: float,
+	offset_strength: float
+) -> float:
+	var cell_position := Vector2(
+		floor(local_position.x / cell_size),
+		floor(local_position.y / cell_size)
+	)
+	var cell_seed: float = seed + cell_position.x * 17.31 + cell_position.y * 29.77
+	var center := (cell_position + Vector2(0.5, 0.5)) * cell_size
+	var offset := Vector2(
+		(_get_pattern_hash(cell_position, cell_seed * 1.3) - 0.5) * cell_size * offset_strength,
+		(_get_pattern_hash(cell_position + Vector2(3.0, 7.0), cell_seed * 2.1) - 0.5) * cell_size * offset_strength
+	)
+	center += offset
+	var polygon := _build_jagged_polygon(center, cell_seed, cell_size * radius_x, cell_size * radius_y, vertex_count, jitter)
+	var inner_polygon := _scale_polygon(polygon, 0.84)
+	if Geometry2D.is_point_in_polygon(local_position, inner_polygon):
+		return fill_strength
+	var edge_distance := _get_point_polygon_edge_distance(local_position, polygon)
+	if edge_distance <= outline_width:
+		return outline_strength
+	if Geometry2D.is_point_in_polygon(local_position, polygon):
+		return max(fill_strength * 0.72, outline_strength * 0.72)
+	return 0.0
+
+
+func _build_jagged_polygon(center: Vector2, seed: float, radius_x: float, radius_y: float, vertex_count: int, jitter: float) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	var rotation: float = _get_pattern_hash(center.floor(), seed * 0.87) * TAU
+	for i in range(vertex_count):
+		var vertex_index := float(i)
+		var count := float(max(vertex_count, 1))
+		var angle_variation: float = (_get_pattern_hash(Vector2(vertex_index, count), seed * 2.3) - 0.5) * 0.38
+		var radius_noise: float = 1.0 + (_get_pattern_hash(Vector2(vertex_index * 2.0, count * 3.0), seed * 3.7) - 0.5) * jitter
+		var angle: float = rotation + TAU * vertex_index / count + angle_variation
+		points.append(center + Vector2(cos(angle) * radius_x * radius_noise, sin(angle) * radius_y * radius_noise))
+	return points
+
+
+func _scale_polygon(polygon: PackedVector2Array, scale_factor: float) -> PackedVector2Array:
+	var scaled := PackedVector2Array()
+	if polygon.is_empty():
+		return scaled
+	var center := Vector2.ZERO
+	for point in polygon:
+		center += point
+	center /= float(polygon.size())
+	for point in polygon:
+		scaled.append(center + (point - center) * scale_factor)
+	return scaled
+
+
+func _get_line_mask(signal_value: float, width: float, feather: float) -> float:
+	var signal_distance: float = abs(signal_value)
+	return 1.0 - _smoothstep(width, width + feather, signal_distance)
+
+
+func _get_cell_edge_mask(value: float, edge_width: float) -> float:
+	var cell_fraction: float = value - floor(value)
+	var edge_distance: float = min(cell_fraction, 1.0 - cell_fraction)
+	return 1.0 - _smoothstep(edge_width, edge_width * 2.4, edge_distance)
+
+
+func _smoothstep(edge0: float, edge1: float, value: float) -> float:
+	if edge0 == edge1:
+		return 1.0 if value >= edge1 else 0.0
+	var t: float = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+
+func _get_biome_terrain_texture_key(biome: Dictionary) -> String:
+	var terrain_pattern: Dictionary = _get_biome_terrain_pattern(biome)
+	if terrain_pattern.is_empty():
+		return "none"
+	return "%s:%.2f:%.2f" % [
+		str(terrain_pattern.get("texture_path", "none")),
+		float(terrain_pattern.get("mix", 0.0)),
+		float(terrain_pattern.get("seed", 0.0))
+	]
+
+
+func _get_biome_terrain_pattern(biome: Dictionary) -> Dictionary:
+	var biome_id := _get_biome_id(biome)
+	if not BIOME_TERRAIN_TEXTURES.has(biome_id):
+		return {}
+	return Dictionary(BIOME_TERRAIN_TEXTURES[biome_id])
+
+
+func _get_biome_texture_image(terrain_pattern: Dictionary) -> Image:
+	var texture_path := str(terrain_pattern.get("texture_path", ""))
+	if texture_path.is_empty():
+		var empty_image := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		empty_image.fill(Color.BLACK)
+		return empty_image
+	if biome_sample_images.has(texture_path):
+		var cached_image: Image = biome_sample_images[texture_path]
+		return cached_image
+	var bytes: PackedByteArray = FileAccess.get_file_as_bytes(texture_path)
+	if bytes.is_empty():
+		push_error("Failed to load biome texture bytes: %s" % texture_path)
+		var fallback_image := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		fallback_image.fill(Color.BLACK)
+		return fallback_image
+	var image := Image.new()
+	var err := image.load_png_from_buffer(bytes)
+	if err != OK or image.is_empty():
+		push_error("Failed to decode biome texture image: %s" % texture_path)
+		var fallback_image := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		fallback_image.fill(Color.BLACK)
+		return fallback_image
+	biome_sample_images[texture_path] = image
+	return image
+
+
+func _get_biome_texture_position(terrain_pattern: Dictionary, world_position: Vector2, texture_image: Image) -> Vector2i:
+	var seed := float(terrain_pattern.get("seed", 0.0))
+	var world_rect := WORLD_CONFIG.WORLD_RECT
+	var world_uv := Vector2(
+		inverse_lerp(world_rect.position.x, world_rect.end.x, world_position.x),
+		inverse_lerp(world_rect.position.y, world_rect.end.y, world_position.y)
+	)
+	var sample_position := Vector2(
+		(world_uv.x + seed * 0.137) * float(texture_image.get_width() - 1),
+		(world_uv.y + seed * 0.071) * float(texture_image.get_height() - 1)
+	)
+	return Vector2i(
+		clampi(int(round(sample_position.x)), 0, texture_image.get_width() - 1),
+		clampi(int(round(sample_position.y)), 0, texture_image.get_height() - 1)
+	)
 
 
 func _draw_landmarks() -> void:
