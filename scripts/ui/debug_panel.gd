@@ -33,6 +33,7 @@ var last_nearest_creature_text: Dictionary = {}
 var selected_debug_creatures: Dictionary = {}
 var benchmark_runner: Node
 var benchmark_button: Button
+var god_mode_button: Button
 
 @onready var title_label: Label = $Panel/TitleLabel
 @onready var state_scroll: ScrollContainer = $Panel/StateScroll
@@ -258,6 +259,7 @@ func _create_future_tool_buttons() -> void:
 	_add_tool_button("Force vegetation regrowth", _on_force_full_vegetation_regrowth_pressed, "Ecosystem")
 	_add_tool_button("Reset resource growth", _on_reset_resource_growth_pressed, "World")
 	_add_tool_button("Teleport OOB creatures", _on_teleport_out_of_bounds_pressed, "Creatures")
+	god_mode_button = _add_tool_button("God Mode: OFF", _on_toggle_god_mode_pressed, "Tools")
 	benchmark_button = _add_tool_button("Run 60s benchmark", _on_run_benchmark_pressed, "Tools")
 
 
@@ -290,6 +292,7 @@ func _build_overview_text(profile: Dictionary) -> String:
 	var lines: Array[String] = []
 	lines.append("Day %d | %s | night %.2f" % [_get_day(), _get_day_phase(), _get_night_amount()])
 	lines.append("Player HP %d | H %d | Sta %d | Rest %d | campfire_regen_active %s" % [int(player.stats.health), int(player.stats.hunger), int(player.stats.stamina), int(player.stats.rest), _get_campfire_regen_active_text()])
+	lines.append("God mode %s" % _get_god_mode_state_text())
 	lines.append("Biome %s" % _get_current_biome_name())
 	lines.append("Live Varnaks %d | SmallPrey %d | Grazers %d" % [
 		_get_cached_group_nodes("varnak").size(),
@@ -311,6 +314,7 @@ func _build_player_text() -> String:
 		int(player.stats.stamina),
 		int(player.stats.rest)
 	])
+	lines.append("God mode %s" % _get_god_mode_state_text())
 	lines.append("campfire_regen_active %s | stamina_regen %.1f/s | distance %s" % [
 		_get_campfire_regen_active_text(),
 		player.stats.get_stamina_regen_rate(),
@@ -452,6 +456,7 @@ func _build_events_text(profile: Dictionary) -> String:
 func _build_tools_text() -> String:
 	var lines: Array[String] = []
 	lines.append("Tools")
+	lines.append("God mode %s" % _get_god_mode_state_text())
 	lines.append("Player actions: Player tab")
 	lines.append("Time and regrowth: World tab")
 	lines.append("Biomass and ecosystem ticks: Ecosystem tab")
@@ -980,6 +985,15 @@ func _get_torch_state() -> String:
 	return "active %.1fs" % remaining
 
 
+func _get_god_mode_state_text() -> String:
+	if not player:
+		return "unknown"
+	if player.has_method("is_god_mode_enabled"):
+		return "ON" if player.is_god_mode_enabled() else "OFF"
+	var value: Variant = player.get("god_mode")
+	return "ON" if value == true else "OFF"
+
+
 func _add_debug_item(item_name: String) -> void:
 	if not player or not player.has_method("debug_add_item"):
 		return
@@ -1110,6 +1124,23 @@ func _on_give_bow_pressed() -> void:
 	else:
 		_post_debug_message("Bow debug is not available yet")
 	_set_state_text(_build_state_text())
+
+
+func _on_toggle_god_mode_pressed() -> void:
+	if not player:
+		return
+	if player.has_method("toggle_god_mode"):
+		player.toggle_god_mode()
+	elif player.get("god_mode") != null:
+		player.set("god_mode", not (player.get("god_mode") == true))
+		_post_debug_message("God mode %s" % ("enabled" if player.get("god_mode") == true else "disabled"))
+	_refresh_god_mode_button()
+	_set_state_text(_build_state_text(), true)
+
+
+func _refresh_god_mode_button() -> void:
+	if god_mode_button:
+		god_mode_button.text = "God Mode: %s" % _get_god_mode_state_text()
 
 
 func _on_advance_resource_growth_pressed() -> void:

@@ -10,10 +10,12 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_player_stats_initial_state(failures)
 	_test_player_stats_tick_and_heal_logic(failures)
+	_test_player_stats_god_mode_blocks_decay_and_damage(failures)
 	_test_player_stats_save_and_restore(failures)
 	_test_inventory_add_remove_and_restore(failures)
 	_test_player_defaults_are_valid(failures)
 	_test_player_receive_damage_reduces_health(failures)
+	_test_player_god_mode_syncs_to_stats_and_blocks_damage(failures)
 	_test_player_torch_activation_and_deactivation(failures)
 	_test_player_debug_item_helpers(failures)
 	_test_player_melee_attack_spends_stamina(failures)
@@ -66,6 +68,31 @@ func _test_player_stats_save_and_restore(failures: Array[String]) -> void:
 	TEST_UTILS.expect_close(stats.rest, 65.0, failures, "Player stats should restore rest")
 
 
+func _test_player_stats_god_mode_blocks_decay_and_damage(failures: Array[String]) -> void:
+	var stats := PLAYER_STATS.new()
+	stats.health = 50.0
+	stats.hunger = 80.0
+	stats.stamina = 45.0
+	stats.rest = 60.0
+	stats.set_god_mode(true)
+	TEST_UTILS.expect(stats.is_god_mode_enabled(), failures, "Player stats should report god mode as enabled")
+	var save_data := stats.get_save_data()
+	TEST_UTILS.expect(not save_data.has("god_mode"), failures, "God mode should not be saved in normal player stat data")
+	var before_health: float = stats.health
+	var before_hunger: float = stats.hunger
+	var before_stamina: float = stats.stamina
+	var before_rest: float = stats.rest
+	stats.tick(10.0, true)
+	TEST_UTILS.expect(stats.health >= before_health, failures, "God mode should prevent player health from decreasing")
+	TEST_UTILS.expect_close(stats.hunger, before_hunger, failures, "God mode should prevent hunger from decreasing")
+	TEST_UTILS.expect_close(stats.rest, before_rest, failures, "God mode should prevent rest from decreasing")
+	TEST_UTILS.expect(stats.stamina >= before_stamina, failures, "God mode should prevent stamina from decreasing")
+	TEST_UTILS.expect(stats.spend_stamina(12.0), failures, "God mode should allow stamina spending without failure")
+	TEST_UTILS.expect(stats.stamina >= before_stamina, failures, "God mode should keep stamina from dropping after spending")
+	stats.damage(25.0)
+	TEST_UTILS.expect(stats.health >= before_health, failures, "God mode should block direct damage")
+
+
 func _test_inventory_add_remove_and_restore(failures: Array[String]) -> void:
 	var inventory := INVENTORY.new()
 	TEST_UTILS.expect_equal(inventory.get_amount("wood"), 0, failures, "Inventory should start empty")
@@ -95,9 +122,32 @@ func _test_player_defaults_are_valid(failures: Array[String]) -> void:
 func _test_player_receive_damage_reduces_health(failures: Array[String]) -> void:
 	var player := _make_player()
 	var before_health: float = player.stats.health
-	player.receive_damage(17.0)
+	TEST_UTILS.expect(player.receive_damage(17.0), failures, "Receiving damage should report success when god mode is off")
 	TEST_UTILS.expect(player.stats.health < before_health, failures, "Receiving damage should reduce player health")
 	TEST_UTILS.expect_close(player.stats.health, before_health - 17.0, failures, "Damage should reduce health by the requested amount")
+	player.queue_free()
+
+
+func _test_player_god_mode_syncs_to_stats_and_blocks_damage(failures: Array[String]) -> void:
+	var player := _make_player()
+	player.stats.health = 64.0
+	player.stats.hunger = 70.0
+	player.stats.stamina = 55.0
+	player.stats.rest = 45.0
+	player.set_god_mode(true)
+	TEST_UTILS.expect(player.is_god_mode_enabled(), failures, "Player should report god mode as enabled")
+	TEST_UTILS.expect(player.stats.is_god_mode_enabled(), failures, "Player stats should mirror player god mode")
+	var before_health: float = player.stats.health
+	var before_hunger: float = player.stats.hunger
+	var before_stamina: float = player.stats.stamina
+	var before_rest: float = player.stats.rest
+	TEST_UTILS.expect(not player.receive_damage(19.0, "varnak"), failures, "God mode should block incoming damage")
+	TEST_UTILS.expect_close(player.stats.health, before_health, failures, "God mode should keep player health unchanged after damage")
+	TEST_UTILS.expect_close(player.stats.hunger, before_hunger, failures, "God mode should keep player hunger unchanged after damage")
+	TEST_UTILS.expect_close(player.stats.stamina, before_stamina, failures, "God mode should keep player stamina unchanged after damage")
+	TEST_UTILS.expect_close(player.stats.rest, before_rest, failures, "God mode should keep player rest unchanged after damage")
+	player.debug_damage_player()
+	TEST_UTILS.expect_close(player.stats.health, before_health, failures, "Debug damage should not reduce health in god mode")
 	player.queue_free()
 
 

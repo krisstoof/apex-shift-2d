@@ -16,21 +16,30 @@ var stamina := MAX_STAMINA
 var rest := MAX_REST
 var campfire_regen_active := false
 var campfire_regen_distance := -1.0
+var god_mode := false
 
 func tick(delta: float, running: bool) -> void:
-	hunger = max(hunger - GAME_BALANCE.PLAYER_HUNGER_DECAY_RATE * delta, 0.0)
-	rest = max(rest - (GAME_BALANCE.PLAYER_RUNNING_REST_DECAY_RATE if running else GAME_BALANCE.PLAYER_REST_DECAY_RATE) * delta, 0.0)
-	if running:
-		stamina = max(stamina - GAME_BALANCE.PLAYER_RUNNING_STAMINA_DECAY_RATE * delta, 0.0)
+	if not god_mode:
+		hunger = max(hunger - GAME_BALANCE.PLAYER_HUNGER_DECAY_RATE * delta, 0.0)
+		rest = max(rest - (GAME_BALANCE.PLAYER_RUNNING_REST_DECAY_RATE if running else GAME_BALANCE.PLAYER_REST_DECAY_RATE) * delta, 0.0)
+		if running:
+			stamina = max(stamina - GAME_BALANCE.PLAYER_RUNNING_STAMINA_DECAY_RATE * delta, 0.0)
+		else:
+			stamina = min(stamina + _get_stamina_regen() * delta, MAX_STAMINA)
 	else:
 		stamina = min(stamina + _get_stamina_regen() * delta, MAX_STAMINA)
-	if hunger <= 0.0:
-		health = max(health - GAME_BALANCE.PLAYER_STARVATION_DAMAGE_PER_SECOND * delta, 0.0)
+	if not god_mode:
+		if hunger <= 0.0:
+			health = max(health - GAME_BALANCE.PLAYER_STARVATION_DAMAGE_PER_SECOND * delta, 0.0)
+		elif hunger >= LOW_HUNGER and rest >= EXHAUSTED_REST:
+			health = min(health + GAME_BALANCE.PLAYER_HEALTH_REGEN_RATE * delta, MAX_HEALTH)
 	elif hunger >= LOW_HUNGER and rest >= EXHAUSTED_REST:
 		health = min(health + GAME_BALANCE.PLAYER_HEALTH_REGEN_RATE * delta, MAX_HEALTH)
 
 
 func spend_stamina(amount: float) -> bool:
+	if god_mode:
+		return true
 	if stamina < amount:
 		return false
 	stamina -= amount
@@ -38,6 +47,8 @@ func spend_stamina(amount: float) -> bool:
 
 
 func damage(amount: float) -> void:
+	if god_mode:
+		return
 	health = max(health - amount, 0.0)
 
 
@@ -46,6 +57,8 @@ func heal(amount: float) -> void:
 
 
 func reduce_hunger_energy(amount: float) -> void:
+	if god_mode:
+		return
 	hunger = max(hunger - amount, 0.0)
 	stamina = max(stamina - amount, 0.0)
 	rest = max(rest - amount, 0.0)
@@ -64,7 +77,8 @@ func eat_food(nutrition: float) -> void:
 func sleep_recover() -> void:
 	rest = MAX_REST
 	stamina = MAX_STAMINA
-	hunger = max(hunger - GAME_BALANCE.PLAYER_SLEEP_HUNGER_COST, 0.0)
+	if not god_mode:
+		hunger = max(hunger - GAME_BALANCE.PLAYER_SLEEP_HUNGER_COST, 0.0)
 	if hunger >= LOW_HUNGER:
 		health = min(health + GAME_BALANCE.PLAYER_SLEEP_HEALTH_RESTORE, MAX_HEALTH)
 
@@ -97,6 +111,14 @@ func get_condition_text() -> String:
 func set_campfire_regen(active: bool, nearest_distance := -1.0) -> void:
 	campfire_regen_active = active
 	campfire_regen_distance = nearest_distance if active else -1.0
+
+
+func set_god_mode(enabled: bool) -> void:
+	god_mode = enabled
+
+
+func is_god_mode_enabled() -> bool:
+	return god_mode
 
 
 func get_stamina_regen_rate() -> float:
