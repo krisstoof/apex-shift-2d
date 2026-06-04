@@ -170,8 +170,11 @@ func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 		var radius_world := float(landmark.get("radius", 80.0))
 		if not _intersects_view_circle(world_position, radius_world, view_world_rect):
 			continue
-		var center := _world_to_map(world_position, content_rect, view_world_rect)
-		var radius := _world_radius_to_map(float(landmark.get("radius", 80.0)), content_rect)
+		var center := _get_landmark_marker_center(world_position, content_rect, view_world_rect)
+		var desired_radius := _world_radius_to_map(float(landmark.get("radius", 80.0)), content_rect)
+		var radius := _get_landmark_marker_radius(center, desired_radius, content_rect, landmark)
+		if radius < 2.0:
+			continue
 		match str(landmark.get("type", "")):
 			"pond":
 				_draw_pond_marker(center, radius, landmark)
@@ -180,7 +183,10 @@ func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 
 
 func _refresh_landmarks_from_world() -> void:
-	var world := get_tree().current_scene.get_node_or_null("World")
+	var tree := _get_safe_tree()
+	if not tree or not tree.current_scene:
+		return
+	var world := tree.current_scene.get_node_or_null("World")
 	if world and world.has_method("get_landmarks"):
 		landmarks = world.get_landmarks()
 
@@ -308,7 +314,10 @@ func _should_draw_resource_on_minimap(resource: Node) -> bool:
 
 
 func _draw_varnaks(content_rect: Rect2, view_world_rect: Rect2) -> void:
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	var tree := _get_safe_tree()
+	if not tree:
+		return
+	for varnak in tree.get_nodes_in_group("varnak"):
 		if not is_instance_valid(varnak):
 			continue
 		if not view_world_rect.has_point(varnak.global_position):
@@ -350,11 +359,51 @@ func _world_to_map(world_position: Vector2, content_rect: Rect2, view_world_rect
 	return content_rect.position + normalized * content_rect.size
 
 
+func _get_landmark_marker_center(world_position: Vector2, content_rect: Rect2, view_world_rect: Rect2) -> Vector2:
+	var center := _world_to_map(world_position, content_rect, view_world_rect)
+	return Vector2(
+		clamp(center.x, content_rect.position.x, content_rect.end.x),
+		clamp(center.y, content_rect.position.y, content_rect.end.y)
+	)
+
+
 func _world_radius_to_map(world_radius: float, content_rect: Rect2) -> float:
 	var view_world_rect: Rect2 = _get_minimap_view_world_rect(content_rect)
 	var x_scale: float = content_rect.size.x / maxf(view_world_rect.size.x, 1.0)
 	var y_scale: float = content_rect.size.y / maxf(view_world_rect.size.y, 1.0)
 	return world_radius * min(x_scale, y_scale)
+
+
+func _get_landmark_marker_radius(center: Vector2, desired_radius: float, content_rect: Rect2, landmark: Dictionary) -> float:
+	var left_space := maxf(center.x - content_rect.position.x, 0.0)
+	var right_space := maxf(content_rect.end.x - center.x, 0.0)
+	var top_space := maxf(center.y - content_rect.position.y, 0.0)
+	var bottom_space := maxf(content_rect.end.y - center.y, 0.0)
+	match str(landmark.get("type", "")):
+		"pond":
+			var max_shape_scale := _get_max_shape_scale(landmark, true)
+			var horizontal_limit := minf(left_space, right_space) / maxf(max_shape_scale, 0.001)
+			var vertical_limit := minf(top_space, bottom_space) / maxf(max_shape_scale * POND_MARKER_Y_SCALE, 0.001)
+			return minf(desired_radius, minf(horizontal_limit, vertical_limit))
+		"hill":
+			var max_shape_scale := _get_max_shape_scale(landmark, false)
+			var left_limit := left_space / maxf(max_shape_scale, 0.001)
+			var right_limit := right_space / maxf(max_shape_scale * 1.08, 0.001)
+			var top_limit := top_space / maxf(max_shape_scale * 0.66, 0.001)
+			var bottom_limit := bottom_space / maxf(max_shape_scale * 0.68, 0.001)
+			var edge_limit := minf(minf(left_limit, right_limit), minf(top_limit, bottom_limit))
+			return minf(desired_radius, edge_limit)
+	return desired_radius
+
+
+func _get_max_shape_scale(landmark: Dictionary, is_pond: bool) -> float:
+	var max_scale := 1.0
+	var sample_count := _get_pond_shape_sample_count() if is_pond else _get_hill_shape_sample_count()
+	for i in range(sample_count):
+		var angle := TAU * float(i) / float(sample_count)
+		var scale := _get_pond_shape_scale(landmark, angle) if is_pond else _get_hill_shape_scale(landmark, angle)
+		max_scale = maxf(max_scale, scale)
+	return max_scale
 
 
 func _get_minimap_view_world_rect(content_rect: Rect2) -> Rect2:
@@ -453,8 +502,15 @@ func _get_resource_color(resource: Node) -> Color:
 
 
 func _update_resources_cache() -> void:
-	cached_resources = get_tree().get_nodes_in_group("resources")
+	var tree := _get_safe_tree()
+	cached_resources = tree.get_nodes_in_group("resources") if tree else []
 	# Clean up dead references
 	for i in range(cached_resources.size() - 1, -1, -1):
 		if not is_instance_valid(cached_resources[i]):
 			cached_resources.remove_at(i)
+
+
+func _get_safe_tree() -> SceneTree:
+	if not is_inside_tree():
+		return null
+	return get_tree()

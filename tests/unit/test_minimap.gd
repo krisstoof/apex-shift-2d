@@ -9,6 +9,7 @@ func run() -> Array[String]:
 	_test_minimap_view_rect_follows_player_and_stays_larger_than_camera(failures)
 	_test_world_to_map_keeps_player_in_minimap_center(failures)
 	_test_world_slice_maps_to_partial_texture_region(failures)
+	_test_landmark_markers_stay_inside_minimap_content(failures)
 	return failures
 
 
@@ -55,6 +56,34 @@ func _test_world_slice_maps_to_partial_texture_region(failures: Array[String]) -
 	TEST_UTILS.expect(texture_region.position.y > 0.0, failures, "A centered world slice should start inside the biome texture instead of always from the top edge")
 	TEST_UTILS.expect(texture_region.size.x < 192.0, failures, "A minimap slice should sample only part of the biome texture width")
 	TEST_UTILS.expect(texture_region.size.y < 116.0, failures, "A minimap slice should sample only part of the biome texture height")
+	minimap.free()
+
+
+func _test_landmark_markers_stay_inside_minimap_content(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	minimap.world_rect = Rect2(Vector2(-2000.0, -1200.0), Vector2(4000.0, 2400.0))
+	minimap.camera_world_size_override = Vector2(1280.0, 720.0)
+	var content_rect := Rect2(Vector2(14.0, 14.0), Vector2(232.0, 152.0))
+	var view_world_rect := Rect2(Vector2(-400.0, -250.0), Vector2(900.0, 520.0))
+	var pond_landmark := {
+		"id": "test_pond",
+		"type": "pond",
+		"radius": 220.0
+	}
+	var hill_landmark := {
+		"id": "test_hill",
+		"type": "hill",
+		"radius": 240.0
+	}
+	var pond_center: Vector2 = minimap.call("_get_landmark_marker_center", Vector2(view_world_rect.position.x - 120.0, 10.0), content_rect, view_world_rect)
+	var pond_radius: float = minimap.call("_get_landmark_marker_radius", pond_center, 28.0, content_rect, pond_landmark)
+	TEST_UTILS.expect_close(pond_center.x, content_rect.position.x, failures, "A pond marker center should clamp to the left edge of the minimap content when the landmark center is off-screen")
+	TEST_UTILS.expect(pond_radius <= content_rect.get_center().distance_to(Vector2(content_rect.position.x, content_rect.get_center().y)), failures, "A pond marker radius should shrink instead of drawing outside the minimap content")
+	var hill_center: Vector2 = minimap.call("_get_landmark_marker_center", Vector2(view_world_rect.end.x + 140.0, view_world_rect.end.y + 90.0), content_rect, view_world_rect)
+	var hill_radius: float = minimap.call("_get_landmark_marker_radius", hill_center, 30.0, content_rect, hill_landmark)
+	TEST_UTILS.expect_close(hill_center.x, content_rect.end.x, failures, "A hill marker center should clamp to the right edge of the minimap content when the landmark center is off-screen")
+	TEST_UTILS.expect_close(hill_center.y, content_rect.end.y, failures, "A hill marker center should clamp to the bottom edge of the minimap content when the landmark center is off-screen")
+	TEST_UTILS.expect(hill_radius <= 0.01, failures, "A hill marker with no room at the edge should collapse instead of spilling outside the minimap")
 	minimap.free()
 
 
