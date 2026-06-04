@@ -37,8 +37,21 @@ const STORAGE_BOX_SCENE := preload("res://scenes/buildings/storage_box.tscn")
 const TENT_SCENE := preload("res://scenes/buildings/tent.tscn")
 const ARROW_PROJECTILE_SCENE := preload("res://scenes/projectiles/arrow_projectile.tscn")
 
+const PLAYER_SKIN_COLOR := Color(0.82, 0.68, 0.54)
+const PLAYER_HAIR_COLOR := Color(0.24, 0.16, 0.10)
+const PLAYER_SHIRT_COLOR := Color(0.32, 0.52, 0.28)
+const PLAYER_SHIRT_SHADE_COLOR := Color(0.18, 0.28, 0.18)
+const PLAYER_PANTS_COLOR := Color(0.24, 0.18, 0.15)
+const PLAYER_PANTS_SHADE_COLOR := Color(0.12, 0.10, 0.08)
+const PLAYER_SHOE_COLOR := Color(0.10, 0.09, 0.08)
+const PLAYER_HUMAN_HEAD_RADIUS := 6.2
+const PLAYER_POSE_PIVOT := Vector2(7.0, 7.0)
+const PLAYER_POSE_MAX_TILT := deg_to_rad(16.0)
+
 @onready var interaction_area: Area2D = $InteractionArea
 @onready var attack_area: Area2D = $AttackArea
+
+var aim_direction := Vector2.RIGHT
 
 func _ready() -> void:
 	add_to_group("player")
@@ -47,6 +60,7 @@ func _ready() -> void:
 	interaction_area.body_exited.connect(_on_interactable_exited)
 	interaction_area.area_entered.connect(_on_interactable_entered)
 	interaction_area.area_exited.connect(_on_interactable_exited)
+	rotation = 0.0
 	queue_redraw()
 
 
@@ -352,7 +366,7 @@ func _shoot_bow() -> void:
 		return
 	var direction := get_global_mouse_position() - global_position
 	if direction.length_squared() <= 0.0:
-		direction = Vector2.RIGHT.rotated(rotation)
+		direction = _get_aim_vector()
 	else:
 		direction = direction.normalized()
 	var arrow := ARROW_PROJECTILE_SCENE.instantiate() as Node2D
@@ -401,7 +415,7 @@ func _is_in_attack_arc(target_position: Vector2) -> bool:
 	var distance := to_target.length()
 	if distance <= 0.0 or distance > ATTACK_RANGE:
 		return false
-	var forward := Vector2.RIGHT.rotated(rotation)
+	var forward := _get_aim_vector()
 	return abs(forward.angle_to(to_target.normalized())) <= ATTACK_ARC * 0.5
 
 
@@ -443,7 +457,7 @@ func _craft(item_name: String) -> void:
 		"tent": TENT_SCENE
 	}[item_name]
 	var building := scene.instantiate()
-	building.global_position = global_position + Vector2(56, 0).rotated(rotation)
+	building.global_position = global_position + _get_aim_vector() * 56.0
 	get_tree().current_scene.add_child(building)
 	get_node("/root/EventBus").emit_game_event("player_crafted_%s" % item_name, {"position": building.global_position})
 	get_node("/root/EventBus").post_message("Crafted %s" % item_name)
@@ -509,7 +523,10 @@ func _face_mouse() -> void:
 		return
 	var direction := get_global_mouse_position() - global_position
 	if direction.length_squared() > 1.0:
-		rotation = direction.angle()
+		var next_direction := direction.normalized()
+		if aim_direction.distance_to(next_direction) > 0.001:
+			aim_direction = next_direction
+			queue_redraw()
 
 
 func _draw() -> void:
@@ -518,16 +535,180 @@ func _draw() -> void:
 	if is_swimming:
 		_draw_swimming_body()
 	else:
-		draw_circle(Vector2.ZERO, 14.0, Color(0.2, 0.48, 1.0))
-		draw_line(Vector2.ZERO, Vector2(18, 0), Color.WHITE, 3.0)
+		_draw_human_body()
 
 
 func _draw_swimming_body() -> void:
-	var ripple_phase := sin(swim_ripple_time * 8.0) * 0.5 + 0.5
+	var layout: Dictionary = _get_player_visual_layout()
+	var ripple_phase: float = sin(swim_ripple_time * 8.0) * 0.5 + 0.5
 	draw_arc(Vector2.ZERO, 23.0 + ripple_phase * 4.0, deg_to_rad(20.0), deg_to_rad(160.0), 24, Color(0.72, 0.93, 1.0, 0.45), 2.0)
 	draw_arc(Vector2.ZERO, 28.0 - ripple_phase * 3.0, deg_to_rad(200.0), deg_to_rad(340.0), 24, Color(0.72, 0.93, 1.0, 0.34), 2.0)
-	draw_circle(Vector2.ZERO, 10.5, Color(0.18, 0.42, 0.92))
-	draw_line(Vector2.ZERO, Vector2(15, 0), Color(0.86, 0.95, 1.0), 2.0)
+	_draw_player_visual_layout(layout, 0.78, Color(0.18, 0.42, 0.92), Color(0.12, 0.24, 0.36), Color(0.80, 0.90, 1.0), 0.74)
+
+
+func _draw_human_body() -> void:
+	var layout: Dictionary = _get_player_visual_layout()
+	_draw_player_visual_layout(layout, 1.0, PLAYER_SHIRT_COLOR, PLAYER_SHIRT_SHADE_COLOR, PLAYER_SKIN_COLOR, 1.0)
+
+
+func _draw_player_visual_layout(layout: Dictionary, scale_factor: float, shirt_color: Color, shade_color: Color, skin_color: Color, alpha: float) -> void:
+	var pose := _get_player_draw_pose()
+	var transformed_layout := _transform_player_visual_layout(layout, bool(pose["flip_x"]), float(pose["body_angle"]))
+	var shadow_center: Vector2 = Vector2(layout["shadow_center"])
+	var shadow_radius: float = float(layout["shadow_radius"]) * scale_factor
+	draw_circle(shadow_center, shadow_radius, Color(0.02, 0.03, 0.04, 0.22 * alpha))
+	var back_leg: PackedVector2Array = transformed_layout["back_leg"]
+	var front_leg: PackedVector2Array = transformed_layout["front_leg"]
+	var back_arm: PackedVector2Array = transformed_layout["back_arm"]
+	var front_arm: PackedVector2Array = transformed_layout["front_arm"]
+	var torso: PackedVector2Array = transformed_layout["torso"]
+	var head_center: Vector2 = Vector2(transformed_layout["head_center"])
+	var head_radius: float = float(transformed_layout["head_radius"]) * scale_factor
+	_draw_scaled_polygon(back_leg, scale_factor, Vector2.ZERO, PLAYER_PANTS_SHADE_COLOR, alpha)
+	_draw_scaled_polygon(front_leg, scale_factor, Vector2.ZERO, PLAYER_PANTS_COLOR, alpha)
+	_draw_scaled_polygon(back_arm, scale_factor, Vector2.ZERO, shade_color, alpha)
+	_draw_scaled_polygon(torso, scale_factor, Vector2.ZERO, shirt_color, alpha)
+	_draw_scaled_polygon(front_arm, scale_factor, Vector2.ZERO, shirt_color.lightened(0.10), alpha)
+	_draw_scaled_circle(head_center, head_radius, skin_color, alpha)
+	_draw_scaled_circle(head_center + Vector2(-1.2, -2.6), head_radius * 0.86, PLAYER_HAIR_COLOR, alpha)
+	_draw_scaled_circle(head_center + Vector2(1.4, -0.8), head_radius * 0.10, Color(0.98, 0.95, 0.90), alpha)
+	_draw_scaled_circle(head_center + Vector2(2.1, -0.7), head_radius * 0.10, Color(0.98, 0.95, 0.90), alpha)
+	_draw_scaled_line(Vector2(transformed_layout["neck_start"]), Vector2(transformed_layout["neck_end"]), shade_color.darkened(0.1), 2.2 * scale_factor, alpha)
+	_draw_scaled_line(Vector2(transformed_layout["spine_start"]), Vector2(transformed_layout["spine_end"]), PLAYER_SHIRT_SHADE_COLOR.darkened(0.1), 2.0 * scale_factor, alpha)
+	_draw_scaled_line(Vector2(transformed_layout["belt_start"]), Vector2(transformed_layout["belt_end"]), PLAYER_PANTS_SHADE_COLOR.lightened(0.1), 1.5 * scale_factor, alpha)
+	_draw_scaled_circle(Vector2(transformed_layout["backpack_center"]), float(transformed_layout["backpack_radius"]) * scale_factor, Color(0.17, 0.14, 0.11), alpha * 0.8)
+	if has_spear:
+		_draw_scaled_line(Vector2(transformed_layout["spear_hand_start"]), Vector2(transformed_layout["spear_tip"]), Color(0.44, 0.29, 0.17), 2.0 * scale_factor, alpha)
+		_draw_scaled_triangle(Vector2(transformed_layout["spear_tip"]), Vector2(transformed_layout["spear_wing_a"]), Vector2(transformed_layout["spear_wing_b"]), Color(0.74, 0.75, 0.78), alpha)
+
+
+func _draw_scaled_polygon(points: PackedVector2Array, scale_factor: float, offset: Vector2, color: Color, alpha: float) -> void:
+	var scaled_points := PackedVector2Array()
+	for point in points:
+		scaled_points.append(offset + point * scale_factor)
+	draw_colored_polygon(scaled_points, Color(color.r, color.g, color.b, color.a * alpha))
+
+
+func _draw_scaled_circle(center: Vector2, radius: float, color: Color, alpha: float) -> void:
+	draw_circle(center, radius, Color(color.r, color.g, color.b, color.a * alpha))
+
+
+func _draw_scaled_line(start: Vector2, end: Vector2, color: Color, width: float, alpha: float) -> void:
+	draw_line(start, end, Color(color.r, color.g, color.b, color.a * alpha), width)
+
+
+func _draw_scaled_triangle(a: Vector2, b: Vector2, c: Vector2, color: Color, alpha: float) -> void:
+	draw_colored_polygon(PackedVector2Array([a, b, c]), Color(color.r, color.g, color.b, color.a * alpha))
+
+
+func _get_player_visual_layout() -> Dictionary:
+	return {
+		"shadow_center": Vector2(4.0, 12.0),
+		"shadow_radius": 11.0,
+		"head_center": Vector2(16.0, -6.0),
+		"head_radius": PLAYER_HUMAN_HEAD_RADIUS,
+		"torso": PackedVector2Array([
+			Vector2(-5.0, -3.0),
+			Vector2(6.0, -7.0),
+			Vector2(14.0, -3.0),
+			Vector2(15.5, 5.0),
+			Vector2(9.5, 12.0),
+			Vector2(-1.0, 10.5),
+			Vector2(-7.0, 3.0)
+		]),
+		"back_arm": PackedVector2Array([
+			Vector2(-4.5, -1.0),
+			Vector2(1.0, -2.0),
+			Vector2(-2.0, 6.0),
+			Vector2(-7.0, 4.0)
+		]),
+		"front_arm": PackedVector2Array([
+			Vector2(9.0, -1.5),
+			Vector2(18.0, 0.0),
+			Vector2(20.0, 6.0),
+			Vector2(13.0, 6.0)
+		]),
+		"back_leg": PackedVector2Array([
+			Vector2(0.0, 10.0),
+			Vector2(4.5, 10.2),
+			Vector2(1.5, 22.0),
+			Vector2(-3.0, 20.0)
+		]),
+		"front_leg": PackedVector2Array([
+			Vector2(6.0, 10.2),
+			Vector2(11.0, 11.0),
+			Vector2(15.0, 22.0),
+			Vector2(10.0, 23.0)
+		]),
+		"neck_start": Vector2(12.5, -2.5),
+		"neck_end": Vector2(13.8, 0.0),
+		"spine_start": Vector2(3.0, -1.0),
+		"spine_end": Vector2(10.0, 6.0),
+		"belt_start": Vector2(0.0, 9.0),
+		"belt_end": Vector2(9.0, 9.8),
+		"backpack_center": Vector2(-3.0, 2.5),
+		"backpack_radius": 3.5,
+		"spear_hand_start": Vector2(18.0, 3.5),
+		"spear_tip": Vector2(28.0, -5.0),
+		"spear_wing_a": Vector2(26.0, -4.2),
+		"spear_wing_b": Vector2(29.0, -6.2)
+	}
+
+
+func _transform_player_visual_layout(layout: Dictionary, flip_x: bool, body_angle: float) -> Dictionary:
+	return {
+		"shadow_center": Vector2(layout["shadow_center"]),
+		"shadow_radius": float(layout["shadow_radius"]),
+		"head_center": _transform_visual_point(Vector2(layout["head_center"]), flip_x, body_angle),
+		"head_radius": float(layout["head_radius"]),
+		"torso": _transform_visual_points(PackedVector2Array(layout["torso"]), flip_x, body_angle),
+		"back_arm": _transform_visual_points(PackedVector2Array(layout["back_arm"]), flip_x, body_angle),
+		"front_arm": _transform_visual_points(PackedVector2Array(layout["front_arm"]), flip_x, body_angle),
+		"back_leg": _transform_visual_points(PackedVector2Array(layout["back_leg"]), flip_x, body_angle),
+		"front_leg": _transform_visual_points(PackedVector2Array(layout["front_leg"]), flip_x, body_angle),
+		"neck_start": _transform_visual_point(Vector2(layout["neck_start"]), flip_x, body_angle),
+		"neck_end": _transform_visual_point(Vector2(layout["neck_end"]), flip_x, body_angle),
+		"spine_start": _transform_visual_point(Vector2(layout["spine_start"]), flip_x, body_angle),
+		"spine_end": _transform_visual_point(Vector2(layout["spine_end"]), flip_x, body_angle),
+		"belt_start": _transform_visual_point(Vector2(layout["belt_start"]), flip_x, body_angle),
+		"belt_end": _transform_visual_point(Vector2(layout["belt_end"]), flip_x, body_angle),
+		"backpack_center": _transform_visual_point(Vector2(layout["backpack_center"]), flip_x, body_angle),
+		"backpack_radius": float(layout["backpack_radius"]),
+		"spear_hand_start": _transform_visual_point(Vector2(layout["spear_hand_start"]), flip_x, body_angle),
+		"spear_tip": _transform_visual_point(Vector2(layout["spear_tip"]), flip_x, body_angle),
+		"spear_wing_a": _transform_visual_point(Vector2(layout["spear_wing_a"]), flip_x, body_angle),
+		"spear_wing_b": _transform_visual_point(Vector2(layout["spear_wing_b"]), flip_x, body_angle)
+	}
+
+
+func _transform_visual_points(points: PackedVector2Array, flip_x: bool, body_angle: float) -> PackedVector2Array:
+	var transformed := PackedVector2Array()
+	for point in points:
+		transformed.append(_transform_visual_point(point, flip_x, body_angle))
+	return transformed
+
+
+func _transform_visual_point(point: Vector2, flip_x: bool, body_angle: float) -> Vector2:
+	var transformed := point - PLAYER_POSE_PIVOT
+	if flip_x:
+		transformed.x = -transformed.x
+	transformed = transformed.rotated(body_angle)
+	return PLAYER_POSE_PIVOT + transformed
+
+
+func _get_aim_vector() -> Vector2:
+	if aim_direction.length_squared() <= 0.0001:
+		return Vector2.RIGHT
+	return aim_direction.normalized()
+
+
+func _get_player_draw_pose() -> Dictionary:
+	var look_direction := _get_aim_vector()
+	return {
+		"direction": look_direction,
+		"flip_x": look_direction.x < 0.0,
+		"body_angle": clampf(look_direction.y, -1.0, 1.0) * PLAYER_POSE_MAX_TILT
+	}
 
 
 func _die(reason: String) -> void:
@@ -577,11 +758,12 @@ func _draw_attack_visual() -> void:
 	var progress := attack_visual_time / ATTACK_VISUAL_DURATION
 	var alpha := 0.18 + progress * 0.34
 	var points := PackedVector2Array([Vector2.ZERO])
-	var start_angle := -ATTACK_ARC * 0.5
+	var aim_angle := _get_aim_vector().angle()
+	var start_angle := aim_angle - ATTACK_ARC * 0.5
 	var steps := 9
 	for i in range(steps + 1):
 		var t := float(i) / float(steps)
-		var angle: float = lerp(start_angle, -start_angle, t)
+		var angle: float = lerp(start_angle, start_angle + ATTACK_ARC, t)
 		points.append(Vector2.RIGHT.rotated(angle) * ATTACK_RANGE)
 	draw_colored_polygon(points, Color(1.0, 0.86, 0.30, alpha))
-	draw_arc(Vector2.ZERO, ATTACK_RANGE, start_angle, -start_angle, steps, Color(1.0, 0.92, 0.48, alpha + 0.25), 4.0)
+	draw_arc(Vector2.ZERO, ATTACK_RANGE, start_angle, start_angle + ATTACK_ARC, steps, Color(1.0, 0.92, 0.48, alpha + 0.25), 4.0)

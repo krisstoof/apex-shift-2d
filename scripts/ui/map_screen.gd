@@ -5,8 +5,6 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const PADDING := 24.0
 const PANEL_GAP := 20.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(160, 98)
-const DEFAULT_BIOME_BLEND_RADIUS := 300.0
-const BIOME_NEIGHBOR_BLEND_WEIGHT := 0.90
 const POND_MARKER_Y_SCALE := 0.62
 const HILL_MARKER_Y_SCALE := 0.58
 
@@ -141,7 +139,7 @@ func _fit_world_rect(bounds: Rect2) -> Rect2:
 func _draw_biomes(map_rect: Rect2) -> void:
 	if biome_zones.is_empty():
 		return
-	_ensure_biome_blend_texture()
+	_ensure_biome_texture()
 	if biome_blend_texture:
 		draw_texture_rect(biome_blend_texture, map_rect, false)
 
@@ -352,7 +350,7 @@ func _draw_player(map_rect: Rect2) -> void:
 	draw_circle(pos, 3.0, Color.WHITE)
 
 
-func _ensure_biome_blend_texture() -> void:
+func _ensure_biome_texture() -> void:
 	if biome_zones.is_empty():
 		return
 	var current_key := _get_biome_colors_key()
@@ -369,48 +367,25 @@ func _ensure_biome_blend_texture() -> void:
 				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
 			)
 			var world_position := world_rect.position + uv * world_rect.size
-			image.set_pixel(x, y, _get_blended_biome_color_at(world_position, biome_zones, colors, _get_biome_blend_radius()))
+			image.set_pixel(x, y, _get_direct_biome_color_at(world_position, biome_zones, colors))
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
 
 
-func _get_blended_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color], blend_radius: float) -> Color:
-	var containing_index := -1
-	var containing_edge_distance := INF
-	var edge_distances: Array[float] = []
+func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
+	var nearest_index := -1
+	var nearest_distance := INF
 	for i in zones.size():
 		var points := PackedVector2Array(zones[i]["points"])
+		if Geometry2D.is_point_in_polygon(position, points):
+			return colors[i]
 		var edge_distance := _get_point_polygon_edge_distance(position, points)
-		edge_distances.append(edge_distance)
-		if containing_index == -1 and Geometry2D.is_point_in_polygon(position, points):
-			containing_index = i
-			containing_edge_distance = edge_distance
-	if containing_index == -1:
-		return _get_nearest_biome_color(edge_distances, colors)
-	var result := colors[containing_index]
-	var total_weight := 1.0
-	if containing_edge_distance >= blend_radius:
-		return result
-	for i in zones.size():
-		if i == containing_index:
-			continue
-		var shared_edge_distance: float = max(containing_edge_distance, edge_distances[i])
-		if shared_edge_distance > blend_radius:
-			continue
-		var neighbor_weight: float = pow(1.0 - shared_edge_distance / blend_radius, 2.0) * BIOME_NEIGHBOR_BLEND_WEIGHT
-		result += colors[i] * neighbor_weight
-		total_weight += neighbor_weight
-	return result / total_weight
-
-
-func _get_nearest_biome_color(edge_distances: Array[float], colors: Array[Color]) -> Color:
-	var nearest_index := 0
-	var nearest_distance := INF
-	for i in edge_distances.size():
-		if edge_distances[i] < nearest_distance:
+		if edge_distance < nearest_distance:
+			nearest_distance = edge_distance
 			nearest_index = i
-			nearest_distance = edge_distances[i]
-	return colors[nearest_index]
+	if nearest_index >= 0:
+		return colors[nearest_index]
+	return Color.BLACK
 
 
 func _get_point_polygon_edge_distance(point: Vector2, points: PackedVector2Array) -> float:
@@ -431,15 +406,10 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 func _get_biome_colors_key() -> String:
 	var parts: Array[String] = []
-	parts.append("blend:%.1f" % _get_biome_blend_radius())
 	for biome in biome_zones:
 		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
 	return "|".join(parts)
-
-
-func _get_biome_blend_radius() -> float:
-	return max(float(GAME_BALANCE.BIOME_VISUALS.get("biome_blend_radius", DEFAULT_BIOME_BLEND_RADIUS)), 1.0)
 
 
 func _world_to_map(world_position: Vector2, map_rect: Rect2) -> Vector2:

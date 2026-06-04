@@ -1,7 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://v7ukxtuurmj2"]
 
-[ext_resource type="Script" path="res://scripts/world/world.gd" id="1"]
+[ext_resource type="Script" uid="uid://cryqao0tepqt1" path="res://scripts/world/world.gd" id="1"]
 
-[node name="World" type="Node2D"]
+[node name="World" type="Node2D" unique_id=904559836]
 z_index = -10
 script = ExtResource("1")

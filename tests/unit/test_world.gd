@@ -13,6 +13,13 @@ func run() -> Array[String]:
 	_test_non_plant_resources_ignore_water_blocking(failures)
 	_test_hills_block_navigation(failures)
 	_test_terrain_speed_multiplier_changes_in_water(failures)
+	_test_biomes_have_sample_texture_assets(failures)
+	_test_biome_terrain_accent_layout_is_dense_and_inside_biome(failures)
+	_test_biome_terrain_accent_layout_stays_async_when_queue_is_pending(failures)
+	_test_biome_sample_texture_paths_match_biome_identity(failures)
+	_test_biome_surface_color_uses_the_containing_biome_without_blending(failures)
+	_test_biome_sample_texture_varies_with_position(failures)
+	_test_redfang_wilds_sample_texture_has_drawn_cracks(failures)
 	return failures
 
 
@@ -65,6 +72,168 @@ func _test_terrain_speed_multiplier_changes_in_water(failures: Array[String]) ->
 	world.free()
 
 
+func _test_biomes_have_sample_texture_assets(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var texture_key := str(world.call("_get_biome_terrain_texture_key", biome))
+		TEST_UTILS.expect(texture_key != "none", failures, "%s should have a terrain sample texture" % str(biome.get("name", "biome")))
+		var pattern := Dictionary(world.call("_get_biome_terrain_pattern", biome))
+		TEST_UTILS.expect(not pattern.is_empty(), failures, "%s should resolve to a terrain sample texture" % str(biome.get("name", "biome")))
+		var texture_path := str(pattern.get("texture_path", ""))
+		TEST_UTILS.expect(not texture_path.is_empty(), failures, "%s should define a sample texture path" % str(biome.get("name", "biome")))
+		var bytes: PackedByteArray = FileAccess.get_file_as_bytes(texture_path)
+		var image := Image.new()
+		var err := image.load_png_from_buffer(bytes)
+		TEST_UTILS.expect(err == OK and not image.is_empty(), failures, "%s sample texture should load as a PNG image" % texture_path)
+		if err == OK and not image.is_empty():
+			TEST_UTILS.expect(image.get_width() > 0 and image.get_height() > 0, failures, "%s sample texture should have dimensions" % texture_path)
+			TEST_UTILS.expect(image.get_width() <= 256 and image.get_height() <= 256, failures, "%s sample texture should be downscaled to 256px or less" % texture_path)
+	world.free()
+
+
+func _test_biome_terrain_accent_layout_is_dense_and_inside_biome(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var accents: Array = world.call("_get_biome_terrain_accent_layout", biome)
+		var target_count := int(world.call("_get_biome_terrain_accent_target_count", biome))
+		var minimum_expected := int(max(target_count - 2, 12))
+		var points := PackedVector2Array(biome["points"])
+		TEST_UTILS.expect(not accents.is_empty(), failures, "%s should generate at least one terrain accent" % str(biome.get("name", "biome")))
+		TEST_UTILS.expect(target_count >= 14, failures, "%s should target a denser accent budget than the previous sparse pass" % str(biome.get("name", "biome")))
+		TEST_UTILS.expect(accents.size() >= minimum_expected, failures, "%s should fill most of its terrain accent budget" % str(biome.get("name", "biome")))
+		TEST_UTILS.expect(accents.size() <= 36, failures, "%s should keep terrain accents under the performance ceiling" % str(biome.get("name", "biome")))
+		for accent_value in accents:
+			var accent := Dictionary(accent_value)
+			var position := Vector2(accent.get("position", Vector2.ZERO))
+			TEST_UTILS.expect(Geometry2D.is_point_in_polygon(position, points), failures, "%s terrain accents should stay inside the biome polygon" % str(biome.get("name", "biome")))
+			TEST_UTILS.expect(not str(accent.get("kind", "")).is_empty(), failures, "%s terrain accents should declare a drawable kind" % str(biome.get("name", "biome")))
+	var westwood := _get_biome_by_name("Westwood")
+	var first_layout: Array = world.call("_get_biome_terrain_accent_layout", westwood)
+	var second_layout: Array = world.call("_get_biome_terrain_accent_layout", westwood)
+	TEST_UTILS.expect_equal(first_layout.size(), second_layout.size(), failures, "Biome accent layout should stay deterministic between reads")
+	if not first_layout.is_empty() and not second_layout.is_empty():
+		var first_position := Vector2(Dictionary(first_layout[0]).get("position", Vector2.ZERO))
+		var second_position := Vector2(Dictionary(second_layout[0]).get("position", Vector2.ZERO))
+		TEST_UTILS.expect_close(first_position.x, second_position.x, failures, "Biome accent layout should keep the first accent X stable")
+		TEST_UTILS.expect_close(first_position.y, second_position.y, failures, "Biome accent layout should keep the first accent Y stable")
+	world.free()
+
+
+func _test_biome_terrain_accent_layout_stays_async_when_queue_is_pending(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.call("_queue_biome_terrain_accent_cache_rebuild")
+	var westwood := _get_biome_by_name("Westwood")
+	var pending_layout: Array = world.call("_get_biome_terrain_accent_layout", westwood)
+	TEST_UTILS.expect(pending_layout.is_empty(), failures, "Queued terrain accents should wait for the async cache builder instead of rebuilding synchronously during draw-time access")
+	world.free()
+
+
+func _test_biome_sample_texture_paths_match_biome_identity(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var expected_tokens := {
+		"Westwood": "westwood_sample",
+		"Stoneback Ridge": "stoneback_ridge_sample",
+		"Hearth Meadow": "hearth_meadow_sample",
+		"South Thicket": "south_thicket_sample",
+		"Redfang Wilds": "redfang_wilds_sample"
+	}
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var biome_name := str(biome.get("name", "biome"))
+		var texture_key := str(world.call("_get_biome_terrain_texture_key", biome))
+		var expected_token := str(expected_tokens.get(biome_name, ""))
+		TEST_UTILS.expect(not expected_token.is_empty(), failures, "%s should have an expected sample texture token in the test" % biome_name)
+		if not expected_token.is_empty():
+			TEST_UTILS.expect(texture_key.contains(expected_token), failures, "%s should use the %s sample texture" % [biome_name, expected_token])
+	world.free()
+
+
+func _test_biome_surface_color_uses_the_containing_biome_without_blending(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var westwood := _get_biome_by_name("Westwood")
+	var biome_zones := WORLD_CONFIG.get_biome_zones()
+	var sample_point := _find_boundary_sample_point(westwood, biome_zones)
+	TEST_UTILS.expect(sample_point != Vector2.INF, failures, "Westwood should expose a sample point near a biome edge")
+	if sample_point == Vector2.INF:
+		world.free()
+		return
+	var base_color := Color(westwood["color"])
+	var expected_color: Color = world.call("_get_biome_terrain_color", westwood, sample_point, world.call("_get_biome_visual_color", westwood))
+	var surface_color: Color = world.call("_get_biome_surface_color_at", sample_point, biome_zones)
+	TEST_UTILS.expect_close(surface_color.r, expected_color.r, failures, "Biome surface color should use the containing biome red channel without blending")
+	TEST_UTILS.expect_close(surface_color.g, expected_color.g, failures, "Biome surface color should use the containing biome green channel without blending")
+	TEST_UTILS.expect_close(surface_color.b, expected_color.b, failures, "Biome surface color should use the containing biome blue channel without blending")
+	TEST_UTILS.expect(surface_color != base_color, failures, "Biome texture should still apply the biome's own surface pattern")
+	world.free()
+
+
+func _test_biome_sample_texture_varies_with_position(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var biome := _get_biome_by_name("Hearth Meadow")
+	var base_color := Color(biome["color"])
+	var sample_positions: Array[Vector2] = []
+	for y in [-520.0, -240.0, 0.0, 260.0, 520.0]:
+		for x in [-900.0, -420.0, 0.0, 420.0, 900.0]:
+			sample_positions.append(Vector2(float(x), float(y)))
+	var sample_a: Vector2 = sample_positions[0]
+	var color_low: Color = Color.WHITE
+	var color_high: Color = Color.BLACK
+	var unique_colors: Dictionary = {}
+	for sample_position in sample_positions:
+		var sample_color: Color = world.call("_get_biome_terrain_color", biome, sample_position, base_color)
+		var color_key := "%d:%d:%d" % [int(round(sample_color.r * 31.0)), int(round(sample_color.g * 31.0)), int(round(sample_color.b * 31.0))]
+		unique_colors[color_key] = true
+		if sample_color.get_luminance() < color_low.get_luminance():
+			color_low = sample_color
+		if sample_color.get_luminance() > color_high.get_luminance():
+			color_high = sample_color
+	var color_a: Color = world.call("_get_biome_terrain_color", biome, sample_a, base_color)
+	var color_difference: float = abs(color_low.r - color_high.r) + abs(color_low.g - color_high.g) + abs(color_low.b - color_high.b)
+	TEST_UTILS.expect(unique_colors.size() >= 4, failures, "Terrain sample texture should resolve into multiple visible colors instead of one blotch")
+	TEST_UTILS.expect(color_difference > 0.08, failures, "Terrain texture should produce visible color changes across different positions")
+	TEST_UTILS.expect(color_a != base_color, failures, "Terrain texture should modify the base biome color")
+	world.free()
+
+
+func _test_redfang_wilds_sample_texture_has_drawn_cracks(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var biome := _get_biome_by_name("Redfang Wilds")
+	var pattern: Dictionary = Dictionary(world.call("_get_biome_terrain_pattern", biome))
+	var texture_path := str(pattern.get("texture_path", ""))
+	var bytes: PackedByteArray = FileAccess.get_file_as_bytes(texture_path)
+	var image := Image.new()
+	var load_err := image.load_png_from_buffer(bytes)
+	TEST_UTILS.expect(load_err == OK and not image.is_empty(), failures, "Redfang Wilds sample texture should load successfully")
+	if load_err != OK or image.is_empty():
+		world.free()
+		return
+	var width := image.get_width()
+	var height := image.get_height()
+	var sample_positions: Array[Vector2i] = [
+		Vector2i(clampi(int(round(width * 0.10)), 0, width - 1), clampi(int(round(height * 0.10)), 0, height - 1)),
+		Vector2i(clampi(int(round(width * 0.30)), 0, width - 1), clampi(int(round(height * 0.16)), 0, height - 1)),
+		Vector2i(clampi(int(round(width * 0.52)), 0, width - 1), clampi(int(round(height * 0.22)), 0, height - 1)),
+		Vector2i(clampi(int(round(width * 0.68)), 0, width - 1), clampi(int(round(height * 0.55)), 0, height - 1)),
+		Vector2i(clampi(int(round(width * 0.80)), 0, width - 1), clampi(int(round(height * 0.78)), 0, height - 1)),
+		Vector2i(clampi(int(round(width * 0.90)), 0, width - 1), clampi(int(round(height * 0.88)), 0, height - 1))
+	]
+	var darkest := 1.0
+	var lightest := 0.0
+	var unique_colors: Dictionary = {}
+	for sample_position in sample_positions:
+		var sample_color := image.get_pixel(sample_position.x, sample_position.y)
+		unique_colors["%d:%d:%d" % [int(round(sample_color.r * 31.0)), int(round(sample_color.g * 31.0)), int(round(sample_color.b * 31.0))]] = true
+		darkest = min(darkest, sample_color.get_luminance())
+		lightest = max(lightest, sample_color.get_luminance())
+	TEST_UTILS.expect(darkest < 0.28, failures, "Redfang Wilds sample texture should keep dark crack seams")
+	TEST_UTILS.expect(lightest > 0.34, failures, "Redfang Wilds sample texture should keep lighter plates")
+	TEST_UTILS.expect(lightest - darkest > 0.16, failures, "Redfang Wilds sample texture should show a visible cracked-earth contrast")
+	TEST_UTILS.expect(unique_colors.size() >= 4, failures, "Redfang Wilds sample texture should include several drawn colors, not a flat blotch")
+	world.free()
+
+
 func _make_world_with_single_pond() -> Node2D:
 	var world := WORLD_SCRIPT.new()
 	world.pond_landmarks = [{
@@ -95,3 +264,47 @@ func _find_sample_point_for_zone(world: Node2D, target_zone: String) -> Vector2:
 		if world.get_water_zone(candidate) == target_zone:
 			return candidate
 	return Vector2.INF
+
+
+func _get_biome_by_name(target_name: String) -> Dictionary:
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		if str(biome.get("name", "")) == target_name:
+			return biome
+	return {}
+
+
+func _find_boundary_sample_point(biome: Dictionary, biome_zones: Array[Dictionary]) -> Vector2:
+	var best_point := Vector2.INF
+	var best_distance := INF
+	for y in range(-860, 861, 60):
+		for x in range(-1420, 1421, 60):
+			var candidate := Vector2(float(x), float(y))
+			if not Geometry2D.is_point_in_polygon(candidate, PackedVector2Array(biome["points"])):
+				continue
+			var edge_distance := _get_point_polygon_edge_distance(candidate, biome_zones)
+			if edge_distance < best_distance:
+				best_distance = edge_distance
+				best_point = candidate
+	return best_point
+
+
+func _get_point_polygon_edge_distance(point: Vector2, biome_zones: Array[Dictionary]) -> float:
+	var nearest_distance := INF
+	for biome_value in biome_zones:
+		var biome := Dictionary(biome_value)
+		var points := PackedVector2Array(biome["points"])
+		for i in points.size():
+			var start := points[i]
+			var end := points[(i + 1) % points.size()]
+			nearest_distance = min(nearest_distance, _get_distance_to_segment(point, start, end))
+	return nearest_distance
+
+
+func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> float:
+	var segment := end - start
+	var length_squared := segment.length_squared()
+	if length_squared <= 0.0001:
+		return point.distance_to(start)
+	var t: float = clamp((point - start).dot(segment) / length_squared, 0.0, 1.0)
+	return point.distance_to(start + segment * t)

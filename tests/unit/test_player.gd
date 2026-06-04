@@ -18,6 +18,7 @@ func run() -> Array[String]:
 	_test_player_god_mode_syncs_to_stats_and_blocks_damage(failures)
 	_test_player_torch_activation_and_deactivation(failures)
 	_test_player_debug_item_helpers(failures)
+	_test_player_visual_layout_looks_human_like(failures)
 	_test_player_melee_attack_spends_stamina(failures)
 	_test_player_bow_shooting_spends_stamina_and_sets_cooldown(failures)
 	_test_player_eat_meat_consumes_inventory_and_restores_hunger(failures)
@@ -116,6 +117,7 @@ func _test_player_defaults_are_valid(failures: Array[String]) -> void:
 	TEST_UTILS.expect_close(player.stats.hunger, player.stats.MAX_HUNGER, failures, "Player should spawn with full hunger")
 	TEST_UTILS.expect_close(player.stats.stamina, player.stats.MAX_STAMINA, failures, "Player should spawn with full stamina")
 	TEST_UTILS.expect_close(player.stats.rest, player.stats.MAX_REST, failures, "Player should spawn with full rest")
+	TEST_UTILS.expect_close(player.rotation, 0.0, failures, "Player should not rotate as a whole body at spawn")
 	player.queue_free()
 
 
@@ -171,6 +173,47 @@ func _test_player_debug_item_helpers(failures: Array[String]) -> void:
 	player.queue_free()
 
 
+func _test_player_visual_layout_looks_human_like(failures: Array[String]) -> void:
+	var player := _make_player()
+	var layout: Dictionary = player.call("_get_player_visual_layout")
+	TEST_UTILS.expect(not layout.is_empty(), failures, "Player should expose a visual layout for the drawn body")
+	var head_center: Vector2 = Vector2(layout.get("head_center", Vector2.ZERO))
+	var head_radius: float = float(layout.get("head_radius", 0.0))
+	var torso: PackedVector2Array = layout.get("torso", PackedVector2Array())
+	var back_arm: PackedVector2Array = layout.get("back_arm", PackedVector2Array())
+	var front_arm: PackedVector2Array = layout.get("front_arm", PackedVector2Array())
+	var back_leg: PackedVector2Array = layout.get("back_leg", PackedVector2Array())
+	var front_leg: PackedVector2Array = layout.get("front_leg", PackedVector2Array())
+	TEST_UTILS.expect(head_radius >= 5.0, failures, "Player head should be readable as a human head")
+	TEST_UTILS.expect(torso.size() >= 6, failures, "Player torso should be built from a clear polygon")
+	TEST_UTILS.expect(back_arm.size() >= 4 and front_arm.size() >= 4, failures, "Player arms should be separate visible limbs")
+	TEST_UTILS.expect(back_leg.size() >= 4 and front_leg.size() >= 4, failures, "Player legs should be separate visible limbs")
+	var torso_center := _get_polygon_center(torso)
+	TEST_UTILS.expect(head_center.x > torso_center.x, failures, "Player head should sit in front of the torso in the facing direction")
+	TEST_UTILS.expect(head_center.y < torso_center.y, failures, "Player head should sit above the torso")
+	TEST_UTILS.expect(_get_polygon_max_y(back_leg) > torso_center.y, failures, "Player legs should extend below the torso")
+	TEST_UTILS.expect(_get_polygon_max_y(front_leg) > torso_center.y, failures, "Player legs should extend below the torso")
+	player.queue_free()
+
+
+func _test_player_draw_pose_flips_and_tilts_without_spinning(failures: Array[String]) -> void:
+	var player := _make_player()
+	player.set("aim_direction", Vector2.LEFT)
+	var left_pose: Dictionary = player.call("_get_player_draw_pose")
+	TEST_UTILS.expect_equal(left_pose.get("flip_x", false), true, failures, "Player should mirror the drawn body when aiming left")
+	TEST_UTILS.expect_close(float(left_pose.get("body_angle", 0.0)), 0.0, failures, "Player should keep the body level when aiming horizontally")
+	TEST_UTILS.expect_close(player.rotation, 0.0, failures, "Player node should stay unrotated when aiming left")
+	player.set("aim_direction", Vector2(0.0, -1.0))
+	var up_pose: Dictionary = player.call("_get_player_draw_pose")
+	TEST_UTILS.expect(float(up_pose.get("body_angle", 0.0)) < 0.0, failures, "Player should tilt slightly upward when aiming north")
+	TEST_UTILS.expect(abs(float(up_pose.get("body_angle", 0.0))) <= deg_to_rad(16.0), failures, "Player tilt should stay subtle rather than spinning around")
+	player.set("aim_direction", Vector2(0.0, 1.0))
+	var down_pose: Dictionary = player.call("_get_player_draw_pose")
+	TEST_UTILS.expect(float(down_pose.get("body_angle", 0.0)) > 0.0, failures, "Player should tilt slightly downward when aiming south")
+	TEST_UTILS.expect_close(player.rotation, 0.0, failures, "Player node should stay unrotated when aiming vertically")
+	player.queue_free()
+
+
 func _test_player_melee_attack_spends_stamina(failures: Array[String]) -> void:
 	var player := _make_player()
 	var before_stamina: float = player.stats.stamina
@@ -205,3 +248,19 @@ func _make_player() -> Node:
 	var tree := Engine.get_main_loop() as SceneTree
 	tree.current_scene.add_child(player)
 	return player
+
+
+func _get_polygon_center(points: PackedVector2Array) -> Vector2:
+	var center := Vector2.ZERO
+	if points.is_empty():
+		return center
+	for point in points:
+		center += point
+	return center / float(points.size())
+
+
+func _get_polygon_max_y(points: PackedVector2Array) -> float:
+	var max_y := -INF
+	for point in points:
+		max_y = max(max_y, point.y)
+	return max_y
