@@ -81,13 +81,21 @@ func _draw_map_panel(rect: Rect2) -> void:
 func _draw_info_panel(rect: Rect2) -> void:
 	draw_rect(rect, Color(0.04, 0.05, 0.05, 0.96), true)
 	draw_rect(rect, Color(0.70, 0.74, 0.66, 0.78), false, 1.0)
+	var lines := _build_info_lines()
+	_draw_lines(lines, rect.position + Vector2(16.0, 28.0), rect.size.x - 32.0)
+
+
+func _build_info_lines() -> Array[String]:
 	var profile: Dictionary = evolution_director.get_profile() if evolution_director else {}
-	var live_varnaks := get_tree().get_nodes_in_group("varnak").size()
+	var tree := _get_safe_tree()
+	var live_varnaks := tree.get_nodes_in_group("varnak").size() if tree else 0
 	var pond_count := _get_landmark_count("pond")
 	var hill_count := _get_landmark_count("hill")
 	var zone_name := _get_player_zone_name()
 	var time_label := _get_time_label()
-	var lines := [
+	var player_stats: Variant = _get_player_stats()
+	var player_inventory: Variant = _get_player_inventory()
+	return [
 		"Field Map",
 		"",
 		"Zone: %s" % zone_name,
@@ -96,14 +104,14 @@ func _draw_info_panel(rect: Rect2) -> void:
 		"Live Varnaks: %d" % live_varnaks,
 		"",
 		"Player",
-		"Health: %3d" % player.stats.health,
-		"Hunger: %3d" % player.stats.hunger,
-		"Stamina: %3d" % player.stats.stamina,
-		"Rest: %3d  %s" % [player.stats.rest, player.stats.get_condition_text()],
+		"Health: %3d" % _read_int_property(player_stats, "health"),
+		"Hunger: %3d" % _read_int_property(player_stats, "hunger"),
+		"Stamina: %3d" % _read_int_property(player_stats, "stamina"),
+		"Rest: %3d  %s" % [_read_int_property(player_stats, "rest"), _read_condition_text(player_stats)],
 		"",
 		"Inventory",
-		"Wood %d  Stone %d  Fiber %d" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber")],
-		"Meat %d  Hide %d  Bone %d" % [player.inventory.get_amount("meat"), player.inventory.get_amount("hide"), player.inventory.get_amount("bone")],
+		"Wood %d  Stone %d  Fiber %d" % [_read_inventory_amount(player_inventory, "wood"), _read_inventory_amount(player_inventory, "stone"), _read_inventory_amount(player_inventory, "fiber")],
+		"Meat %d  Hide %d  Bone %d" % [_read_inventory_amount(player_inventory, "meat"), _read_inventory_amount(player_inventory, "hide"), _read_inventory_amount(player_inventory, "bone")],
 		"",
 		"Varnak Profile",
 		"Generation: %d" % int(profile.get("generation", 1)),
@@ -112,7 +120,36 @@ func _draw_info_panel(rect: Rect2) -> void:
 		"Trap awareness: %.2f" % float(profile.get("trap_awareness", 0.0)),
 		"Pack: %.2f" % float(profile.get("pack_coordination", 0.0))
 	]
-	_draw_lines(lines, rect.position + Vector2(16.0, 28.0), rect.size.x - 32.0)
+
+
+func _get_player_stats() -> Variant:
+	if not is_instance_valid(player):
+		return null
+	return player.get("stats")
+
+
+func _get_player_inventory() -> Variant:
+	if not is_instance_valid(player):
+		return null
+	return player.get("inventory")
+
+
+func _read_int_property(target: Variant, property_name: String) -> int:
+	if target == null:
+		return 0
+	return int(target.get(property_name))
+
+
+func _read_condition_text(target: Variant) -> String:
+	if target == null or not target.has_method("get_condition_text"):
+		return "unknown"
+	return str(target.get_condition_text())
+
+
+func _read_inventory_amount(inventory: Variant, item_id: String) -> int:
+	if inventory == null or not inventory.has_method("get_amount"):
+		return 0
+	return int(inventory.get_amount(item_id))
 
 
 func _draw_lines(lines: Array, start: Vector2, width: float) -> void:
@@ -185,7 +222,10 @@ func _draw_landmarks(map_rect: Rect2) -> void:
 
 
 func _refresh_landmarks_from_world() -> void:
-	var world := get_tree().current_scene.get_node_or_null("World")
+	var tree := _get_safe_tree()
+	if not tree or not tree.current_scene:
+		return
+	var world := tree.current_scene.get_node_or_null("World")
 	if world and world.has_method("get_landmarks"):
 		landmarks = world.get_landmarks()
 
@@ -333,7 +373,10 @@ func _draw_legend_entry(position: Vector2, label: String, color: Color) -> void:
 
 
 func _draw_varnaks(map_rect: Rect2) -> void:
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	var tree := _get_safe_tree()
+	if not tree:
+		return
+	for varnak in tree.get_nodes_in_group("varnak"):
 		if is_instance_valid(varnak):
 			var pos := _world_to_map(varnak.global_position, map_rect)
 			draw_circle(pos, 5.0, Color(0.88, 0.22, 0.16))
@@ -476,8 +519,15 @@ func _get_resource_color(resource: Node) -> Color:
 
 
 func _update_resources_cache() -> void:
-	cached_resources = get_tree().get_nodes_in_group("resources")
+	var tree := _get_safe_tree()
+	cached_resources = tree.get_nodes_in_group("resources") if tree else []
 	# Clean up dead references
 	for i in range(cached_resources.size() - 1, -1, -1):
 		if not is_instance_valid(cached_resources[i]):
 			cached_resources.remove_at(i)
+
+
+func _get_safe_tree() -> SceneTree:
+	if not is_inside_tree():
+		return null
+	return get_tree()
