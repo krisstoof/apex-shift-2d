@@ -26,7 +26,9 @@ var ecosystem_message_cooldowns: Dictionary = {}
 @onready var fps_label: Label = $FPSLabel
 @onready var map_screen: Control = $MapScreen
 @onready var pause_menu: Control = $PauseMenu
+@onready var game_over_screen: Control = $GameOverScreen
 @onready var debug_panel: Control = $DebugPanel
+@onready var game_session: Node = get_node("/root/GameSession")
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -38,6 +40,10 @@ func _ready() -> void:
 	pause_menu.load_requested.connect(_on_pause_menu_load)
 	pause_menu.main_menu_requested.connect(_on_pause_menu_main_menu)
 	pause_menu.quit_requested.connect(_on_pause_menu_quit)
+	game_over_screen.restart_requested.connect(_on_game_over_restart)
+	game_over_screen.load_save_requested.connect(_on_game_over_load_save)
+	game_over_screen.main_menu_requested.connect(_on_game_over_main_menu)
+	game_over_screen.exit_requested.connect(_on_game_over_quit)
 
 
 func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null) -> void:
@@ -163,7 +169,21 @@ func _get_torch_status_text() -> String:
 	return "active %ds" % remaining
 
 
+func show_game_over(day_survived: int, reason: String) -> void:
+	_set_pause_menu_open(false)
+	_set_map_screen_open(false)
+	if game_over_screen.has_method("show_game_over"):
+		game_over_screen.show_game_over(day_survived, reason)
+
+
+func _close_game_over_screen() -> void:
+	if game_over_screen.has_method("hide_game_over"):
+		game_over_screen.hide_game_over()
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if game_over_screen.visible:
+		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F3:
 		debug_panel.toggle()
 		get_viewport().set_input_as_handled()
@@ -218,4 +238,30 @@ func _on_pause_menu_main_menu() -> void:
 
 
 func _on_pause_menu_quit() -> void:
+	get_tree().quit()
+
+
+func _on_game_over_restart() -> void:
+	_close_game_over_screen()
+	get_tree().paused = false
+	game_session.request_new_game()
+	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+
+func _on_game_over_load_save() -> void:
+	_close_game_over_screen()
+	get_tree().paused = false
+	game_session.request_continue()
+	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+
+func _on_game_over_main_menu() -> void:
+	_close_game_over_screen()
+	get_tree().paused = false
+	game_session.request_new_game()
+	get_tree().change_scene_to_file("res://scenes/ui/start_menu.tscn")
+
+
+func _on_game_over_quit() -> void:
+	get_tree().paused = false
 	get_tree().quit()

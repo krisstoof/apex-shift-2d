@@ -3,6 +3,8 @@ extends CharacterBody2D
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
+signal died(reason: String)
+
 @export var walk_speed := 180.0
 @export var run_speed := 290.0
 
@@ -24,6 +26,8 @@ var attack_visual_time := 0.0
 var bow_cooldown := 0.0
 var is_swimming := false
 var swim_ripple_time := 0.0
+var is_dead := false
+var death_reason := "unknown"
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -46,6 +50,8 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if is_dead:
+		return
 	_tick_torch(delta)
 	_face_mouse()
 	bow_cooldown = max(bow_cooldown - delta, 0.0)
@@ -60,6 +66,9 @@ func _process(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if is_dead:
+		velocity = Vector2.ZERO
+		return
 	_face_mouse()
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var terrain_speed := _get_terrain_speed_multiplier()
@@ -75,9 +84,13 @@ func _physics_process(delta: float) -> void:
 	global_position.y = clamp(global_position.y, -world_limits.y, world_limits.y)
 	_update_campfire_regen_state()
 	stats.tick(delta, wants_run)
+	if not is_dead and stats.health <= 0.0:
+		_die("hunger")
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if is_dead:
+		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_E:
 		_interact()
 	if event is InputEventKey and event.pressed:
@@ -114,12 +127,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			_melee_attack()
 
 
-func receive_damage(amount: float) -> void:
+func receive_damage(amount: float, source: String = "unknown") -> void:
+	if is_dead:
+		return
 	stats.damage(amount)
 	get_node("/root/EventBus").post_message("Player hit for %s" % int(amount))
+	if stats.health <= 0.0:
+		_die(source)
 
 
 func activate_torch() -> bool:
+	if is_dead:
+		return false
 	if torch_active and torch_remaining_seconds <= 0.0:
 		deactivate_torch("expired")
 	if is_torch_active():
@@ -181,6 +200,8 @@ func _update_campfire_regen_state() -> void:
 
 
 func debug_add_item(item_name: String, amount := 1) -> void:
+	if is_dead:
+		return
 	if item_name == "spear":
 		has_spear = true
 	elif item_name == "bow":
@@ -193,35 +214,45 @@ func debug_add_item(item_name: String, amount := 1) -> void:
 
 
 func debug_add_bow() -> void:
+	if is_dead:
+		return
 	has_bow = true
 	get_node("/root/EventBus").emit_game_event("debug_item_added", {"item": "bow", "amount": 1})
 	get_node("/root/EventBus").post_message("Debug gave bow")
 
 
 func debug_damage_player() -> void:
-	receive_damage(GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT)
+	receive_damage(GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT, "debug damage")
 	get_node("/root/EventBus").emit_game_event("debug_player_damaged", {"amount": GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT})
 
 
 func debug_heal_player() -> void:
+	if is_dead:
+		return
 	stats.heal(GAME_BALANCE.DEBUG_PLAYER_HEAL_AMOUNT)
 	get_node("/root/EventBus").emit_game_event("debug_player_healed", {"amount": GAME_BALANCE.DEBUG_PLAYER_HEAL_AMOUNT})
 	get_node("/root/EventBus").post_message("Debug healed player")
 
 
 func debug_reduce_hunger_energy() -> void:
+	if is_dead:
+		return
 	stats.reduce_hunger_energy(GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT)
 	get_node("/root/EventBus").emit_game_event("debug_player_hunger_energy_reduced", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
 	get_node("/root/EventBus").post_message("Debug reduced hunger/energy")
 
 
 func debug_restore_hunger_energy() -> void:
+	if is_dead:
+		return
 	stats.restore_hunger_energy(GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT)
 	get_node("/root/EventBus").emit_game_event("debug_player_hunger_energy_restored", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
 	get_node("/root/EventBus").post_message("Debug restored hunger/energy")
 
 
 func deactivate_torch(reason := "manual") -> void:
+	if is_dead:
+		return
 	if not torch_active and torch_remaining_seconds <= 0.0:
 		return
 	torch_active = false
@@ -234,16 +265,22 @@ func deactivate_torch(reason := "manual") -> void:
 
 
 func clear_inactive_torch_state() -> void:
+	if is_dead:
+		return
 	torch_active = false
 	torch_remaining_seconds = 0.0
 	queue_redraw()
 
 
 func recover_from_sleep() -> void:
+	if is_dead:
+		return
 	stats.sleep_recover()
 
 
 func _interact() -> void:
+	if is_dead:
+		return
 	for node in nearby_interactables.duplicate():
 		if is_instance_valid(node) and node.has_method("interact"):
 			node.interact(self)
@@ -252,6 +289,8 @@ func _interact() -> void:
 
 
 func get_interaction_prompt() -> String:
+	if is_dead:
+		return ""
 	for node in nearby_interactables:
 		if is_instance_valid(node) and node.has_method("get_prompt"):
 			return node.get_prompt()
@@ -261,6 +300,8 @@ func get_interaction_prompt() -> String:
 
 
 func _melee_attack() -> void:
+	if is_dead:
+		return
 	if not stats.spend_stamina(12.0):
 		get_node("/root/EventBus").post_message("Too tired to attack")
 		return
@@ -276,6 +317,8 @@ func _melee_attack() -> void:
 
 
 func _shoot_bow() -> void:
+	if is_dead:
+		return
 	if bow_cooldown > 0.0:
 		return
 	var stamina_cost := float(GAME_BALANCE.RANGED_COMBAT.get("bow_stamina_cost", 8.0))
@@ -338,6 +381,8 @@ func _is_in_attack_arc(target_position: Vector2) -> bool:
 
 
 func _craft(item_name: String) -> void:
+	if is_dead:
+		return
 	var recipe: Dictionary = recipes.get(item_name, {})
 	if recipe.is_empty():
 		get_node("/root/EventBus").post_message("Unknown recipe: %s" % item_name)
@@ -380,6 +425,8 @@ func _craft(item_name: String) -> void:
 
 
 func _eat(item_name: String) -> void:
+	if is_dead:
+		return
 	if item_name != "meat":
 		return
 	if not inventory.remove_item(item_name, 1):
@@ -390,6 +437,8 @@ func _eat(item_name: String) -> void:
 
 
 func _activate_torch() -> void:
+	if is_dead:
+		return
 	if is_torch_active():
 		deactivate_torch("manual")
 		return
@@ -397,6 +446,8 @@ func _activate_torch() -> void:
 
 
 func _tick_torch(delta: float) -> void:
+	if is_dead:
+		return
 	if not torch_active:
 		return
 	torch_remaining_seconds = max(torch_remaining_seconds - delta, 0.0)
@@ -429,6 +480,8 @@ func _load_recipes() -> Dictionary:
 
 
 func _face_mouse() -> void:
+	if is_dead:
+		return
 	var direction := get_global_mouse_position() - global_position
 	if direction.length_squared() > 1.0:
 		rotation = direction.angle()
@@ -450,6 +503,23 @@ func _draw_swimming_body() -> void:
 	draw_arc(Vector2.ZERO, 28.0 - ripple_phase * 3.0, deg_to_rad(200.0), deg_to_rad(340.0), 24, Color(0.72, 0.93, 1.0, 0.34), 2.0)
 	draw_circle(Vector2.ZERO, 10.5, Color(0.18, 0.42, 0.92))
 	draw_line(Vector2.ZERO, Vector2(15, 0), Color(0.86, 0.95, 1.0), 2.0)
+
+
+func _die(reason: String) -> void:
+	if is_dead:
+		return
+	is_dead = true
+	death_reason = reason if not reason.is_empty() else "unknown"
+	velocity = Vector2.ZERO
+	attack_visual_time = 0.0
+	bow_cooldown = 0.0
+	is_swimming = false
+	swim_ripple_time = 0.0
+	set_process(false)
+	set_physics_process(false)
+	set_process_unhandled_input(false)
+	queue_redraw()
+	died.emit(death_reason)
 
 
 func _draw_torch_light() -> void:

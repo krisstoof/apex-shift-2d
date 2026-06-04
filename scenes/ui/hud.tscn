@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/ui/skill_icon_bar.gd" id="2"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://scripts/ui/map_screen.gd" id="4"]
 [ext_resource type="Script" path="res://scripts/ui/pause_menu.gd" id="5"]
 [ext_resource type="Script" path="res://scripts/ui/debug_panel.gd" id="6"]
+[ext_resource type="PackedScene" path="res://scenes/ui/game_over_screen.tscn" id="7"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1")
@@ -110,6 +111,8 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 0
 script = ExtResource("5")
+
+[node name="GameOverScreen" parent="." instance=ExtResource("7")]
 
 [node name="DebugPanel" type="Control" parent="."]
 visible = false
