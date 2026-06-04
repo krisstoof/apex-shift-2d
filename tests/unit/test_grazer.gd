@@ -57,11 +57,13 @@ func run() -> Array[String]:
 	_test_grazer_moves_toward_nearest_food(failures)
 	_test_grazer_eats_plant_resource(failures)
 	_test_grazer_does_not_eat_meat_when_plants_exist(failures)
+	_test_grazer_can_eat_meat_when_desperate(failures)
 	_test_grazer_hunger_restored_after_eating(failures)
 	_test_grazer_returns_to_wandering_after_eating(failures)
 	_test_grazer_takes_damage(failures)
 	_test_grazer_dies_at_zero_health(failures)
 	_test_grazer_drops_meat_on_death(failures)
+	_test_grazer_does_not_duplicate_meat_drop_on_repeated_death(failures)
 	_test_grazer_removed_from_ecosystem_after_death(failures)
 	return failures
 
@@ -190,6 +192,29 @@ func _test_grazer_does_not_eat_meat_when_plants_exist(failures: Array[String]) -
 	grazer.queue_free()
 
 
+func _test_grazer_can_eat_meat_when_desperate(failures: Array[String]) -> void:
+	var grazer := _make_grazer()
+	var world := _ensure_world()
+	var meat := _spawn_meat_drop(world, Vector2(8.0, 0.0))
+	grazer.call("_load_species_data")
+	grazer.global_position = Vector2.ZERO
+	grazer.hunger_diet.hunger = min(grazer.hunger_diet.desperate_threshold + 0.02, 0.99)
+	grazer.call("_sync_hunger_fields")
+	_neutralize_threats(grazer)
+	grazer.call("_update_state")
+	TEST_UTILS.expect_equal(grazer.state, grazer.State.SCAVENGE, failures, "Desperate grazer should switch to scavenging meat")
+	TEST_UTILS.expect_equal(grazer.decision_reason, "starving_scavenge", failures, "Desperate grazer should choose scavenging because it is starving and no plants are available")
+	TEST_UTILS.expect(is_instance_valid(grazer.meat_target), failures, "Desperate grazer should lock a meat target")
+	TEST_UTILS.expect_equal(grazer.meat_target, meat, failures, "Desperate grazer should choose the spawned meat drop")
+	var before_hunger: float = grazer.hunger_diet.hunger
+	grazer.global_position = meat.global_position
+	grazer.call("_consume_meat_target")
+	TEST_UTILS.expect(grazer.hunger_diet.hunger < before_hunger, failures, "Eating meat should reduce grazer hunger")
+	TEST_UTILS.expect_equal(grazer.last_food_source, "meat_drop", failures, "Meat eating should be recorded as the last food source")
+	meat.queue_free()
+	grazer.queue_free()
+
+
 func _test_grazer_hunger_restored_after_eating(failures: Array[String]) -> void:
 	var grazer := _make_grazer()
 	var world := _ensure_world()
@@ -249,6 +274,16 @@ func _test_grazer_drops_meat_on_death(failures: Array[String]) -> void:
 	grazer.queue_free()
 
 
+func _test_grazer_does_not_duplicate_meat_drop_on_repeated_death(failures: Array[String]) -> void:
+	var grazer := _make_grazer()
+	var world := _ensure_world()
+	world.spawned_meat_amount = 0
+	grazer.take_damage(999.0, "player")
+	grazer.take_damage(999.0, "player")
+	TEST_UTILS.expect_equal(world.spawned_meat_amount, 1, failures, "Grazer death should drop meat only once")
+	grazer.queue_free()
+
+
 func _test_grazer_removed_from_ecosystem_after_death(failures: Array[String]) -> void:
 	var grazer := _make_grazer()
 	grazer.take_damage(999.0, "player")
@@ -271,6 +306,8 @@ func _ensure_world() -> TestWorld:
 		existing_world.name = "LiveWorld"
 	var world: TestWorld = current_scene.get_node_or_null("World") as TestWorld
 	if world:
+		world.cached_groups.clear()
+		world.spawned_meat_amount = 0
 		return world
 	var new_world := TestWorld.new()
 	new_world.name = "World"

@@ -246,6 +246,8 @@ func _ensure_world() -> TestWorld:
 		existing_world.name = "LiveWorld"
 	var world: TestWorld = current_scene.get_node_or_null("World") as TestWorld
 	if world:
+		world.cached_groups.clear()
+		world.spawned_meat_amount = 0
 		return world
 	var new_world := TestWorld.new()
 	new_world.name = "World"
