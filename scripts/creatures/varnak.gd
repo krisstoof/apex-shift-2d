@@ -433,7 +433,7 @@ func _set_nearest_meat_target(search_range: float) -> bool:
 func _find_nearest_meat_drop(search_range: float) -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := search_range
-	for resource in get_tree().get_nodes_in_group("meat_drops"):
+	for resource in _get_cached_group_nodes("meat_drops"):
 		var meat_drop := resource as Node2D
 		if not _is_meat_drop_target(meat_drop):
 			continue
@@ -481,7 +481,7 @@ func _find_ecosystem_target() -> Node2D:
 	var best_score := INF
 	var detect_range := _get_prey_detect_radius()
 	for group_name in ["small_prey", "grazer"]:
-		for creature in get_tree().get_nodes_in_group(group_name):
+		for creature in _get_cached_group_nodes(group_name):
 			if not is_instance_valid(creature):
 				continue
 			if not _get_world_rect().has_point(creature.global_position):
@@ -685,7 +685,7 @@ func _is_player_in_attack_arc() -> bool:
 func _avoid_trap_target(target: Vector2) -> Vector2:
 	if trap_awareness < 0.45:
 		return target
-	for trap in get_tree().get_nodes_in_group("traps"):
+	for trap in _get_cached_group_nodes("traps"):
 		if global_position.distance_to(trap.global_position) < 85.0:
 			return target + (global_position - trap.global_position).normalized() * 120.0
 	return target
@@ -694,7 +694,7 @@ func _avoid_trap_target(target: Vector2) -> Vector2:
 func _nearest_active_campfire() -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := INF
-	for campfire in get_tree().get_nodes_in_group("campfires"):
+	for campfire in _get_cached_group_nodes("campfires"):
 		if not is_instance_valid(campfire):
 			continue
 		if not campfire.active:
@@ -991,6 +991,20 @@ func _draw_debug_lines(lines: Array[String], top_left: Vector2) -> void:
 	draw_rect(rect, Color(0.98, 0.32, 0.22, 0.88), false, 1.3)
 	for i in range(lines.size()):
 		draw_string(font, top_left + Vector2(6.0, 15.0 + float(i) * 13.0), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1.0, DEBUG_FRAME_FONT_SIZE, Color(0.98, 0.92, 0.88))
+
+
+func _get_world_node() -> Node2D:
+	var scene := get_tree().current_scene
+	if not scene:
+		return null
+	return scene.get_node_or_null("World") as Node2D
+
+
+func _get_cached_group_nodes(group_name: String) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_cached_group_nodes"):
+		return world.get_cached_group_nodes(group_name)
+	return get_tree().get_nodes_in_group(group_name)
 
 
 func _is_debug_overlay_visible() -> bool:

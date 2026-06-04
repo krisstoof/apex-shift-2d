@@ -136,13 +136,67 @@ const ANIMAL_AI := {
 	"grazer_predation_min_aggression": 0.22
 }
 
+# SmallPrey behavior constants for movement, fleeing, and feeding.
+const SMALL_PREY_AI := {
+	"wander_radius": 140.0,
+	"wander_reached_distance": 18.0,
+	"player_flee_range": 130.0,
+	"varnak_flee_range": 180.0,
+	"eat_interval_seconds": 6.0,
+	"eat_duration_seconds": 1.1,
+	"eat_visual_duration": 0.48,
+	"idle_duration_seconds": 0.8,
+	"vegetation_eat_range": 170.0,
+	"vegetation_consume_range": 26.0,
+	"world_edge_padding": 24.0,
+	"avoidance_lookahead_distance": 46.0,
+	"wall_avoid_radius": 58.0,
+	"biome_return_chance": 0.64
+}
+
+# Grazer behavior constants for movement, predation awareness, and feeding.
+const GRAZER_AI := {
+	"wander_radius": 190.0,
+	"wander_reached_distance": 22.0,
+	"player_flee_range": 105.0,
+	"varnak_flee_range": 220.0,
+	"eat_duration_seconds": 1.4,
+	"eat_visual_duration": 0.55,
+	"idle_duration_seconds": 0.9,
+	"vegetation_eat_range": 220.0,
+	"vegetation_consume_range": 34.0,
+	"meat_eat_range": 300.0,
+	"meat_consume_range": 34.0,
+	"world_edge_padding": 28.0,
+	"avoidance_lookahead_distance": 62.0,
+	"wall_avoid_radius": 78.0,
+	"biome_return_chance": 0.58,
+	"small_prey_detect_range": 220.0,
+	"small_prey_attack_range": 28.0,
+	"low_biomass_percent": 35.0,
+	"plant_eat_hunger_drop": 0.45,
+	"meat_hunger_drop": 0.65
+}
+
 # Predator behavior tuning for Varnaks when they participate in the ecosystem
 # food web instead of only reacting to the player.
 const VARNAK_HUNTING := {
+	"attack_range": 42.0,
+	"attack_arc_degrees": 78.0,
+	"attack_visual_duration": 0.14,
+	"eat_visual_duration": 0.55,
+	"base_health": 90.0,
 	"hunger_growth_rate": 0.18,
+	"hunt_detection_range": 620.0,
+	"hunt_player_safe_distance": 160.0,
 	"hungry_threshold": 0.32,
 	"starving_threshold": 0.58,
 	"desperate_threshold": 0.80,
+	"hunt_feed_amount": 0.55,
+	"meat_consume_range": 38.0,
+	"world_edge_padding": 32.0,
+	"base_hunger_time_scale": 0.05,
+	"movement_hunger_time_scale": 0.06,
 	"prey_detect_radius": 620.0,
 	"player_intrusion_radius": 240.0,
 	"prey_chase_priority": 0.65,

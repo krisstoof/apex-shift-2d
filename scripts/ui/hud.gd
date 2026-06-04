@@ -23,6 +23,7 @@ var ecosystem_message_cooldowns: Dictionary = {}
 @onready var skill_icon_bar: Control = $SkillIconBar
 @onready var minimap: Control = $Minimap
 @onready var clock_label: Label = $ClockLabel
+@onready var fps_label: Label = $FPSLabel
 @onready var map_screen: Control = $MapScreen
 @onready var pause_menu: Control = $PauseMenu
 @onready var debug_panel: Control = $DebugPanel
@@ -73,6 +74,7 @@ func _refresh_hud_text() -> void:
 	var clock_text: String = day_night_system.get_clock_time() if day_night_system.has_method("get_clock_time") else "--:--"
 	var time_label: String = day_night_system.get_time_label() if day_night_system.has_method("get_time_label") else ""
 	clock_label.text = "%s\n%s" % [clock_text, time_label]
+	fps_label.text = "FPS: %d" % Engine.get_frames_per_second()
 	stats_label.text = "\n".join([
 		"Health: %3d  Hunger: %3d  Stamina: %3d  Rest: %3d  %s%s" % [player.stats.health, player.stats.hunger, player.stats.stamina, player.stats.rest, player.stats.get_condition_text(), _get_campfire_regen_status_text()],
 		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Torch: %d %s  Spear: %s  Bow: %s" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber"), player.inventory.get_amount("meat"), player.inventory.get_amount("torch"), _get_torch_status_text(), "yes" if player.has_spear else "no", "yes" if player.has_bow else "no"]

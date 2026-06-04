@@ -17,10 +17,14 @@ var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
 var minimap_redraw_timer := 0.0
+var cached_resources: Array[Node] = []
+var resources_cache_timer := 0.0
+const RESOURCES_CACHE_INTERVAL := 0.5
 
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_update_resources_cache()
 
 
 func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = []) -> void:
@@ -28,14 +32,21 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
+	_update_resources_cache()
 	queue_redraw()
 
 
 func _process(delta: float) -> void:
+	if not visible:
+		return
 	minimap_redraw_timer += delta
 	if minimap_redraw_timer >= MINIMAP_REDRAW_INTERVAL:
 		minimap_redraw_timer = 0.0
 		queue_redraw()
+	resources_cache_timer += delta
+	if resources_cache_timer >= RESOURCES_CACHE_INTERVAL:
+		resources_cache_timer = 0.0
+		_update_resources_cache()
 
 
 func _draw() -> void:
@@ -284,7 +295,7 @@ func _draw_filled_ellipse(rect: Rect2, ellipse_color: Color) -> void:
 
 
 func _draw_resources(content_rect: Rect2) -> void:
-	for resource in get_tree().get_nodes_in_group("resources"):
+	for resource in cached_resources:
 		if not is_instance_valid(resource):
 			continue
 		if not _should_draw_resource_on_minimap(resource):
@@ -367,3 +378,11 @@ func _get_resource_color(resource: Node) -> Color:
 			return Color(0.88, 0.20, 0.16)
 		_:
 			return Color(0.86, 0.78, 0.45)
+
+
+func _update_resources_cache() -> void:
+	cached_resources = get_tree().get_nodes_in_group("resources")
+	# Clean up dead references
+	for i in range(cached_resources.size() - 1, -1, -1):
+		if not is_instance_valid(cached_resources[i]):
+			cached_resources.remove_at(i)

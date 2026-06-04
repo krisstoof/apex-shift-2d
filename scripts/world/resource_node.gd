@@ -49,11 +49,13 @@ func setup(kind: String) -> void:
 			mature_amount = 4
 			mature_color = Color(0.08, 0.36, 0.16)
 			mature_radius = 24.0
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
 		"leafy_tree":
 			item_name = "wood"
 			mature_amount = 4
 			mature_color = Color(0.16, 0.52, 0.18)
 			mature_radius = 24.0
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
 		"rock":
 			item_name = "stone"
 			mature_amount = 2
@@ -70,6 +72,7 @@ func setup(kind: String) -> void:
 			mature_amount = 2
 			mature_color = Color(0.45, 0.9, 0.28)
 			mature_radius = 13.0
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45))
 		"dry_bush":
 			item_name = "fiber"
 			mature_amount = 1
@@ -172,6 +175,8 @@ func restore_from_data(data: Dictionary) -> void:
 	is_harvested = data.get("is_harvested", growth_stage <= 0) == true
 	can_be_harvested = data.get("can_be_harvested", growth_stage > 0) == true
 	food_value = max(float(data.get("food_value", food_value)), 0.0)
+	if food_value <= 0.0:
+		food_value = _get_default_herbivore_food_value()
 	is_pond_vegetation = data.get("is_pond_vegetation", false) == true
 	pond_id = str(data.get("pond_id", pond_id))
 	food_bonus_multiplier = max(float(data.get("food_bonus_multiplier", food_bonus_multiplier)), 1.0)
@@ -434,6 +439,25 @@ func _get_biomass_impact() -> float:
 			return float(GAME_BALANCE.ECOSYSTEM["dry_bush_biomass_impact"])
 		"grass_patch", "dense_grass":
 			return float(GAME_BALANCE.ECOSYSTEM["grass_biomass_impact"])
+	return 0.0
+
+
+func _get_default_herbivore_food_value() -> float:
+	match resource_kind:
+		"conifer_tree", "leafy_tree":
+			return float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
+		"bush":
+			return float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45))
+		"dry_bush":
+			return float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.45
+		"small_bush":
+			return float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.65
+		"berry_bush":
+			return float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.9
+		"grass_patch":
+			return float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2))
+		"dense_grass":
+			return float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2)) * 1.5
 	return 0.0
 
 

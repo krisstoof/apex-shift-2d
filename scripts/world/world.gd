@@ -69,12 +69,16 @@ var varnak_spawn_timer := 0.0
 var landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
 var pond_landmarks: Array[Dictionary] = []
+var pond_water_search_radius := 0.0
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
 var biome_blend_weights: Array[PackedFloat32Array] = []
 var biome_blend_weights_key := ""
 var world_background_redraw_timer := 0.0
 var last_drawn_night_amount := -1.0
+var group_nodes_cache: Dictionary = {}
+var group_nodes_cache_timestamps: Dictionary = {}
+const GROUP_CACHE_TTL_SECONDS := 0.12
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -127,6 +131,20 @@ func get_landmarks() -> Array[Dictionary]:
 	return landmarks.duplicate(true)
 
 
+func get_cached_group_nodes(group_name: String) -> Array:
+	var now_seconds := Time.get_ticks_msec() / 1000.0
+	var last_refresh := float(group_nodes_cache_timestamps.get(group_name, -INF))
+	if not group_nodes_cache.has(group_name) or now_seconds - last_refresh >= GROUP_CACHE_TTL_SECONDS:
+		group_nodes_cache[group_name] = get_tree().get_nodes_in_group(group_name)
+		group_nodes_cache_timestamps[group_name] = now_seconds
+	return group_nodes_cache[group_name]
+
+
+func clear_cached_group_nodes() -> void:
+	group_nodes_cache.clear()
+	group_nodes_cache_timestamps.clear()
+
+
 func get_terrain_speed_multiplier(position: Vector2) -> float:
 	match get_water_zone(position):
 		WATER_ZONE_DEEP:
@@ -138,7 +156,14 @@ func get_terrain_speed_multiplier(position: Vector2) -> float:
 
 func get_water_zone(position: Vector2) -> String:
 	var best_zone := WATER_ZONE_LAND
+	if pond_water_search_radius <= 0.0:
+		return best_zone
+	var search_radius := pond_water_search_radius
 	for pond in pond_landmarks:
+		var pond_pos := Vector2(pond.get("position", Vector2.ZERO))
+		var distance_to_pond := position.distance_to(pond_pos)
+		if distance_to_pond > search_radius:
+			continue
 		var zone := _get_pond_water_zone(position, pond)
 		if zone == WATER_ZONE_DEEP:
 			return WATER_ZONE_DEEP
@@ -207,6 +232,8 @@ func _create_landmarks() -> void:
 	landmarks = WORLD_CONFIG.get_landmarks()
 	hill_landmarks.clear()
 	pond_landmarks.clear()
+	pond_water_search_radius = 0.0
+	var max_pond_radius := 0.0
 	for landmark in landmarks:
 		match str(landmark.get("type", "")):
 			"hill":
@@ -214,7 +241,10 @@ func _create_landmarks() -> void:
 				_create_landmark_area(landmark, "hill_landmarks")
 			"pond":
 				pond_landmarks.append(landmark)
+				max_pond_radius = max(max_pond_radius, float(landmark.get("radius", 0.0)))
 				_create_landmark_area(landmark, "pond_landmarks")
+	if not pond_landmarks.is_empty():
+		pond_water_search_radius = max(max_pond_radius * 1.2, 1.0)
 
 
 func _create_landmark_area(landmark: Dictionary, group_name: String) -> void:

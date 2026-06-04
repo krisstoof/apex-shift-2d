@@ -7,20 +7,20 @@ const SPECIES_PATH := "res://data/species/small_prey.json"
 
 enum State { IDLE, WANDER, SEEK_FOOD, EAT, FLEE, DEAD }
 
-const WANDER_RADIUS := 140.0
-const WANDER_REACHED_DISTANCE := 18.0
-const PLAYER_FLEE_RANGE := 130.0
-const VARNAK_FLEE_RANGE := 180.0
-const EAT_INTERVAL_SECONDS := 6.0
-const EAT_DURATION_SECONDS := 1.1
-const EAT_VISUAL_DURATION := 0.48
-const IDLE_DURATION_SECONDS := 0.8
-const VEGETATION_EAT_RANGE := 170.0
-const VEGETATION_CONSUME_RANGE := 26.0
-const WORLD_EDGE_PADDING := 24.0
-const AVOIDANCE_LOOKAHEAD_DISTANCE := 46.0
-const WALL_AVOID_RADIUS := 58.0
-const BIOME_RETURN_CHANCE := 0.64
+var wander_radius := 0.0
+var wander_reached_distance := 0.0
+var player_flee_range := 0.0
+var varnak_flee_range := 0.0
+var eat_interval_seconds := 0.0
+var eat_duration_seconds := 0.0
+var eat_visual_duration := 0.0
+var idle_duration_seconds := 0.0
+var vegetation_eat_range := 0.0
+var vegetation_consume_range := 0.0
+var world_edge_padding := 0.0
+var avoidance_lookahead_distance := 0.0
+var wall_avoid_radius := 0.0
+var biome_return_chance := 0.0
 const DEBUG_FRAME_FONT_SIZE := 11
 
 var species_id := "small_prey"
@@ -65,6 +65,7 @@ func _ready() -> void:
 	add_to_group("small_prey")
 	rng.randomize()
 	player = get_tree().get_first_node_in_group("player")
+	_initialize_from_game_balance()
 	_load_species_data()
 	if biome_id.is_empty():
 		biome_id = _get_biome_id_for_position(global_position)
@@ -248,7 +249,7 @@ func _update_state() -> void:
 		elif hunger_diet.is_starving():
 			decision_reason = "starving_no_plant"
 			_set_state(State.EAT)
-			state_time = EAT_DURATION_SECONDS
+			state_time = eat_duration_seconds
 		else:
 			decision_reason = "hungry_no_food_wander"
 			target_lock_time = _get_failed_food_retarget_seconds()
@@ -260,10 +261,10 @@ func _update_state() -> void:
 				_set_state(State.WANDER)
 				_pick_wander_target()
 		State.WANDER:
-			if global_position.distance_to(wander_target) < WANDER_REACHED_DISTANCE:
+			if global_position.distance_to(wander_target) < wander_reached_distance:
 				decision_reason = "wander_target_reached"
 				_set_state(State.IDLE)
-				state_time = IDLE_DURATION_SECONDS
+				state_time = idle_duration_seconds
 		State.SEEK_FOOD:
 			pass
 		State.EAT:
@@ -300,7 +301,7 @@ func _move_toward(target: Vector2, move_speed: float) -> void:
 func _get_navigation_direction(desired_direction: Vector2, target: Vector2) -> Vector2:
 	var avoidance := _get_wall_avoidance_vector()
 	var adjusted_direction := (desired_direction + avoidance * 1.35).normalized()
-	if _is_navigation_position_valid(global_position + adjusted_direction * AVOIDANCE_LOOKAHEAD_DISTANCE):
+	if _is_navigation_position_valid(global_position + adjusted_direction * avoidance_lookahead_distance):
 		return adjusted_direction
 	var candidates := [
 		desired_direction.rotated(0.72),
@@ -310,7 +311,7 @@ func _get_navigation_direction(desired_direction: Vector2, target: Vector2) -> V
 		desired_direction.rotated(PI)
 	]
 	for candidate_direction in candidates:
-		if _is_navigation_position_valid(global_position + candidate_direction * AVOIDANCE_LOOKAHEAD_DISTANCE):
+		if _is_navigation_position_valid(global_position + candidate_direction * avoidance_lookahead_distance):
 			return candidate_direction
 	var fallback := (target - global_position).normalized()
 	return fallback if fallback.length_squared() > 0.0 else Vector2.RIGHT
@@ -318,14 +319,14 @@ func _get_navigation_direction(desired_direction: Vector2, target: Vector2) -> V
 
 func _get_wall_avoidance_vector() -> Vector2:
 	var avoidance := Vector2.ZERO
-	for wall in get_tree().get_nodes_in_group("walls"):
+	for wall in _get_cached_group_nodes("walls"):
 		if not is_instance_valid(wall) or not wall is Node2D:
 			continue
 		var wall_node := wall as Node2D
 		var offset: Vector2 = global_position - wall_node.global_position
 		var distance: float = offset.length()
-		if distance > 0.0 and distance < WALL_AVOID_RADIUS:
-			avoidance += offset.normalized() * (1.0 - distance / WALL_AVOID_RADIUS)
+		if distance > 0.0 and distance < wall_avoid_radius:
+			avoidance += offset.normalized() * (1.0 - distance / wall_avoid_radius)
 	return avoidance
 
 
@@ -344,14 +345,14 @@ func _get_flee_origin() -> Vector2:
 	var nearest_distance := INF
 	if is_instance_valid(player):
 		var player_distance := global_position.distance_to(player.global_position)
-		if player_distance < PLAYER_FLEE_RANGE * fear:
+		if player_distance < player_flee_range * fear:
 			nearest_origin = player.global_position
 			nearest_distance = player_distance
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	for varnak in _get_cached_group_nodes("varnak"):
 		if not is_instance_valid(varnak):
 			continue
 		var distance := global_position.distance_to(varnak.global_position)
-		if distance < VARNAK_FLEE_RANGE * fear and distance < nearest_distance:
+		if distance < varnak_flee_range * fear and distance < nearest_distance:
 			nearest_origin = varnak.global_position
 			nearest_distance = distance
 	return nearest_origin
@@ -365,9 +366,9 @@ func _consume_plants() -> void:
 	var biomass_impact := plant_consumption_rate
 	hunger_diet.eat("plants", max(0.5, eaten_food))
 	_sync_hunger_fields()
-	eat_visual_time = EAT_VISUAL_DURATION
+	eat_visual_time = eat_visual_duration
 	last_food_source = "plants"
-	eat_cooldown = EAT_INTERVAL_SECONDS
+	eat_cooldown = eat_interval_seconds
 	var current_biome_id := _get_current_biome_id()
 	get_node("/root/EventBus").emit_game_event("small_prey_consumed_plants", {
 		"biome_id": current_biome_id,
@@ -381,12 +382,12 @@ func _consume_plants() -> void:
 func _consume_target_vegetation() -> float:
 	if is_instance_valid(plant_target) and _is_edible_vegetation_target(plant_target):
 		var distance := global_position.distance_to(plant_target.global_position)
-		if distance <= VEGETATION_CONSUME_RANGE and plant_target.has_method("consume_by_creature"):
+		if distance <= vegetation_consume_range and plant_target.has_method("consume_by_creature"):
 			return float(plant_target.consume_by_creature(self, plant_consumption_rate))
-	return _consume_nearest_vegetation(VEGETATION_CONSUME_RANGE)
+	return _consume_nearest_vegetation(vegetation_consume_range)
 
 
-func _consume_nearest_vegetation(search_range: float = VEGETATION_EAT_RANGE) -> float:
+func _consume_nearest_vegetation(search_range: float = vegetation_eat_range) -> float:
 	var nearest := _find_nearest_edible_vegetation(search_range)
 	if is_instance_valid(nearest) and nearest.has_method("consume_by_creature"):
 		return float(nearest.consume_by_creature(self, plant_consumption_rate))
@@ -400,13 +401,13 @@ func _try_update_plant_target() -> bool:
 			_pick_wander_target()
 			return true
 	wander_target = _clamp_to_world(plant_target.global_position)
-	if global_position.distance_to(plant_target.global_position) <= VEGETATION_CONSUME_RANGE:
+	if global_position.distance_to(plant_target.global_position) <= vegetation_consume_range:
 		_set_state(State.EAT)
-		state_time = EAT_DURATION_SECONDS
+		state_time = eat_duration_seconds
 	return true
 
 
-func _set_nearest_plant_target(search_range: float = VEGETATION_EAT_RANGE) -> bool:
+func _set_nearest_plant_target(search_range: float = vegetation_eat_range) -> bool:
 	if target_lock_time > 0.0 and is_instance_valid(plant_target) and _is_edible_vegetation_target(plant_target):
 		wander_target = _clamp_to_world(plant_target.global_position)
 		return true
@@ -419,7 +420,7 @@ func _set_nearest_plant_target(search_range: float = VEGETATION_EAT_RANGE) -> bo
 
 
 func _get_food_search_range() -> float:
-	var base_range: float = max(VEGETATION_EAT_RANGE, hunger_diet.get_food_search_radius())
+	var base_range: float = max(vegetation_eat_range, hunger_diet.get_food_search_radius())
 	if hunger_diet.is_starving():
 		base_range *= 1.18
 	if hunger_diet.is_desperate():
@@ -431,7 +432,7 @@ func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := search_range
 	var current_biome_id := _get_current_biome_id()
-	for vegetation in get_tree().get_nodes_in_group("edible_vegetation"):
+	for vegetation in _get_cached_group_nodes("edible_vegetation"):
 		if not _is_edible_vegetation_target(vegetation):
 			continue
 		var distance := global_position.distance_to(vegetation.global_position)
@@ -453,24 +454,24 @@ func _pick_wander_target() -> void:
 	var preferred_biome_id := _get_preferred_wander_biome_id()
 	for _attempt in 24:
 		var candidate := global_position + Vector2(
-			rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS),
-			rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS)
+			rng.randf_range(-wander_radius, wander_radius),
+			rng.randf_range(-wander_radius, wander_radius)
 		)
 		if _is_navigation_position_valid(candidate) and _is_position_in_biome(candidate, preferred_biome_id):
 			wander_target = _clamp_to_world(candidate)
 			return
 	for _attempt in 12:
 		var candidate := global_position + Vector2(
-			rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS),
-			rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS)
+			rng.randf_range(-wander_radius, wander_radius),
+			rng.randf_range(-wander_radius, wander_radius)
 		)
 		if _is_navigation_position_valid(candidate):
 			wander_target = _clamp_to_world(candidate)
 			return
 	var limits := WORLD_CONFIG.get_player_limits()
 	wander_target = _clamp_to_world(Vector2(
-		clamp(global_position.x + rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS), -limits.x, limits.x),
-		clamp(global_position.y + rng.randf_range(-WANDER_RADIUS, WANDER_RADIUS), -limits.y, limits.y)
+		clamp(global_position.x + rng.randf_range(-wander_radius, wander_radius), -limits.x, limits.x),
+		clamp(global_position.y + rng.randf_range(-wander_radius, wander_radius), -limits.y, limits.y)
 	))
 
 
@@ -478,7 +479,7 @@ func _get_preferred_wander_biome_id() -> String:
 	var current_biome_id := _get_current_biome_id()
 	if home_biome_id.is_empty():
 		home_biome_id = current_biome_id
-	if not home_biome_id.is_empty() and current_biome_id != home_biome_id and rng.randf() < BIOME_RETURN_CHANCE:
+	if not home_biome_id.is_empty() and current_biome_id != home_biome_id and rng.randf() < biome_return_chance:
 		return home_biome_id
 	if rng.randf() < 0.82:
 		return current_biome_id
@@ -492,9 +493,9 @@ func _is_navigation_position_valid(position: Vector2) -> bool:
 	var world := get_tree().current_scene.get_node_or_null("World")
 	if world and world.has_method("is_creature_navigation_blocked") and world.is_creature_navigation_blocked(position) == true:
 		return false
-	for wall in get_tree().get_nodes_in_group("walls"):
+	for wall in _get_cached_group_nodes("walls"):
 		var wall_node := wall as Node2D
-		if is_instance_valid(wall_node) and position.distance_to(wall_node.global_position) < WALL_AVOID_RADIUS * 0.72:
+		if is_instance_valid(wall_node) and position.distance_to(wall_node.global_position) < wall_avoid_radius * 0.72:
 			return false
 	return true
 
@@ -528,10 +529,10 @@ func _get_bounded_flee_target(away: Vector2) -> Vector2:
 		direction.rotated(-PI * 0.5)
 	]
 	for candidate_direction in candidates:
-		var candidate := _clamp_to_world(global_position + candidate_direction * WANDER_RADIUS)
+		var candidate := _clamp_to_world(global_position + candidate_direction * wander_radius)
 		if candidate.distance_squared_to(global_position) > 16.0 and _is_navigation_position_valid(candidate):
 			return candidate
-	return _clamp_to_world(global_position + direction * WANDER_RADIUS * 0.45)
+	return _clamp_to_world(global_position + direction * wander_radius * 0.45)
 
 
 func _clamp_to_world(position: Vector2) -> Vector2:
@@ -543,7 +544,7 @@ func _clamp_to_world(position: Vector2) -> Vector2:
 
 
 func _get_world_rect() -> Rect2:
-	return WORLD_CONFIG.WORLD_RECT.grow(-WORLD_EDGE_PADDING)
+	return WORLD_CONFIG.WORLD_RECT.grow(-world_edge_padding)
 
 
 func _get_terrain_speed_multiplier() -> float:
@@ -740,7 +741,7 @@ func _draw() -> void:
 func _draw_eating_visual() -> void:
 	if eat_visual_time <= 0.0:
 		return
-	var progress := eat_visual_time / EAT_VISUAL_DURATION
+	var progress := eat_visual_time / eat_visual_duration
 	var alpha := 0.28 + progress * 0.42
 	var bite_color := Color(0.58, 0.96, 0.30, alpha)
 	draw_arc(Vector2(14, -2), 7.0 + progress * 2.4, -0.85, 0.85, 8, bite_color, 2.0)
@@ -807,6 +808,38 @@ func _draw_debug_lines(lines: Array[String], top_left: Vector2) -> void:
 	draw_rect(rect, Color(0.60, 0.92, 0.48, 0.86), false, 1.3)
 	for i in range(lines.size()):
 		draw_string(font, top_left + Vector2(6.0, 15.0 + float(i) * 13.0), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1.0, DEBUG_FRAME_FONT_SIZE, Color(0.92, 0.96, 0.88))
+
+
+func _get_world_node() -> Node2D:
+	var scene := get_tree().current_scene
+	if not scene:
+		return null
+	return scene.get_node_or_null("World") as Node2D
+
+
+func _get_cached_group_nodes(group_name: String) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_cached_group_nodes"):
+		return world.get_cached_group_nodes(group_name)
+	return get_tree().get_nodes_in_group(group_name)
+
+
+func _initialize_from_game_balance() -> void:
+	var ai_config := GAME_BALANCE.SMALL_PREY_AI
+	wander_radius = float(ai_config.get("wander_radius", 140.0))
+	wander_reached_distance = float(ai_config.get("wander_reached_distance", 18.0))
+	player_flee_range = float(ai_config.get("player_flee_range", 130.0))
+	varnak_flee_range = float(ai_config.get("varnak_flee_range", 180.0))
+	eat_interval_seconds = float(ai_config.get("eat_interval_seconds", 6.0))
+	eat_duration_seconds = float(ai_config.get("eat_duration_seconds", 1.1))
+	eat_visual_duration = float(ai_config.get("eat_visual_duration", 0.48))
+	idle_duration_seconds = float(ai_config.get("idle_duration_seconds", 0.8))
+	vegetation_eat_range = float(ai_config.get("vegetation_eat_range", 170.0))
+	vegetation_consume_range = float(ai_config.get("vegetation_consume_range", 26.0))
+	world_edge_padding = float(ai_config.get("world_edge_padding", 24.0))
+	avoidance_lookahead_distance = float(ai_config.get("avoidance_lookahead_distance", 46.0))
+	wall_avoid_radius = float(ai_config.get("wall_avoid_radius", 58.0))
+	biome_return_chance = float(ai_config.get("biome_return_chance", 0.64))
 
 
 func _is_debug_overlay_visible() -> bool:
