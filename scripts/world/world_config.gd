@@ -170,6 +170,13 @@ const BIOME_ZONES := [
 		"rock_weight": 1.0,
 		"bush_weight": 3.0,
 		"grass_weight": 5.0,
+		"landmark_weights": {
+			"hill": 0.08,
+			"pond": 2.25
+		},
+		"landmark_tag_weights": {
+			"vegetation_bonus": 1.25
+		},
 		"dangerous": false
 	},
 	{
@@ -190,6 +197,13 @@ const BIOME_ZONES := [
 		"rock_weight": 7.0,
 		"bush_weight": 1.0,
 		"grass_weight": 1.0,
+		"landmark_weights": {
+			"hill": 1.85,
+			"pond": 0.20
+		},
+		"landmark_tag_weights": {
+			"rocky": 1.20
+		},
 		"dangerous": false
 	},
 	{
@@ -212,6 +226,10 @@ const BIOME_ZONES := [
 		"rock_weight": 2.0,
 		"bush_weight": 4.0,
 		"grass_weight": 7.0,
+		"landmark_weights": {
+			"hill": 0.95,
+			"pond": 1.05
+		},
 		"dangerous": false
 	},
 	{
@@ -232,6 +250,14 @@ const BIOME_ZONES := [
 		"rock_weight": 1.0,
 		"bush_weight": 7.0,
 		"grass_weight": 6.0,
+		"landmark_weights": {
+			"hill": 0.10,
+			"pond": 2.35
+		},
+		"landmark_tag_weights": {
+			"vegetation_bonus": 1.25,
+			"dense_cover": 1.15
+		},
 		"dangerous": false
 	},
 	{
@@ -253,6 +279,13 @@ const BIOME_ZONES := [
 		"rock_weight": 4.0,
 		"bush_weight": 2.0,
 		"grass_weight": 2.0,
+		"landmark_weights": {
+			"hill": 1.60,
+			"pond": 0.70
+		},
+		"landmark_tag_weights": {
+			"danger": 1.40
+		},
 		"dangerous": true
 	}
 ]
@@ -287,7 +320,7 @@ static func get_landmarks() -> Array[Dictionary]:
 
 
 static func generate_landmarks(world_seed: int) -> Array[Dictionary]:
-	var selected_landmarks: Array[Dictionary] = _get_balanced_landmark_selection()
+	var selected_landmarks: Array[Dictionary] = _get_balanced_landmark_selection(world_seed)
 	var biomes: Array[Dictionary] = get_biome_zones()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = abs(world_seed) if world_seed != 0 else 1
@@ -301,14 +334,14 @@ static func generate_landmarks(world_seed: int) -> Array[Dictionary]:
 	return generated
 
 
-static func _get_balanced_landmark_selection() -> Array[Dictionary]:
+static func _get_balanced_landmark_selection(world_seed: int) -> Array[Dictionary]:
 	var selected: Array[Dictionary] = []
-	selected.append_array(_select_landmarks_by_priority("hill", int(GAME_BALANCE.LANDMARKS.get("hill_count", 5)), HILL_LANDMARK_PRIORITY))
-	selected.append_array(_select_landmarks_by_priority("pond", int(GAME_BALANCE.LANDMARKS.get("pond_count", 3)), POND_LANDMARK_PRIORITY))
+	selected.append_array(_select_landmarks_for_type("hill", int(GAME_BALANCE.LANDMARKS.get("hill_count", 5)), world_seed))
+	selected.append_array(_select_landmarks_for_type("pond", int(GAME_BALANCE.LANDMARKS.get("pond_count", 3)), world_seed))
 	return selected
 
 
-static func _select_landmarks_by_priority(landmark_type: String, target_count: int, priority_ids: Array) -> Array[Dictionary]:
+static func _select_landmarks_for_type(landmark_type: String, target_count: int, world_seed: int) -> Array[Dictionary]:
 	var candidates: Array[Dictionary] = []
 	for landmark_value in LANDMARKS:
 		var landmark := Dictionary(landmark_value)
@@ -317,27 +350,56 @@ static func _select_landmarks_by_priority(landmark_type: String, target_count: i
 	var clamped_count := clampi(target_count, 0, candidates.size())
 	if clamped_count >= candidates.size():
 		return candidates
-	var selected_ids: Dictionary = {}
 	var selected: Array[Dictionary] = []
-	for priority_id_value in priority_ids:
-		if selected.size() >= clamped_count:
-			break
-		var priority_id := str(priority_id_value)
-		for candidate in candidates:
-			if str(candidate.get("id", "")) != priority_id:
+	var available: Array[Dictionary] = candidates.duplicate(true)
+	var biomes: Array[Dictionary] = get_biome_zones()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _get_landmark_selection_seed(world_seed, landmark_type)
+	while selected.size() < clamped_count and not available.is_empty():
+		var total_weight := 0.0
+		for candidate_value in available:
+			total_weight += _get_landmark_candidate_weight(Dictionary(candidate_value), biomes)
+		if total_weight <= 0.0:
+			selected.append(available.pop_front())
+			continue
+		var roll := rng.randf() * total_weight
+		var cumulative := 0.0
+		for index in range(available.size()):
+			var candidate := Dictionary(available[index])
+			cumulative += _get_landmark_candidate_weight(candidate, biomes)
+			if cumulative < roll and index < available.size() - 1:
 				continue
 			selected.append(candidate)
-			selected_ids[priority_id] = true
+			available.remove_at(index)
 			break
-	if selected.size() < clamped_count:
-		for candidate in candidates:
-			var candidate_id := str(candidate.get("id", ""))
-			if selected_ids.has(candidate_id):
-				continue
-			selected.append(candidate)
-			if selected.size() >= clamped_count:
-				break
 	return selected
+
+
+static func _get_landmark_selection_seed(world_seed: int, landmark_type: String) -> int:
+	var normalized_seed: int = abs(world_seed) if world_seed != 0 else 1
+	match landmark_type:
+		"hill":
+			return normalized_seed * 131 + 17
+		"pond":
+			return normalized_seed * 131 + 29
+		_:
+			return normalized_seed * 131 + 53
+
+
+static func _get_landmark_candidate_weight(landmark: Dictionary, biomes: Array[Dictionary]) -> float:
+	var biome_id := str(landmark.get("biome_id", ""))
+	var biome := _get_biome_by_id(biome_id, biomes)
+	if biome.is_empty():
+		return 1.0
+	var landmark_type := str(landmark.get("type", ""))
+	var weight := 1.0
+	var biome_landmark_weights := Dictionary(biome.get("landmark_weights", {}))
+	weight *= float(biome_landmark_weights.get(landmark_type, 1.0))
+	var biome_tag_weights := Dictionary(biome.get("landmark_tag_weights", {}))
+	var gameplay_tags: Array = Array(landmark.get("gameplay_tags", []))
+	for tag_value in gameplay_tags:
+		weight *= float(biome_tag_weights.get(str(tag_value), 1.0))
+	return max(weight, 0.0)
 
 
 static func _scale_landmark(landmark: Dictionary) -> Dictionary:
