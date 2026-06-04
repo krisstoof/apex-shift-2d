@@ -36,6 +36,7 @@ func _ready() -> void:
 	pause_menu.resume_requested.connect(_on_pause_menu_resume)
 	pause_menu.save_requested.connect(_on_pause_menu_save)
 	pause_menu.load_requested.connect(_on_pause_menu_load)
+	pause_menu.main_menu_requested.connect(_on_pause_menu_main_menu)
 	pause_menu.quit_requested.connect(_on_pause_menu_quit)
 
 
@@ -207,6 +208,13 @@ func _on_pause_menu_load() -> void:
 	var save_system := get_tree().current_scene.get_node_or_null("SaveSystem")
 	if save_system and save_system.has_method("load_game"):
 		save_system.load_game()
+
+
+func _on_pause_menu_main_menu() -> void:
+	_set_pause_menu_open(false)
+	_set_map_screen_open(false)
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/ui/start_menu.tscn")
 
 
 func _on_pause_menu_quit() -> void:

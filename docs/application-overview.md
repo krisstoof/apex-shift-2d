@@ -474,14 +474,26 @@ Important behavior:
 
 ## Player Movement And Water
 
-The player moves on land with normal walking and running speeds. Water areas are handled as visible pond landmarks and should feel different from walking:
+The player moves on land with normal walking and running speeds. Water areas are handled as visible pond landmarks and use the same shape logic for rendering, spawning, and movement checks.
+
+Water is split into zones:
+
+| Zone | Meaning | Speed multiplier |
+| --- | --- | ---: |
+| Land | Normal movement area | 1.00 |
+| Shore | Visual transition band around ponds | 1.00 |
+| Shallow water | Traversable water with penalty | 0.68 |
+| Deep water | Full water body and strongest penalty | 0.42 |
+
+Important behavior:
 
 - Vegetation is blocked from spawning inside the visible pond water shape.
-- Movement in water applies a clear speed penalty.
-- Sprinting while swimming should be limited or disabled.
-- Swim and ripple feedback should make the state visible.
-
-The water logic should use the same pond shape assumptions for visual rendering, spawn checks, and movement checks.
+- Trees, bushes, and grass use wider pond-water margins than pond shore visuals.
+- Deep water blocks creature navigation and spawn placement.
+- Shallow water is traversable, but it visibly slows movement.
+- Sprinting is disabled while swimming.
+- Swimming uses a distinct body pose plus ripple feedback so the state is obvious.
+- Pond vegetation is spawned around the perimeter, not inside the open water body.
 
 ## Combat
 
@@ -688,6 +700,7 @@ Biome blending:
 - World biome visuals are rendered as a cached blended texture instead of per-frame polygon overlays.
 - The cache prevents stuttering from expensive terrain redraws.
 - Map and minimap use the same biome and landmark data so the field view and maps remain consistent.
+- Vegetation changes are batched so multiple biome updates still produce one redraw pass.
 
 ## Landmarks
 
@@ -728,6 +741,36 @@ Landmark reserve values from `GameBalance.LANDMARKS`:
 | Pond vegetation visual scale | 1.28 |
 | Dense vegetation resource bonus | 1.60 |
 | Animal hotspot population bonus | 1.25 |
+
+### Landmark Shapes And Visual Rules
+
+Hills and ponds are no longer simple circles. They are drawn and sampled with irregular polygon shapes so the world reads as terrain instead of markers.
+
+| Value | Number |
+| --- | ---: |
+| Hill resource block radius factor | 0.72 |
+| Hill shape irregularity | 0.10 |
+| Hill shape sample count | 40 |
+| Hill mid elevation factor | 0.70 |
+| Hill peak elevation factor | 0.38 |
+| Pond deep water radius factor | 0.68 |
+| Pond shallow water radius factor | 1.00 |
+| Pond shore radius factor | 1.12 |
+| Pond deep speed multiplier | 0.42 |
+| Pond shallow speed multiplier | 0.68 |
+| Pond shape irregularity | 0.16 |
+| Pond shape sample count | 48 |
+| Pond shore detail count | 18 |
+| Pond aquatic vegetation count | 12 |
+| Pond vegetation visual scale | 1.28 |
+
+Important behavior:
+
+- Hills are rendered as layered irregular polygons with a lower central peak and softer mid-slope ring.
+- Hill obstacle checks use the same shape sampler as the visuals, so resources and creatures avoid the actual hill body.
+- Ponds are rendered as layered irregular water shapes with shore, shallow, and deep bands.
+- Shore details and aquatic vegetation are drawn around the pond edge so the water no longer reads like a flat puddle.
+- The minimap and field map reuse the same shape sampling rules, so the terrain outline stays consistent across views.
 
 Pond vegetation behavior:
 
@@ -924,10 +967,28 @@ Each simulation tick:
 2. Plant biomass regrows if it is below max biomass.
 3. Biomass is clamped between 0 and 100.
 4. Predator pressure is calculated from Varnak presence in the biome.
-5. Small prey and grazer populations change from growth, predation, starvation, and collapse pressure.
-6. Biome status changes to healthy, stressed, depleted, or collapsing.
-7. Grazer diet and aggression may shift toward omnivory when plant biomass is low.
-8. Ecosystem events are emitted for HUD, debug tools, and world reactions.
+5. Visible creature aggregates are refreshed from actual biome residents.
+6. Small prey and grazer populations change from growth, predation, starvation, and collapse pressure.
+7. Biome status changes to healthy, stressed, depleted, or collapsing.
+8. Grazer diet and aggression may shift toward omnivory when plant biomass is low.
+9. Species generations can advance when pressure stays high long enough.
+10. Ecosystem events are emitted for HUD, debug tools, and world reactions.
+
+### Tracked Biome State
+
+Each biome keeps the live values that drive both the visible world and the debug panel:
+
+- `plant_biomass`, `plant_biomass_percent`, `food_stress`, `starvation_pressure`
+- `status`
+- `small_prey_population`, `grazer_population`, `varnak_population`, `population_count`
+- `birth_rate`, `death_rate`
+- `average_hunger`, `average_energy`
+- `average_small_prey_fear`, `average_small_prey_speed`, `average_small_prey_reproduction`, `average_small_prey_fitness`
+- `average_grazer_reproduction`, `average_grazer_fitness`
+- `average_varnak_hunger`, `average_varnak_energy`, `average_varnak_fitness`
+- `average_varnak_meat_diet`, `average_varnak_scavenger_diet`, `average_varnak_hunt_drive`
+- `small_prey_generation`, `grazer_generation`, `varnak_generation`
+- `current_niche`, `generations_under_food_stress`, `grazer_pressure_ticks`
 
 ### Ecosystem Events
 
@@ -988,6 +1049,17 @@ Food values:
 | Meat | 0.65 |
 | Scavenger | 0.55 |
 
+Shared AI decision order:
+
+1. Immediate threats always win over food.
+2. A locked target is kept until it becomes invalid or times out, which reduces jitter.
+3. Hunger stage decides whether the creature only wanders, searches for food, or becomes desperate.
+4. Food is chosen by availability multiplied by diet preference.
+5. World bounds, water, hills, and walls are avoided before the creature commits to a move.
+6. If food is unreachable, the creature returns to wander or idle instead of spinning in place.
+
+This is why the debug panel now needs to show the current target and decision reason for each selected creature.
+
 ## Small Prey
 
 Small prey values come from `data/species/small_prey.json` and local behavior constants in `small_prey.gd`.
@@ -1040,6 +1112,7 @@ Important behavior:
 - They flee from the player and Varnaks.
 - They avoid water, hills, walls, and world edges.
 - On death they drop meat once.
+- Their diet remains plant-only, so they should not switch to meat unless the balance data changes.
 
 ## Grazers
 
@@ -1102,7 +1175,8 @@ Important behavior:
 - Grazers normally eat plants.
 - When biome biomass drops, they can become more omnivorous through ecosystem trait shifts.
 - Hungry grazers search for visible edible plants.
-- Desperate grazers can hunt small prey when diet and aggression allow it.
+- If plants are unavailable and hunger is high enough, desperate grazers can hunt small prey or scavenge meat.
+- The predation fallback is gated by biomass stress, hunger stage, and aggression so grazing remains the default behavior.
 - They can scavenge depending on diet, biomass stress, and hunger stage.
 - They avoid water, hills, walls, Varnaks, and world edges.
 - On death they drop meat once.
@@ -1171,7 +1245,8 @@ Spawn point positions are scaled by `WORLD_SCALE`.
 
 Important behavior:
 
-- Varnaks hunt the player and can pressure animal populations.
+- Varnaks are part of the ecosystem, not just a player threat: they contribute to biome predator pressure, average hunger and energy, and generation drift.
+- Their target selection can favor ecosystem prey, meat scavenging, or the player depending on hunger, distance, and priorities.
 - Their hunting pressure is stronger at night.
 - Fire and torch effects can reduce immediate Varnak pressure.
 - Varnak deaths feed the ecosystem event stream and create meat drops.
@@ -1194,7 +1269,8 @@ Creature visibility and spacing values from `GameBalance.LIVING_WORLD`:
 Important behavior:
 
 - Creature spawning is constrained by player safety and spacing.
-- Visible creature counts should represent ecosystem state.
+- Small prey and grazers use visibility and safe-distance rules, while Varnaks use wider roam and spawn pressure.
+- Visible creature counts should represent ecosystem state, not just what happened to spawn near the player.
 - Creature movement keeps world-bound enforcement intact.
 
 ## Maps And HUD
@@ -1219,12 +1295,17 @@ The minimap draws:
 - Resource and creature markers.
 - Pond and hill landmarks.
 
+Readable-map rule:
+
+- Grass patches, dense grass, and berry bushes are hidden from the map if they are not player-harvestable, which keeps the map from becoming a noise field.
+- The minimap and field map refresh landmark data from the world when needed, so ponds and hills stay visible even when the UI opens early in a run.
+
 ### Full Field Map
 
 The full map draws:
 
 - Larger biome field.
-- Resources.
+- Player-harvestable resources plus visible creature and landmark markers.
 - Varnaks.
 - Player position.
 - Pond markers.
@@ -1251,6 +1332,9 @@ Main debug areas:
 - Utility tools.
 
 Debug controls are expected to produce visible effects when possible. For example, biomass debug changes should affect visible vegetation counts, not only hidden ecosystem numbers.
+- Population summaries show the aggregate biome model, while the selected-creature frames show state, target, decision reason, health, satiety, hunger, energy, diet, aggression, fear, biome, home biome, reproduction, and consumption.
+- Missing creature fields fall back to `0` in the debug text instead of disappearing, which keeps the panel stable while stats are still being populated.
+- If the selected creature despawns or is freed, the panel drops the stale reference and reselects the nearest valid one instead of throwing errors.
 
 ## Save And Load
 
@@ -1279,6 +1363,7 @@ Known performance-sensitive areas:
 - Map rendering should reuse world configuration and cached data where possible.
 - Resource and creature loops should avoid unnecessary full-world scans during every frame.
 - Debug text should be readable but not rebuilt more often than needed.
+- World startup now batches resource and pond-vegetation spawning, and biome vegetation syncs are deferred, so the first seconds should be noticeably calmer than a full-frame spawn burst.
 
 ## Verification Commands
 

@@ -3,9 +3,10 @@ extends Control
 signal resume_requested
 signal save_requested
 signal load_requested
+signal main_menu_requested
 signal quit_requested
 
-const PANEL_SIZE := Vector2(340, 300)
+const PANEL_SIZE := Vector2(340, 346)
 
 var panel: Panel
 
@@ -44,7 +45,8 @@ func _build_menu() -> void:
 	_add_button("Resume", 70.0, resume_requested.emit)
 	_add_button("Save Game", 118.0, save_requested.emit)
 	_add_button("Load Game", 166.0, load_requested.emit)
-	_add_button("Quit", 224.0, quit_requested.emit)
+	_add_button("Main Menu", 214.0, main_menu_requested.emit)
+	_add_button("Quit", 262.0, quit_requested.emit)
 
 
 func _add_button(label: String, top: float, pressed_callable: Callable) -> void:
