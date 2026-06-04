@@ -466,7 +466,287 @@ Testy wykrywają brak mięsa po śmierci zwierzęcia.
 Testy sprawdzają save/load ekosystemu.
 Testy są opisane w dokumentacji projektu.
 
-Issue 20: [DOCS] Update application overview after ecosystem stabilization
+Issue 20: [UI] Add start menu with new game, continue, load save, settings and exit
+Labels: type: feature, area: ui, area: menu, area: save-system, priority: high, stage: polish
+Cel
+Dodać ekran startowy gry, który pozwala testerowi uruchomić nową grę, kontynuować zapis, wczytać save, wejść w ustawienia albo wyjść z gry.
+Kontekst / problem
+Obecny prototyp powinien być możliwy do uruchomienia jako samodzielny build testowy, bez ręcznego tłumaczenia testerowi, jak rozpocząć grę.
+Zakres
+Dodać scenę scenes/ui/start_menu.tscn.
+Dodać skrypt scripts/ui/start_menu.gd.
+Dodać przyciski: New Game, Continue, Load Save, Settings, Exit.
+Wymagania
+New Game uruchamia nową grę i resetuje runtime state.
+Continue wczytuje ostatni zapis, jeśli istnieje.
+Load Save może na tym etapie działać jak Continue, jeśli gra ma jeden slot zapisu.
+Settings otwiera menu ustawień.
+Exit zamyka grę.
+Brak save’a nie może powodować błędu.
+Acceptance Criteria
+Po uruchomieniu gry pojawia się ekran startowy.
+Gracz może rozpocząć nową grę.
+Gracz może kontynuować zapis, jeśli istnieje.
+Gracz może przejść do ustawień.
+Gracz może wyjść z gry.
+Continue jest nieaktywne lub pokazuje komunikat, jeśli save nie istnieje.
+Menu działa w buildzie testowym.
+
+Issue 21: [SETTINGS] Add basic graphics settings for resolution and display mode
+Labels: type: feature, area: ui, area: settings, area: graphics, priority: high, stage: polish
+Cel
+Dodać podstawowe ustawienia graficzne: rozdzielczość i tryb wyświetlania.
+Kontekst / problem
+Tester będzie uruchamiał grę na własnym sprzęcie, więc build powinien pozwalać na podstawową konfigurację okna gry.
+Zakres
+Dodać scenę scenes/ui/settings_menu.tscn.
+Dodać skrypt scripts/ui/settings_menu.gd.
+Dodać opcje Resolution, Display Mode, Apply i Back.
+Wymagania
+Obsłużyć rozdzielczości: 1280x720, 1600x900, 1920x1080, 2560x1440.
+Obsłużyć tryby: Windowed, Fullscreen, Borderless Fullscreen.
+Ustawienia zapisywać lokalnie, np. do user://settings.json.
+Ustawienia przywracać po ponownym uruchomieniu gry.
+Acceptance Criteria
+Tester może zmienić rozdzielczość.
+Tester może zmienić tryb wyświetlania.
+Ustawienia zapisują się lokalnie.
+Ustawienia są przywracane po restarcie gry.
+Back wraca do menu startowego.
+Zmiana ustawień nie crashuje gry.
+
+Issue 22: [GAMEPLAY] Add player death and game over flow
+Labels: type: feature, area: player, area: ui, area: gameplay, priority: critical, stage: stabilization
+Cel
+Dodać śmierć gracza i ekran końca gry.
+Kontekst / problem
+Wersja 0.1 oddawana testerowi powinna mieć jasną reakcję na spadek zdrowia gracza do zera.
+Zakres
+Dodać obsługę śmierci w player.gd i player_stats.gd.
+Dodać game_over_screen.tscn i game_over_screen.gd.
+Podłączyć ekran końca gry do HUD lub GameManager.
+Wymagania
+Gracz umiera, gdy health <= 0.
+Źródła śmierci: Varnak, głód, debug damage, unknown.
+Po śmierci zablokować ruch i akcje gracza.
+Pokazać dzień przeżycia i przyczynę śmierci.
+Udostępnić Restart, Load Save, Main Menu, Exit.
+Acceptance Criteria
+Gracz umiera po spadku health do 0.
+Po śmierci ruch i akcje gracza są zablokowane.
+Pojawia się ekran game over.
+Ekran pokazuje przynajmniej dzień przeżycia i przyczynę śmierci.
+Tester może zrestartować grę.
+Tester może wczytać save.
+Tester może wrócić do menu startowego.
+Śmierć przez głód, Varnaka i debug damage działa poprawnie.
+
+Issue 23: [DEBUG] Add god mode toggle to debug panel
+Labels: type: debug, area: debug, area: player, area: testing, priority: high, stage: validation
+Cel
+Dodać tryb nieśmiertelności gracza w debug panelu.
+Kontekst / problem
+God mode ułatwi testowanie ekosystemu, mapy, AI, spawnu, zasobów i Varnaków bez ciągłego ryzyka śmierci gracza.
+Zakres
+Dodać toggle God Mode: ON/OFF w debug panelu.
+Umieścić toggle w zakładce Tools, Player lub Combat.
+Pokazywać aktualny stan god mode w debug panelu.
+Wymagania
+God mode blokuje utratę health.
+Nie musi blokować spadku hunger, stamina i rest.
+Nie powinien być aktywny domyślnie.
+Nie powinien zapisywać się w normalnym save, chyba że zostanie to świadomie wybrane.
+Acceptance Criteria
+Debug panel ma toggle God Mode.
+Po włączeniu god mode gracz nie traci health.
+Ataki Varnaka nie zabijają gracza.
+Głód nie zabija gracza, jeśli god mode jest aktywny.
+Po wyłączeniu god mode obrażenia działają normalnie.
+Stan god mode jest widoczny w debug panelu.
+
+Issue 24: [VISUALS] Add biome terrain textures
+Labels: type: feature, area: visuals, area: world, area: biome, priority: high, stage: polish
+Cel
+Dodać tekstury biomów, aby świat był bardziej czytelny wizualnie i mniej płaski.
+Kontekst / problem
+Biomy nie powinny różnić się wyłącznie kolorem. Każdy biom powinien mieć subtelny wzór lub teksturę, która pomaga rozpoznać typ terenu bez patrzenia na mapę.
+Zakres
+Dodać tekstury/wzory dla: Westwood, Stoneback Ridge, Hearth Meadow, South Thicket, Redfang Wilds.
+Zintegrować tekstury z istniejącym cached biome renderingiem.
+Zachować kolor biomu i biome blending.
+Wymagania
+Tekstury powinny być lekkie wydajnościowo.
+Nie generować kosztownie tekstur co klatkę.
+Tint biomasy nie powinien całkowicie przykrywać tekstury.
+Pełna mapa i minimapa mogą pokazywać uproszczoną wersję tekstur albo tylko kolory biomów.
+Propozycja stylu
+Westwood — ciemniejsza leśna ściółka / drobne liście.
+Stoneback Ridge — kamienisty szum / drobne skały.
+Hearth Meadow — trawiasty pattern.
+South Thicket — gęstsza roślinna tekstura.
+Redfang Wilds — suchy, dziki, bardziej niebezpieczny teren.
+Acceptance Criteria
+Każdy biom ma rozpoznawalną teksturę lub wzór.
+Tekstury nie utrudniają widoczności gracza, zasobów i zwierząt.
+Tekstury współpracują z biome blendingiem.
+Spadek biomasy nadal jest widoczny.
+Nie ma zauważalnego spadku wydajności.
+Tekstury są łatwe do podmiany na assety docelowe.
+
+Issue 25: [BALANCE] Reduce pond and hill counts
+Labels: type: balancing, area: world, area: landmarks, priority: high, stage: polish
+Cel
+Zmniejszyć liczbę stawów i wzgórz na mapie, aby landmarki były bardziej wyjątkowe i czytelne.
+Kontekst / problem
+Jeśli stawów i wzgórz jest zbyt dużo, mapa robi się przeładowana, a punkty krajobrazowe tracą znaczenie.
+Zakres
+Zmniejszyć wartości w GameBalance.LANDMARKS.
+Ustawić bardziej oszczędne targety dla pond_count, hill_count, dense_vegetation_zone_count i animal_hotspot_count.
+Wymagania
+Stawy powinny być rzadsze, ale bardziej znaczące.
+Wzgórza powinny być rzadsze, ale bardziej czytelne.
+Każdy większy region mapy powinien mieć punkt orientacyjny w pobliżu, ale nie każdy biom musi mieć osobny staw i wzgórze.
+Zmiana nie powinna popsuć roślinności przy wodzie.
+Proponowane wartości
+hill_count: 8 -> 4 lub 5.
+pond_count: 5 -> 2 lub 3.
+dense_vegetation_zone_count: 7 -> 4 lub 5.
+animal_hotspot_count: 4 -> 3.
+Acceptance Criteria
+Liczba stawów na mapie jest mniejsza.
+Liczba wzgórz na mapie jest mniejsza.
+Landmarki są bardziej wyjątkowe.
+Mapa i minimapa są mniej przeładowane.
+Wartości są łatwe do dalszego strojenia w GameBalance.
+
+Issue 26: [WORLD] Randomize pond and hill placement
+Labels: type: feature, area: world, area: landmarks, priority: high, stage: polish
+Cel
+Zmienić rozmieszczenie stawów i wzgórz na bardziej losowe, aby świat wyglądał naturalniej i mniej jak ręcznie rozstawiona plansza.
+Kontekst / problem
+Obecne ręczne punkty landmarków dają kontrolę, ale mogą wyglądać zbyt regularnie i sztucznie.
+Zakres
+Dodać kontrolowane losowanie pozycji landmarków.
+Uwzględnić typ landmarku, biom, minimalną odległość od gracza, odległość od innych landmarków i margines od world bounds.
+Dodać lub wykorzystać world_seed.
+Wymagania
+Landmarki powinny być generowane przy starcie nowej gry.
+Save/load powinien zapisywać finalne pozycje landmarków.
+Po wczytaniu gry landmarki nie powinny losować się od nowa.
+Minimap i full map powinny korzystać z wygenerowanych pozycji.
+Acceptance Criteria
+Stawy mają bardziej losowe rozmieszczenie.
+Wzgórza mają bardziej losowe rozmieszczenie.
+Landmarki nie nachodzą na siebie.
+Landmarki nie pojawiają się zbyt blisko gracza na starcie.
+Landmarki respektują world bounds.
+Save/load odtwarza te same pozycje landmarków.
+Nowa gra może wygenerować inne rozmieszczenie landmarków.
+
+Issue 27: [WORLD] Add biome-based landmark placement rules
+Labels: type: feature, area: world, area: biome, area: landmarks, priority: medium, stage: polish
+Cel
+Dodać reguły, które kontrolują, jakie landmarki mogą pojawiać się w konkretnych biomach.
+Kontekst / problem
+Losowość nie powinna oznaczać, że każdy landmark może pojawić się wszędzie. Stawy i wzgórza powinny pasować do charakteru biomu.
+Zakres
+Dodać landmark_weights do konfiguracji biomów albo do GameBalance.LANDMARKS.
+Zdefiniować osobne prawdopodobieństwa dla pond i hill per biom.
+Uwzględnić charakter biomu przy losowaniu.
+Wymagania
+Westwood i South Thicket mogą częściej dostawać stawy.
+Stoneback Ridge powinien częściej dostawać wzgórza.
+Redfang Wilds może mieć bardziej niebezpieczne landmarki.
+Reguły powinny być łatwe do zmiany w konfiguracji.
+Acceptance Criteria
+Landmarki są losowe, ale zgodne z charakterem biomu.
+Stoneback Ridge częściej dostaje wzgórza niż stawy.
+Westwood/South Thicket częściej dostają roślinność przy wodzie.
+Redfang Wilds może mieć bardziej niebezpieczne landmarki.
+Reguły są łatwe do zmiany w konfiguracji.
+
+Issue 28: [MAP] Update maps for randomized landmarks and biome textures
+Labels: type: feature, area: ui, area: map, area: landmarks, area: biome, priority: medium, stage: polish
+Cel
+Zaktualizować minimapę i pełną mapę, aby poprawnie obsługiwały losowo generowane landmarki oraz tekstury biomów.
+Kontekst / problem
+Po losowaniu landmarków mapa nie może polegać wyłącznie na statycznych punktach z WorldConfig.
+Zakres
+Zaktualizować scripts/ui/minimap.gd.
+Zaktualizować scripts/ui/map_screen.gd.
+Pobierać runtime landmark state z World.
+Uwzględnić uproszczone biome textures lub zachować same kolory biomów, jeśli tekstury pogarszają czytelność.
+Wymagania
+Stawy i wzgórza powinny pojawiać się w tych samych miejscach na mapie i w świecie.
+Tekstury biomów na mapie nie powinny robić bałaganu.
+Minimap powinna pozostać czytelna.
+Acceptance Criteria
+Minimap pokazuje runtime stawy i wzgórza.
+Full map pokazuje runtime stawy i wzgórza.
+Landmarki na mapie odpowiadają temu, co widać w świecie.
+Tekstury biomów nie przeładowują mapy.
+Po save/load mapa pokazuje te same landmarki.
+
+Issue 29: [SAVE] Save and load generated landmark layout
+Labels: type: feature, area: save-system, area: world, area: landmarks, priority: high, stage: stabilization
+Cel
+Zapisywać i odczytywać wygenerowany układ stawów, wzgórz i innych landmarków.
+Kontekst / problem
+Jeśli landmarki będą losowane przy nowej grze, save/load musi przechowywać ich finalny układ. Inaczej po wczytaniu świat może wyglądać inaczej niż przed zapisem.
+Zakres
+Rozszerzyć SaveSystem o world_seed i generated_landmarks.
+Zapisywać landmark_id, landmark_type, position, radius, biome_id i gameplay_tags.
+Odtwarzać runtime landmark layout przy load.
+Wymagania
+Nowa gra generuje landmarki.
+Save zapisuje finalny layout.
+Load odtwarza ten sam layout.
+Mapa, minimapa, spawn roślinności, woda i ruch korzystają z odtworzonego layoutu.
+Brak danych landmarków w starszym save nie powinien crashować gry.
+Acceptance Criteria
+Po zapisie i wczytaniu stawy są w tych samych miejscach.
+Po zapisie i wczytaniu wzgórza są w tych samych miejscach.
+Roślinność przy stawach nadal jest poprawnie rozmieszczona.
+Zwierzęta nadal respektują wodę i wzgórza po wczytaniu.
+Starszy save bez landmarków uruchamia się bez błędu albo generuje fallback layout.
+
+Issue 30: [DEBUG] Add landmark and biome texture debug controls
+Labels: type: debug, area: debug, area: world, area: landmarks, area: biome, priority: medium, stage: validation
+Cel
+Dodać narzędzia debugowe do testowania losowych landmarków i tekstur biomów.
+Kontekst / problem
+Po dodaniu losowego rozmieszczenia i tekstur potrzebne będą szybkie narzędzia do kontroli seedów, overlayów i cache tekstur.
+Zakres
+Dodać dane debugowe: world_seed, pond count, hill count, generated landmark count, nearest landmark, current biome texture id, biome texture cache status.
+Dodać przyciski: Regenerate landmarks, Show/Hide landmark debug overlay, Rebuild biome texture cache, Toggle biome textures.
+Wymagania
+Regenerate landmarks powinno być używane tylko do debug/testów.
+Po regeneracji landmarków mapa i minimapa powinny się odświeżyć.
+Debug overlay może pokazywać promienie stawów i wzgórz.
+Toggle tekstur pomaga porównać czytelność świata z teksturami i bez nich.
+Acceptance Criteria
+Debug panel pokazuje liczbę stawów i wzgórz.
+Można odświeżyć biome texture cache.
+Można włączyć/wyłączyć debug overlay landmarków.
+Można sprawdzić seed świata.
+Debug nie powoduje crasha przy regeneracji landmarków.
+
+Sugerowana kolejność przed zamknięciem 0.1
+[GAMEPLAY] Add player death and game over flow
+[UI] Add start menu with new game, continue, load save, settings and exit
+[DEBUG] Add god mode toggle to debug panel
+[SETTINGS] Add basic graphics settings for resolution and display mode
+[BALANCE] Reduce pond and hill counts
+[WORLD] Randomize pond and hill placement
+[WORLD] Add biome-based landmark placement rules
+[SAVE] Save and load generated landmark layout
+[VISUALS] Add biome terrain textures
+[MAP] Update maps for randomized landmarks and biome textures
+[DEBUG] Add landmark and biome texture debug controls
+Uwaga projektowa
+Najpierw warto zmniejszyć i uporządkować landmarki, potem zapisać ich layout, a dopiero później dopieszczać mapę i tekstury. Dzięki temu minimapa i pełna mapa będą poprawiane pod docelowy model świata, a nie pod układ, który zaraz zostanie zmieniony.
+
+Issue 31: [DOCS] Update application overview after ecosystem stabilization
 Labels: type: documentation, area: docs, area: ecosystem, priority: medium, stage: validation
 Cel
 Zaktualizować dokumentację po wdrożeniu stabilizacji ekosystemu.

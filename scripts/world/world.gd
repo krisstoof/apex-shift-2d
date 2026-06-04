@@ -81,7 +81,10 @@ var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
 var pending_biome_vegetation_syncs: Dictionary = {}
 var biome_vegetation_sync_scheduled := false
+var boot_ready := false
 const GROUP_CACHE_TTL_SECONDS := 0.12
+
+signal world_initialized
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -100,6 +103,8 @@ func _ready() -> void:
 	_sync_visible_small_prey()
 	_spawn_initial_grazers()
 	_sync_visible_varnaks()
+	boot_ready = true
+	world_initialized.emit()
 	queue_redraw()
 
 
@@ -132,6 +137,10 @@ func get_landmarks() -> Array[Dictionary]:
 	if landmarks.is_empty():
 		return WORLD_CONFIG.get_landmarks()
 	return landmarks.duplicate(true)
+
+
+func is_boot_ready() -> bool:
+	return boot_ready
 
 
 func get_cached_group_nodes(group_name: String) -> Array:
