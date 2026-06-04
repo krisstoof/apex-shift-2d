@@ -2,6 +2,7 @@ extends Node
 
 const WORLD_CONFIG_TESTS := preload("res://tests/unit/test_world_config.gd")
 const WORLD_TESTS := preload("res://tests/unit/test_world.gd")
+const GAME_SESSION_TESTS := preload("res://tests/unit/test_game_session.gd")
 const HUNGER_DIET_TESTS := preload("res://tests/unit/test_hunger_diet.gd")
 const RESOURCE_NODE_TESTS := preload("res://tests/unit/test_resource_node.gd")
 const ECOSYSTEM_DIRECTOR_TESTS := preload("res://tests/unit/test_ecosystem_director.gd")
@@ -18,6 +19,7 @@ func _ready() -> void:
 	var failures: Array[String] = []
 	_run_suite("WorldConfig", WORLD_CONFIG_TESTS.new(), failures)
 	_run_suite("World", WORLD_TESTS.new(), failures)
+	_run_suite("GameSession", GAME_SESSION_TESTS.new(), failures)
 	_run_suite("HungerDiet", HUNGER_DIET_TESTS.new(), failures)
 	_run_suite("ResourceNode", RESOURCE_NODE_TESTS.new(), failures)
 	_run_suite("EcosystemDirector", ECOSYSTEM_DIRECTOR_TESTS.new(), failures)

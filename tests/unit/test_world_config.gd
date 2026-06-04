@@ -11,6 +11,7 @@ func run() -> Array[String]:
 	_test_resource_spawn_config_is_valid(failures)
 	_test_biome_config_is_valid(failures)
 	_test_landmark_config_is_valid(failures)
+	_test_randomized_landmarks_are_seeded_and_spaced(failures)
 	return failures
 
 
@@ -67,3 +68,33 @@ func _test_landmark_config_is_valid(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(hill_count, int(GAME_BALANCE.LANDMARKS.get("hill_count", 0)), failures, "Hill landmark count should match the tuned balance target")
 	TEST_UTILS.expect(pond_biomes.size() >= min(pond_count, 3), failures, "Reduced pond landmarks should still cover multiple biomes for navigation readability")
 	TEST_UTILS.expect(hill_biomes.size() >= min(hill_count, 4), failures, "Reduced hill landmarks should still cover multiple biomes for navigation readability")
+
+
+func _test_randomized_landmarks_are_seeded_and_spaced(failures: Array[String]) -> void:
+	var seed_a := 101
+	var seed_b := 202
+	var first_layout: Array[Dictionary] = WORLD_CONFIG.generate_landmarks(seed_a)
+	var second_layout: Array[Dictionary] = WORLD_CONFIG.generate_landmarks(seed_a)
+	var third_layout: Array[Dictionary] = WORLD_CONFIG.generate_landmarks(seed_b)
+	TEST_UTILS.expect_equal(first_layout.size(), second_layout.size(), failures, "The same world seed should generate the same number of landmarks")
+	TEST_UTILS.expect_equal(first_layout.size(), third_layout.size(), failures, "Different world seeds should still respect the same landmark target counts")
+	var changed_position := false
+	for i in range(first_layout.size()):
+		var first_landmark := Dictionary(first_layout[i])
+		var second_landmark := Dictionary(second_layout[i])
+		var third_landmark := Dictionary(third_layout[i])
+		var first_position := Vector2(first_landmark.get("position", Vector2.ZERO))
+		var second_position := Vector2(second_landmark.get("position", Vector2.ZERO))
+		var third_position := Vector2(third_landmark.get("position", Vector2.ZERO))
+		TEST_UTILS.expect_close(first_position.x, second_position.x, failures, "The same world seed should reproduce landmark X positions")
+		TEST_UTILS.expect_close(first_position.y, second_position.y, failures, "The same world seed should reproduce landmark Y positions")
+		if first_position.distance_to(third_position) > 1.0:
+			changed_position = true
+		TEST_UTILS.expect(WORLD_CONFIG.WORLD_RECT.has_point(first_position), failures, "Generated landmarks should stay inside world bounds")
+		TEST_UTILS.expect(first_position.distance_to(WORLD_CONFIG.PLAYER_START_POSITION) >= float(GAME_BALANCE.LANDMARKS.get("landmark_player_safe_distance", 760.0)), failures, "Generated landmarks should stay away from the player start area")
+		for j in range(i + 1, first_layout.size()):
+			var other_landmark := Dictionary(first_layout[j])
+			var other_position := Vector2(other_landmark.get("position", Vector2.ZERO))
+			var minimum_distance: float = maxf(float(GAME_BALANCE.LANDMARKS.get("landmark_min_distance", 420.0)), float(first_landmark.get("radius", 0.0)) + float(other_landmark.get("radius", 0.0)) + 40.0)
+			TEST_UTILS.expect(first_position.distance_to(other_position) >= minimum_distance, failures, "Generated landmarks should not overlap or crowd each other")
+	TEST_UTILS.expect(changed_position, failures, "Different world seeds should produce a different landmark layout")
