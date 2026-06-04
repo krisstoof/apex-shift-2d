@@ -109,7 +109,7 @@ func set_open(open: bool) -> void:
 
 func _refresh_creature_debug_overlays() -> void:
 	for group_name in ["small_prey", "grazer", "varnak"]:
-		for creature in get_tree().get_nodes_in_group(group_name):
+		for creature in _get_cached_group_nodes(group_name):
 			if is_instance_valid(creature) and creature is CanvasItem:
 				(creature as CanvasItem).queue_redraw()
 
@@ -288,7 +288,7 @@ func _build_overview_text(profile: Dictionary) -> String:
 	lines.append("Player HP %d | H %d | Sta %d | Rest %d | campfire_regen_active %s" % [int(player.stats.health), int(player.stats.hunger), int(player.stats.stamina), int(player.stats.rest), _get_campfire_regen_active_text()])
 	lines.append("Biome %s" % _get_current_biome_name())
 	lines.append("Live Varnaks %d | SmallPrey %d | Grazers %d" % [
-		get_tree().get_nodes_in_group("varnak").size(),
+		_get_cached_group_nodes("varnak").size(),
 		_get_ecosystem_population_total("small_prey_population"),
 		_get_ecosystem_population_total("grazer_population")
 	])
@@ -324,7 +324,7 @@ func _build_player_text() -> String:
 		_get_torch_state()
 	])
 	lines.append("Spear %s | Bow %s" % [_get_spear_state(), _get_bow_state()])
-	lines.append("Campfire %s | Traps %d" % [_get_campfire_state(), get_tree().get_nodes_in_group("traps").size()])
+	lines.append("Campfire %s | Traps %d" % [_get_campfire_state(), _get_cached_group_nodes("traps").size()])
 	return "\n".join(lines)
 
 
@@ -336,22 +336,22 @@ func _build_world_text() -> String:
 	lines.append("World bounds: %s" % str(WORLD_CONFIG.WORLD_RECT))
 	lines.append("creatures_out_of_bounds_count = %d" % _get_creatures_out_of_bounds_count())
 	lines.append("Campfires: %d | Traps: %d" % [
-		get_tree().get_nodes_in_group("campfires").size(),
-		get_tree().get_nodes_in_group("traps").size()
+		_get_cached_group_nodes("campfires").size(),
+		_get_cached_group_nodes("traps").size()
 	])
 	lines.append("Resources: trees %d | bushes %d | grass %d | rocks %d" % [
-		get_tree().get_nodes_in_group("trees").size(),
-		get_tree().get_nodes_in_group("bushes").size(),
-		get_tree().get_nodes_in_group("grass").size(),
-		get_tree().get_nodes_in_group("rocks").size()
+		_get_cached_group_nodes("trees").size(),
+		_get_cached_group_nodes("bushes").size(),
+		_get_cached_group_nodes("grass").size(),
+		_get_cached_group_nodes("rocks").size()
 	])
 	lines.append("Landmarks: %s" % _get_landmark_summary_text())
-	lines.append("Hill markers: %d" % get_tree().get_nodes_in_group("hill_landmarks").size())
+	lines.append("Hill markers: %d" % _get_cached_group_nodes("hill_landmarks").size())
 	lines.append("Pond markers: %d | Water sources: %d" % [
-		get_tree().get_nodes_in_group("pond_landmarks").size(),
-		get_tree().get_nodes_in_group("water_sources").size()
+		_get_cached_group_nodes("pond_landmarks").size(),
+		_get_cached_group_nodes("water_sources").size()
 	])
-	lines.append("Pond vegetation: %d" % get_tree().get_nodes_in_group("pond_vegetation").size())
+	lines.append("Pond vegetation: %d" % _get_cached_group_nodes("pond_vegetation").size())
 	lines.append("Growth: %s" % _get_resource_growth_text())
 	return "\n".join(lines)
 
@@ -362,17 +362,17 @@ func _build_ecosystem_text() -> String:
 
 func _build_creatures_text() -> String:
 	var lines: Array[String] = []
-	var varnaks := get_tree().get_nodes_in_group("varnak")
+	var varnaks := _get_cached_group_nodes("varnak")
 	lines.append("Creatures")
 	lines.append("creatures_out_of_bounds_count = %d" % _get_creatures_out_of_bounds_count())
 	lines.append_array(_get_population_aggregate_lines())
 	lines.append("Varnaks %d | %s" % [varnaks.size(), _get_varnak_state_summary(varnaks)])
 	lines.append("SmallPrey visible %d | %s" % [
-		get_tree().get_nodes_in_group("small_prey").size(),
+		_get_cached_group_nodes("small_prey").size(),
 		_get_creature_state_summary("small_prey")
 	])
 	lines.append("Grazers visible %d | %s" % [
-		get_tree().get_nodes_in_group("grazer").size(),
+		_get_cached_group_nodes("grazer").size(),
 		_get_grazer_state_summary()
 	])
 	lines.append("Avg Varnak HP %s" % _get_average_varnak_health_text(varnaks))
@@ -417,12 +417,12 @@ func _build_combat_text() -> String:
 	])
 	lines.append("Torch %s | Campfire %s" % [_get_torch_state(), _get_campfire_state()])
 	lines.append("Varnaks %d | nearest %s" % [
-		get_tree().get_nodes_in_group("varnak").size(),
-		_get_nearest_varnak_text(get_tree().get_nodes_in_group("varnak"))
+		_get_cached_group_nodes("varnak").size(),
+		_get_nearest_varnak_text(_get_cached_group_nodes("varnak"))
 	])
 	lines.append("Visible prey %d | grazers %d" % [
-		get_tree().get_nodes_in_group("small_prey").size(),
-		get_tree().get_nodes_in_group("grazer").size()
+		_get_cached_group_nodes("small_prey").size(),
+		_get_cached_group_nodes("grazer").size()
 	])
 	return "\n".join(lines)
 
@@ -530,7 +530,7 @@ func _get_creatures_out_of_bounds_count() -> int:
 		return int(world.get_creatures_out_of_bounds_count())
 	var count := 0
 	for group_name in ["varnak", "small_prey", "grazer"]:
-		for creature in get_tree().get_nodes_in_group(group_name):
+		for creature in _get_cached_group_nodes(group_name):
 			if not is_instance_valid(creature) or not (creature is Node2D):
 				continue
 			if not WORLD_CONFIG.WORLD_RECT.has_point(creature.global_position):
@@ -575,7 +575,7 @@ func _get_adaptation_pressure(profile: Dictionary) -> float:
 
 func _get_varnak_debug_lines(profile: Dictionary) -> Array[String]:
 	var lines: Array[String] = []
-	var varnaks := get_tree().get_nodes_in_group("varnak")
+	var varnaks := _get_cached_group_nodes("varnak")
 	lines.append("")
 	lines.append("Varnaks %d | %s" % [varnaks.size(), _get_varnak_state_summary(varnaks)])
 	lines.append("Gen %d | pressure %.2f | days %d/%d" % [
@@ -613,7 +613,7 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 	lines.append("")
 	lines.append("Ecosystem")
 	lines.append("Visible Grazers %d | %s" % [
-		get_tree().get_nodes_in_group("grazer").size(),
+		_get_cached_group_nodes("grazer").size(),
 		_get_grazer_state_summary()
 	])
 	if not ecosystem_director or not ecosystem_director.has_method("get_biome_states"):
@@ -708,7 +708,7 @@ func _get_population_aggregate_lines() -> Array[String]:
 
 
 func _get_visible_creature_aggregate_text(group_name: String) -> String:
-	var creatures := get_tree().get_nodes_in_group(group_name)
+	var creatures := _get_cached_group_nodes(group_name)
 	if creatures.is_empty():
 		return "0"
 	var health_total := 0.0
@@ -761,7 +761,7 @@ func _get_varnak_state_summary(varnaks: Array) -> String:
 
 
 func _get_fixed_creature_state_summary(group_name: String, state_names: Array[String]) -> String:
-	var creatures := get_tree().get_nodes_in_group(group_name)
+	var creatures := _get_cached_group_nodes(group_name)
 	var counts := {}
 	var satiety_total := 0.0
 	var energy_total := 0.0
@@ -934,7 +934,7 @@ func _get_selected_debug_creature(group_name: String) -> Node:
 func _find_nearest_debug_creature(group_name: String) -> Node:
 	var nearest: Node
 	var nearest_distance := INF
-	for creature in get_tree().get_nodes_in_group(group_name):
+	for creature in _get_cached_group_nodes(group_name):
 		if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
 			continue
 		var data: Dictionary = creature.get_debug_data()
@@ -948,7 +948,7 @@ func _find_nearest_debug_creature(group_name: String) -> Node:
 func _get_campfire_state() -> String:
 	var active_count := 0
 	var total_count := 0
-	for campfire in get_tree().get_nodes_in_group("campfires"):
+	for campfire in _get_cached_group_nodes("campfires"):
 		if not is_instance_valid(campfire):
 			continue
 		total_count += 1
@@ -1137,6 +1137,13 @@ func _get_world_node() -> Node:
 	if not get_tree() or not get_tree().current_scene:
 		return null
 	return get_tree().current_scene.get_node_or_null("World")
+
+
+func _get_cached_group_nodes(group_name: String) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_cached_group_nodes"):
+		return world.get_cached_group_nodes(group_name)
+	return get_tree().get_nodes_in_group(group_name)
 
 
 func _post_debug_message(message: String) -> void:
