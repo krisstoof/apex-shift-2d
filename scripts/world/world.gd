@@ -8,6 +8,7 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
 const WORLD_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_query_service.gd")
+const LANDMARK_SERVICE_SCRIPT := preload("res://scripts/world/landmark_service.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const VARNAK_SPAWN_TICK_SECONDS := 5.5
@@ -125,6 +126,7 @@ var biome_vegetation_sync_scheduled := false
 var boot_ready := false
 var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
+var landmark_service = LANDMARK_SERVICE_SCRIPT.new()
 const GROUP_CACHE_TTL_SECONDS := 0.12
 
 signal world_initialized
@@ -186,7 +188,7 @@ func get_biome_zones() -> Array[Dictionary]:
 func get_landmarks() -> Array[Dictionary]:
 	if landmarks.is_empty():
 		return WORLD_CONFIG.get_landmarks()
-	return landmarks.duplicate(true)
+	return _ensure_landmark_service().get_landmarks()
 
 
 func get_world_seed() -> int:
@@ -198,27 +200,11 @@ func get_query_service():
 
 
 func get_landmark_counts() -> Dictionary:
-	return {
-		"generated": landmarks.size(),
-		"hill": hill_landmarks.size(),
-		"pond": pond_landmarks.size()
-	}
+	return _ensure_landmark_service().get_landmark_counts()
 
 
 func get_nearest_landmark_data(position: Vector2) -> Dictionary:
-	var nearest: Dictionary = {}
-	var nearest_distance := INF
-	for landmark_value in landmarks:
-		var landmark := Dictionary(landmark_value)
-		var landmark_position := Vector2(landmark.get("position", Vector2.ZERO))
-		var distance := position.distance_to(landmark_position)
-		if distance < nearest_distance:
-			nearest_distance = distance
-			nearest = landmark.duplicate(true)
-	if nearest.is_empty():
-		return {}
-	nearest["distance_to_position"] = nearest_distance
-	return nearest
+	return _ensure_landmark_service().get_nearest_landmark_data(position)
 
 
 func get_current_biome_texture_id(position: Vector2) -> String:
@@ -351,6 +337,13 @@ func _ensure_registry():
 	return registry
 
 
+func _ensure_landmark_service():
+	if landmark_service == null:
+		landmark_service = LANDMARK_SERVICE_SCRIPT.new()
+	landmark_service.set_landmarks(landmarks)
+	return landmark_service
+
+
 func _ensure_query_service():
 	if query_service == null:
 		query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
@@ -440,21 +433,17 @@ func _create_landmarks() -> void:
 
 
 func _rebuild_landmark_runtime_state() -> void:
+	_ensure_landmark_service()
 	hill_landmarks.clear()
 	pond_landmarks.clear()
 	pond_water_search_radius = 0.0
-	var max_pond_radius := 0.0
-	for landmark in landmarks:
-		match str(landmark.get("type", "")):
-			"hill":
-				hill_landmarks.append(landmark)
-				_create_landmark_area(landmark, "hill_landmarks")
-			"pond":
-				pond_landmarks.append(landmark)
-				max_pond_radius = max(max_pond_radius, float(landmark.get("radius", 0.0)))
-				_create_landmark_area(landmark, "pond_landmarks")
-	if not pond_landmarks.is_empty():
-		pond_water_search_radius = max(max_pond_radius * 1.2, 1.0)
+	hill_landmarks = landmark_service.get_hill_landmarks()
+	pond_landmarks = landmark_service.get_pond_landmarks()
+	pond_water_search_radius = landmark_service.get_pond_water_search_radius()
+	for landmark in hill_landmarks:
+		_create_landmark_area(landmark, "hill_landmarks")
+	for landmark in pond_landmarks:
+		_create_landmark_area(landmark, "pond_landmarks")
 	_ensure_query_service()
 
 
