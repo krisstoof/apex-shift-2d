@@ -142,6 +142,7 @@ func _capture_performance_stats() -> Dictionary:
 				stats[key] = float(value)
 			_:
 				stats[key] = int(round(float(value)))
+	stats["window_focused"] = DisplayServer.window_is_focused()
 	return stats
 
 
@@ -157,6 +158,11 @@ func _capture_world_stats() -> Dictionary:
 	stats["landmark_count"] = landmarks.size()
 	stats["pond_count"] = _count_landmarks_by_type(landmarks, "pond")
 	stats["hill_count"] = _count_landmarks_by_type(landmarks, "hill")
+	stats["boot"] = _capture_world_boot_stats()
+	stats["biome_texture_cache"] = _capture_world_biome_texture_cache_stats()
+	stats["landmark_debug"] = _capture_world_landmark_debug_stats()
+	stats["registry"] = _capture_world_registry_stats()
+	stats["render_flags"] = _capture_world_render_flags()
 	stats["creature_counts"] = _capture_group_counts(["small_prey", "grazer", "varnak"])
 	stats["resource_counts"] = _capture_group_counts([
 		"trees",
@@ -177,6 +183,64 @@ func _capture_world_stats() -> Dictionary:
 	stats["total_creatures"] = _sum_group_counts(stats["creature_counts"])
 	stats["total_resources"] = _sum_group_counts(stats["resource_counts"])
 	return stats
+
+
+func _capture_world_boot_stats() -> Dictionary:
+	if not is_instance_valid(world):
+		return {}
+	var boot_state := Dictionary(world.get_boot_progress_state()) if world.has_method("get_boot_progress_state") else {}
+	return {
+		"ready": bool(boot_state.get("boot_ready", world.is_boot_ready() if world.has_method("is_boot_ready") else false)),
+		"progress": float(boot_state.get("progress", 1.0 if world.has_method("is_boot_ready") and world.is_boot_ready() else 0.0)),
+		"stage_message": str(boot_state.get("message", "unknown"))
+	}
+
+
+func _capture_world_biome_texture_cache_stats() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_biome_texture_cache_status"):
+		return {}
+	var cache_status := Dictionary(world.get_biome_texture_cache_status())
+	return {
+		"textures_enabled": bool(cache_status.get("textures_enabled", true)),
+		"has_blend_texture": bool(cache_status.get("has_blend_texture", false)),
+		"blend_texture_size": str(cache_status.get("blend_texture_size", Vector2i.ZERO)),
+		"sample_image_cache_count": int(cache_status.get("sample_image_cache_count", 0)),
+		"accent_cache_count": int(cache_status.get("accent_cache_count", 0)),
+		"pending_biomes": int(cache_status.get("pending_biomes", 0)),
+		"build_running": bool(cache_status.get("build_running", false)),
+		"blend_colors_key_length": str(cache_status.get("blend_colors_key", "")).length()
+	}
+
+
+func _capture_world_landmark_debug_stats() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_landmark_counts"):
+		return {}
+	var landmark_counts := Dictionary(world.get_landmark_counts())
+	return {
+		"generated": int(landmark_counts.get("generated", 0)),
+		"pond": int(landmark_counts.get("pond", 0)),
+		"hill": int(landmark_counts.get("hill", 0))
+	}
+
+
+func _capture_world_registry_stats() -> Dictionary:
+	if not is_instance_valid(world):
+		return {}
+	var resource_total: int = world.get_registered_resources().size() if world.has_method("get_registered_resources") else 0
+	var building_total: int = world.get_registered_buildings().size() if world.has_method("get_registered_buildings") else 0
+	return {
+		"registered_resources": resource_total,
+		"registered_buildings": building_total
+	}
+
+
+func _capture_world_render_flags() -> Dictionary:
+	if not is_instance_valid(world):
+		return {}
+	return {
+		"biome_textures_enabled": world.are_biome_textures_enabled() if world.has_method("are_biome_textures_enabled") else true,
+		"landmark_debug_overlay_enabled": world.is_landmark_debug_overlay_enabled() if world.has_method("is_landmark_debug_overlay_enabled") else false
+	}
 
 
 func _capture_player_stats() -> Dictionary:
@@ -422,16 +486,20 @@ func _format_report_text(report: Dictionary) -> String:
 		lines.append("Heaviest sample:")
 		lines.append(_format_sample_line(heaviest_sample))
 		lines.append(_format_driver_scores(heaviest_sample))
+		lines.append(_format_sample_diagnostics(heaviest_sample))
 	lines.append("")
 	lines.append("Top load samples:")
 	for sample_value in Array(report.get("top_samples", [])):
 		var sample: Dictionary = Dictionary(sample_value)
 		lines.append(_format_sample_line(sample))
 		lines.append(_format_driver_scores(sample))
+		lines.append(_format_sample_diagnostics(sample))
 	lines.append("")
 	lines.append("Sample log:")
 	for sample_value in Array(report.get("samples", [])):
-		lines.append(_format_sample_line(Dictionary(sample_value)))
+		var sample := Dictionary(sample_value)
+		lines.append(_format_sample_line(sample))
+		lines.append(_format_sample_diagnostics(sample))
 	return "\n".join(lines)
 
 
@@ -447,8 +515,9 @@ func _format_sample_line(sample: Dictionary) -> String:
 	var total_creatures := int(world_stats.get("total_creatures", 0))
 	var total_resources := int(world_stats.get("total_resources", 0))
 	var oob := int(world_stats.get("creatures_out_of_bounds_count", 0))
+	var window_focused := bool(performance.get("window_focused", false))
 	var driver := str(sample.get("likely_driver", "unknown"))
-	return "[%s] fps=%d frame=%.2fms physics=%.2fms draw_calls=%d primitives=%d nodes=%d creatures=%d resources=%d oob=%d driver=%s score=%.2f" % [
+	return "[%s] fps=%d frame=%.2fms physics=%.2fms draw_calls=%d primitives=%d nodes=%d creatures=%d resources=%d oob=%d focused=%s driver=%s score=%.2f" % [
 		str(sample.get("time_label", "00:00")),
 		fps,
 		frame_time_ms,
@@ -459,6 +528,7 @@ func _format_sample_line(sample: Dictionary) -> String:
 		total_creatures,
 		total_resources,
 		oob,
+		"true" if window_focused else "false",
 		driver,
 		float(sample.get("load_score", 0.0))
 	]
@@ -476,6 +546,50 @@ func _format_driver_scores(sample: Dictionary) -> String:
 		float(driver_scores.get("scene", 0.0)),
 		float(driver_scores.get("ecosystem", 0.0))
 	]
+
+
+func _format_sample_diagnostics(sample: Dictionary) -> String:
+	var world_stats: Dictionary = Dictionary(sample.get("world", {}))
+	var boot_stats: Dictionary = Dictionary(world_stats.get("boot", {}))
+	var texture_cache: Dictionary = Dictionary(world_stats.get("biome_texture_cache", {}))
+	var landmark_debug: Dictionary = Dictionary(world_stats.get("landmark_debug", {}))
+	var registry_stats: Dictionary = Dictionary(world_stats.get("registry", {}))
+	var render_flags: Dictionary = Dictionary(world_stats.get("render_flags", {}))
+	var diagnostics: Array[String] = []
+	if not boot_stats.is_empty():
+		diagnostics.append("boot=%s %.0f%% \"%s\"" % [
+			"ready" if bool(boot_stats.get("ready", false)) else "loading",
+			float(boot_stats.get("progress", 0.0)) * 100.0,
+			str(boot_stats.get("stage_message", "unknown"))
+		])
+	if not texture_cache.is_empty():
+		diagnostics.append("textures=%s blend=%s size=%s accent_cache=%d pending=%d build_running=%s sample_images=%d key_len=%d" % [
+			"on" if bool(texture_cache.get("textures_enabled", true)) else "off",
+			"yes" if bool(texture_cache.get("has_blend_texture", false)) else "no",
+			str(texture_cache.get("blend_texture_size", "Vector2i(0, 0)")),
+			int(texture_cache.get("accent_cache_count", 0)),
+			int(texture_cache.get("pending_biomes", 0)),
+			"true" if bool(texture_cache.get("build_running", false)) else "false",
+			int(texture_cache.get("sample_image_cache_count", 0)),
+			int(texture_cache.get("blend_colors_key_length", 0))
+		])
+	if not landmark_debug.is_empty():
+		diagnostics.append("landmarks generated=%d pond=%d hill=%d" % [
+			int(landmark_debug.get("generated", 0)),
+			int(landmark_debug.get("pond", 0)),
+			int(landmark_debug.get("hill", 0))
+		])
+	if not registry_stats.is_empty():
+		diagnostics.append("registry resources=%d buildings=%d" % [
+			int(registry_stats.get("registered_resources", 0)),
+			int(registry_stats.get("registered_buildings", 0))
+		])
+	if not render_flags.is_empty():
+		diagnostics.append("flags biome_textures=%s landmark_overlay=%s" % [
+			"true" if bool(render_flags.get("biome_textures_enabled", true)) else "false",
+			"true" if bool(render_flags.get("landmark_debug_overlay_enabled", false)) else "false"
+		])
+	return "  diagnostics %s" % " | ".join(diagnostics)
 
 
 func _capture_group_counts(group_names: Array[String]) -> Dictionary:

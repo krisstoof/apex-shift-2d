@@ -25,6 +25,9 @@ func run() -> Array[String]:
 	_test_landmark_debug_counts_and_nearest_selection(failures)
 	_test_landmark_debug_toggles_flip_runtime_state(failures)
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
+	_test_world_builds_cached_biome_blend_texture(failures)
+	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
+	_test_world_boot_progress_state_tracks_stage_updates(failures)
 	_test_current_biome_texture_id_uses_player_position_biome(failures)
 	_test_cached_group_nodes_prune_freed_entries(failures)
 	_test_world_registry_tracks_spawned_nodes_and_prunes_freed_entries(failures)
@@ -220,13 +223,11 @@ func _test_biome_surface_color_uses_the_containing_biome_without_blending(failur
 	if sample_point == Vector2.INF:
 		world.free()
 		return
-	var base_color := Color(westwood["color"])
-	var expected_color: Color = world.call("_get_biome_terrain_color", westwood, sample_point, world.call("_get_biome_visual_color", westwood))
+	var expected_color: Color = world.call("_get_biome_visual_color", westwood)
 	var surface_color: Color = world.call("_get_biome_surface_color_at", sample_point, biome_zones)
-	TEST_UTILS.expect_close(surface_color.r, expected_color.r, failures, "Biome surface color should use the containing biome red channel without blending")
-	TEST_UTILS.expect_close(surface_color.g, expected_color.g, failures, "Biome surface color should use the containing biome green channel without blending")
-	TEST_UTILS.expect_close(surface_color.b, expected_color.b, failures, "Biome surface color should use the containing biome blue channel without blending")
-	TEST_UTILS.expect(surface_color != base_color, failures, "Biome texture should still apply the biome's own surface pattern")
+	TEST_UTILS.expect_close(surface_color.r, expected_color.r, failures, "Biome blend cache should use the containing biome visual red channel without blending")
+	TEST_UTILS.expect_close(surface_color.g, expected_color.g, failures, "Biome blend cache should use the containing biome visual green channel without blending")
+	TEST_UTILS.expect_close(surface_color.b, expected_color.b, failures, "Biome blend cache should use the containing biome visual blue channel without blending")
 	world.free()
 
 
@@ -352,6 +353,42 @@ func _test_biome_texture_cache_status_reports_runtime_flags(failures: Array[Stri
 	TEST_UTILS.expect_equal(int(status.get("pending_biomes", 0)), 1, failures, "Biome texture cache status should report queued biome rebuilds")
 	TEST_UTILS.expect(status.get("build_running", false) == true, failures, "Biome texture cache status should expose whether the cache builder is running")
 	TEST_UTILS.expect(status.get("textures_enabled", true) == false, failures, "Biome texture cache status should expose whether biome textures are enabled")
+	world.free()
+
+
+func _test_world_builds_cached_biome_blend_texture(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var controller: Object = world.call("_ensure_render_controller")
+	var texture: ImageTexture = controller.call("ensure_biome_blend_texture")
+	TEST_UTILS.expect(texture != null, failures, "World should be able to build the cached biome blend texture used for world rendering")
+	var status: Dictionary = world.get_biome_texture_cache_status()
+	var expected_size: Vector2i = world.call("_get_world_biome_blend_texture_size")
+	TEST_UTILS.expect(status.get("has_blend_texture", false) == true, failures, "Biome texture cache status should report the built world blend texture")
+	TEST_UTILS.expect(str(status.get("blend_colors_key", "")) != "", failures, "Biome texture cache status should expose a non-empty blend texture key after building")
+	TEST_UTILS.expect_equal(status.get("blend_texture_size", Vector2i.ZERO), expected_size, failures, "World should build the blend texture at the configured cache size")
+	world.free()
+
+
+func _test_world_updates_night_overlay_without_redrawing_static_world(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var overlay: Polygon2D = world.call("_ensure_night_overlay_polygon")
+	TEST_UTILS.expect(overlay != null, failures, "World should create a dedicated polygon overlay for night shading")
+	world.call("_update_night_overlay", 0.0)
+	TEST_UTILS.expect(not overlay.visible, failures, "Night overlay should stay hidden during daytime")
+	world.call("_update_night_overlay", 0.5)
+	TEST_UTILS.expect(overlay.visible, failures, "Night overlay should become visible when night shading is active")
+	TEST_UTILS.expect_close(float(overlay.color.a), 0.31, failures, "Night overlay alpha should track the night amount without requiring a static world redraw")
+	TEST_UTILS.expect_equal(overlay.polygon.size(), 4, failures, "Night overlay should cover the world rectangle with a simple quad")
+	world.free()
+
+
+func _test_world_boot_progress_state_tracks_stage_updates(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.call("_set_boot_progress", "Rendering world...", 0.94)
+	var boot_state: Dictionary = world.get_boot_progress_state()
+	TEST_UTILS.expect_equal(str(boot_state.get("message", "")), "Rendering world...", failures, "World boot progress state should expose the current stage message")
+	TEST_UTILS.expect_close(float(boot_state.get("progress", 0.0)), 0.94, failures, "World boot progress state should expose the current stage progress")
+	TEST_UTILS.expect(boot_state.get("boot_ready", true) == false, failures, "World boot progress state should keep boot_ready false before the world finishes booting")
 	world.free()
 
 

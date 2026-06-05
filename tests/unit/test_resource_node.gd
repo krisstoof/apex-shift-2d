@@ -9,6 +9,7 @@ func run() -> Array[String]:
 	_test_resource_node_setup_exposes_herbivore_food(failures)
 	_test_resource_node_restore_recreates_edible_food_value(failures)
 	_test_resource_node_syncs_collision_radius_with_growth(failures)
+	_test_resource_node_uses_shared_atlas_and_depleted_region(failures)
 	return failures
 
 
@@ -61,4 +62,23 @@ func _test_resource_node_syncs_collision_radius_with_growth(failures: Array[Stri
 	circle = collision_shape.shape as CircleShape2D
 	if circle != null:
 		TEST_UTILS.expect_close(circle.radius, float(resource.get("radius")), failures, "Bush collision radius should stay synced after growth stage changes")
+	resource.free()
+
+
+func _test_resource_node_uses_shared_atlas_and_depleted_region(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	resource.call("setup", "bush")
+	resource.call("_sync_visual_sprite")
+	var sprite := resource.get_node("VisualSprite") as Sprite2D
+	var mature_texture := sprite.texture as AtlasTexture
+	TEST_UTILS.expect(mature_texture != null, failures, "ResourceNode should render through an atlas texture")
+	if mature_texture != null:
+		TEST_UTILS.expect_equal(int(mature_texture.region.position.y), 0, failures, "A mature resource should use the first atlas row")
+	resource.call("consume_by_creature", null, 1.0)
+	resource.call("consume_by_creature", null, 1.0)
+	resource.call("consume_by_creature", null, 1.0)
+	var depleted_texture := sprite.texture as AtlasTexture
+	TEST_UTILS.expect(depleted_texture != null, failures, "A depleted resource should keep using the shared atlas")
+	if depleted_texture != null:
+		TEST_UTILS.expect_equal(int(depleted_texture.region.position.y), 80, failures, "A depleted resource should use the depleted atlas row")
 	resource.free()

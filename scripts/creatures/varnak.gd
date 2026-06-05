@@ -20,6 +20,7 @@ const WORLD_EDGE_PADDING := 32.0
 const DEBUG_FRAME_FONT_SIZE := 11
 const BASE_HUNGER_TIME_SCALE := 0.05
 const MOVEMENT_HUNGER_TIME_SCALE := 0.06
+const AI_DECISION_INTERVAL_SECONDS := 0.14
 
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
@@ -56,6 +57,7 @@ var meat_target: Node2D
 var dropped_meat := false
 var last_food_source := "none"
 var decision_reason := "spawn"
+var ai_decision_timer := 0.0
 var is_dead := false
 var meat_diet := 1.0
 var scavenger_diet := 0.45
@@ -63,6 +65,7 @@ var scavenger_diet := 0.45
 func _ready() -> void:
 	add_to_group("varnak")
 	player = get_tree().get_first_node_in_group("player")
+	ai_decision_timer = fmod(float(get_instance_id()), 7.0) / 7.0 * AI_DECISION_INTERVAL_SECONDS
 	_pick_wander_target()
 	queue_redraw()
 
@@ -196,11 +199,20 @@ func _physics_process(delta: float) -> void:
 	if eat_visual_time > 0.0:
 		eat_visual_time = max(eat_visual_time - delta, 0.0)
 		queue_redraw()
-	_update_state()
+	if _should_update_ai_decision(delta):
+		_update_state()
 	_act(delta)
 	_update_individual_energy(delta, velocity.length() / max(speed, 1.0))
 	move_and_slide()
 	_enforce_world_bounds()
+
+
+func _should_update_ai_decision(delta: float) -> bool:
+	ai_decision_timer -= delta
+	if ai_decision_timer > 0.0:
+		return false
+	ai_decision_timer = AI_DECISION_INTERVAL_SECONDS
+	return true
 
 
 func take_damage(amount: float, source: String) -> void:

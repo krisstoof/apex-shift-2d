@@ -126,6 +126,8 @@ class MockWorld:
 	var varnaks: Array = []
 	var small_prey: Array = []
 	var grazers: Array = []
+	var resource_reads := 0
+	var creature_reads := 0
 
 	func get_world_rect() -> Rect2:
 		return Rect2(Vector2(-1000.0, -800.0), Vector2(2000.0, 1600.0))
@@ -175,9 +177,11 @@ class MockWorld:
 		return true
 
 	func get_registered_resources() -> Array:
+		resource_reads += 1
 		return resources
 
 	func get_registered_creatures_by_type(creature_type: String) -> Array:
+		creature_reads += 1
 		match creature_type:
 			"varnak":
 				return varnaks
@@ -250,6 +254,8 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	TEST_UTILS.expect_equal(int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("small_prey_population", 0)), 5, failures, "Snapshot service should aggregate ecosystem population totals")
 	TEST_UTILS.expect(str(ecosystem_snapshot.get("warnings_text", "")).contains("Redfang Wilds:stressed"), failures, "Snapshot service should expose ecosystem warnings text")
 	TEST_UTILS.expect_equal(int(debug_snapshot.get("live_varnaks", 0)), 1, failures, "Snapshot service should expose debug summary creature counts")
+	TEST_UTILS.expect_equal(world.resource_reads, 1, failures, "Snapshot service should build resource markers only once per refresh")
+	TEST_UTILS.expect_equal(world.creature_reads, 3, failures, "Snapshot service should build each creature marker list only once per refresh")
 
 
 func _make_resource(kind: String, item_name: String, position: Vector2, harvestable: bool) -> MockResource:

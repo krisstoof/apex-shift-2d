@@ -13,6 +13,7 @@ func run() -> Array[String]:
 	_test_small_prey_traits_use_state_and_balance_defaults(failures)
 	_test_command_flow_applies_plant_harvest_and_returns_delta(failures)
 	_test_save_and_load_round_trip_restores_biome_state(failures)
+	_test_runtime_tick_queues_biomes_across_frames(failures)
 	return failures
 
 
@@ -135,4 +136,26 @@ func _test_save_and_load_round_trip_restores_biome_state(failures: Array[String]
 	var restored: Dictionary = director.get_biome_state("hearth_meadow")
 	TEST_UTILS.expect_close(float(restored.get("plant_biomass", 0.0)), 72.0, failures, "Biome biomass should round-trip through save data")
 	TEST_UTILS.expect_close(director.tick_timer, 2.5, failures, "The ecosystem tick timer should round-trip through save data")
+	director.free()
+
+
+func _test_runtime_tick_queues_biomes_across_frames(failures: Array[String]) -> void:
+	var director := ECOSYSTEM_DIRECTOR.new()
+	director.call("_initialize_biomes")
+	director.call("_begin_runtime_ecosystem_tick")
+	var queued_count := director.pending_tick_biome_ids.size()
+	TEST_UTILS.expect_equal(
+		queued_count,
+		director.biome_states.size(),
+		failures,
+		"A runtime ecosystem tick should queue every biome"
+	)
+	var first_biome_id := str(director.call("_take_next_pending_biome_id"))
+	TEST_UTILS.expect(not first_biome_id.is_empty(), failures, "A queued runtime tick should expose one biome for the current frame")
+	TEST_UTILS.expect_equal(
+		director.pending_tick_biome_ids.size(),
+		max(queued_count - 1, 0),
+		failures,
+		"Taking one runtime biome should leave the remaining biomes for later frames"
+	)
 	director.free()

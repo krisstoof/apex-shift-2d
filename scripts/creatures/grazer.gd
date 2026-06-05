@@ -4,6 +4,7 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
 const SPECIES_PATH := "res://data/species/grazer.json"
+const AI_DECISION_INTERVAL_SECONDS := 0.14
 
 enum State { IDLE, WANDER, EAT_PLANTS, SEEK_FOOD, FLEE, SCAVENGE, HUNT_SMALL_PREY, DEAD }
 
@@ -67,6 +68,7 @@ var meat_target: Node2D
 var dropped_meat := false
 var last_food_source := "none"
 var decision_reason := "spawn"
+var ai_decision_timer := 0.0
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
 
@@ -83,6 +85,7 @@ func _ready() -> void:
 		biome_id = _get_biome_id_for_position(global_position)
 	if home_biome_id.is_empty():
 		home_biome_id = biome_id
+	ai_decision_timer = rng.randf_range(0.0, AI_DECISION_INTERVAL_SECONDS)
 	_pick_wander_target()
 	queue_redraw()
 
@@ -229,10 +232,19 @@ func _physics_process(delta: float) -> void:
 	age_seconds += delta
 	hunger_diet.tick(delta, velocity.length() / max(speed, 1.0))
 	_sync_hunger_fields()
-	_update_state()
+	if _should_update_ai_decision(delta):
+		_update_state()
 	_act(delta)
 	move_and_slide()
 	_enforce_world_bounds()
+
+
+func _should_update_ai_decision(delta: float) -> bool:
+	ai_decision_timer -= delta
+	if ai_decision_timer > 0.0:
+		return false
+	ai_decision_timer = AI_DECISION_INTERVAL_SECONDS
+	return true
 
 
 func _update_state() -> void:

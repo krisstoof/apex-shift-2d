@@ -8,6 +8,7 @@ const ECOSYSTEM_DELTA := preload("res://scripts/systems/ecosystem_delta.gd")
 var biome_states: Dictionary = {}
 var tick_timer := 0.0
 var initialized := false
+var pending_tick_biome_ids: Array[String] = []
 
 
 func _ecosystem_value(key: String) -> float:
@@ -25,10 +26,14 @@ func _process(delta: float) -> void:
 	if not initialized:
 		return
 	tick_timer += delta
+	if not pending_tick_biome_ids.is_empty():
+		_process_next_runtime_biome()
+		return
 	if tick_timer < _ecosystem_value("simulation_tick_seconds"):
 		return
 	tick_timer = 0.0
-	_update_ecosystem_tick()
+	_begin_runtime_ecosystem_tick()
+	_process_next_runtime_biome()
 
 
 func get_biome_states() -> Dictionary:
@@ -49,6 +54,7 @@ func get_save_data() -> Dictionary:
 func load_save_data(data: Dictionary) -> void:
 	if data.is_empty():
 		return
+	pending_tick_biome_ids.clear()
 	var saved_states = data.get("biome_states", {})
 	if typeof(saved_states) == TYPE_DICTIONARY:
 		_restore_biome_states(Dictionary(saved_states))
@@ -167,6 +173,7 @@ func debug_advance_ecosystem_tick() -> void:
 
 func _initialize_biomes() -> void:
 	biome_states.clear()
+	pending_tick_biome_ids.clear()
 	var default_plant_biomass := _ecosystem_value("default_plant_biomass")
 	var max_plant_biomass := _ecosystem_value("max_plant_biomass")
 	for biome in WORLD_CONFIG.get_biome_zones():
@@ -312,22 +319,49 @@ func _post_debug_message(message: String, biome_id: String) -> void:
 
 
 func _update_ecosystem_tick() -> void:
+	pending_tick_biome_ids.clear()
 	for biome_id in biome_states.keys():
-		var state: Dictionary = biome_states[biome_id]
-		var previous_status := str(state.get("status", "healthy"))
-		_update_biome_biomass(state)
-		_update_predator_pressure(state, biome_id)
-		_update_visible_creature_aggregates(state, biome_id)
-		_update_biome_populations(state)
-		state["status"] = _get_biomass_status(
-			float(state.get("plant_biomass", 0.0)),
-			float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
-		)
-		_update_grazer_niche_shift(state)
-		_update_species_generations(state)
-		biome_states[biome_id] = state
-		_emit_vegetation_changed(state)
-		_emit_status_event_if_needed(previous_status, state)
+		_update_ecosystem_biome(str(biome_id))
+
+
+func _begin_runtime_ecosystem_tick() -> void:
+	pending_tick_biome_ids.clear()
+	for biome_id in biome_states.keys():
+		pending_tick_biome_ids.append(str(biome_id))
+	pending_tick_biome_ids.sort()
+
+
+func _take_next_pending_biome_id() -> String:
+	if pending_tick_biome_ids.is_empty():
+		return ""
+	return pending_tick_biome_ids.pop_front()
+
+
+func _process_next_runtime_biome() -> void:
+	var biome_id := _take_next_pending_biome_id()
+	if biome_id.is_empty():
+		return
+	_update_ecosystem_biome(biome_id)
+
+
+func _update_ecosystem_biome(biome_id: String) -> void:
+	if not biome_states.has(biome_id):
+		return
+	var state: Dictionary = biome_states[biome_id]
+	var previous_status := str(state.get("status", "healthy"))
+	_update_biome_biomass(state)
+	_update_predator_pressure(state, biome_id)
+	_update_visible_creature_aggregates(state, biome_id)
+	_update_biome_populations(state)
+	state["status"] = _get_biomass_status(
+		float(state.get("plant_biomass", 0.0)),
+		float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
+	)
+	_update_grazer_niche_shift(state)
+	_update_species_generations(state)
+	biome_states[biome_id] = state
+	_emit_vegetation_changed(state)
+	_emit_status_event_if_needed(previous_status, state)
 
 
 func _update_biome_biomass(state: Dictionary) -> void:
