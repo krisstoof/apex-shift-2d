@@ -7,6 +7,7 @@ const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
+const WORLD_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_query_service.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const VARNAK_SPAWN_TICK_SECONDS := 5.5
@@ -123,6 +124,7 @@ var pending_biome_vegetation_syncs: Dictionary = {}
 var biome_vegetation_sync_scheduled := false
 var boot_ready := false
 var registry = WORLD_REGISTRY_SCRIPT.new()
+var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
 const GROUP_CACHE_TTL_SECONDS := 0.12
 
 signal world_initialized
@@ -130,6 +132,7 @@ signal world_initialized
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	await get_tree().process_frame
+	_ensure_query_service()
 	_ensure_registry()
 	resource_rng.randomize()
 	varnak_rng.randomize()
@@ -188,6 +191,10 @@ func get_landmarks() -> Array[Dictionary]:
 
 func get_world_seed() -> int:
 	return world_seed
+
+
+func get_query_service():
+	return _ensure_query_service()
 
 
 func get_landmark_counts() -> Dictionary:
@@ -344,70 +351,54 @@ func _ensure_registry():
 	return registry
 
 
+func _ensure_query_service():
+	if query_service == null:
+		query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
+	query_service.bind_world(
+		self,
+		PLANT_RESOURCE_KINDS,
+		HILL_RESOURCE_BLOCK_RADIUS_FACTOR,
+		HILL_VISUAL_Y_SCALE,
+		POND_VISUAL_Y_SCALE,
+		WATER_ZONE_LAND,
+		WATER_ZONE_SHORE,
+		WATER_ZONE_SHALLOW,
+		WATER_ZONE_DEEP
+	)
+	return query_service
+
+
 func _yield_initial_boot_step() -> void:
 	for _i in INITIAL_BOOT_STEP_FRAME_BREAKS:
 		await get_tree().process_frame
 
 
 func get_terrain_speed_multiplier(position: Vector2) -> float:
-	match get_water_zone(position):
-		WATER_ZONE_DEEP:
-			return _get_pond_deep_speed_multiplier()
-		WATER_ZONE_SHALLOW:
-			return _get_pond_shallow_speed_multiplier()
-	return 1.0
+	return float(_ensure_query_service().get_terrain_speed_multiplier(position))
 
 
 func get_water_zone(position: Vector2) -> String:
-	var best_zone := WATER_ZONE_LAND
-	if pond_water_search_radius <= 0.0:
-		return best_zone
-	var search_radius := pond_water_search_radius
-	for pond in pond_landmarks:
-		var pond_pos := Vector2(pond.get("position", Vector2.ZERO))
-		var distance_to_pond := position.distance_to(pond_pos)
-		if distance_to_pond > search_radius:
-			continue
-		var zone := _get_pond_water_zone(position, pond)
-		if zone == WATER_ZONE_DEEP:
-			return WATER_ZONE_DEEP
-		if zone == WATER_ZONE_SHALLOW:
-			best_zone = WATER_ZONE_SHALLOW
-		elif zone == WATER_ZONE_SHORE and best_zone == WATER_ZONE_LAND:
-			best_zone = WATER_ZONE_SHORE
-	return best_zone
+	return str(_ensure_query_service().get_water_zone(position))
 
 
 func is_position_in_water(position: Vector2) -> bool:
-	var zone := get_water_zone(position)
-	return zone == WATER_ZONE_DEEP or zone == WATER_ZONE_SHALLOW
+	return _ensure_query_service().is_position_in_water(position)
 
 
 func is_position_in_deep_water(position: Vector2) -> bool:
-	return get_water_zone(position) == WATER_ZONE_DEEP
+	return _ensure_query_service().is_position_in_deep_water(position)
 
 
 func is_resource_position_blocked_by_water(resource_kind: String, position: Vector2) -> bool:
-	if not _is_plant_resource_kind(resource_kind):
-		return false
-	var margin_multiplier := _get_resource_water_margin_multiplier(resource_kind)
-	for pond in pond_landmarks:
-		if _is_position_in_pond_water(position, pond, margin_multiplier):
-			return true
-	return false
+	return _ensure_query_service().is_resource_position_blocked_by_water(resource_kind, position)
 
 
 func is_creature_navigation_blocked(position: Vector2) -> bool:
-	if is_position_in_deep_water(position):
-		return true
-	for hill in hill_landmarks:
-		if _is_position_in_hill_obstacle(position, hill):
-			return true
-	return false
+	return _ensure_query_service().is_creature_navigation_blocked(position)
 
 
 func is_creature_spawn_blocked_by_water(position: Vector2) -> bool:
-	return is_position_in_deep_water(position)
+	return _ensure_query_service().is_creature_spawn_blocked_by_water(position)
 
 
 func get_creatures_out_of_bounds_count() -> int:
@@ -464,6 +455,7 @@ func _rebuild_landmark_runtime_state() -> void:
 				_create_landmark_area(landmark, "pond_landmarks")
 	if not pond_landmarks.is_empty():
 		pond_water_search_radius = max(max_pond_radius * 1.2, 1.0)
+	_ensure_query_service()
 
 
 func restore_landmarks(landmark_data: Array, restored_world_seed: int = 0) -> void:
