@@ -476,6 +476,9 @@ func _craft(item_name: String) -> void:
 	var building := scene.instantiate()
 	building.global_position = global_position + _get_aim_vector() * 56.0
 	get_tree().current_scene.add_child(building)
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("register_building_node"):
+		world.register_building_node(building, item_name)
 	get_node("/root/EventBus").emit_game_event("player_crafted_%s" % item_name, {"position": building.global_position})
 	get_node("/root/EventBus").post_message("Crafted %s" % item_name)
 

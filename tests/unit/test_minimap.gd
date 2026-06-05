@@ -4,12 +4,41 @@ const MINIMAP_SCRIPT := preload("res://scripts/ui/minimap.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
+class MockResource:
+	extends Node2D
+	var resource_kind := "berry_bush"
+	var item_name := "berries"
+	var player_harvestable := true
+
+
+class MockVarnak:
+	extends Node2D
+
+
+class MockWorld:
+	extends Node
+	var registered_resources: Array = []
+	var registered_varnaks: Array = []
+
+	func get_registered_resources() -> Array:
+		return registered_resources
+
+	func get_registered_creatures_by_type(creature_type: String) -> Array:
+		if creature_type == "varnak":
+			return registered_varnaks
+		return []
+
+	func get_landmarks() -> Array[Dictionary]:
+		return []
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_minimap_view_rect_follows_player_and_stays_larger_than_camera(failures)
 	_test_world_to_map_keeps_player_in_minimap_center(failures)
 	_test_world_slice_maps_to_partial_texture_region(failures)
 	_test_landmark_markers_stay_inside_minimap_content(failures)
+	_test_minimap_reads_registry_resources_and_varnaks(failures)
 	return failures
 
 
@@ -84,6 +113,24 @@ func _test_landmark_markers_stay_inside_minimap_content(failures: Array[String])
 	TEST_UTILS.expect_close(hill_center.x, content_rect.end.x, failures, "A hill marker center should clamp to the right edge of the minimap content when the landmark center is off-screen")
 	TEST_UTILS.expect_close(hill_center.y, content_rect.end.y, failures, "A hill marker center should clamp to the bottom edge of the minimap content when the landmark center is off-screen")
 	TEST_UTILS.expect(hill_radius <= 0.01, failures, "A hill marker with no room at the edge should collapse instead of spilling outside the minimap")
+	minimap.free()
+
+
+func _test_minimap_reads_registry_resources_and_varnaks(failures: Array[String]) -> void:
+	var world := MockWorld.new()
+	var resource := MockResource.new()
+	resource.global_position = Vector2(-180.0, 60.0)
+	var varnak := MockVarnak.new()
+	varnak.global_position = Vector2(220.0, -90.0)
+	world.registered_resources = [resource]
+	world.registered_varnaks = [varnak]
+	var minimap := _make_minimap()
+	minimap.world = world
+	minimap.call("_update_resources_cache")
+	var cached_resources: Array = minimap.get("cached_resources")
+	var registered_varnaks: Array = minimap.call("_get_registered_varnaks")
+	TEST_UTILS.expect_equal(cached_resources.size(), 1, failures, "Minimap should cache resource markers from WorldRegistry")
+	TEST_UTILS.expect_equal(registered_varnaks.size(), 1, failures, "Minimap should read varnak markers from WorldRegistry")
 	minimap.free()
 
 

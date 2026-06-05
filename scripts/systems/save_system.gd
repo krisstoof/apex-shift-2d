@@ -75,9 +75,16 @@ func _get_player_data(player: Node) -> Dictionary:
 
 func _get_buildings_data() -> Array[Dictionary]:
 	var buildings: Array[Dictionary] = []
+	var scene := get_tree().current_scene
+	var world := scene.get_node_or_null("World") if scene else null
 	for building_kind in BUILDING_GROUPS.keys():
-		var group_name := String(BUILDING_GROUPS[building_kind])
-		for building in get_tree().get_nodes_in_group(group_name):
+		var building_nodes: Array = []
+		if world and world.has_method("get_registered_buildings_by_type"):
+			building_nodes = world.get_registered_buildings_by_type(String(building_kind))
+		else:
+			var group_name := String(BUILDING_GROUPS[building_kind])
+			building_nodes = get_tree().get_nodes_in_group(group_name)
+		for building in building_nodes:
 			if not is_instance_valid(building):
 				continue
 			buildings.append(_get_building_data(String(building_kind), building))
@@ -141,13 +148,19 @@ func _restore_player_data(player: Node, data: Dictionary) -> void:
 
 
 func _restore_buildings(buildings: Array) -> void:
-	for group_name in BUILDING_GROUPS.values():
-		for building in get_tree().get_nodes_in_group(String(group_name)):
+	var scene := get_tree().current_scene
+	var world := scene.get_node_or_null("World") if scene else null
+	if world and world.has_method("get_registered_buildings"):
+		for building in world.get_registered_buildings():
 			if is_instance_valid(building):
 				building.queue_free()
+	else:
+		for group_name in BUILDING_GROUPS.values():
+			for building in get_tree().get_nodes_in_group(String(group_name)):
+				if is_instance_valid(building):
+					building.queue_free()
 	await get_tree().process_frame
 
-	var scene := get_tree().current_scene
 	for building_data in buildings:
 		if typeof(building_data) != TYPE_DICTIONARY:
 			continue
@@ -158,6 +171,8 @@ func _restore_buildings(buildings: Array) -> void:
 		var building: Node2D = BUILDING_SCENES[building_kind].instantiate()
 		scene.add_child(building)
 		building.global_position = _data_to_vector(data.get("position", {}))
+		if world and world.has_method("register_building_node"):
+			world.register_building_node(building, building_kind)
 		_restore_building_state(building_kind, building, data)
 
 

@@ -11,6 +11,7 @@ const MINIMAP_VIEW_MARGIN_FACTOR := 1.22
 const MINIMAP_FALLBACK_VIEW_WORLD_SIZE := Vector2(1280.0, 760.0)
 
 var player: Node2D
+var world: Node
 var world_rect := WORLD_CONFIG.WORLD_RECT
 var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
@@ -30,6 +31,7 @@ func _ready() -> void:
 
 func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = []) -> void:
 	player = p_player
+	world = _get_world()
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
@@ -314,10 +316,7 @@ func _should_draw_resource_on_minimap(resource: Node) -> bool:
 
 
 func _draw_varnaks(content_rect: Rect2, view_world_rect: Rect2) -> void:
-	var tree := _get_safe_tree()
-	if not tree:
-		return
-	for varnak in tree.get_nodes_in_group("varnak"):
+	for varnak in _get_registered_varnaks():
 		if not is_instance_valid(varnak):
 			continue
 		if not view_world_rect.has_point(varnak.global_position):
@@ -502,8 +501,12 @@ func _get_resource_color(resource: Node) -> Color:
 
 
 func _update_resources_cache() -> void:
-	var tree := _get_safe_tree()
-	cached_resources = tree.get_nodes_in_group("resources") if tree else []
+	var world := _get_world()
+	if world and world.has_method("get_registered_resources"):
+		cached_resources = _to_node_array(world.get_registered_resources())
+	else:
+		var tree := _get_safe_tree()
+		cached_resources = _to_node_array(tree.get_nodes_in_group("resources") if tree else [])
 	# Clean up dead references
 	for i in range(cached_resources.size() - 1, -1, -1):
 		if not is_instance_valid(cached_resources[i]):
@@ -514,3 +517,32 @@ func _get_safe_tree() -> SceneTree:
 	if not is_inside_tree():
 		return null
 	return get_tree()
+
+
+func _get_world() -> Node:
+	if is_instance_valid(world):
+		return world
+	var tree := _get_safe_tree()
+	if tree == null or tree.current_scene == null:
+		return null
+	world = tree.current_scene.get_node_or_null("World")
+	return world
+
+
+func _get_registered_varnaks() -> Array:
+	var world := _get_world()
+	if world and world.has_method("get_registered_creatures_by_type"):
+		return world.get_registered_creatures_by_type("varnak")
+	var tree := _get_safe_tree()
+	if tree == null:
+		return []
+	return tree.get_nodes_in_group("varnak")
+
+
+func _to_node_array(nodes: Array) -> Array[Node]:
+	var typed_nodes: Array[Node] = []
+	for node_value in nodes:
+		var node := node_value as Node
+		if node != null:
+			typed_nodes.append(node)
+	return typed_nodes

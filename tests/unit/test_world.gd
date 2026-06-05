@@ -27,6 +27,7 @@ func run() -> Array[String]:
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
 	_test_current_biome_texture_id_uses_player_position_biome(failures)
 	_test_cached_group_nodes_prune_freed_entries(failures)
+	_test_world_registry_tracks_spawned_nodes_and_prunes_freed_entries(failures)
 	return failures
 
 
@@ -374,16 +375,42 @@ func _test_cached_group_nodes_prune_freed_entries(failures: Array[String]) -> vo
 		return
 	var world := WORLD_SCRIPT.new()
 	tree.current_scene.add_child(world)
-	var meat_drop := Node2D.new()
-	world.add_child(meat_drop)
-	meat_drop.add_to_group("meat_drops")
-	meat_drop.position = Vector2(24.0, -12.0)
+	var meat_drop: Node2D = world.call("_spawn_resource_at", "meat_drop", Vector2(24.0, -12.0))
 	var cached_before: Array = world.call("get_cached_group_nodes", "meat_drops")
 	TEST_UTILS.expect_equal(cached_before.size(), 1, failures, "World cache should capture the live meat drop")
 	meat_drop.free()
 	var cached_after: Array = world.call("get_cached_group_nodes", "meat_drops")
 	TEST_UTILS.expect_equal(cached_after.size(), 0, failures, "World cache should filter out freed nodes before returning the cached list")
-	world.queue_free()
+	world.free()
+
+
+func _test_world_registry_tracks_spawned_nodes_and_prunes_freed_entries(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	TEST_UTILS.expect(tree != null and tree.current_scene != null, failures, "Test runner should provide a current scene for registry tests")
+	if tree == null or tree.current_scene == null:
+		return
+	var world := WORLD_SCRIPT.new()
+	tree.current_scene.add_child(world)
+	var resource: Node2D = world.call("_spawn_resource_at", "berry_bush", Vector2(-900.0, -320.0))
+	var small_prey: Node2D = world.call("_spawn_small_prey_at", Vector2(-840.0, -280.0), "westwood")
+	var building := Node2D.new()
+	tree.current_scene.add_child(building)
+	world.register_building_node(building, "campfire")
+	var resource_biome_id := str(resource.get("biome_id"))
+	TEST_UTILS.expect_equal(world.get_registered_resources().size(), 1, failures, "World registry should include resources spawned through World")
+	TEST_UTILS.expect_equal(world.get_registered_resources_by_kind("berry_bush").size(), 1, failures, "World registry should expose resources by resource kind")
+	TEST_UTILS.expect_equal(world.get_registered_resources_by_biome(resource_biome_id).size(), 1, failures, "World registry should expose resources by biome id")
+	TEST_UTILS.expect_equal(world.get_registered_creatures_by_type("small_prey").size(), 1, failures, "World registry should include spawned SmallPrey")
+	TEST_UTILS.expect_equal(world.get_registered_buildings_by_type("campfire").size(), 1, failures, "World registry should include registered campfires")
+	TEST_UTILS.expect_equal(world.call("get_cached_group_nodes", "edible_vegetation").size(), 1, failures, "Cached edible vegetation reads should resolve through WorldRegistry")
+	TEST_UTILS.expect_equal(world.call("get_cached_group_nodes", "campfires").size(), 1, failures, "Cached campfire reads should resolve through WorldRegistry")
+	resource.free()
+	small_prey.free()
+	building.free()
+	TEST_UTILS.expect_equal(world.get_registered_resources().size(), 0, failures, "World registry should prune freed resources immediately")
+	TEST_UTILS.expect_equal(world.get_registered_creatures_by_type("small_prey").size(), 0, failures, "World registry should prune freed creatures immediately")
+	TEST_UTILS.expect_equal(world.get_registered_buildings_by_type("campfire").size(), 0, failures, "World registry should prune freed buildings immediately")
+	world.free()
 
 
 func _make_world_with_single_pond() -> Node2D:
