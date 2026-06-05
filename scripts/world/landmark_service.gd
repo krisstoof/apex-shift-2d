@@ -68,6 +68,16 @@ func get_landmarks() -> Array[Dictionary]:
 	return landmarks.duplicate(true)
 
 
+func get_landmark_save_data() -> Array[Dictionary]:
+	var landmark_data: Array[Dictionary] = []
+	for landmark_value in landmarks:
+		var landmark := Dictionary(landmark_value).duplicate(true)
+		landmark["position"] = _vector_to_data(Vector2(landmark.get("position", Vector2.ZERO)))
+		landmark["radius"] = float(landmark.get("radius", 0.0))
+		landmark_data.append(landmark)
+	return landmark_data
+
+
 func get_hill_landmarks() -> Array[Dictionary]:
 	return hill_landmarks.duplicate(true)
 
@@ -102,3 +112,7 @@ func get_nearest_landmark_data(position: Vector2) -> Dictionary:
 
 func get_pond_water_search_radius() -> float:
 	return pond_water_search_radius
+
+
+func _vector_to_data(value: Vector2) -> Dictionary:
+	return {"x": value.x, "y": value.y}
