@@ -434,8 +434,12 @@ func _find_nearest_meat_drop(search_range: float) -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := search_range
 	for resource in _get_cached_group_nodes("meat_drops"):
+		if not is_instance_valid(resource):
+			continue
+		if not (resource is Node2D):
+			continue
 		var meat_drop := resource as Node2D
-		if not _is_meat_drop_target(meat_drop):
+		if not is_instance_valid(meat_drop) or not _is_meat_drop_target(meat_drop):
 			continue
 		var distance := global_position.distance_to(meat_drop.global_position)
 		if distance < nearest_distance:
@@ -445,7 +449,12 @@ func _find_nearest_meat_drop(search_range: float) -> Node2D:
 
 
 func _is_meat_drop_target(resource: Node) -> bool:
-	return is_instance_valid(resource) and resource is Node2D and resource.get("resource_kind") == "meat_drop" and int(resource.get("amount")) > 0
+	if not is_instance_valid(resource):
+		return false
+	var meat_drop := resource as Node2D
+	if meat_drop == null:
+		return false
+	return meat_drop.get("resource_kind") == "meat_drop" and int(meat_drop.get("amount")) > 0
 
 
 func _can_eat_meat_drop() -> bool:

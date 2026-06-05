@@ -258,17 +258,33 @@ func is_boot_ready() -> bool:
 
 
 func get_cached_group_nodes(group_name: String) -> Array:
+	var scene_tree := get_tree()
+	if scene_tree == null:
+		return []
 	var now_seconds := Time.get_ticks_msec() / 1000.0
 	var last_refresh := float(group_nodes_cache_timestamps.get(group_name, -INF))
 	if not group_nodes_cache.has(group_name) or now_seconds - last_refresh >= GROUP_CACHE_TTL_SECONDS:
-		group_nodes_cache[group_name] = get_tree().get_nodes_in_group(group_name)
+		group_nodes_cache[group_name] = _filter_valid_cached_group_nodes(scene_tree.get_nodes_in_group(group_name))
 		group_nodes_cache_timestamps[group_name] = now_seconds
-	return group_nodes_cache[group_name]
+		return group_nodes_cache[group_name]
+	var cached_nodes: Array = Array(group_nodes_cache.get(group_name, []))
+	var filtered_nodes := _filter_valid_cached_group_nodes(cached_nodes)
+	if filtered_nodes.size() != cached_nodes.size():
+		group_nodes_cache[group_name] = filtered_nodes
+	return filtered_nodes
 
 
 func clear_cached_group_nodes() -> void:
 	group_nodes_cache.clear()
 	group_nodes_cache_timestamps.clear()
+
+
+func _filter_valid_cached_group_nodes(nodes: Array) -> Array:
+	var filtered_nodes: Array = []
+	for node in nodes:
+		if is_instance_valid(node):
+			filtered_nodes.append(node)
+	return filtered_nodes
 
 
 func _yield_initial_boot_step() -> void:

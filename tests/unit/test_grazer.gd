@@ -56,8 +56,11 @@ func run() -> Array[String]:
 	_test_grazer_searches_plants_when_hungry(failures)
 	_test_grazer_moves_toward_nearest_food(failures)
 	_test_grazer_eats_plant_resource(failures)
+	_test_grazer_consumes_nearby_plant_over_time(failures)
+	_test_grazer_consumes_large_bush_at_edge_distance(failures)
 	_test_grazer_does_not_eat_meat_when_plants_exist(failures)
 	_test_grazer_can_eat_meat_when_desperate(failures)
+	_test_grazer_skips_freed_meat_drop_targets(failures)
 	_test_grazer_hunger_restored_after_eating(failures)
 	_test_grazer_returns_to_wandering_after_eating(failures)
 	_test_grazer_takes_damage(failures)
@@ -173,11 +176,70 @@ func _test_grazer_eats_plant_resource(failures: Array[String]) -> void:
 	grazer.queue_free()
 
 
+func _test_grazer_consumes_nearby_plant_over_time(failures: Array[String]) -> void:
+	var grazer := _make_grazer()
+	var world := _ensure_world()
+	var resource := _spawn_grass(world, Vector2(18.0, 0.0))
+	grazer.call("_initialize_from_game_balance")
+	grazer.call("_load_species_data")
+	grazer.global_position = Vector2.ZERO
+	grazer.hunger_diet.hunger = 0.90
+	grazer.call("_sync_hunger_fields")
+	_neutralize_threats(grazer)
+	var hunger_before: float = grazer.hunger_diet.hunger
+	var ate_plant := false
+	for _i in range(120):
+		grazer.call("_physics_process", 0.1)
+		if grazer.last_food_source == "plants":
+			ate_plant = true
+			break
+	var target_distance := -1.0
+	if is_instance_valid(grazer.plant_target):
+		target_distance = grazer.global_position.distance_to(grazer.plant_target.global_position)
+	var debug_state := "%s | reason=%s | target=%s | hunger=%.3f | state_time=%.3f | last=%s" % [
+		str(grazer.state),
+		grazer.decision_reason,
+		grazer._get_current_target_label() if grazer.has_method("_get_current_target_label") else "unknown",
+		grazer.hunger_diet.hunger,
+		grazer.state_time,
+		grazer.last_food_source
+	]
+	var distance_debug := "distance=%.3f | %s" % [target_distance, debug_state]
+	TEST_UTILS.expect(ate_plant, failures, "Grazer should eventually eat a nearby plant during the normal physics loop (%s)" % distance_debug)
+	TEST_UTILS.expect(grazer.hunger_diet.hunger < hunger_before, failures, "Grazer hunger should decrease after the normal plant-eating loop (%s)" % distance_debug)
+	TEST_UTILS.expect(float(resource.get("growth_stage")) < float(resource.get("max_growth_stage")), failures, "Grazer should partially consume the plant resource during the normal loop (%s)" % distance_debug)
+	resource.queue_free()
+	grazer.queue_free()
+
+
+func _test_grazer_consumes_large_bush_at_edge_distance(failures: Array[String]) -> void:
+	var grazer := _make_grazer()
+	var world := _ensure_world()
+	var resource := _spawn_bush(world, Vector2(50.0, 0.0))
+	grazer.call("_initialize_from_game_balance")
+	grazer.call("_load_species_data")
+	grazer.global_position = Vector2.ZERO
+	grazer.hunger_diet.hunger = 0.88
+	grazer.call("_sync_hunger_fields")
+	_neutralize_threats(grazer)
+	grazer.plant_target = resource
+	grazer.state = grazer.State.SEEK_FOOD
+	grazer.call("_try_update_plant_target")
+	TEST_UTILS.expect_equal(grazer.state, grazer.State.EAT_PLANTS, failures, "Grazer should start eating when it reaches the edge of a large bush, not only its center")
+	var before_hunger: float = grazer.hunger_diet.hunger
+	grazer.call("_consume_plants")
+	TEST_UTILS.expect(grazer.hunger_diet.hunger < before_hunger, failures, "Eating a large bush from edge distance should still reduce hunger")
+	TEST_UTILS.expect_equal(grazer.last_food_source, "plants", failures, "Large bush edge consumption should still register as plant eating")
+	resource.queue_free()
+	grazer.queue_free()
+
+
 func _test_grazer_does_not_eat_meat_when_plants_exist(failures: Array[String]) -> void:
 	var grazer := _make_grazer()
 	var world := _ensure_world()
 	var grass := _spawn_grass(world, Vector2(8.0, 0.0))
 	var meat := _spawn_meat_drop(world, Vector2(10.0, 0.0))
+	grazer.call("_initialize_from_game_balance")
 	grazer.call("_load_species_data")
 	grazer.global_position = Vector2.ZERO
 	grazer.hunger_diet.hunger = 0.80
@@ -192,10 +254,22 @@ func _test_grazer_does_not_eat_meat_when_plants_exist(failures: Array[String]) -
 	grazer.queue_free()
 
 
+func _test_grazer_skips_freed_meat_drop_targets(failures: Array[String]) -> void:
+	var grazer := _make_grazer()
+	var world := _ensure_world()
+	var live_meat := _spawn_meat_drop(world, Vector2(160.0, 0.0))
+	var stale_meat := _spawn_meat_drop(world, Vector2(24.0, 0.0))
+	stale_meat.free()
+	var found: Node2D = grazer.call("_find_nearest_meat_drop", 500.0) as Node2D
+	TEST_UTILS.expect_equal(found, live_meat, failures, "Grazer should ignore freed meat drops and pick the live target")
+	grazer.queue_free()
+
+
 func _test_grazer_can_eat_meat_when_desperate(failures: Array[String]) -> void:
 	var grazer := _make_grazer()
 	var world := _ensure_world()
 	var meat := _spawn_meat_drop(world, Vector2(8.0, 0.0))
+	grazer.call("_initialize_from_game_balance")
 	grazer.call("_load_species_data")
 	grazer.global_position = Vector2.ZERO
 	grazer.hunger_diet.hunger = min(grazer.hunger_diet.desperate_threshold + 0.02, 0.99)
@@ -318,8 +392,17 @@ func _ensure_world() -> TestWorld:
 func _spawn_grass(world: TestWorld, position: Vector2) -> Node:
 	var resource := RESOURCE_NODE_SCENE.instantiate()
 	world.add_child(resource)
-	resource.position = position
+	resource.global_position = position
 	resource.call("setup", "grass_patch")
+	world.register_cached_group_node("edible_vegetation", resource)
+	return resource
+
+
+func _spawn_bush(world: TestWorld, position: Vector2) -> Node:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	world.add_child(resource)
+	resource.global_position = position
+	resource.call("setup", "bush")
 	world.register_cached_group_node("edible_vegetation", resource)
 	return resource
 
@@ -327,7 +410,7 @@ func _spawn_grass(world: TestWorld, position: Vector2) -> Node:
 func _spawn_meat_drop(world: TestWorld, position: Vector2) -> Node:
 	var resource := RESOURCE_NODE_SCENE.instantiate()
 	world.add_child(resource)
-	resource.position = position
+	resource.global_position = position
 	resource.call("setup", "meat_drop")
 	world.register_cached_group_node("meat_drops", resource)
 	return resource
