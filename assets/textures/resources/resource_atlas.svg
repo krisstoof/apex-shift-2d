@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="160" viewBox="0 0 800 160">
+  <g id="conifer">
+    <rect x="36" y="46" width="8" height="22" fill="#613819"/>
+    <path d="M40 8 16 43h48Z" fill="#0f4724"/>
+    <path d="M40 20 12 55h56Z" fill="#125c2b"/>
+    <path d="M40 32 17 66h46Z" fill="#197033"/>
+    <path d="M40 8v56" stroke="#1f2e1a" stroke-width="2" opacity=".55"/>
+  </g>
+  <g id="leafy" transform="translate(80)">
+    <rect x="35" y="42" width="10" height="26" fill="#6b3b14"/>
+    <circle cx="29" cy="31" r="17" fill="#217329"/>
+    <circle cx="51" cy="30" r="17" fill="#1f802b"/>
+    <circle cx="40" cy="18" r="18" fill="#2e9433"/>
+    <circle cx="40" cy="34" r="19" fill="#29852e"/>
+    <path d="M14 41q26 22 52 0" fill="none" stroke="#0f2e14" stroke-width="2" opacity=".5"/>
+  </g>
+  <g id="bush" transform="translate(160)">
+    <circle cx="28" cy="43" r="13" fill="#4fb338"/>
+    <circle cx="42" cy="34" r="15" fill="#6edb40"/>
+    <circle cx="56" cy="44" r="12" fill="#3d992e"/>
+    <circle cx="42" cy="49" r="12" fill="#59bf33"/>
+    <path d="M22 51h38" stroke="#1f4319" stroke-width="3"/>
+  </g>
+  <g id="dry-bush" transform="translate(240)" stroke-linecap="round">
+    <g stroke="#a87d38">
+      <path d="M40 57 21 34M40 57l20-24M40 57V25" stroke-width="4"/>
+      <path d="M31 45 19 47M35 39 29 27M50 44l13 5M47 38l8-12" stroke-width="3"/>
+    </g>
+    <circle cx="40" cy="42" r="17" fill="#80612b" opacity=".14"/>
+  </g>
+  <g id="small-bush" transform="translate(320)">
+    <circle cx="32" cy="43" r="9" fill="#439428"/>
+    <circle cx="42" cy="36" r="10" fill="#5bc233"/>
+    <circle cx="51" cy="45" r="8" fill="#387f24"/>
+    <path d="M27 50h29" stroke="#1c3d17" stroke-width="2"/>
+  </g>
+  <g id="berry-bush" transform="translate(400)">
+    <circle cx="32" cy="43" r="9" fill="#439428"/>
+    <circle cx="42" cy="36" r="10" fill="#5bc233"/>
+    <circle cx="51" cy="45" r="8" fill="#387f24"/>
+    <path d="M27 50h29" stroke="#1c3d17" stroke-width="2"/>
+    <circle cx="36" cy="35" r="3" fill="#c41f2e"/>
+    <circle cx="48" cy="40" r="3" fill="#a91927"/>
+    <circle cx="41" cy="48" r="2.5" fill="#d52b39"/>
+  </g>
+  <g id="grass" transform="translate(480)" stroke="#47b338" stroke-width="2.2" stroke-linecap="round">
+    <path d="M29 52 31 36M34 52l1-20M39 52l2-16M44 52l3-21M49 52l2-17M54 52l-1-14"/>
+    <ellipse cx="41" cy="51" rx="15" ry="7" fill="#1f4d17" stroke="none" opacity=".16"/>
+  </g>
+  <g id="dense-grass" transform="translate(560)" stroke="#389e2e" stroke-width="2.4" stroke-linecap="round">
+    <path d="M24 56 27 36M29 56l3-26M34 56l1-20M39 56l4-29M44 56l-1-24M49 56l4-28M54 56l-1-21M59 56l3-25"/>
+    <ellipse cx="43" cy="54" rx="21" ry="9" fill="#193d14" stroke="none" opacity=".18"/>
+  </g>
+  <g id="rock" transform="translate(640)">
+    <path d="m22 51 9-25 23 1 12 21-17 18-23-5Z" fill="#62646b"/>
+    <path d="m31 26 23 1-9 17-19 6Z" fill="#8d8f99"/>
+    <path d="m36 31 9 25" stroke="#383a40" stroke-width="3"/>
+  </g>
+  <g id="meat" transform="translate(720)">
+    <circle cx="34" cy="44" r="10" fill="#94100d"/>
+    <circle cx="47" cy="39" r="9" fill="#c7251f"/>
+    <circle cx="42" cy="49" r="7" fill="#730807"/>
+  </g>
+
+  <g transform="translate(0 80)">
+    <g id="depleted-tree">
+      <rect x="35" y="38" width="10" height="24" fill="#573016"/>
+      <ellipse cx="40" cy="55" rx="18" ry="11" fill="#2b1c0f" opacity=".25"/>
+    </g>
+    <use href="#depleted-tree" transform="translate(80)"/>
+    <g id="depleted-bush" transform="translate(160)" stroke="#55401c" stroke-width="3" stroke-linecap="round">
+      <path d="m27 52 27-20M54 52 27 33"/>
+      <circle cx="40" cy="43" r="13" fill="#242014" stroke="none" opacity=".2"/>
+    </g>
+    <use href="#depleted-bush" transform="translate(80)"/>
+    <use href="#depleted-bush" transform="translate(160)"/>
+    <use href="#depleted-bush" transform="translate(240)"/>
+    <g id="depleted-grass" transform="translate(480)" stroke="#2e521a" stroke-width="2" stroke-linecap="round" opacity=".7">
+      <path d="M29 53 24 44M34 53l-2-13M39 53v-15M44 53l3-13M49 53l7-9"/>
+    </g>
+    <use href="#depleted-grass" transform="translate(80)"/>
+    <use href="#rock"/>
+    <use href="#meat"/>
+  </g>
+</svg>

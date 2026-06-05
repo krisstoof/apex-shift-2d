@@ -26,7 +26,7 @@ func _test_render_controller_tracks_redraw_timing_and_blend_cache(failures: Arra
 			}],
 		func() -> String:
 			return "test:1",
-		func(position: Vector2, _biome_zones: Array[Dictionary]) -> Color:
+		func(position: Vector2, _biome_zones: Array) -> Color:
 			return Color(position.x / 100.0, position.y / 100.0, 0.5, 1.0)
 	)
 	var initial_status := controller.get_biome_texture_cache_status()

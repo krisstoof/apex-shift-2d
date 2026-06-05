@@ -77,6 +77,7 @@ func run() -> Array[String]:
 	_test_varnak_has_hunger_component(failures)
 	_test_varnak_has_attack_damage(failures)
 	_test_varnak_has_detection_range(failures)
+	_test_varnak_throttles_ai_decisions(failures)
 	_test_varnak_can_wander(failures)
 	_test_varnak_does_not_leave_world_bounds(failures)
 	_test_varnak_searches_prey_when_hungry(failures)
@@ -102,6 +103,15 @@ func run() -> Array[String]:
 	_test_varnak_does_not_duplicate_meat_drop_on_repeated_death(failures)
 	_test_varnak_removed_from_ecosystem_after_death(failures)
 	return failures
+
+
+func _test_varnak_throttles_ai_decisions(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	varnak.ai_decision_timer = 0.10
+	TEST_UTILS.expect(not varnak.call("_should_update_ai_decision", 0.05), failures, "Varnak should skip decisions before its AI interval elapses")
+	TEST_UTILS.expect(varnak.call("_should_update_ai_decision", 0.06), failures, "Varnak should run a decision after its AI interval elapses")
+	TEST_UTILS.expect(not varnak.call("_should_update_ai_decision", 0.01), failures, "Varnak should reset its decision interval after an update")
+	varnak.queue_free()
 
 
 func _test_varnak_initializes_with_valid_health(failures: Array[String]) -> void:

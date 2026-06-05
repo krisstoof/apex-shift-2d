@@ -50,6 +50,7 @@ func run() -> Array[String]:
 	_test_small_prey_has_valid_movement_speed(failures)
 	_test_small_prey_has_hunger_component(failures)
 	_test_small_prey_has_diet(failures)
+	_test_small_prey_throttles_ai_decisions(failures)
 	_test_small_prey_can_wander(failures)
 	_test_small_prey_does_not_leave_world_bounds(failures)
 	_test_small_prey_searches_food_when_hungry(failures)
@@ -61,6 +62,15 @@ func run() -> Array[String]:
 	_test_small_prey_takes_damage_and_flees(failures)
 	_test_small_prey_dies_and_drops_meat(failures)
 	return failures
+
+
+func _test_small_prey_throttles_ai_decisions(failures: Array[String]) -> void:
+	var prey := _make_small_prey()
+	prey.ai_decision_timer = 0.10
+	TEST_UTILS.expect(not prey.call("_should_update_ai_decision", 0.05), failures, "Small prey should skip decisions before its AI interval elapses")
+	TEST_UTILS.expect(prey.call("_should_update_ai_decision", 0.06), failures, "Small prey should run a decision after its AI interval elapses")
+	TEST_UTILS.expect(not prey.call("_should_update_ai_decision", 0.01), failures, "Small prey should reset its decision interval after an update")
+	prey.queue_free()
 
 
 func _test_small_prey_initializes_with_valid_health(failures: Array[String]) -> void:

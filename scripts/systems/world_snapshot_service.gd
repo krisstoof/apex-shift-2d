@@ -41,14 +41,15 @@ func _build_snapshot() -> Dictionary:
 	var player_snapshot := _build_player_snapshot()
 	var world_snapshot := _build_world_snapshot(player_snapshot)
 	var ecosystem_snapshot := _build_ecosystem_snapshot()
+	var marker_snapshot := _build_marker_snapshot()
 	return {
 		"player": player_snapshot,
 		"time": _build_time_snapshot(),
 		"world": world_snapshot,
-		"markers": _build_marker_snapshot(),
+		"markers": marker_snapshot,
 		"ecosystem": ecosystem_snapshot,
 		"evolution": _build_evolution_snapshot(),
-		"debug": _build_debug_snapshot(player_snapshot, world_snapshot, ecosystem_snapshot)
+		"debug": _build_debug_snapshot(player_snapshot, world_snapshot, ecosystem_snapshot, marker_snapshot)
 	}
 
 
@@ -248,8 +249,14 @@ func _build_evolution_snapshot() -> Dictionary:
 	}
 
 
-func _build_debug_snapshot(player_snapshot: Dictionary, world_snapshot: Dictionary, ecosystem_snapshot: Dictionary) -> Dictionary:
-	var markers := _build_marker_snapshot()
+func _build_debug_snapshot(
+	player_snapshot: Dictionary,
+	world_snapshot: Dictionary,
+	ecosystem_snapshot: Dictionary,
+	markers: Dictionary = {}
+) -> Dictionary:
+	if markers.is_empty():
+		markers = _build_marker_snapshot()
 	return {
 		"live_varnaks": Array(markers.get("varnaks", [])).size(),
 		"live_small_prey": Array(markers.get("small_prey", [])).size(),

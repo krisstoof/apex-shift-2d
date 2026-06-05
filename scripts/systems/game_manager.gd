@@ -7,11 +7,16 @@ extends Node
 @onready var player: Node = get_parent().get_node("Player")
 @onready var world: Node = get_parent().get_node("World")
 @onready var save_system: Node = get_parent().get_node("SaveSystem")
+@onready var loading_overlay: CanvasLayer = get_parent().get_node("LoadingOverlay")
 @onready var game_session = get_node("/root/GameSession")
 
 var game_over_active := false
 
 func _ready() -> void:
+	_set_loading_overlay_state("Preparing world...", 0.0)
+	if hud:
+		hud.visible = false
+	_connect_world_boot_progress()
 	await _wait_for_world_boot()
 	player.evolution_director = evolution_director
 	hud.bind(player, evolution_director, day_night_system, ecosystem_director)
@@ -20,6 +25,9 @@ func _ready() -> void:
 		if not player.is_connected("died", died_callable):
 			player.connect("died", died_callable)
 	await _apply_boot_action()
+	if hud:
+		hud.visible = true
+	_hide_loading_overlay()
 	get_node("/root/EventBus").post_message("Apex Shift 2D prototype ready")
 
 
@@ -41,7 +49,32 @@ func _wait_for_world_boot() -> void:
 
 func _apply_boot_action() -> void:
 	if game_session.consume_load_save_request():
+		_set_loading_overlay_state("Loading save data...", 1.0)
 		await save_system.load_game()
+
+
+func _connect_world_boot_progress() -> void:
+	if world.has_signal("world_boot_stage_changed"):
+		var stage_callable := Callable(self, "_on_world_boot_stage_changed")
+		if not world.is_connected("world_boot_stage_changed", stage_callable):
+			world.connect("world_boot_stage_changed", stage_callable)
+	if world.has_method("get_boot_progress_state"):
+		var boot_state := Dictionary(world.get_boot_progress_state())
+		_set_loading_overlay_state(str(boot_state.get("message", "Preparing world...")), float(boot_state.get("progress", 0.0)))
+
+
+func _on_world_boot_stage_changed(stage_message: String, progress: float) -> void:
+	_set_loading_overlay_state(stage_message, progress)
+
+
+func _set_loading_overlay_state(stage_message: String, progress: float) -> void:
+	if loading_overlay and loading_overlay.has_method("show_loading"):
+		loading_overlay.show_loading(stage_message, progress)
+
+
+func _hide_loading_overlay() -> void:
+	if loading_overlay and loading_overlay.has_method("hide_loading"):
+		loading_overlay.hide_loading()
 
 
 func _on_player_died(reason: String) -> void:

@@ -2,6 +2,21 @@ extends StaticBody2D
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const RESOURCE_ATLAS_PATH := "res://assets/textures/resources/resource_atlas.svg"
+const RESOURCE_ATLAS_CELL_SIZE := Vector2(80.0, 80.0)
+const RESOURCE_ATLAS_COLUMNS := {
+	"conifer_tree": 0,
+	"leafy_tree": 1,
+	"bush": 2,
+	"dry_bush": 3,
+	"small_bush": 4,
+	"berry_bush": 5,
+	"grass_patch": 6,
+	"dense_grass": 7,
+	"rock": 8,
+	"meat_drop": 9
+}
+static var shared_resource_atlas: ImageTexture
 
 @export var item_name := "wood"
 @export var amount := 2
@@ -28,6 +43,7 @@ var pond_visual_multiplier := 1.0
 var biome_id := ""
 
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
+@onready var visual_sprite: Sprite2D = $VisualSprite
 
 func _ready() -> void:
 	add_to_group("resources")
@@ -35,6 +51,7 @@ func _ready() -> void:
 		biome_id = _get_biome_id_for_position(global_position)
 	_apply_growth_stage()
 	_sync_resource_groups()
+	_sync_visual_sprite()
 	queue_redraw()
 
 
@@ -272,7 +289,47 @@ func _apply_growth_stage() -> void:
 	if shape:
 		shape.set_deferred("disabled", not player_harvestable or not can_be_harvested)
 	_sync_resource_groups()
+	_sync_visual_sprite()
 	queue_redraw()
+
+
+func _sync_visual_sprite() -> void:
+	var sprite := _get_visual_sprite()
+	if sprite == null:
+		return
+	var column := int(RESOURCE_ATLAS_COLUMNS.get(resource_kind, RESOURCE_ATLAS_COLUMNS["bush"]))
+	var row := 1 if _uses_regrowth() and growth_stage <= 0 else 0
+	var atlas := _get_resource_atlas()
+	if atlas == null:
+		sprite.visible = false
+		return
+	var atlas_texture := AtlasTexture.new()
+	atlas_texture.atlas = atlas
+	atlas_texture.region = Rect2(
+		Vector2(float(column), float(row)) * RESOURCE_ATLAS_CELL_SIZE,
+		RESOURCE_ATLAS_CELL_SIZE
+	)
+	sprite.texture = atlas_texture
+	sprite.scale = Vector2.ONE * _get_visual_scale()
+	sprite.visible = true
+
+
+func _get_resource_atlas() -> ImageTexture:
+	if shared_resource_atlas != null:
+		return shared_resource_atlas
+	var image := Image.new()
+	var load_error := image.load_svg_from_buffer(FileAccess.get_file_as_bytes(RESOURCE_ATLAS_PATH))
+	if load_error != OK or image.is_empty():
+		return null
+	shared_resource_atlas = ImageTexture.create_from_image(image)
+	return shared_resource_atlas
+
+
+func _get_visual_sprite() -> Sprite2D:
+	if visual_sprite != null:
+		return visual_sprite
+	visual_sprite = get_node_or_null("VisualSprite") as Sprite2D
+	return visual_sprite
 
 
 func consume_by_creature(_consumer: Node, _consumption_rate: float = 1.0) -> float:
@@ -492,6 +549,9 @@ func _get_biome_id(biome: Dictionary) -> String:
 
 
 func _draw() -> void:
+	var sprite := _get_visual_sprite()
+	if sprite != null and sprite.texture != null:
+		return
 	if _uses_regrowth() and growth_stage <= 0:
 		_draw_depleted_plant()
 		return

@@ -68,6 +68,7 @@ func run() -> Array[String]:
 	_test_grazer_has_hunger_component(failures)
 	_test_grazer_has_herbivore_diet(failures)
 	_test_grazer_has_valid_speed(failures)
+	_test_grazer_throttles_ai_decisions(failures)
 	_test_grazer_can_wander(failures)
 	_test_grazer_does_not_leave_world_bounds(failures)
 	_test_grazer_prefers_world_query_service_for_navigation_and_terrain(failures)
@@ -87,6 +88,15 @@ func run() -> Array[String]:
 	_test_grazer_does_not_duplicate_meat_drop_on_repeated_death(failures)
 	_test_grazer_removed_from_ecosystem_after_death(failures)
 	return failures
+
+
+func _test_grazer_throttles_ai_decisions(failures: Array[String]) -> void:
+	var grazer := _make_grazer()
+	grazer.ai_decision_timer = 0.10
+	TEST_UTILS.expect(not grazer.call("_should_update_ai_decision", 0.05), failures, "Grazer should skip decisions before its AI interval elapses")
+	TEST_UTILS.expect(grazer.call("_should_update_ai_decision", 0.06), failures, "Grazer should run a decision after its AI interval elapses")
+	TEST_UTILS.expect(not grazer.call("_should_update_ai_decision", 0.01), failures, "Grazer should reset its decision interval after an update")
+	grazer.queue_free()
 
 
 func _test_grazer_initializes_with_valid_health(failures: Array[String]) -> void:

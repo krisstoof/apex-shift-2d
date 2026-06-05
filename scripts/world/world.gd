@@ -122,6 +122,10 @@ var group_nodes_cache_timestamps: Dictionary = {}
 var pending_biome_vegetation_syncs: Dictionary = {}
 var biome_vegetation_sync_scheduled := false
 var boot_ready := false
+var boot_status_message := "Preparing world..."
+var boot_status_progress := 0.0
+var biome_blend_background: Sprite2D
+var night_overlay_polygon: Polygon2D
 var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
 var landmark_service = LANDMARK_SERVICE_SCRIPT.new()
@@ -130,10 +134,15 @@ var render_controller = WORLD_RENDER_CONTROLLER_SCRIPT.new()
 const GROUP_CACHE_TTL_SECONDS := 0.12
 
 signal world_initialized
+signal world_boot_stage_changed(stage_message: String, progress: float)
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_ensure_biome_blend_background()
+	_ensure_night_overlay_polygon()
+	_set_boot_progress("Preparing world...", 0.02)
 	await get_tree().process_frame
+	_set_boot_progress("Preparing world systems...", 0.08)
 	_ensure_query_service()
 	_ensure_registry()
 	resource_rng.randomize()
@@ -149,17 +158,27 @@ func _ready() -> void:
 	if event_bus and event_bus.has_signal("game_event"):
 		event_bus.game_event.connect(_on_game_event)
 	_ensure_render_controller()
+	_set_boot_progress("Generating landmarks...", 0.18)
 	_create_landmarks()
 	_queue_biome_terrain_accent_cache_rebuild()
+	_set_boot_progress("Growing vegetation...", 0.40)
 	await _spawn_resources()
 	await _yield_initial_boot_step()
+	_set_boot_progress("Spawning small prey...", 0.58)
 	_sync_visible_small_prey()
 	await _yield_initial_boot_step()
+	_set_boot_progress("Spawning grazers...", 0.72)
 	_spawn_initial_grazers()
 	await _yield_initial_boot_step()
+	_set_boot_progress("Spawning predators...", 0.84)
 	_sync_visible_varnaks()
 	await _yield_initial_boot_step()
+	_set_boot_progress("Rendering world...", 0.94)
+	_prepare_boot_render_cache()
+	await _yield_initial_boot_step()
+	_set_boot_progress("Finalizing world...", 0.98)
 	boot_ready = true
+	_set_boot_progress("World ready", 1.0)
 	world_initialized.emit()
 	queue_redraw()
 
@@ -174,8 +193,8 @@ func _process(delta: float) -> void:
 		varnak_spawn_timer = 0.0
 		_sync_visible_varnaks()
 	var current_night_amount := _get_night_amount()
-	if _ensure_render_controller().process(delta, current_night_amount):
-		queue_redraw()
+	_ensure_render_controller().process(delta, current_night_amount)
+	_update_night_overlay(current_night_amount)
 
 
 func get_world_rect() -> Rect2:
@@ -194,6 +213,14 @@ func get_landmarks() -> Array[Dictionary]:
 
 func get_world_seed() -> int:
 	return world_seed
+
+
+func get_boot_progress_state() -> Dictionary:
+	return {
+		"message": boot_status_message,
+		"progress": boot_status_progress,
+		"boot_ready": boot_ready
+	}
 
 
 func get_query_service():
@@ -352,13 +379,56 @@ func _ensure_resource_service():
 func _ensure_render_controller():
 	if render_controller == null:
 		render_controller = WORLD_RENDER_CONTROLLER_SCRIPT.new()
+	if not render_controller.biome_surface_color_getter.is_valid():
 		render_controller.bind_world(
 			WORLD_CONFIG.WORLD_RECT,
 			Callable(self, "get_biome_zones"),
 			Callable(self, "_get_biome_colors_key"),
-			Callable(self, "_get_biome_surface_color_at")
+			Callable(self, "_get_biome_surface_color_at"),
+			_get_world_biome_blend_texture_size()
 		)
 	return render_controller
+
+
+func _ensure_biome_blend_background() -> Sprite2D:
+	if is_instance_valid(biome_blend_background):
+		return biome_blend_background
+	biome_blend_background = Sprite2D.new()
+	biome_blend_background.name = "BiomeBlendBackground"
+	biome_blend_background.centered = false
+	biome_blend_background.show_behind_parent = true
+	biome_blend_background.z_index = -100
+	biome_blend_background.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	biome_blend_background.visible = false
+	add_child(biome_blend_background)
+	return biome_blend_background
+
+
+func _ensure_night_overlay_polygon() -> Polygon2D:
+	if is_instance_valid(night_overlay_polygon):
+		return night_overlay_polygon
+	night_overlay_polygon = Polygon2D.new()
+	night_overlay_polygon.name = "NightOverlay"
+	night_overlay_polygon.z_index = 200
+	night_overlay_polygon.show_behind_parent = false
+	night_overlay_polygon.visible = false
+	night_overlay_polygon.polygon = PackedVector2Array([
+		WORLD_CONFIG.WORLD_RECT.position,
+		Vector2(WORLD_CONFIG.WORLD_RECT.end.x, WORLD_CONFIG.WORLD_RECT.position.y),
+		WORLD_CONFIG.WORLD_RECT.end,
+		Vector2(WORLD_CONFIG.WORLD_RECT.position.x, WORLD_CONFIG.WORLD_RECT.end.y)
+	])
+	add_child(night_overlay_polygon)
+	return night_overlay_polygon
+
+
+func _update_night_overlay(night_amount: float) -> void:
+	var overlay := _ensure_night_overlay_polygon()
+	var overlay_alpha := clampf(night_amount * 0.62, 0.0, 0.62)
+	overlay.visible = overlay_alpha > 0.001
+	if not overlay.visible:
+		return
+	overlay.color = Color(0.02, 0.03, 0.09, overlay_alpha)
 
 
 func _ensure_query_service():
@@ -376,6 +446,47 @@ func _ensure_query_service():
 		WATER_ZONE_DEEP
 	)
 	return query_service
+
+
+func _set_boot_progress(stage_message: String, progress: float) -> void:
+	boot_status_message = stage_message
+	boot_status_progress = clampf(progress, 0.0, 1.0)
+	world_boot_stage_changed.emit(boot_status_message, boot_status_progress)
+
+
+func _prepare_boot_render_cache() -> void:
+	if not biome_textures_enabled:
+		_sync_biome_blend_background()
+		return
+	_ensure_render_controller().ensure_biome_blend_texture()
+	_sync_biome_blend_background()
+	queue_redraw()
+
+
+func _get_world_biome_blend_texture_size() -> Vector2i:
+	return BIOME_BLEND_TEXTURE_SIZE
+
+
+func _sync_biome_blend_background() -> void:
+	var background := _ensure_biome_blend_background()
+	if not biome_textures_enabled:
+		background.visible = false
+		background.texture = null
+		return
+	var blend_texture := _ensure_render_controller().ensure_biome_blend_texture()
+	if blend_texture == null:
+		background.visible = false
+		background.texture = null
+		return
+	background.texture = blend_texture
+	background.position = WORLD_CONFIG.WORLD_RECT.position
+	var texture_size := blend_texture.get_size()
+	if texture_size.x > 0 and texture_size.y > 0:
+		background.scale = Vector2(
+			WORLD_CONFIG.WORLD_RECT.size.x / float(texture_size.x),
+			WORLD_CONFIG.WORLD_RECT.size.y / float(texture_size.y)
+		)
+	background.visible = true
 
 
 func _yield_initial_boot_step() -> void:
@@ -489,6 +600,7 @@ func debug_toggle_landmark_overlay() -> bool:
 
 func debug_toggle_biome_textures() -> bool:
 	biome_textures_enabled = not biome_textures_enabled
+	_sync_biome_blend_background()
 	queue_redraw()
 	return biome_textures_enabled
 
@@ -497,6 +609,7 @@ func debug_rebuild_biome_texture_cache() -> void:
 	biome_sample_images.clear()
 	_ensure_render_controller().invalidate_biome_blend_texture()
 	_queue_biome_terrain_accent_cache_rebuild()
+	_sync_biome_blend_background()
 	queue_redraw()
 
 
@@ -1962,9 +2075,6 @@ func _draw() -> void:
 	if debug_landmark_overlay_enabled:
 		_draw_landmark_debug_overlay()
 	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
-	var night_amount := _get_night_amount()
-	if night_amount > 0.0:
-		draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.02, 0.03, 0.09, night_amount * 0.62), true)
 
 
 func _get_night_amount() -> float:
@@ -1974,13 +2084,19 @@ func _get_night_amount() -> float:
 
 
 func _draw_biomes() -> void:
+	if biome_textures_enabled:
+		_sync_biome_blend_background()
+		for biome_value in WORLD_CONFIG.get_biome_zones():
+			var biome := Dictionary(biome_value)
+			_draw_biome_terrain_accents(biome, _get_biome_visual_color(biome))
+		return
+	if is_instance_valid(biome_blend_background):
+		biome_blend_background.visible = false
 	for biome_value in WORLD_CONFIG.get_biome_zones():
 		var biome := Dictionary(biome_value)
 		var points := PackedVector2Array(biome["points"])
 		var base_color := _get_biome_visual_color(biome)
 		draw_colored_polygon(points, base_color)
-		if biome_textures_enabled:
-			_draw_biome_terrain_accents(biome, base_color)
 
 
 func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
@@ -2239,21 +2355,21 @@ func _draw_biome_blend_texture() -> void:
 		draw_texture_rect(blend_texture, WORLD_CONFIG.WORLD_RECT, false)
 
 
-func _get_biome_surface_color_at(position: Vector2, biome_zones: Array[Dictionary]) -> Color:
+func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color:
 	var nearest_index := -1
 	var nearest_distance := INF
 	for i in biome_zones.size():
 		var biome: Dictionary = biome_zones[i]
 		var points := PackedVector2Array(biome["points"])
 		if Geometry2D.is_point_in_polygon(position, points):
-			return _get_biome_terrain_color(biome, position, _get_biome_visual_color(biome))
+			return _get_biome_visual_color(biome)
 		var edge_distance := _get_point_polygon_edge_distance(position, points)
 		if edge_distance < nearest_distance:
 			nearest_distance = edge_distance
 			nearest_index = i
 	if nearest_index >= 0:
 		var nearest_biome: Dictionary = biome_zones[nearest_index]
-		return _get_biome_terrain_color(nearest_biome, position, _get_biome_visual_color(nearest_biome))
+		return _get_biome_visual_color(nearest_biome)
 	return Color.BLACK
 
 
