@@ -34,6 +34,10 @@ var selected_debug_creatures: Dictionary = {}
 var benchmark_runner: Node
 var benchmark_button: Button
 var god_mode_button: Button
+var regenerate_landmarks_button: Button
+var landmark_overlay_button: Button
+var rebuild_biome_cache_button: Button
+var biome_texture_toggle_button: Button
 
 @onready var title_label: Label = $Panel/TitleLabel
 @onready var state_scroll: ScrollContainer = $Panel/StateScroll
@@ -225,6 +229,7 @@ func _on_debug_tab_changed(tab: int) -> void:
 
 func _update_active_tab_view() -> void:
 	var has_tab_buttons := _update_tool_buttons_for_active_tab()
+	_refresh_world_debug_buttons()
 	state_scroll.visible = true
 	state_scroll.offset_bottom = -194.0 if has_tab_buttons else -12.0
 	if tools_scroll:
@@ -259,6 +264,10 @@ func _create_future_tool_buttons() -> void:
 	_add_tool_button("Force vegetation regrowth", _on_force_full_vegetation_regrowth_pressed, "Ecosystem")
 	_add_tool_button("Reset resource growth", _on_reset_resource_growth_pressed, "World")
 	_add_tool_button("Teleport OOB creatures", _on_teleport_out_of_bounds_pressed, "Creatures")
+	regenerate_landmarks_button = _add_tool_button("Regenerate landmarks", _on_regenerate_landmarks_pressed, "World")
+	landmark_overlay_button = _add_tool_button("Landmark overlay: OFF", _on_toggle_landmark_overlay_pressed, "World")
+	rebuild_biome_cache_button = _add_tool_button("Rebuild biome texture cache", _on_rebuild_biome_texture_cache_pressed, "World")
+	biome_texture_toggle_button = _add_tool_button("Biome textures: ON", _on_toggle_biome_textures_pressed, "World")
 	god_mode_button = _add_tool_button("God Mode: OFF", _on_toggle_god_mode_pressed, "Tools")
 	benchmark_button = _add_tool_button("Run 60s benchmark", _on_run_benchmark_pressed, "Tools")
 
@@ -338,8 +347,10 @@ func _build_player_text() -> String:
 
 func _build_world_text() -> String:
 	var lines: Array[String] = []
+	var landmark_counts := _get_world_landmark_counts()
 	lines.append("World")
 	lines.append("Current biome: %s" % _get_current_biome_name())
+	lines.append("World seed: %s | biome texture: %s" % [_get_world_seed_text(), _get_current_biome_texture_id_text()])
 	lines.append("Player position: %s" % _get_position_text(player.global_position if player else Vector2.ZERO))
 	lines.append("World bounds: %s" % str(WORLD_CONFIG.WORLD_RECT))
 	lines.append("creatures_out_of_bounds_count = %d" % _get_creatures_out_of_bounds_count())
@@ -353,13 +364,23 @@ func _build_world_text() -> String:
 		_get_cached_group_nodes("grass").size(),
 		_get_cached_group_nodes("rocks").size()
 	])
-	lines.append("Landmarks: %s" % _get_landmark_summary_text())
+	lines.append("Landmarks: %s | generated %d" % [_get_landmark_summary_text(), int(landmark_counts.get("generated", 0))])
+	lines.append("Ponds %d | Hills %d | nearest %s" % [
+		int(landmark_counts.get("pond", 0)),
+		int(landmark_counts.get("hill", 0)),
+		_get_nearest_landmark_text()
+	])
 	lines.append("Hill markers: %d" % _get_cached_group_nodes("hill_landmarks").size())
 	lines.append("Pond markers: %d | Water sources: %d" % [
 		_get_cached_group_nodes("pond_landmarks").size(),
 		_get_cached_group_nodes("water_sources").size()
 	])
 	lines.append("Pond vegetation: %d" % _get_cached_group_nodes("pond_vegetation").size())
+	lines.append("Biome texture cache: %s" % _get_biome_texture_cache_status_text())
+	lines.append("Landmark overlay %s | Biome textures %s" % [
+		_get_landmark_overlay_state_text(),
+		_get_biome_texture_state_text()
+	])
 	lines.append("Growth: %s" % _get_resource_growth_text())
 	return "\n".join(lines)
 
@@ -572,6 +593,84 @@ func _get_landmark_summary_text() -> String:
 	for landmark_type in counts.keys():
 		parts.append("%s:%d" % [landmark_type, int(counts[landmark_type])])
 	return "none" if parts.is_empty() else ", ".join(parts)
+
+
+func _get_world_landmark_counts() -> Dictionary:
+	var world := _get_world_node()
+	if world and world.has_method("get_landmark_counts"):
+		return Dictionary(world.get_landmark_counts())
+	var counts := {
+		"generated": 0,
+		"hill": 0,
+		"pond": 0
+	}
+	if not world or not world.has_method("get_landmarks"):
+		return counts
+	for landmark in world.get_landmarks():
+		var landmark_data := Dictionary(landmark)
+		var landmark_type := str(landmark_data.get("type", "unknown"))
+		counts["generated"] = int(counts.get("generated", 0)) + 1
+		if counts.has(landmark_type):
+			counts[landmark_type] = int(counts.get(landmark_type, 0)) + 1
+	return counts
+
+
+func _get_world_seed_text() -> String:
+	var world := _get_world_node()
+	if world and world.has_method("get_world_seed"):
+		return str(int(world.get_world_seed()))
+	return "unavailable"
+
+
+func _get_nearest_landmark_text() -> String:
+	if not player:
+		return "none"
+	var world := _get_world_node()
+	if not world or not world.has_method("get_nearest_landmark_data"):
+		return "unavailable"
+	var landmark: Dictionary = world.get_nearest_landmark_data(player.global_position)
+	if landmark.is_empty():
+		return "none"
+	return "%s %.0fpx" % [
+		str(landmark.get("id", str(landmark.get("type", "landmark")))),
+		float(landmark.get("distance_to_position", 0.0))
+	]
+
+
+func _get_current_biome_texture_id_text() -> String:
+	if not player:
+		return "none"
+	var world := _get_world_node()
+	if world and world.has_method("get_current_biome_texture_id"):
+		return str(world.get_current_biome_texture_id(player.global_position))
+	return "unavailable"
+
+
+func _get_biome_texture_cache_status_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_biome_texture_cache_status"):
+		return "unavailable"
+	var status: Dictionary = world.get_biome_texture_cache_status()
+	return "images %d | accents %d | pending %d | building %s" % [
+		int(status.get("sample_image_cache_count", 0)),
+		int(status.get("accent_cache_count", 0)),
+		int(status.get("pending_biomes", 0)),
+		"yes" if status.get("build_running", false) == true else "no"
+	]
+
+
+func _get_landmark_overlay_state_text() -> String:
+	var world := _get_world_node()
+	if world and world.has_method("is_landmark_debug_overlay_enabled"):
+		return "ON" if world.is_landmark_debug_overlay_enabled() else "OFF"
+	return "unknown"
+
+
+func _get_biome_texture_state_text() -> String:
+	var world := _get_world_node()
+	if world and world.has_method("are_biome_textures_enabled"):
+		return "ON" if world.are_biome_textures_enabled() else "OFF"
+	return "unknown"
 
 
 func _get_adaptation_pressure(profile: Dictionary) -> float:
@@ -1143,6 +1242,24 @@ func _refresh_god_mode_button() -> void:
 		god_mode_button.text = "God Mode: %s" % _get_god_mode_state_text()
 
 
+func _refresh_world_debug_buttons() -> void:
+	var world := _get_world_node()
+	var can_regenerate: bool = world != null and world.has_method("debug_regenerate_landmarks")
+	var can_toggle_overlay: bool = world != null and world.has_method("debug_toggle_landmark_overlay")
+	var can_rebuild_cache: bool = world != null and world.has_method("debug_rebuild_biome_texture_cache")
+	var can_toggle_textures: bool = world != null and world.has_method("debug_toggle_biome_textures")
+	if regenerate_landmarks_button:
+		regenerate_landmarks_button.disabled = not can_regenerate
+	if landmark_overlay_button:
+		landmark_overlay_button.text = "Landmark overlay: %s" % _get_landmark_overlay_state_text()
+		landmark_overlay_button.disabled = not can_toggle_overlay
+	if rebuild_biome_cache_button:
+		rebuild_biome_cache_button.disabled = not can_rebuild_cache
+	if biome_texture_toggle_button:
+		biome_texture_toggle_button.text = "Biome textures: %s" % _get_biome_texture_state_text()
+		biome_texture_toggle_button.disabled = not can_toggle_textures
+
+
 func _on_advance_resource_growth_pressed() -> void:
 	_call_optional_world_debug_method("debug_advance_resource_growth_day", "Resource growth debug is not available yet")
 
@@ -1157,6 +1274,50 @@ func _on_reset_resource_growth_pressed() -> void:
 
 func _on_teleport_out_of_bounds_pressed() -> void:
 	_call_optional_world_debug_method("debug_teleport_out_of_bounds_creatures", "Creature bounds debug is not available yet")
+
+
+func _on_regenerate_landmarks_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_regenerate_landmarks"):
+		_post_debug_message("Landmark regeneration debug is not available yet")
+		return
+	_post_debug_message("Regenerating landmarks...")
+	await world.debug_regenerate_landmarks()
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
+func _on_toggle_landmark_overlay_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_toggle_landmark_overlay"):
+		_post_debug_message("Landmark overlay debug is not available yet")
+		return
+	var enabled: bool = world.debug_toggle_landmark_overlay()
+	_post_debug_message("Landmark overlay %s" % ("enabled" if enabled else "disabled"))
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
+func _on_rebuild_biome_texture_cache_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_rebuild_biome_texture_cache"):
+		_post_debug_message("Biome texture cache debug is not available yet")
+		return
+	world.debug_rebuild_biome_texture_cache()
+	_post_debug_message("Rebuilding biome texture cache...")
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
+func _on_toggle_biome_textures_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_toggle_biome_textures"):
+		_post_debug_message("Biome texture toggle debug is not available yet")
+		return
+	var enabled: bool = world.debug_toggle_biome_textures()
+	_post_debug_message("Biome textures %s" % ("enabled" if enabled else "disabled"))
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
 
 
 func _on_run_benchmark_pressed() -> void:
