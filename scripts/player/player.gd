@@ -29,6 +29,7 @@ var swim_ripple_time := 0.0
 var is_dead := false
 var death_reason := "unknown"
 var god_mode := false
+var campfire_regen_refresh_timer := 0.0
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -61,6 +62,7 @@ func _ready() -> void:
 	interaction_area.area_entered.connect(_on_interactable_entered)
 	interaction_area.area_exited.connect(_on_interactable_exited)
 	rotation = 0.0
+	_update_campfire_regen_state()
 	queue_redraw()
 
 
@@ -97,7 +99,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	global_position.x = clamp(global_position.x, -world_limits.x, world_limits.x)
 	global_position.y = clamp(global_position.y, -world_limits.y, world_limits.y)
-	_update_campfire_regen_state()
+	_refresh_campfire_regen_state(delta)
 	var previous_health := stats.health
 	stats.tick(delta, wants_run)
 	if god_mode and stats.health < previous_health:
@@ -203,7 +205,7 @@ func _is_in_water() -> bool:
 func _update_campfire_regen_state() -> void:
 	var nearest_active_distance := INF
 	var regen_active := false
-	for campfire_node in get_tree().get_nodes_in_group("campfires"):
+	for campfire_node in _get_campfires():
 		if not is_instance_valid(campfire_node):
 			continue
 		if campfire_node.get("active") != true:
@@ -220,6 +222,21 @@ func _update_campfire_regen_state() -> void:
 		if distance <= radius:
 			regen_active = true
 	stats.set_campfire_regen(regen_active, nearest_active_distance if regen_active else -1.0)
+
+
+func _refresh_campfire_regen_state(delta: float) -> void:
+	campfire_regen_refresh_timer = max(campfire_regen_refresh_timer - delta, 0.0)
+	if campfire_regen_refresh_timer > 0.0:
+		return
+	campfire_regen_refresh_timer = GAME_BALANCE.PLAYER_CAMPFIRE_REGEN_REFRESH_INTERVAL
+	_update_campfire_regen_state()
+
+
+func _get_campfires() -> Array:
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("get_cached_group_nodes"):
+		return world.get_cached_group_nodes("campfires")
+	return get_tree().get_nodes_in_group("campfires")
 
 
 func debug_add_item(item_name: String, amount := 1) -> void:

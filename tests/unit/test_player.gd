@@ -5,6 +5,29 @@ const PLAYER_STATS := preload("res://scripts/player/player_stats.gd")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
+class TestCampfire:
+	extends Node2D
+	var active := true
+	var stamina_regen_radius := 150.0
+
+
+class TestWorld:
+	extends Node2D
+	var cached_group_call_count := 0
+	var campfires: Array = []
+
+	func get_cached_group_nodes(group_name: String) -> Array:
+		if group_name == "campfires":
+			cached_group_call_count += 1
+			return campfires.duplicate()
+		return []
+
+	func get_terrain_speed_multiplier(_position: Vector2) -> float:
+		return 1.0
+
+	func is_position_in_water(_position: Vector2) -> bool:
+		return false
+
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
@@ -19,6 +42,7 @@ func run() -> Array[String]:
 	_test_player_torch_activation_and_deactivation(failures)
 	_test_player_debug_item_helpers(failures)
 	_test_player_visual_layout_looks_human_like(failures)
+	_test_player_campfire_regen_uses_low_frequency_cached_refresh(failures)
 	_test_player_melee_attack_spends_stamina(failures)
 	_test_player_bow_shooting_spends_stamina_and_sets_cooldown(failures)
 	_test_player_eat_meat_consumes_inventory_and_restores_hunger(failures)
@@ -194,6 +218,37 @@ func _test_player_visual_layout_looks_human_like(failures: Array[String]) -> voi
 	TEST_UTILS.expect(_get_polygon_max_y(back_leg) > torso_center.y, failures, "Player legs should extend below the torso")
 	TEST_UTILS.expect(_get_polygon_max_y(front_leg) > torso_center.y, failures, "Player legs should extend below the torso")
 	player.queue_free()
+
+
+func _test_player_campfire_regen_uses_low_frequency_cached_refresh(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var world := TestWorld.new()
+	world.name = "World"
+	tree.current_scene.add_child(world)
+	var campfire := TestCampfire.new()
+	campfire.global_position = Vector2(40.0, 0.0)
+	world.add_child(campfire)
+	world.campfires = [campfire]
+	var player := _make_player()
+	player.global_position = Vector2.ZERO
+	world.cached_group_call_count = 0
+	player.campfire_regen_refresh_timer = 0.0
+	player.call("_physics_process", 0.10)
+	TEST_UTILS.expect_equal(world.cached_group_call_count, 1, failures, "Player should refresh campfire regen from cached world data on the first physics tick only once")
+	TEST_UTILS.expect(player.stats.campfire_regen_active, failures, "Player should enable campfire stamina regen when inside the active campfire radius")
+	var expected_distance: float = player.global_position.distance_to(campfire.global_position)
+	TEST_UTILS.expect_close(player.stats.campfire_regen_distance, expected_distance, failures, "Player should store the nearest active campfire distance")
+	player.call("_physics_process", 0.10)
+	player.call("_physics_process", 0.10)
+	TEST_UTILS.expect_equal(world.cached_group_call_count, 1, failures, "Player should not rescan campfires every physics tick while the refresh interval is still active")
+	player.call("_physics_process", 0.14)
+	TEST_UTILS.expect_equal(world.cached_group_call_count, 2, failures, "Player should refresh campfire regen again after the configured interval elapses")
+	player.global_position = Vector2(400.0, 0.0)
+	player.call("_physics_process", 0.34)
+	TEST_UTILS.expect(not player.stats.campfire_regen_active, failures, "Player should disable campfire stamina regen after leaving the campfire radius")
+	TEST_UTILS.expect_close(player.stats.campfire_regen_distance, -1.0, failures, "Player should clear campfire distance when regen is inactive")
+	player.queue_free()
+	world.queue_free()
 
 
 func _test_player_draw_pose_flips_and_tilts_without_spinning(failures: Array[String]) -> void:
