@@ -2,6 +2,8 @@ extends RefCounted
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const ECOSYSTEM_DIRECTOR := preload("res://scripts/systems/ecosystem_director.gd")
+const ECOSYSTEM_COMMAND := preload("res://scripts/systems/ecosystem_command.gd")
+const ECOSYSTEM_DELTA := preload("res://scripts/systems/ecosystem_delta.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -9,6 +11,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_grazer_traits_use_state_and_balance_defaults(failures)
 	_test_small_prey_traits_use_state_and_balance_defaults(failures)
+	_test_command_flow_applies_plant_harvest_and_returns_delta(failures)
 	_test_save_and_load_round_trip_restores_biome_state(failures)
 	return failures
 
@@ -71,6 +74,42 @@ func _test_small_prey_traits_use_state_and_balance_defaults(failures: Array[Stri
 		"Small prey traits should fall back to the configured reproduction default"
 	)
 	TEST_UTILS.expect_equal(float(traits.get("plant_diet", 0.0)), 1.0, failures, "Small prey should always keep a plant-only diet")
+	director.free()
+
+
+func _test_command_flow_applies_plant_harvest_and_returns_delta(failures: Array[String]) -> void:
+	var director := ECOSYSTEM_DIRECTOR.new()
+	director.biome_states = {
+		"hearth_meadow": {
+			"biome_id": "hearth_meadow",
+			"name": "Hearth Meadow",
+			"plant_biomass": 80.0,
+			"plant_biomass_percent": 80.0,
+			"max_plant_biomass": 100.0,
+			"status": "healthy"
+		}
+	}
+	var command = ECOSYSTEM_COMMAND.new_with(
+		ECOSYSTEM_COMMAND.PLANT_HARVESTED,
+		"hearth_meadow",
+		{
+			"biome_id": "hearth_meadow",
+			"biomass_impact": 18.0,
+			"resource_type": "grass_patch"
+		}
+	)
+	var delta_data: Dictionary = director.apply_command(command)
+	TEST_UTILS.expect(not delta_data.is_empty(), failures, "Plant harvest commands should return a delta")
+	if not delta_data.is_empty():
+		TEST_UTILS.expect_equal(str(delta_data.get("biome_id", "")), "hearth_meadow", failures, "Delta should preserve the biome id")
+		TEST_UTILS.expect_close(float(delta_data.get("biomass_percent_before", 0.0)), 80.0, failures, "Delta should record the biomass before the harvest")
+		TEST_UTILS.expect_close(float(delta_data.get("biomass_percent_after", 0.0)), 62.0, failures, "Delta should record the biomass after the harvest")
+		TEST_UTILS.expect_equal(bool(delta_data.get("status_changed", false)), false, failures, "Harvesting to 62% should keep the biome status healthy")
+		TEST_UTILS.expect_equal(str(delta_data.get("new_status", "")), "healthy", failures, "Delta should preserve the resulting biome status")
+		TEST_UTILS.expect_equal(int(delta_data.get("vegetation_target_delta", 0)), -1, failures, "Harvested plants should request visible vegetation reduction")
+	var state: Dictionary = director.get_biome_state("hearth_meadow")
+	TEST_UTILS.expect_close(float(state.get("plant_biomass", 0.0)), 62.0, failures, "Command flow should reduce biome biomass exactly once")
+	TEST_UTILS.expect_close(float(state.get("plant_biomass_percent", 0.0)), 62.0, failures, "Command flow should update biomass percent after the harvest")
 	director.free()
 
 
