@@ -9,6 +9,7 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
 const WORLD_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_query_service.gd")
 const LANDMARK_SERVICE_SCRIPT := preload("res://scripts/world/landmark_service.gd")
+const RESOURCE_SERVICE_SCRIPT := preload("res://scripts/world/resource_service.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const VARNAK_SPAWN_TICK_SECONDS := 5.5
@@ -127,6 +128,7 @@ var boot_ready := false
 var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
 var landmark_service = LANDMARK_SERVICE_SCRIPT.new()
+var resource_service = RESOURCE_SERVICE_SCRIPT.new()
 const GROUP_CACHE_TTL_SECONDS := 0.12
 
 signal world_initialized
@@ -338,6 +340,12 @@ func _ensure_landmark_service():
 	return landmark_service
 
 
+func _ensure_resource_service():
+	if resource_service == null:
+		resource_service = RESOURCE_SERVICE_SCRIPT.new()
+	return resource_service
+
+
 func _ensure_query_service():
 	if query_service == null:
 		query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
@@ -420,8 +428,7 @@ func _create_landmarks() -> void:
 		world_seed,
 		bootstrap_landmarks,
 		bootstrap_world_seed,
-		Callable(WORLD_CONFIG, "generate_landmarks"),
-		Callable(self, "_deserialize_landmark_save_data")
+		Callable(WORLD_CONFIG, "generate_landmarks")
 	)
 	world_seed = int(initial_layout.get("world_seed", world_seed))
 	landmarks = Array(initial_layout.get("landmarks", []))
@@ -433,13 +440,10 @@ func _rebuild_landmark_runtime_state() -> void:
 	hill_landmarks.clear()
 	pond_landmarks.clear()
 	pond_water_search_radius = 0.0
+	landmark_service.sync_runtime_landmarks(landmarks, Callable(self, "_create_landmark_area"))
 	hill_landmarks = landmark_service.get_hill_landmarks()
 	pond_landmarks = landmark_service.get_pond_landmarks()
 	pond_water_search_radius = landmark_service.get_pond_water_search_radius()
-	for landmark in hill_landmarks:
-		_create_landmark_area(landmark, "hill_landmarks")
-	for landmark in pond_landmarks:
-		_create_landmark_area(landmark, "pond_landmarks")
 	_ensure_query_service()
 
 
@@ -449,8 +453,7 @@ func restore_landmarks(landmark_data: Array, restored_world_seed: int = 0) -> vo
 		world_seed,
 		landmark_data,
 		restored_world_seed,
-		Callable(WORLD_CONFIG, "generate_landmarks"),
-		Callable(self, "_deserialize_landmark_save_data")
+		Callable(WORLD_CONFIG, "generate_landmarks")
 	)
 	world_seed = int(restored_layout.get("world_seed", world_seed))
 	landmarks = Array(restored_layout.get("landmarks", []))
@@ -499,15 +502,7 @@ func debug_regenerate_landmarks() -> void:
 
 
 func _deserialize_landmark_save_data(landmark_data: Array) -> Array[Dictionary]:
-	var restored_landmarks: Array[Dictionary] = []
-	for landmark_value in landmark_data:
-		if typeof(landmark_value) != TYPE_DICTIONARY:
-			continue
-		var landmark := Dictionary(landmark_value).duplicate(true)
-		landmark["position"] = _data_to_vector(landmark.get("position", {}))
-		landmark["radius"] = float(landmark.get("radius", 0.0))
-		restored_landmarks.append(landmark)
-	return restored_landmarks
+	return _ensure_landmark_service().deserialize_landmark_save_data(landmark_data)
 
 
 func _clear_landmark_areas() -> void:
@@ -974,12 +969,7 @@ func _get_player_position() -> Vector2:
 
 
 func advance_resource_growth_days(days: float) -> void:
-	var changed_count := 0
-	for resource in get_registered_resources():
-		if not is_instance_valid(resource) or not resource.has_method("advance_growth_days"):
-			continue
-		if resource.advance_growth_days(days):
-			changed_count += 1
+	var changed_count := _ensure_resource_service().advance_growth_days(get_registered_resources(), days)
 	if changed_count > 0:
 		get_node("/root/EventBus").post_message("%d resources advanced growth" % changed_count)
 

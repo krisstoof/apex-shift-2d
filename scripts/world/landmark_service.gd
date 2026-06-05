@@ -11,8 +11,7 @@ func resolve_initial_layout(
 	current_world_seed: int,
 	bootstrap_landmarks: Array,
 	bootstrap_world_seed: int,
-	generate_landmarks: Callable,
-	deserialize_landmarks: Callable
+	generate_landmarks: Callable
 ) -> Dictionary:
 	var resolved_world_seed := bootstrap_world_seed if bootstrap_world_seed != 0 else current_world_seed
 	if resolved_world_seed == 0:
@@ -21,7 +20,7 @@ func resolve_initial_layout(
 	if bootstrap_landmarks.is_empty():
 		resolved_landmarks = generate_landmarks.call(resolved_world_seed)
 	else:
-		resolved_landmarks = deserialize_landmarks.call(bootstrap_landmarks)
+		resolved_landmarks = deserialize_landmark_save_data(bootstrap_landmarks)
 	return {
 		"world_seed": resolved_world_seed,
 		"landmarks": resolved_landmarks
@@ -32,11 +31,10 @@ func resolve_restored_layout(
 	current_world_seed: int,
 	landmark_data: Array,
 	restored_world_seed: int,
-	generate_landmarks: Callable,
-	deserialize_landmarks: Callable
+	generate_landmarks: Callable
 ) -> Dictionary:
 	var resolved_world_seed := restored_world_seed if restored_world_seed != 0 else current_world_seed
-	var resolved_landmarks: Array = deserialize_landmarks.call(landmark_data)
+	var resolved_landmarks: Array = deserialize_landmark_save_data(landmark_data)
 	if resolved_landmarks.is_empty():
 		resolved_landmarks = generate_landmarks.call(resolved_world_seed)
 	return {
@@ -64,8 +62,30 @@ func set_landmarks(landmark_layout: Array, max_pond_search_radius_factor := 1.2)
 		pond_water_search_radius = max(max_pond_radius * max_pond_search_radius_factor, 1.0)
 
 
+func sync_runtime_landmarks(landmark_layout: Array, create_landmark_area: Callable, max_pond_search_radius_factor := 1.2) -> void:
+	set_landmarks(landmark_layout, max_pond_search_radius_factor)
+	if not create_landmark_area.is_valid():
+		return
+	for landmark in hill_landmarks:
+		create_landmark_area.call(landmark, "hill_landmarks")
+	for landmark in pond_landmarks:
+		create_landmark_area.call(landmark, "pond_landmarks")
+
+
 func get_landmarks() -> Array[Dictionary]:
 	return landmarks.duplicate(true)
+
+
+func deserialize_landmark_save_data(landmark_data: Array) -> Array[Dictionary]:
+	var restored_landmarks: Array[Dictionary] = []
+	for landmark_value in landmark_data:
+		if typeof(landmark_value) != TYPE_DICTIONARY:
+			continue
+		var landmark := Dictionary(landmark_value).duplicate(true)
+		landmark["position"] = _data_to_vector(landmark.get("position", {}))
+		landmark["radius"] = float(landmark.get("radius", 0.0))
+		restored_landmarks.append(landmark)
+	return restored_landmarks
 
 
 func get_landmark_save_data() -> Array[Dictionary]:
@@ -116,3 +136,9 @@ func get_pond_water_search_radius() -> float:
 
 func _vector_to_data(value: Vector2) -> Dictionary:
 	return {"x": value.x, "y": value.y}
+
+
+func _data_to_vector(data: Variant) -> Vector2:
+	if typeof(data) != TYPE_DICTIONARY:
+		return Vector2.ZERO
+	return Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
