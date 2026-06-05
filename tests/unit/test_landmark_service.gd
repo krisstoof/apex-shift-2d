@@ -32,9 +32,7 @@ func _test_landmark_service_resolves_initial_layout(failures: Array[String]) -> 
 		0,
 		func(seed: int) -> Array:
 			generated_calls.append(seed)
-			return generated_landmarks,
-		func(_data: Array) -> Array:
-			return []
+			return generated_landmarks
 	)
 	TEST_UTILS.expect_equal(int(resolved_generated.get("world_seed", 0)), 1, failures, "Initial landmark resolution should default world seed to 1 when none is provided")
 	TEST_UTILS.expect_equal(generated_calls.size(), 1, failures, "Initial landmark resolution should generate layout when bootstrap data is missing")
@@ -50,9 +48,7 @@ func _test_landmark_service_resolves_initial_layout(failures: Array[String]) -> 
 		bootstrap_landmarks,
 		7,
 		func(_seed: int) -> Array:
-			return [],
-		func(data: Array) -> Array:
-			return data
+			return []
 	)
 	TEST_UTILS.expect_equal(int(resolved_bootstrap.get("world_seed", 0)), 7, failures, "Initial landmark resolution should prefer bootstrap world seed when present")
 	TEST_UTILS.expect_equal(Array(resolved_bootstrap.get("landmarks", [])).size(), 1, failures, "Initial landmark resolution should restore bootstrap landmarks instead of generating")
@@ -72,9 +68,7 @@ func _test_landmark_service_resolves_restored_layout(failures: Array[String]) ->
 				"type": "hill",
 				"position": Vector2.ZERO,
 				"radius": 120.0
-			}],
-		func(_data: Array) -> Array:
-			return []
+			}]
 	)
 	TEST_UTILS.expect_equal(int(restored_empty.get("world_seed", 0)), 12, failures, "Restored landmark resolution should keep the current world seed when no restored seed is provided")
 	TEST_UTILS.expect_equal(generated_calls.size(), 1, failures, "Restored landmark resolution should regenerate layout if restored data is empty")
@@ -89,9 +83,7 @@ func _test_landmark_service_resolves_restored_layout(failures: Array[String]) ->
 		restored_data,
 		44,
 		func(_seed: int) -> Array:
-			return [],
-		func(data: Array) -> Array:
-			return data
+			return []
 	)
 	TEST_UTILS.expect_equal(int(restored_layout.get("world_seed", 0)), 44, failures, "Restored landmark resolution should prefer explicit restored world seed")
 	TEST_UTILS.expect_equal(str(Dictionary(Array(restored_layout.get("landmarks", []))[0]).get("id", "")), "restored_pond", failures, "Restored landmark resolution should return restored landmarks when available")
