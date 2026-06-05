@@ -7,6 +7,7 @@ const PANEL_GAP := 20.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(160, 98)
 const POND_MARKER_Y_SCALE := 0.62
 const HILL_MARKER_Y_SCALE := 0.58
+const MAP_STATE_REFRESH_INTERVAL := 0.25
 
 var player: Node2D
 var evolution_director: Node
@@ -18,6 +19,10 @@ var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
 var cached_resources: Array[Node] = []
 var resources_cache_timer := 0.0
+var map_state_refresh_timer := 0.0
+var cached_resources_signature := ""
+var landmarks_signature := ""
+var last_render_state_key := ""
 const RESOURCES_CACHE_INTERVAL := 0.5
 
 
@@ -36,22 +41,30 @@ func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
 	_update_resources_cache()
-	queue_redraw()
+	_update_landmarks_signature()
+	_request_map_redraw(true)
 
 
 func _process(_delta: float) -> void:
-	if visible:
-		resources_cache_timer += _delta
-		if resources_cache_timer >= RESOURCES_CACHE_INTERVAL:
-			resources_cache_timer = 0.0
-			_update_resources_cache()
-		queue_redraw()
+	if not visible:
+		return
+	var cache_changed := false
+	resources_cache_timer += _delta
+	if resources_cache_timer >= RESOURCES_CACHE_INTERVAL:
+		resources_cache_timer = 0.0
+		cache_changed = _update_resources_cache() or cache_changed
+		cache_changed = _refresh_landmarks_from_world() or cache_changed
+	map_state_refresh_timer += _delta
+	if cache_changed:
+		_request_map_redraw(true)
+	elif map_state_refresh_timer >= MAP_STATE_REFRESH_INTERVAL:
+		map_state_refresh_timer = 0.0
+		_request_map_redraw()
 
 
 func _draw() -> void:
 	if not visible:
 		return
-	_refresh_landmarks_from_world()
 	var screen_rect := Rect2(Vector2.ZERO, size)
 	var inner_rect := screen_rect.grow(-PADDING)
 	var info_width: float = min(360.0, inner_rect.size.x * 0.32)
@@ -221,13 +234,15 @@ func _draw_landmarks(map_rect: Rect2) -> void:
 				_draw_landmark_label(center, _get_landmark_label(landmark), Color(0.86, 0.82, 0.56))
 
 
-func _refresh_landmarks_from_world() -> void:
+func _refresh_landmarks_from_world() -> bool:
 	var tree := _get_safe_tree()
 	if not tree or not tree.current_scene:
-		return
+		return false
 	var world := tree.current_scene.get_node_or_null("World")
 	if world and world.has_method("get_landmarks"):
 		landmarks = world.get_landmarks()
+		return _update_landmarks_signature()
+	return false
 
 
 func _draw_pond_marker(center: Vector2, radius: float, landmark: Dictionary) -> void:
@@ -518,13 +533,93 @@ func _get_resource_color(resource: Node) -> Color:
 			return Color(0.86, 0.78, 0.45)
 
 
-func _update_resources_cache() -> void:
+func _update_resources_cache() -> bool:
 	var tree := _get_safe_tree()
 	cached_resources = tree.get_nodes_in_group("resources") if tree else []
 	# Clean up dead references
 	for i in range(cached_resources.size() - 1, -1, -1):
 		if not is_instance_valid(cached_resources[i]):
 			cached_resources.remove_at(i)
+	var signature := _build_resources_signature()
+	var changed := signature != cached_resources_signature
+	cached_resources_signature = signature
+	return changed
+
+
+func _request_map_redraw(force := false) -> bool:
+	var current_key := _build_render_state_key()
+	if not force and current_key == last_render_state_key:
+		return false
+	last_render_state_key = current_key
+	queue_redraw()
+	return true
+
+
+func _build_render_state_key() -> String:
+	var profile: Dictionary = evolution_director.get_profile() if evolution_director and evolution_director.has_method("get_profile") else {}
+	var tree := _get_safe_tree()
+	var live_varnaks := tree.get_nodes_in_group("varnak").size() if tree else 0
+	var player_stats: Variant = _get_player_stats()
+	var player_inventory: Variant = _get_player_inventory()
+	var player_position_text := "none"
+	if is_instance_valid(player):
+		player_position_text = "%d:%d" % [int(round(player.global_position.x)), int(round(player.global_position.y))]
+	return "|".join([
+		"%d:%d" % [int(round(size.x)), int(round(size.y))],
+		player_position_text,
+		"%d" % _read_int_property(player_stats, "health"),
+		"%d" % _read_int_property(player_stats, "hunger"),
+		"%d" % _read_int_property(player_stats, "stamina"),
+		"%d" % _read_int_property(player_stats, "rest"),
+		"%d" % _read_inventory_amount(player_inventory, "wood"),
+		"%d" % _read_inventory_amount(player_inventory, "stone"),
+		"%d" % _read_inventory_amount(player_inventory, "fiber"),
+		"%d" % _read_inventory_amount(player_inventory, "meat"),
+		"%d" % _read_inventory_amount(player_inventory, "hide"),
+		"%d" % _read_inventory_amount(player_inventory, "bone"),
+		_get_clock_time(),
+		_get_time_label(),
+		"%d" % (day_night_system.get_day() if day_night_system and day_night_system.has_method("get_day") else 1),
+		"%d" % live_varnaks,
+		"%d" % int(profile.get("generation", 1)),
+		"%.2f" % float(profile.get("aggression", 0.0)),
+		"%.2f" % float(profile.get("fire_fear", 0.0)),
+		"%.2f" % float(profile.get("trap_awareness", 0.0)),
+		"%.2f" % float(profile.get("pack_coordination", 0.0)),
+		cached_resources_signature,
+		landmarks_signature
+	])
+
+
+func _build_resources_signature() -> String:
+	var parts: Array[String] = []
+	for resource in cached_resources:
+		if not is_instance_valid(resource):
+			continue
+		parts.append("%s:%d:%d:%s:%s" % [
+			str(resource.get_instance_id()),
+			int(round(resource.global_position.x)),
+			int(round(resource.global_position.y)),
+			str(resource.get("resource_kind")),
+			"1" if resource.get("player_harvestable") != false else "0"
+		])
+	return "|".join(parts)
+
+
+func _update_landmarks_signature() -> bool:
+	var parts: Array[String] = []
+	for landmark in landmarks:
+		parts.append("%s:%s:%d:%d:%d" % [
+			str(landmark.get("id", "")),
+			str(landmark.get("type", "")),
+			int(round(Vector2(landmark.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(landmark.get("position", Vector2.ZERO)).y)),
+			int(round(float(landmark.get("radius", 0.0))))
+		])
+	var signature := "|".join(parts)
+	var changed := signature != landmarks_signature
+	landmarks_signature = signature
+	return changed
 
 
 func _get_safe_tree() -> SceneTree:

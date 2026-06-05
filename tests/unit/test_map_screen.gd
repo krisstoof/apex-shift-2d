@@ -41,15 +41,45 @@ class MockPlayer:
 	var inventory := MockInventory.new()
 
 
+class MockEvolutionDirector:
+	extends Node
+
+	func get_profile() -> Dictionary:
+		return {
+			"generation": 3,
+			"aggression": 0.45,
+			"fire_fear": 0.85,
+			"trap_awareness": 0.10,
+			"pack_coordination": 0.20
+		}
+
+
+class MockDayNightSystem:
+	extends Node
+
+	func get_day() -> int:
+		return 2
+
+	func get_clock_time() -> String:
+		return "10:31"
+
+	func get_time_label() -> String:
+		return "Day"
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_info_lines_fall_back_when_player_is_missing(failures)
 	_test_info_lines_use_player_stats_and_inventory(failures)
+	_test_map_redraw_state_does_not_retrigger_when_state_is_unchanged(failures)
+	_test_map_redraw_state_reacts_to_player_position_changes(failures)
+	_test_landmark_signature_changes_only_when_landmarks_change(failures)
+	_test_map_redraw_state_reacts_to_resource_signature_changes(failures)
 	return failures
 
 
 func _test_info_lines_fall_back_when_player_is_missing(failures: Array[String]) -> void:
-	var map_screen := _make_map_screen()
+	var map_screen: Object = _make_map_screen()
 	var lines: Array[String] = map_screen.call("_build_info_lines")
 	TEST_UTILS.expect(lines.has("Health:   0"), failures, "Map screen should show zero health when the player reference is missing")
 	TEST_UTILS.expect(lines.has("Hunger:   0"), failures, "Map screen should show zero hunger when the player reference is missing")
@@ -61,9 +91,9 @@ func _test_info_lines_fall_back_when_player_is_missing(failures: Array[String]) 
 
 
 func _test_info_lines_use_player_stats_and_inventory(failures: Array[String]) -> void:
-	var map_screen := _make_map_screen()
+	var map_screen: Object = _make_map_screen()
 	var player := MockPlayer.new()
-	map_screen.player = player
+	map_screen.set("player", player)
 	var lines: Array[String] = map_screen.call("_build_info_lines")
 	TEST_UTILS.expect(lines.has("Health:  86"), failures, "Map screen should expose the player's health when stats are available")
 	TEST_UTILS.expect(lines.has("Hunger:  72"), failures, "Map screen should expose the player's hunger when stats are available")
@@ -75,7 +105,82 @@ func _test_info_lines_use_player_stats_and_inventory(failures: Array[String]) ->
 	map_screen.free()
 
 
-func _make_map_screen() -> Control:
-	var map_screen := MAP_SCREEN_SCRIPT.new()
+func _test_map_redraw_state_does_not_retrigger_when_state_is_unchanged(failures: Array[String]) -> void:
+	var map_screen: Object = _make_bound_map_screen()
+	var first_refresh: bool = map_screen.call("_request_map_redraw", true)
+	var second_refresh: bool = map_screen.call("_request_map_redraw")
+	TEST_UTILS.expect(first_refresh, failures, "Map screen should request an initial redraw for the first visible state snapshot")
+	TEST_UTILS.expect(not second_refresh, failures, "Map screen should not request another redraw when the visible state key is unchanged")
+	var player: Node2D = map_screen.get("player")
+	player.free()
+	map_screen.free()
+
+
+func _test_map_redraw_state_reacts_to_player_position_changes(failures: Array[String]) -> void:
+	var map_screen: Object = _make_bound_map_screen()
+	var player: Node2D = map_screen.get("player")
+	map_screen.call("_request_map_redraw", true)
+	player.global_position = Vector2(180.0, -64.0)
+	var changed: bool = map_screen.call("_request_map_redraw")
+	TEST_UTILS.expect(changed, failures, "Map screen should request redraw when the player position shown on the map changes")
+	player.free()
+	map_screen.free()
+
+
+func _test_landmark_signature_changes_only_when_landmarks_change(failures: Array[String]) -> void:
+	var map_screen: Object = _make_map_screen()
+	var landmarks: Array[Dictionary] = [
+		{
+			"id": "pond_a",
+			"type": "pond",
+			"position": Vector2(120.0, 80.0),
+			"radius": 90.0
+		}
+	]
+	map_screen.set("landmarks", landmarks)
+	var first_change: bool = map_screen.call("_update_landmarks_signature")
+	var second_change: bool = map_screen.call("_update_landmarks_signature")
+	landmarks[0]["radius"] = 120.0
+	map_screen.set("landmarks", landmarks)
+	var third_change: bool = map_screen.call("_update_landmarks_signature")
+	TEST_UTILS.expect(first_change, failures, "Map screen should mark landmark cache as changed when the first signature is built")
+	TEST_UTILS.expect(not second_change, failures, "Map screen should keep landmark cache stable when landmarks do not change")
+	TEST_UTILS.expect(third_change, failures, "Map screen should notice landmark changes that require a new map redraw")
+	map_screen.free()
+
+
+func _test_map_redraw_state_reacts_to_resource_signature_changes(failures: Array[String]) -> void:
+	var map_screen: Object = _make_bound_map_screen()
+	map_screen.set("cached_resources_signature", "resource-a")
+	map_screen.call("_request_map_redraw", true)
+	map_screen.set("cached_resources_signature", "resource-b")
+	var changed: bool = map_screen.call("_request_map_redraw")
+	TEST_UTILS.expect(changed, failures, "Map screen should request redraw when the cached resource signature changes")
+	var player: Node2D = map_screen.get("player")
+	player.free()
+	map_screen.free()
+
+
+func _make_map_screen() -> Object:
+	var map_screen: Control = MAP_SCREEN_SCRIPT.new()
 	map_screen.size = Vector2(1280.0, 720.0)
+	return map_screen
+
+
+func _make_bound_map_screen() -> Object:
+	var map_screen: Object = _make_map_screen()
+	var player := MockPlayer.new()
+	player.global_position = Vector2(32.0, 48.0)
+	map_screen.set("player", player)
+	map_screen.set("evolution_director", MockEvolutionDirector.new())
+	map_screen.set("day_night_system", MockDayNightSystem.new())
+	map_screen.set("landmarks", [
+		{
+			"id": "hill_a",
+			"type": "hill",
+			"position": Vector2(260.0, -120.0),
+			"radius": 140.0
+		}
+	])
+	map_screen.call("_update_landmarks_signature")
 	return map_screen
