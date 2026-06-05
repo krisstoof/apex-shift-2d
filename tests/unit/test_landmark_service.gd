@@ -9,7 +9,9 @@ func run() -> Array[String]:
 	_test_landmark_service_resolves_initial_layout(failures)
 	_test_landmark_service_resolves_restored_layout(failures)
 	_test_landmark_service_splits_hills_and_ponds(failures)
+	_test_landmark_service_syncs_runtime_landmarks_via_callback(failures)
 	_test_landmark_service_calculates_nearest_landmark(failures)
+	_test_landmark_service_deserializes_save_data(failures)
 	_test_landmark_service_exports_save_data(failures)
 	_test_landmark_service_returns_deep_copies(failures)
 	return failures
@@ -124,6 +126,33 @@ func _test_landmark_service_splits_hills_and_ponds(failures: Array[String]) -> v
 	TEST_UTILS.expect_close(service.get_pond_water_search_radius(), 168.0, failures, "LandmarkService should derive pond water search radius from the largest pond")
 
 
+func _test_landmark_service_syncs_runtime_landmarks_via_callback(failures: Array[String]) -> void:
+	var service := LANDMARK_SERVICE.new()
+	var area_calls: Array[String] = []
+	service.sync_runtime_landmarks(
+		[
+			{
+				"id": "hill_alpha",
+				"type": "hill",
+				"position": Vector2(-120.0, 40.0),
+				"radius": 180.0
+			},
+			{
+				"id": "pond_alpha",
+				"type": "pond",
+				"position": Vector2(320.0, -80.0),
+				"radius": 140.0
+			}
+		],
+		func(landmark: Dictionary, group_name: String) -> void:
+			area_calls.append("%s:%s" % [str(landmark.get("id", "")), group_name])
+	)
+	TEST_UTILS.expect_equal(area_calls.size(), 2, failures, "LandmarkService should invoke the callback for each runtime landmark")
+	TEST_UTILS.expect(area_calls.has("hill_alpha:hill_landmarks"), failures, "LandmarkService should route hills to the hill landmark callback group")
+	TEST_UTILS.expect(area_calls.has("pond_alpha:pond_landmarks"), failures, "LandmarkService should route ponds to the pond landmark callback group")
+	TEST_UTILS.expect_close(service.get_pond_water_search_radius(), 168.0, failures, "Runtime landmark sync should still derive pond search radius")
+
+
 func _test_landmark_service_calculates_nearest_landmark(failures: Array[String]) -> void:
 	var service := LANDMARK_SERVICE.new()
 	service.set_landmarks([
@@ -143,6 +172,27 @@ func _test_landmark_service_calculates_nearest_landmark(failures: Array[String])
 	var nearest := service.get_nearest_landmark_data(Vector2(180.0, 10.0))
 	TEST_UTILS.expect_equal(str(nearest.get("id", "")), "pond_alpha", failures, "LandmarkService should return the nearest landmark by distance")
 	TEST_UTILS.expect(float(nearest.get("distance_to_position", INF)) < 60.0, failures, "LandmarkService should report the computed distance for the nearest landmark")
+
+
+func _test_landmark_service_deserializes_save_data(failures: Array[String]) -> void:
+	var service := LANDMARK_SERVICE.new()
+	var restored := service.deserialize_landmark_save_data([
+		{
+			"id": "hill_alpha",
+			"type": "hill",
+			"position": {"x": 120.0, "y": -45.0},
+			"radius": 180.0,
+			"biome_id": "stoneback_ridge"
+		}
+	])
+	TEST_UTILS.expect_equal(restored.size(), 1, failures, "LandmarkService should deserialize one landmark entry from save data")
+	if restored.size() == 1:
+		var landmark := Dictionary(restored[0])
+		var position := Vector2(landmark.get("position", Vector2.ZERO))
+		TEST_UTILS.expect_equal(str(landmark.get("id", "")), "hill_alpha", failures, "LandmarkService should preserve ids while deserializing save data")
+		TEST_UTILS.expect_close(position.x, 120.0, failures, "LandmarkService should restore position X from save data")
+		TEST_UTILS.expect_close(position.y, -45.0, failures, "LandmarkService should restore position Y from save data")
+		TEST_UTILS.expect_close(float(landmark.get("radius", 0.0)), 180.0, failures, "LandmarkService should restore radius from save data")
 
 
 func _test_landmark_service_exports_save_data(failures: Array[String]) -> void:
