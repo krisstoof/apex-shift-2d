@@ -93,6 +93,7 @@ func run() -> Array[String]:
 	_test_varnak_cannot_attack_during_cooldown(failures)
 	_test_varnak_resumes_attack_after_cooldown(failures)
 	_test_varnak_eats_meat_or_dead_prey(failures)
+	_test_varnak_skips_freed_meat_drop_targets(failures)
 	_test_varnak_hunger_restored_after_eating(failures)
 	_test_varnak_returns_to_wandering_after_eating(failures)
 	_test_varnak_takes_damage(failures)
@@ -363,6 +364,17 @@ func _test_varnak_eats_meat_or_dead_prey(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(varnak.state, varnak.State.EAT_MEAT, failures, "Hungry Varnak should choose meat when available")
 	TEST_UTILS.expect(is_instance_valid(varnak.meat_target), failures, "Varnak should lock the meat target")
 	meat.queue_free()
+	varnak.queue_free()
+
+
+func _test_varnak_skips_freed_meat_drop_targets(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	var world := _ensure_world()
+	var live_meat := _spawn_meat(world, Vector2(180.0, 0.0))
+	var stale_meat := _spawn_meat(world, Vector2(24.0, 0.0))
+	stale_meat.free()
+	var found: Node2D = varnak.call("_find_nearest_meat_drop", 500.0) as Node2D
+	TEST_UTILS.expect_equal(found, live_meat, failures, "Varnak should ignore freed meat drops and pick the live target")
 	varnak.queue_free()
 
 

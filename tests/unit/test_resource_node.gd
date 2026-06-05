@@ -8,6 +8,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_resource_node_setup_exposes_herbivore_food(failures)
 	_test_resource_node_restore_recreates_edible_food_value(failures)
+	_test_resource_node_syncs_collision_radius_with_growth(failures)
 	return failures
 
 
@@ -45,4 +46,19 @@ func _test_resource_node_restore_recreates_edible_food_value(failures: Array[Str
 	})
 	TEST_UTILS.expect(float(resource.get("food_value")) > 0.0, failures, "Older saves should restore a herbivore food value for trees and bushes")
 	TEST_UTILS.expect(bool(resource.get("is_edible_by_herbivores")), failures, "Older saves should rejoin edible_vegetation after restore")
+	resource.free()
+
+
+func _test_resource_node_syncs_collision_radius_with_growth(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	resource.call("setup", "bush")
+	var collision_shape: CollisionShape2D = resource.get_node("CollisionShape2D") as CollisionShape2D
+	var circle := collision_shape.shape as CircleShape2D
+	TEST_UTILS.expect(circle != null, failures, "ResourceNode should keep a circular collision shape for bushes")
+	if circle != null:
+		TEST_UTILS.expect_close(circle.radius, float(resource.get("radius")), failures, "Bush collision radius should match its current visible resource radius")
+	resource.call("consume_by_creature", null, 1.0)
+	circle = collision_shape.shape as CircleShape2D
+	if circle != null:
+		TEST_UTILS.expect_close(circle.radius, float(resource.get("radius")), failures, "Bush collision radius should stay synced after growth stage changes")
 	resource.free()

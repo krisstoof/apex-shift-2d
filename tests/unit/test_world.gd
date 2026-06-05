@@ -26,6 +26,7 @@ func run() -> Array[String]:
 	_test_landmark_debug_toggles_flip_runtime_state(failures)
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
 	_test_current_biome_texture_id_uses_player_position_biome(failures)
+	_test_cached_group_nodes_prune_freed_entries(failures)
 	return failures
 
 
@@ -364,6 +365,25 @@ func _test_current_biome_texture_id_uses_player_position_biome(failures: Array[S
 	var texture_id := world.get_current_biome_texture_id(sample_point)
 	TEST_UTILS.expect(texture_id.contains("westwood_sample"), failures, "Current biome texture id should resolve from the biome containing the sampled world position")
 	world.free()
+
+
+func _test_cached_group_nodes_prune_freed_entries(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	TEST_UTILS.expect(tree != null and tree.current_scene != null, failures, "Test runner should provide a current scene")
+	if tree == null or tree.current_scene == null:
+		return
+	var world := WORLD_SCRIPT.new()
+	tree.current_scene.add_child(world)
+	var meat_drop := Node2D.new()
+	world.add_child(meat_drop)
+	meat_drop.add_to_group("meat_drops")
+	meat_drop.position = Vector2(24.0, -12.0)
+	var cached_before: Array = world.call("get_cached_group_nodes", "meat_drops")
+	TEST_UTILS.expect_equal(cached_before.size(), 1, failures, "World cache should capture the live meat drop")
+	meat_drop.free()
+	var cached_after: Array = world.call("get_cached_group_nodes", "meat_drops")
+	TEST_UTILS.expect_equal(cached_after.size(), 0, failures, "World cache should filter out freed nodes before returning the cached list")
+	world.queue_free()
 
 
 func _make_world_with_single_pond() -> Node2D:

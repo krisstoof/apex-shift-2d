@@ -70,6 +70,8 @@ var decision_reason := "spawn"
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
 
+@onready var collision_shape: CollisionShape2D = $CollisionShape2D
+
 
 func _ready() -> void:
 	add_to_group("grazer")
@@ -460,16 +462,16 @@ func _consume_plants() -> void:
 func _consume_target_vegetation() -> float:
 	if is_instance_valid(plant_target) and _is_edible_vegetation_target(plant_target):
 		var distance := global_position.distance_to(plant_target.global_position)
-		if distance <= vegetation_consume_range and plant_target.has_method("consume_by_creature"):
+		if distance <= _get_vegetation_consume_distance(plant_target) and plant_target.has_method("consume_by_creature"):
 			return float(plant_target.consume_by_creature(self, plant_consumption_rate))
-	return _consume_nearest_vegetation(vegetation_consume_range)
+	return _consume_nearest_vegetation()
 
 
-func _consume_nearest_vegetation(search_range: float = vegetation_eat_range) -> float:
-	var nearest := _find_nearest_edible_vegetation(search_range)
-	if is_instance_valid(nearest) and nearest.has_method("consume_by_creature"):
-		return float(nearest.consume_by_creature(self, plant_consumption_rate))
-	return 0.0
+func _consume_nearest_vegetation() -> float:
+	var nearest := _find_nearest_consumable_vegetation()
+	if not is_instance_valid(nearest) or not nearest.has_method("consume_by_creature"):
+		return 0.0
+	return float(nearest.consume_by_creature(self, plant_consumption_rate))
 
 
 func _try_update_plant_target() -> bool:
@@ -479,7 +481,7 @@ func _try_update_plant_target() -> bool:
 			_pick_wander_target()
 			return true
 	wander_target = _clamp_to_world(plant_target.global_position)
-	if global_position.distance_to(plant_target.global_position) <= vegetation_consume_range:
+	if global_position.distance_to(plant_target.global_position) <= _get_vegetation_consume_distance(plant_target):
 		_set_state(State.EAT_PLANTS)
 		state_time = eat_duration_seconds
 	return true
@@ -524,8 +526,37 @@ func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
 	return nearest
 
 
+func _find_nearest_consumable_vegetation() -> Node2D:
+	var nearest: Node2D
+	var nearest_distance := INF
+	for vegetation in _get_cached_group_nodes("edible_vegetation"):
+		if not _is_edible_vegetation_target(vegetation):
+			continue
+		var distance := global_position.distance_to(vegetation.global_position)
+		if distance > _get_vegetation_consume_distance(vegetation):
+			continue
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = vegetation
+	return nearest
+
+
 func _is_edible_vegetation_target(vegetation: Node) -> bool:
 	return is_instance_valid(vegetation) and vegetation is Node2D and vegetation.get("is_edible_by_herbivores") == true
+
+
+func _get_vegetation_consume_distance(vegetation: Node2D) -> float:
+	var vegetation_radius := _get_target_radius(vegetation)
+	return vegetation_consume_range + vegetation_radius * 0.5
+
+
+func _get_target_radius(target: Node2D) -> float:
+	if not is_instance_valid(target):
+		return 0.0
+	var radius_value: Variant = target.get("radius")
+	if typeof(radius_value) not in [TYPE_FLOAT, TYPE_INT]:
+		return 0.0
+	return max(float(radius_value), 0.0)
 
 
 func _can_hunt_small_prey(nearest_plant: Node2D, nearest_prey: Node2D, risk_drive: float) -> bool:
@@ -575,8 +606,12 @@ func _find_nearest_meat_drop(search_range: float) -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := search_range
 	for resource in _get_cached_group_nodes("meat_drops"):
+		if not is_instance_valid(resource):
+			continue
+		if not (resource is Node2D):
+			continue
 		var meat_drop := resource as Node2D
-		if not _is_meat_drop_target(meat_drop):
+		if not is_instance_valid(meat_drop) or not _is_meat_drop_target(meat_drop):
 			continue
 		var distance := global_position.distance_to(meat_drop.global_position)
 		if distance < nearest_distance:
@@ -586,7 +621,12 @@ func _find_nearest_meat_drop(search_range: float) -> Node2D:
 
 
 func _is_meat_drop_target(resource: Node) -> bool:
-	return is_instance_valid(resource) and resource is Node2D and resource.get("resource_kind") == "meat_drop" and int(resource.get("amount")) > 0
+	if not is_instance_valid(resource):
+		return false
+	var meat_drop := resource as Node2D
+	if meat_drop == null:
+		return false
+	return meat_drop.get("resource_kind") == "meat_drop" and int(meat_drop.get("amount")) > 0
 
 
 func _can_eat_meat_drop() -> bool:
