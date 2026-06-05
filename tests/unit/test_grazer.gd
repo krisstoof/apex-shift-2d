@@ -15,6 +15,7 @@ class TestWorld:
 	var deep_water := false
 	var spawned_meat_amount := 0
 	var cached_groups := {}
+	var query_service
 
 	func get_terrain_speed_multiplier(_position: Vector2) -> float:
 		return terrain_multiplier
@@ -43,6 +44,22 @@ class TestWorld:
 		if not nodes.has(node):
 			nodes.append(node)
 
+	func get_query_service():
+		return query_service
+
+
+class TestWorldQueryService:
+	extends RefCounted
+
+	var terrain_multiplier := 0.48
+	var navigation_blocked := true
+
+	func get_terrain_speed_multiplier(_position: Vector2) -> float:
+		return terrain_multiplier
+
+	func is_creature_navigation_blocked(_position: Vector2) -> bool:
+		return navigation_blocked
+
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
@@ -53,6 +70,7 @@ func run() -> Array[String]:
 	_test_grazer_has_valid_speed(failures)
 	_test_grazer_can_wander(failures)
 	_test_grazer_does_not_leave_world_bounds(failures)
+	_test_grazer_prefers_world_query_service_for_navigation_and_terrain(failures)
 	_test_grazer_searches_plants_when_hungry(failures)
 	_test_grazer_moves_toward_nearest_food(failures)
 	_test_grazer_eats_plant_resource(failures)
@@ -125,6 +143,18 @@ func _test_grazer_does_not_leave_world_bounds(failures: Array[String]) -> void:
 	var clamped_world := WORLD_CONFIG.WORLD_RECT.grow(-grazer.world_edge_padding)
 	TEST_UTILS.expect(grazer.global_position.x >= clamped_world.position.x and grazer.global_position.x <= clamped_world.end.x, failures, "Grazer should stay within the clamped world width")
 	TEST_UTILS.expect(grazer.global_position.y >= clamped_world.position.y and grazer.global_position.y <= clamped_world.end.y, failures, "Grazer should stay within the clamped world height")
+	grazer.queue_free()
+
+
+func _test_grazer_prefers_world_query_service_for_navigation_and_terrain(failures: Array[String]) -> void:
+	var world := _ensure_world()
+	world.query_service = TestWorldQueryService.new()
+	world.navigation_blocked = false
+	world.terrain_multiplier = 1.0
+	var grazer := _make_grazer()
+	grazer.global_position = Vector2.ZERO
+	TEST_UTILS.expect_close(float(grazer.call("_get_terrain_speed_multiplier")), 0.48, failures, "Grazer should read terrain speed from WorldQueryService when exposed by the world")
+	TEST_UTILS.expect(not grazer.call("_is_navigation_position_valid", Vector2(40.0, 0.0)), failures, "Grazer should use WorldQueryService navigation blocking when exposed by the world")
 	grazer.queue_free()
 
 

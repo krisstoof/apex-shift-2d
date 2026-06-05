@@ -737,8 +737,8 @@ func _is_navigation_position_valid(position: Vector2) -> bool:
 	var clamped_position := _clamp_to_world(position)
 	if clamped_position.distance_squared_to(position) > 0.01:
 		return false
-	var world := get_tree().current_scene.get_node_or_null("World")
-	if world and world.has_method("is_creature_navigation_blocked") and world.is_creature_navigation_blocked(position) == true:
+	var world_query: Variant = _get_world_query()
+	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(position) == true:
 		return false
 	for wall in _get_cached_group_nodes("walls"):
 		var wall_node := wall as Node2D
@@ -797,10 +797,17 @@ func _get_world_rect() -> Rect2:
 
 
 func _get_terrain_speed_multiplier() -> float:
-	var world := get_tree().current_scene.get_node_or_null("World")
-	if world and world.has_method("get_terrain_speed_multiplier"):
-		return float(world.get_terrain_speed_multiplier(global_position))
+	var world_query: Variant = _get_world_query()
+	if world_query and world_query.has_method("get_terrain_speed_multiplier"):
+		return float(world_query.get_terrain_speed_multiplier(global_position))
 	return 1.0
+
+
+func _get_world_query():
+	var world := _get_world_node()
+	if world and world.has_method("get_query_service"):
+		return world.get_query_service()
+	return world
 
 
 func _set_state(next_state: State) -> void:

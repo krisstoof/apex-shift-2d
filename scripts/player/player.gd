@@ -189,16 +189,16 @@ func get_torch_remaining_seconds() -> float:
 
 
 func _get_terrain_speed_multiplier() -> float:
-	var world := get_tree().current_scene.get_node_or_null("World")
-	if world and world.has_method("get_terrain_speed_multiplier"):
-		return float(world.get_terrain_speed_multiplier(global_position))
+	var world_query: Variant = _get_world_query()
+	if world_query and world_query.has_method("get_terrain_speed_multiplier"):
+		return float(world_query.get_terrain_speed_multiplier(global_position))
 	return 1.0
 
 
 func _is_in_water() -> bool:
-	var world := get_tree().current_scene.get_node_or_null("World")
-	if world and world.has_method("is_position_in_water"):
-		return world.is_position_in_water(global_position) == true
+	var world_query: Variant = _get_world_query()
+	if world_query and world_query.has_method("is_position_in_water"):
+		return world_query.is_position_in_water(global_position) == true
 	return false
 
 
@@ -233,10 +233,24 @@ func _refresh_campfire_regen_state(delta: float) -> void:
 
 
 func _get_campfires() -> Array:
-	var world := get_tree().current_scene.get_node_or_null("World")
+	var world := _get_world_node()
 	if world and world.has_method("get_cached_group_nodes"):
 		return world.get_cached_group_nodes("campfires")
 	return get_tree().get_nodes_in_group("campfires")
+
+
+func _get_world_query():
+	var world := _get_world_node()
+	if world and world.has_method("get_query_service"):
+		return world.get_query_service()
+	return world
+
+
+func _get_world_node() -> Node:
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return null
+	return tree.current_scene.get_node_or_null("World")
 
 
 func debug_add_item(item_name: String, amount := 1) -> void:

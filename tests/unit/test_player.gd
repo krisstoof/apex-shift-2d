@@ -11,10 +11,23 @@ class TestCampfire:
 	var stamina_regen_radius := 150.0
 
 
+class TestWorldQueryService:
+	extends RefCounted
+	var terrain_multiplier := 0.52
+	var water := true
+
+	func get_terrain_speed_multiplier(_position: Vector2) -> float:
+		return terrain_multiplier
+
+	func is_position_in_water(_position: Vector2) -> bool:
+		return water
+
+
 class TestWorld:
 	extends Node2D
 	var cached_group_call_count := 0
 	var campfires: Array = []
+	var query_service
 
 	func get_cached_group_nodes(group_name: String) -> Array:
 		if group_name == "campfires":
@@ -27,6 +40,9 @@ class TestWorld:
 
 	func is_position_in_water(_position: Vector2) -> bool:
 		return false
+
+	func get_query_service():
+		return query_service
 
 
 func run() -> Array[String]:
@@ -43,6 +59,7 @@ func run() -> Array[String]:
 	_test_player_debug_item_helpers(failures)
 	_test_player_visual_layout_looks_human_like(failures)
 	_test_player_campfire_regen_uses_low_frequency_cached_refresh(failures)
+	_test_player_prefers_world_query_service_for_terrain_reads(failures)
 	_test_player_melee_attack_spends_stamina(failures)
 	_test_player_bow_shooting_spends_stamina_and_sets_cooldown(failures)
 	_test_player_eat_meat_consumes_inventory_and_restores_hunger(failures)
@@ -267,6 +284,20 @@ func _test_player_draw_pose_flips_and_tilts_without_spinning(failures: Array[Str
 	TEST_UTILS.expect(float(down_pose.get("body_angle", 0.0)) > 0.0, failures, "Player should tilt slightly downward when aiming south")
 	TEST_UTILS.expect_close(player.rotation, 0.0, failures, "Player node should stay unrotated when aiming vertically")
 	player.queue_free()
+
+
+func _test_player_prefers_world_query_service_for_terrain_reads(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var world := TestWorld.new()
+	world.name = "World"
+	world.query_service = TestWorldQueryService.new()
+	tree.current_scene.add_child(world)
+	var player := _make_player()
+	player.global_position = Vector2.ZERO
+	TEST_UTILS.expect_close(float(player.call("_get_terrain_speed_multiplier")), 0.52, failures, "Player should read terrain speed from WorldQueryService when the world exposes one")
+	TEST_UTILS.expect(player.call("_is_in_water"), failures, "Player should read water state from WorldQueryService when the world exposes one")
+	player.queue_free()
+	world.queue_free()
 
 
 func _test_player_melee_attack_spends_stamina(failures: Array[String]) -> void:
