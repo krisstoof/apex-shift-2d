@@ -2,6 +2,8 @@ extends Node
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const ECOSYSTEM_COMMAND := preload("res://scripts/systems/ecosystem_command.gd")
+const ECOSYSTEM_DELTA := preload("res://scripts/systems/ecosystem_delta.gd")
 
 var biome_states: Dictionary = {}
 var tick_timer := 0.0
@@ -13,7 +15,9 @@ func _ecosystem_value(key: String) -> float:
 
 
 func _ready() -> void:
-	get_node("/root/EventBus").game_event.connect(_on_game_event)
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_signal("game_event"):
+		event_bus.game_event.connect(_on_game_event)
 	_initialize_biomes()
 
 
@@ -156,7 +160,9 @@ func debug_force_grazer_niche_shift_check(position: Vector2) -> void:
 func debug_advance_ecosystem_tick() -> void:
 	_update_ecosystem_tick()
 	tick_timer = 0.0
-	get_node("/root/EventBus").post_message("Debug advanced ecosystem tick")
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.post_message("Debug advanced ecosystem tick")
 
 
 func _initialize_biomes() -> void:
@@ -300,7 +306,9 @@ func _post_debug_message(message: String, biome_id: String) -> void:
 	if not biome_states.has(biome_id):
 		return
 	var state: Dictionary = biome_states[biome_id]
-	get_node("/root/EventBus").post_message("%s in %s" % [message, str(state.get("name", biome_id))])
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.post_message("%s in %s" % [message, str(state.get("name", biome_id))])
 
 
 func _update_ecosystem_tick() -> void:
@@ -513,11 +521,18 @@ func _emit_status_event_if_needed(previous_status: String, state: Dictionary) ->
 			event_name = "ecosystem_biome_collapsing"
 	if event_name.is_empty():
 		return
-	get_node("/root/EventBus").emit_game_event(event_name, state.duplicate(true))
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.emit_game_event(event_name, state.duplicate(true))
 
 
-func _emit_vegetation_changed(state: Dictionary) -> void:
-	get_node("/root/EventBus").emit_game_event("ecosystem_vegetation_changed", state.duplicate(true))
+func _emit_vegetation_changed(state: Dictionary, delta: Dictionary = {}) -> void:
+	var payload := state.duplicate(true)
+	if not delta.is_empty():
+		payload["ecosystem_delta"] = Dictionary(delta).duplicate(true)
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.emit_game_event("ecosystem_vegetation_changed", payload)
 
 
 func _emit_population_decline_events_if_needed(state: Dictionary, previous_small_prey: float, previous_grazers: float) -> void:
@@ -528,12 +543,16 @@ func _emit_population_decline_events_if_needed(state: Dictionary, previous_small
 		var payload := state.duplicate(true)
 		payload["previous_population"] = previous_small_prey
 		payload["current_population"] = current_small_prey
-		get_node("/root/EventBus").emit_game_event("small_prey_population_declining", payload)
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.emit_game_event("small_prey_population_declining", payload)
 	if previous_grazers - current_grazers >= decline_min_delta:
 		var payload := state.duplicate(true)
 		payload["previous_population"] = previous_grazers
 		payload["current_population"] = current_grazers
-		get_node("/root/EventBus").emit_game_event("grazer_population_declining", payload)
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.emit_game_event("grazer_population_declining", payload)
 
 
 func _on_game_event(event_name: String, payload: Dictionary) -> void:
@@ -541,17 +560,58 @@ func _on_game_event(event_name: String, payload: Dictionary) -> void:
 		"small_prey_killed_by_player", "small_prey_killed_by_varnak", "small_prey_killed_by_grazer":
 			_apply_small_prey_death(payload)
 		"small_prey_consumed_plants":
-			_apply_visible_plant_consumption(payload)
+			apply_command(ECOSYSTEM_COMMAND.new_with(ECOSYSTEM_COMMAND.PLANT_CONSUMED, str(payload.get("biome_id", "")), payload))
 		"grazer_killed_by_player", "grazer_killed_by_varnak":
 			_apply_grazer_death(payload)
 		"grazer_consumed_plants":
-			_apply_visible_plant_consumption(payload)
+			apply_command(ECOSYSTEM_COMMAND.new_with(ECOSYSTEM_COMMAND.PLANT_CONSUMED, str(payload.get("biome_id", "")), payload))
 		"grazer_scavenged", "grazer_hunted_small_prey":
 			_record_grazer_non_plant_food(payload)
 		"varnak_killed_by_player", "varnak_killed_by_trap":
 			_apply_varnak_death(payload)
 		"plant_resource_harvested":
-			_apply_harvested_plant_pressure(payload)
+			apply_command(ECOSYSTEM_COMMAND.new_with(ECOSYSTEM_COMMAND.PLANT_HARVESTED, str(payload.get("biome_id", "")), payload))
+
+
+func apply_command(command_value: Variant) -> Dictionary:
+	var command := _normalize_command(command_value)
+	if command.is_empty():
+		return {}
+	return _apply_command(command)
+
+
+func _normalize_command(command_value: Variant) -> Dictionary:
+	if command_value != null and command_value.has_method("to_dict"):
+		return command_value.to_dict()
+	if typeof(command_value) != TYPE_DICTIONARY:
+		return {}
+	var command := Dictionary(command_value).duplicate(true)
+	command["kind"] = str(command.get("kind", ""))
+	command["biome_id"] = str(command.get("biome_id", ""))
+	if typeof(command.get("payload", {})) == TYPE_DICTIONARY:
+		command["payload"] = Dictionary(command.get("payload", {})).duplicate(true)
+	else:
+		command["payload"] = {}
+	return command
+
+
+func _apply_command(command: Dictionary) -> Dictionary:
+	var kind := str(command.get("kind", ""))
+	var payload: Dictionary = Dictionary(command.get("payload", {}))
+	match kind:
+		ECOSYSTEM_COMMAND.PLANT_CONSUMED:
+			return _apply_visible_plant_consumption(payload)
+		ECOSYSTEM_COMMAND.PLANT_HARVESTED:
+			return _apply_harvested_plant_pressure(payload)
+		ECOSYSTEM_COMMAND.SMALL_PREY_DEATH:
+			_apply_small_prey_death(payload)
+		ECOSYSTEM_COMMAND.GRAZER_DEATH:
+			_apply_grazer_death(payload)
+		ECOSYSTEM_COMMAND.VARNAK_DEATH:
+			_apply_varnak_death(payload)
+		ECOSYSTEM_COMMAND.GRAZER_NON_PLANT_FOOD:
+			_record_grazer_non_plant_food(payload)
+	return {}
 
 
 func _apply_small_prey_death(payload: Dictionary) -> void:
@@ -624,7 +684,9 @@ func _update_grazer_niche_status(state: Dictionary) -> void:
 	if non_plant_diet <= _ecosystem_value("grazer_niche_shift_threshold"):
 		return
 	state["current_niche"] = "OMNIVORE"
-	get_node("/root/EventBus").emit_game_event("grazer_niche_shifted", {
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.emit_game_event("grazer_niche_shifted", {
 		"biome_id": str(state.get("biome_id", "")),
 		"old_niche": current_niche,
 		"new_niche": "OMNIVORE",
@@ -632,7 +694,7 @@ func _update_grazer_niche_status(state: Dictionary) -> void:
 		"average_meat_diet": float(state.get("average_meat_diet", 0.0)),
 		"average_scavenger_diet": float(state.get("average_scavenger_diet", 0.0)),
 		"average_aggression": float(state.get("average_aggression", 0.0))
-	})
+		})
 
 
 func _update_species_generations(state: Dictionary) -> void:
@@ -688,24 +750,25 @@ func _update_species_generations(state: Dictionary) -> void:
 		state["grazer_pressure_ticks"] = 0
 
 
-func _apply_visible_plant_consumption(payload: Dictionary) -> void:
+func _apply_visible_plant_consumption(payload: Dictionary) -> Dictionary:
 	var biome_id := str(payload.get("biome_id", ""))
 	var consumption := float(payload.get("plant_consumption_rate", 0.0))
 	var biomass_impact := float(payload.get("biomass_impact", consumption))
-	_apply_plant_biomass_loss(biome_id, max(consumption, biomass_impact))
+	return _apply_plant_biomass_loss(biome_id, max(consumption, biomass_impact), payload)
 
 
-func _apply_harvested_plant_pressure(payload: Dictionary) -> void:
+func _apply_harvested_plant_pressure(payload: Dictionary) -> Dictionary:
 	var biome_id := str(payload.get("biome_id", ""))
 	var biomass_impact := float(payload.get("biomass_impact", 0.0))
-	_apply_plant_biomass_loss(biome_id, biomass_impact)
+	return _apply_plant_biomass_loss(biome_id, biomass_impact, payload)
 
 
-func _apply_plant_biomass_loss(biome_id: String, biomass_loss: float) -> void:
+func _apply_plant_biomass_loss(biome_id: String, biomass_loss: float, payload: Dictionary = {}) -> Dictionary:
 	if not biome_states.has(biome_id) or biomass_loss <= 0.0:
-		return
+		return {}
 	var state: Dictionary = biome_states[biome_id]
 	var previous_status := str(state.get("status", "healthy"))
+	var previous_biomass_percent := float(state.get("plant_biomass_percent", _get_state_biomass_percent(state)))
 	var plant_biomass := float(state.get("plant_biomass", 0.0))
 	state["plant_biomass"] = max(plant_biomass - biomass_loss, 0.0)
 	state["plant_biomass_percent"] = _get_state_biomass_percent(state)
@@ -716,8 +779,21 @@ func _apply_plant_biomass_loss(biome_id: String, biomass_loss: float) -> void:
 		max_biomass
 	)
 	biome_states[biome_id] = state
-	_emit_vegetation_changed(state)
+	var delta = ECOSYSTEM_DELTA.new_with(
+		biome_id,
+		previous_biomass_percent,
+		float(state.get("plant_biomass_percent", previous_biomass_percent)),
+		previous_status != str(state.get("status", "healthy")),
+		str(state.get("status", "healthy")),
+		-1,
+		payload
+	)
+	_emit_vegetation_changed(state, delta.to_dict())
 	_emit_status_event_if_needed(previous_status, state)
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.emit_game_event("ecosystem_delta_applied", delta.to_dict())
+	return delta.to_dict()
 
 
 func _get_biomass_status(plant_biomass: float, max_plant_biomass: float) -> String:
@@ -740,3 +816,7 @@ func _get_biome_id_for_position(position: Vector2) -> String:
 		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
 			return _get_biome_id(biome)
 	return ""
+
+
+func _get_event_bus() -> Node:
+	return get_node_or_null("/root/EventBus")
