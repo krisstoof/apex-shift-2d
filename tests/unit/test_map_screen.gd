@@ -67,6 +67,34 @@ class MockDayNightSystem:
 		return "Day"
 
 
+class MockResource:
+	extends Node2D
+	var resource_kind := "berry_bush"
+	var item_name := "berries"
+	var player_harvestable := true
+
+
+class MockVarnak:
+	extends Node2D
+
+
+class MockWorld:
+	extends Node
+	var registered_resources: Array = []
+	var registered_varnaks: Array = []
+
+	func get_registered_resources() -> Array:
+		return registered_resources
+
+	func get_registered_creatures_by_type(creature_type: String) -> Array:
+		if creature_type == "varnak":
+			return registered_varnaks
+		return []
+
+	func get_landmarks() -> Array[Dictionary]:
+		return []
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_info_lines_fall_back_when_player_is_missing(failures)
@@ -75,6 +103,7 @@ func run() -> Array[String]:
 	_test_map_redraw_state_reacts_to_player_position_changes(failures)
 	_test_landmark_signature_changes_only_when_landmarks_change(failures)
 	_test_map_redraw_state_reacts_to_resource_signature_changes(failures)
+	_test_map_screen_reads_registry_resources_and_varnaks(failures)
 	return failures
 
 
@@ -158,6 +187,24 @@ func _test_map_redraw_state_reacts_to_resource_signature_changes(failures: Array
 	TEST_UTILS.expect(changed, failures, "Map screen should request redraw when the cached resource signature changes")
 	var player: Node2D = map_screen.get("player")
 	player.free()
+	map_screen.free()
+
+
+func _test_map_screen_reads_registry_resources_and_varnaks(failures: Array[String]) -> void:
+	var world := MockWorld.new()
+	var resource := MockResource.new()
+	resource.global_position = Vector2(120.0, -40.0)
+	var varnak := MockVarnak.new()
+	varnak.global_position = Vector2(260.0, 80.0)
+	world.registered_resources = [resource]
+	world.registered_varnaks = [varnak]
+	var map_screen: Control = _make_bound_map_screen()
+	map_screen.set("world", world)
+	var cache_changed: bool = map_screen.call("_update_resources_cache")
+	var lines: Array[String] = map_screen.call("_build_info_lines")
+	TEST_UTILS.expect(cache_changed, failures, "Map screen should rebuild its resource cache when WorldRegistry provides a new resource marker")
+	TEST_UTILS.expect_equal(Array(map_screen.get("cached_resources")).size(), 1, failures, "Map screen should cache resource markers from WorldRegistry")
+	TEST_UTILS.expect(lines.has("Live Varnaks: 1"), failures, "Map screen info panel should count varnaks from WorldRegistry instead of group scans")
 	map_screen.free()
 
 

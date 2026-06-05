@@ -10,6 +10,7 @@ const HILL_MARKER_Y_SCALE := 0.58
 const MAP_STATE_REFRESH_INTERVAL := 0.25
 
 var player: Node2D
+var world: Node
 var evolution_director: Node
 var day_night_system: Node
 var world_rect := WORLD_CONFIG.WORLD_RECT
@@ -35,6 +36,7 @@ func _ready() -> void:
 
 func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = []) -> void:
 	player = p_player
+	world = _get_world()
 	evolution_director = p_evolution_director
 	day_night_system = p_day_night_system
 	world_rect = p_world_rect
@@ -100,8 +102,7 @@ func _draw_info_panel(rect: Rect2) -> void:
 
 func _build_info_lines() -> Array[String]:
 	var profile: Dictionary = evolution_director.get_profile() if evolution_director else {}
-	var tree := _get_safe_tree()
-	var live_varnaks := tree.get_nodes_in_group("varnak").size() if tree else 0
+	var live_varnaks := _get_registered_varnaks().size()
 	var pond_count := _get_landmark_count("pond")
 	var hill_count := _get_landmark_count("hill")
 	var zone_name := _get_player_zone_name()
@@ -388,10 +389,7 @@ func _draw_legend_entry(position: Vector2, label: String, color: Color) -> void:
 
 
 func _draw_varnaks(map_rect: Rect2) -> void:
-	var tree := _get_safe_tree()
-	if not tree:
-		return
-	for varnak in tree.get_nodes_in_group("varnak"):
+	for varnak in _get_registered_varnaks():
 		if is_instance_valid(varnak):
 			var pos := _world_to_map(varnak.global_position, map_rect)
 			draw_circle(pos, 5.0, Color(0.88, 0.22, 0.16))
@@ -534,8 +532,12 @@ func _get_resource_color(resource: Node) -> Color:
 
 
 func _update_resources_cache() -> bool:
-	var tree := _get_safe_tree()
-	cached_resources = tree.get_nodes_in_group("resources") if tree else []
+	var world := _get_world()
+	if world and world.has_method("get_registered_resources"):
+		cached_resources = _to_node_array(world.get_registered_resources())
+	else:
+		var tree := _get_safe_tree()
+		cached_resources = _to_node_array(tree.get_nodes_in_group("resources") if tree else [])
 	# Clean up dead references
 	for i in range(cached_resources.size() - 1, -1, -1):
 		if not is_instance_valid(cached_resources[i]):
@@ -557,8 +559,7 @@ func _request_map_redraw(force := false) -> bool:
 
 func _build_render_state_key() -> String:
 	var profile: Dictionary = evolution_director.get_profile() if evolution_director and evolution_director.has_method("get_profile") else {}
-	var tree := _get_safe_tree()
-	var live_varnaks := tree.get_nodes_in_group("varnak").size() if tree else 0
+	var live_varnaks := _get_registered_varnaks().size()
 	var player_stats: Variant = _get_player_stats()
 	var player_inventory: Variant = _get_player_inventory()
 	var player_position_text := "none"
@@ -626,3 +627,32 @@ func _get_safe_tree() -> SceneTree:
 	if not is_inside_tree():
 		return null
 	return get_tree()
+
+
+func _get_world() -> Node:
+	if is_instance_valid(world):
+		return world
+	var tree := _get_safe_tree()
+	if tree == null or tree.current_scene == null:
+		return null
+	world = tree.current_scene.get_node_or_null("World")
+	return world
+
+
+func _get_registered_varnaks() -> Array:
+	var world := _get_world()
+	if world and world.has_method("get_registered_creatures_by_type"):
+		return world.get_registered_creatures_by_type("varnak")
+	var tree := _get_safe_tree()
+	if tree == null:
+		return []
+	return tree.get_nodes_in_group("varnak")
+
+
+func _to_node_array(nodes: Array) -> Array[Node]:
+	var typed_nodes: Array[Node] = []
+	for node_value in nodes:
+		var node := node_value as Node
+		if node != null:
+			typed_nodes.append(node)
+	return typed_nodes

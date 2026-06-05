@@ -353,7 +353,7 @@ func _update_predator_pressure(state: Dictionary, biome_id: String) -> void:
 	var scavenger_diet_total := 0.0
 	var hunt_drive_total := 0.0
 	var generation_total := 0
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	for varnak in _get_creature_nodes("varnak"):
 		if not is_instance_valid(varnak) or not varnak.has_method("get_debug_data"):
 			continue
 		total_varnaks += 1
@@ -409,7 +409,7 @@ func _update_visible_creature_aggregates(state: Dictionary, biome_id: String) ->
 	var grazer_reproduction_total := 0.0
 	var grazer_fitness_total := 0.0
 	for group_name in ["small_prey", "grazer", "varnak"]:
-		for creature in get_tree().get_nodes_in_group(group_name):
+		for creature in _get_creature_nodes(group_name):
 			if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
 				continue
 			if _get_biome_id_for_position(creature.global_position) != biome_id:
@@ -452,6 +452,16 @@ func _update_visible_creature_aggregates(state: Dictionary, biome_id: String) ->
 		return
 	state["average_hunger"] = hunger_total / float(count)
 	state["average_energy"] = energy_total / float(count)
+
+
+func _get_creature_nodes(group_name: String) -> Array:
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return []
+	var world := tree.current_scene.get_node_or_null("World")
+	if world and world.has_method("get_registered_creatures_by_type"):
+		return world.get_registered_creatures_by_type(group_name)
+	return tree.get_nodes_in_group(group_name)
 
 
 func _update_biome_populations(state: Dictionary) -> void:

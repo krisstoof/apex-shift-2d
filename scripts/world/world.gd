@@ -6,6 +6,7 @@ const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const VARNAK_SPAWN_TICK_SECONDS := 5.5
@@ -121,6 +122,7 @@ var group_nodes_cache_timestamps: Dictionary = {}
 var pending_biome_vegetation_syncs: Dictionary = {}
 var biome_vegetation_sync_scheduled := false
 var boot_ready := false
+var registry = WORLD_REGISTRY_SCRIPT.new()
 const GROUP_CACHE_TTL_SECONDS := 0.12
 
 signal world_initialized
@@ -128,6 +130,7 @@ signal world_initialized
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	await get_tree().process_frame
+	_ensure_registry()
 	resource_rng.randomize()
 	varnak_rng.randomize()
 	small_prey_rng.randomize()
@@ -258,6 +261,9 @@ func is_boot_ready() -> bool:
 
 
 func get_cached_group_nodes(group_name: String) -> Array:
+	var world_registry = _ensure_registry()
+	if world_registry.supports_group(group_name):
+		return world_registry.get_group_nodes(group_name)
 	var scene_tree := get_tree()
 	if scene_tree == null:
 		return []
@@ -279,12 +285,63 @@ func clear_cached_group_nodes() -> void:
 	group_nodes_cache_timestamps.clear()
 
 
+func get_world_registry():
+	return _ensure_registry()
+
+
+func get_registered_resources() -> Array:
+	return _ensure_registry().get_resources()
+
+
+func get_registered_resources_by_kind(resource_kind: String) -> Array:
+	return _ensure_registry().get_resources_by_kind(resource_kind)
+
+
+func get_registered_resources_by_biome(biome_id: String) -> Array:
+	return _ensure_registry().get_resources_by_biome(biome_id)
+
+
+func get_registered_creatures_by_type(creature_type: String) -> Array:
+	return _ensure_registry().get_creatures_by_type(creature_type)
+
+
+func get_registered_creatures_by_biome(biome_id: String, creature_type: String = "") -> Array:
+	return _ensure_registry().get_creatures_by_biome(biome_id, creature_type)
+
+
+func get_registered_buildings() -> Array:
+	return _ensure_registry().get_buildings()
+
+
+func get_registered_buildings_by_type(building_type: String) -> Array:
+	return _ensure_registry().get_buildings_by_type(building_type)
+
+
+func register_resource_node(node: Node) -> void:
+	_ensure_registry().register_resource(node)
+
+
+func register_creature_node(node: Node, creature_type: String) -> void:
+	_ensure_registry().register_creature(node, creature_type)
+
+
+func register_building_node(node: Node, building_type: String) -> void:
+	_ensure_registry().register_building(node, building_type)
+
+
 func _filter_valid_cached_group_nodes(nodes: Array) -> Array:
 	var filtered_nodes: Array = []
 	for node in nodes:
 		if is_instance_valid(node):
 			filtered_nodes.append(node)
 	return filtered_nodes
+
+
+func _ensure_registry():
+	if registry == null:
+		registry = WORLD_REGISTRY_SCRIPT.new()
+	registry.set_biome_id_resolver(Callable(self, "_get_biome_id_for_position"))
+	return registry
 
 
 func _yield_initial_boot_step() -> void:
@@ -799,9 +856,10 @@ func _get_hill_peak_elevation_factor() -> float:
 
 func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
 	var node := RESOURCE_SCENE.instantiate()
-	add_child(node)
 	node.position = pos
 	node.setup(resource_kind)
+	add_child(node)
+	register_resource_node(node)
 	return node
 
 
@@ -935,7 +993,7 @@ func _get_player_position() -> Vector2:
 
 func advance_resource_growth_days(days: float) -> void:
 	var changed_count := 0
-	for resource in get_tree().get_nodes_in_group("resources"):
+	for resource in get_registered_resources():
 		if not is_instance_valid(resource) or not resource.has_method("advance_growth_days"):
 			continue
 		if resource.advance_growth_days(days):
@@ -950,7 +1008,7 @@ func debug_advance_resource_growth_day() -> void:
 
 func debug_force_full_vegetation_regrowth() -> void:
 	var changed_count := 0
-	for resource in get_tree().get_nodes_in_group("resources"):
+	for resource in get_registered_resources():
 		if not is_instance_valid(resource) or not resource.has_method("force_full_regrowth"):
 			continue
 		resource.force_full_regrowth()
@@ -960,7 +1018,7 @@ func debug_force_full_vegetation_regrowth() -> void:
 
 func debug_reset_resource_growth() -> void:
 	var changed_count := 0
-	for resource in get_tree().get_nodes_in_group("resources"):
+	for resource in get_registered_resources():
 		if not is_instance_valid(resource) or not resource.has_method("reset_growth_state"):
 			continue
 		resource.reset_growth_state()
@@ -975,7 +1033,7 @@ func get_resource_growth_debug_summary() -> Dictionary:
 		"young": 0,
 		"mature": 0
 	}
-	for resource in get_tree().get_nodes_in_group("resources"):
+	for resource in get_registered_resources():
 		if not is_instance_valid(resource) or not resource.has_method("get_growth_debug_text"):
 			continue
 		var stage := int(resource.get("growth_stage"))
@@ -993,7 +1051,7 @@ func get_resource_growth_debug_summary() -> Dictionary:
 
 func get_resource_save_data() -> Array[Dictionary]:
 	var resources: Array[Dictionary] = []
-	for resource in get_tree().get_nodes_in_group("resources"):
+	for resource in get_registered_resources():
 		if not is_instance_valid(resource):
 			continue
 		if resource.has_method("get_save_data"):
@@ -1007,7 +1065,7 @@ func get_resource_save_data() -> Array[Dictionary]:
 
 
 func restore_resources(resources: Array) -> void:
-	for resource in get_tree().get_nodes_in_group("resources"):
+	for resource in get_registered_resources():
 		if is_instance_valid(resource):
 			resource.queue_free()
 	await get_tree().process_frame
@@ -1086,7 +1144,7 @@ func _sync_visible_small_prey() -> void:
 		return
 	var desired_count := _get_desired_small_prey_count(player_biome, biome_state)
 	var current_biome_count := _get_visible_small_prey_count(biome_id)
-	var global_count := get_tree().get_nodes_in_group("small_prey").size()
+	var global_count := get_registered_creatures_by_type("small_prey").size()
 	var spawn_budget: int = min(desired_count - current_biome_count, SMALL_PREY_MAX_VISIBLE_COUNT - global_count)
 	if spawn_budget <= 0:
 		return
@@ -1113,7 +1171,7 @@ func _get_desired_small_prey_count(biome: Dictionary, biome_state: Dictionary) -
 
 func _get_visible_small_prey_count(biome_id: String) -> int:
 	var count := 0
-	for small_prey in get_tree().get_nodes_in_group("small_prey"):
+	for small_prey in get_registered_creatures_by_type("small_prey"):
 		if not is_instance_valid(small_prey):
 			continue
 		if _get_biome_id_for_position(small_prey.global_position) == biome_id:
@@ -1123,7 +1181,7 @@ func _get_visible_small_prey_count(biome_id: String) -> int:
 
 func _get_existing_small_prey_positions() -> Array[Vector2]:
 	var positions: Array[Vector2] = []
-	for small_prey in get_tree().get_nodes_in_group("small_prey"):
+	for small_prey in get_registered_creatures_by_type("small_prey"):
 		if is_instance_valid(small_prey):
 			positions.append(small_prey.global_position)
 	return positions
@@ -1275,10 +1333,8 @@ func _get_biome_biomass_factor(biome_id: String) -> float:
 
 func _get_plant_resources_in_biome(biome_id: String, resource_kind: String) -> Array[Node2D]:
 	var resources: Array[Node2D] = []
-	for resource in get_tree().get_nodes_in_group("resources"):
+	for resource in get_registered_resources_by_kind(resource_kind):
 		if not is_instance_valid(resource) or resource.is_queued_for_deletion():
-			continue
-		if str(resource.get("resource_kind")) != resource_kind:
 			continue
 		if _get_biome_id_for_position(resource.global_position) == biome_id:
 			resources.append(resource)
@@ -1287,7 +1343,7 @@ func _get_plant_resources_in_biome(biome_id: String, resource_kind: String) -> A
 
 func _get_existing_resource_positions() -> Array[Vector2]:
 	var positions: Array[Vector2] = []
-	for resource in get_tree().get_nodes_in_group("resources"):
+	for resource in get_registered_resources():
 		if is_instance_valid(resource) and not resource.is_queued_for_deletion():
 			positions.append(resource.global_position)
 	return positions
@@ -1344,6 +1400,7 @@ func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
 	if small_prey.has_method("setup"):
 		small_prey.setup(biome_id)
 	add_child(small_prey)
+	register_creature_node(small_prey, "small_prey")
 	return small_prey
 
 
@@ -1426,7 +1483,7 @@ func _is_valid_creature_spawn_position(candidate: Vector2, used_positions: Array
 
 func _get_existing_grazer_positions() -> Array[Vector2]:
 	var positions: Array[Vector2] = []
-	for grazer in get_tree().get_nodes_in_group("grazer"):
+	for grazer in get_registered_creatures_by_type("grazer"):
 		if is_instance_valid(grazer):
 			positions.append(grazer.global_position)
 	return positions
@@ -1434,7 +1491,7 @@ func _get_existing_grazer_positions() -> Array[Vector2]:
 
 func _get_existing_varnak_positions() -> Array[Vector2]:
 	var positions: Array[Vector2] = []
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	for varnak in get_registered_creatures_by_type("varnak"):
 		if is_instance_valid(varnak):
 			positions.append(varnak.global_position)
 	return positions
@@ -1442,7 +1499,7 @@ func _get_existing_varnak_positions() -> Array[Vector2]:
 
 func _get_visible_varnak_count(biome_id: String) -> int:
 	var count := 0
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	for varnak in get_registered_creatures_by_type("varnak"):
 		if not is_instance_valid(varnak):
 			continue
 		if _get_biome_id_for_position(varnak.global_position) == biome_id:
@@ -1498,6 +1555,7 @@ func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
 	if grazer.has_method("setup"):
 		grazer.setup(biome_id)
 	add_child(grazer)
+	register_creature_node(grazer, "grazer")
 	return grazer
 
 
@@ -1511,7 +1569,7 @@ func _sync_visible_varnaks() -> void:
 		return
 	var biome_id := _get_biome_id(player_biome)
 	var current_biome_count := _get_visible_varnak_count(biome_id)
-	var global_count := get_tree().get_nodes_in_group("varnak").size()
+	var global_count := get_registered_creatures_by_type("varnak").size()
 	var spawn_budget: int = min(VARNAK_MAX_VISIBLE_PER_BIOME - current_biome_count, VARNAK_MAX_VISIBLE_COUNT - global_count)
 	if spawn_budget <= 0:
 		return
@@ -1526,7 +1584,7 @@ func _sync_visible_varnaks() -> void:
 
 func _prune_distant_varnaks(player_position: Vector2) -> void:
 	var despawn_distance := VARNAK_VISIBLE_SPAWN_RADIUS * 1.45
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	for varnak in get_registered_creatures_by_type("varnak"):
 		if not is_instance_valid(varnak):
 			continue
 		if varnak.global_position.distance_to(player_position) > despawn_distance:
@@ -1538,7 +1596,7 @@ func respawn_missing_varnaks() -> void:
 
 
 func respawn_varnaks() -> void:
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	for varnak in get_registered_creatures_by_type("varnak"):
 		if is_instance_valid(varnak):
 			varnak.queue_free()
 	await get_tree().process_frame
@@ -1600,7 +1658,7 @@ func debug_remove_grazers_near_player() -> void:
 func _get_out_of_bounds_creatures() -> Array[Node2D]:
 	var creatures: Array[Node2D] = []
 	for group_name in CREATURE_BOUND_GROUPS:
-		for node in get_tree().get_nodes_in_group(group_name):
+		for node in get_registered_creatures_by_type(group_name):
 			var creature := node as Node2D
 			if not is_instance_valid(creature):
 				continue
@@ -1619,7 +1677,7 @@ func _clamp_position_to_world(position: Vector2) -> Vector2:
 
 func get_varnak_save_data() -> Array[Dictionary]:
 	var varnaks: Array[Dictionary] = []
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	for varnak in get_registered_creatures_by_type("varnak"):
 		if not is_instance_valid(varnak):
 			continue
 		if varnak.has_method("get_save_data"):
@@ -1637,7 +1695,7 @@ func get_grazer_save_data() -> Array[Dictionary]:
 
 func _get_creature_save_data(group_name: String) -> Array[Dictionary]:
 	var creatures: Array[Dictionary] = []
-	for creature in get_tree().get_nodes_in_group(group_name):
+	for creature in get_registered_creatures_by_type(group_name):
 		if not is_instance_valid(creature):
 			continue
 		if creature.has_method("get_save_data"):
@@ -1646,7 +1704,7 @@ func _get_creature_save_data(group_name: String) -> Array[Dictionary]:
 
 
 func restore_varnaks(varnaks: Array) -> void:
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	for varnak in get_registered_creatures_by_type("varnak"):
 		if is_instance_valid(varnak):
 			varnak.queue_free()
 	await get_tree().process_frame
@@ -1665,7 +1723,7 @@ func restore_grazers(grazer_data: Array) -> void:
 
 
 func _restore_creature_group(group_name: String, creature_data: Array, scene: PackedScene) -> void:
-	for creature in get_tree().get_nodes_in_group(group_name):
+	for creature in get_registered_creatures_by_type(group_name):
 		if is_instance_valid(creature):
 			creature.queue_free()
 	await get_tree().process_frame
@@ -1676,6 +1734,7 @@ func _restore_creature_group(group_name: String, creature_data: Array, scene: Pa
 		if creature.has_method("restore_from_data"):
 			creature.restore_from_data(Dictionary(data_value))
 		add_child(creature)
+		register_creature_node(creature, group_name)
 
 
 func _spawn_varnak_at(pos: Vector2) -> Node:
@@ -1684,6 +1743,7 @@ func _spawn_varnak_at(pos: Vector2) -> Node:
 	varnak.apply_profile(evolution_director.get_profile())
 	varnak.day_night_system = day_night_system
 	add_child(varnak)
+	register_creature_node(varnak, "varnak")
 	return varnak
 
 
@@ -1694,6 +1754,7 @@ func _restore_varnak_from_data(data: Dictionary) -> void:
 	if varnak.has_method("restore_from_data"):
 		varnak.restore_from_data(data)
 	add_child(varnak)
+	register_creature_node(varnak, "varnak")
 
 
 func _get_debug_animal_spawn_position() -> Vector2:
@@ -1738,7 +1799,7 @@ func _get_fallback_dry_creature_spawn_position(origin: Vector2) -> Vector2:
 
 func _debug_remove_nearest_creatures(group_name: String, count: int) -> int:
 	var player_position := _get_player_position()
-	var nodes := get_tree().get_nodes_in_group(group_name)
+	var nodes := get_registered_creatures_by_type(group_name)
 	nodes.sort_custom(func(a: Node, b: Node) -> bool:
 		if not is_instance_valid(a):
 			return false
@@ -1801,14 +1862,14 @@ func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2, u
 	for used_position in used_positions:
 		if point.distance_to(used_position) < VARNAK_MIN_DISTANCE:
 			return false
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	for varnak in get_registered_creatures_by_type("varnak"):
 		if is_instance_valid(varnak) and varnak.global_position.distance_to(point) < VARNAK_MIN_DISTANCE:
 			return false
 	return true
 
 
 func _on_profile_changed(profile: Dictionary) -> void:
-	for varnak in get_tree().get_nodes_in_group("varnak"):
+	for varnak in get_registered_creatures_by_type("varnak"):
 		varnak.apply_profile(profile)
 
 
