@@ -421,14 +421,16 @@ func _create_landmarks() -> void:
 	var bootstrap_landmarks: Array[Dictionary] = []
 	if game_session and game_session.has_method("get_bootstrap_landmarks"):
 		bootstrap_landmarks = game_session.get_bootstrap_landmarks()
-	if game_session and game_session.has_method("get_bootstrap_world_seed"):
-		world_seed = int(game_session.get_bootstrap_world_seed())
-	elif world_seed == 0:
-		world_seed = 1
-	if bootstrap_landmarks.is_empty():
-		landmarks = WORLD_CONFIG.generate_landmarks(world_seed)
-	else:
-		landmarks = _deserialize_landmark_save_data(bootstrap_landmarks)
+	var bootstrap_world_seed := int(game_session.get_bootstrap_world_seed()) if game_session and game_session.has_method("get_bootstrap_world_seed") else 0
+	var initial_layout: Dictionary = _ensure_landmark_service().resolve_initial_layout(
+		world_seed,
+		bootstrap_landmarks,
+		bootstrap_world_seed,
+		Callable(WORLD_CONFIG, "generate_landmarks"),
+		Callable(self, "_deserialize_landmark_save_data")
+	)
+	world_seed = int(initial_layout.get("world_seed", world_seed))
+	landmarks = Array(initial_layout.get("landmarks", []))
 	_rebuild_landmark_runtime_state()
 
 
@@ -449,10 +451,15 @@ func _rebuild_landmark_runtime_state() -> void:
 
 func restore_landmarks(landmark_data: Array, restored_world_seed: int = 0) -> void:
 	await _clear_landmark_areas()
-	world_seed = restored_world_seed if restored_world_seed != 0 else world_seed
-	landmarks = _deserialize_landmark_save_data(landmark_data)
-	if landmarks.is_empty():
-		landmarks = WORLD_CONFIG.generate_landmarks(world_seed)
+	var restored_layout: Dictionary = _ensure_landmark_service().resolve_restored_layout(
+		world_seed,
+		landmark_data,
+		restored_world_seed,
+		Callable(WORLD_CONFIG, "generate_landmarks"),
+		Callable(self, "_deserialize_landmark_save_data")
+	)
+	world_seed = int(restored_layout.get("world_seed", world_seed))
+	landmarks = Array(restored_layout.get("landmarks", []))
 	_rebuild_landmark_runtime_state()
 	clear_cached_group_nodes()
 	queue_redraw()

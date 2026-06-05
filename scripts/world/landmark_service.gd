@@ -7,6 +7,44 @@ var pond_landmarks: Array[Dictionary] = []
 var pond_water_search_radius := 0.0
 
 
+func resolve_initial_layout(
+	current_world_seed: int,
+	bootstrap_landmarks: Array,
+	bootstrap_world_seed: int,
+	generate_landmarks: Callable,
+	deserialize_landmarks: Callable
+) -> Dictionary:
+	var resolved_world_seed := bootstrap_world_seed if bootstrap_world_seed != 0 else current_world_seed
+	if resolved_world_seed == 0:
+		resolved_world_seed = 1
+	var resolved_landmarks: Array = []
+	if bootstrap_landmarks.is_empty():
+		resolved_landmarks = generate_landmarks.call(resolved_world_seed)
+	else:
+		resolved_landmarks = deserialize_landmarks.call(bootstrap_landmarks)
+	return {
+		"world_seed": resolved_world_seed,
+		"landmarks": resolved_landmarks
+	}
+
+
+func resolve_restored_layout(
+	current_world_seed: int,
+	landmark_data: Array,
+	restored_world_seed: int,
+	generate_landmarks: Callable,
+	deserialize_landmarks: Callable
+) -> Dictionary:
+	var resolved_world_seed := restored_world_seed if restored_world_seed != 0 else current_world_seed
+	var resolved_landmarks: Array = deserialize_landmarks.call(landmark_data)
+	if resolved_landmarks.is_empty():
+		resolved_landmarks = generate_landmarks.call(resolved_world_seed)
+	return {
+		"world_seed": resolved_world_seed,
+		"landmarks": resolved_landmarks
+	}
+
+
 func set_landmarks(landmark_layout: Array, max_pond_search_radius_factor := 1.2) -> void:
 	landmarks.clear()
 	hill_landmarks.clear()
