@@ -1,6 +1,6 @@
 # Apex Shift 2D - Application Overview
 
-This document describes the current playable prototype, its core mechanics, and the gameplay values that drive those mechanics. It is meant to be a practical reference for future implementation work.
+This document describes the current playable prototype, its core mechanics, the gameplay values that drive those mechanics, and the current runtime data flow between systems. It is meant to be a practical reference for future implementation work and for planning a performance-focused refactor.
 
 ## High-Level Summary
 
@@ -19,7 +19,9 @@ The main gameplay loop is:
 
 | Area | Main files |
 | --- | --- |
-| Main scene | `scenes/main.tscn` |
+| Bootstrap scene | `scenes/ui/start_menu.tscn` |
+| Runtime scene | `scenes/main.tscn` |
+| Global autoloads | `scripts/systems/event_bus.gd`, `scripts/systems/game_session.gd`, `scripts/systems/graphics_settings.gd` |
 | Game orchestration | `scripts/game_manager.gd` |
 | World generation and resources | `scripts/world/world.gd`, `scripts/world/world_config.gd`, `scripts/world/resource_node.gd` |
 | Player | `scripts/player/player.gd`, `scripts/player/player_stats.gd` |
@@ -32,6 +34,251 @@ The main gameplay loop is:
 | HUD and maps | `scripts/ui/hud.gd`, `scripts/ui/minimap.gd`, `scripts/ui/map_screen.gd`, `scripts/ui/debug_panel.gd` |
 | Save/load | `scripts/systems/save_system.gd` |
 | Data | `data/items.json`, `data/recipes.json`, `data/species/*.json`, `data/species_varnak.json` |
+
+## Runtime Topology
+
+The runtime game scene currently looks like this:
+
+1. `Main`
+2. `EvolutionDirector`
+3. `DayNightSystem`
+4. `EcosystemDirector`
+5. `SaveSystem`
+6. `World`
+7. `Player`
+8. `HUD`
+9. `GameManager`
+
+Global singletons outside the main scene:
+
+- `EventBus`: transient event and message hub.
+- `GameSession`: boot intent and bootstrap world state between scene transitions.
+- `GraphicsSettings`: graphics configuration singleton.
+
+The important consequence for refactoring is that this prototype is not purely hierarchical. Some dependencies are parent/child node references, while others jump through autoloads or `get_tree().current_scene`.
+
+## State Ownership And Single Sources Of Truth
+
+This section is intentionally strict. When planning a refactor, treat these owners as the canonical state unless the code is intentionally migrated.
+
+| State domain | Primary owner | Key fields / methods | Notes |
+| --- | --- | --- | --- |
+| Boot intent | `GameSession` | `load_save_requested`, `pending_world_seed`, `pending_landmarks`, `request_new_game()`, `request_continue()` | Survives scene changes and decides whether `main.tscn` starts fresh or loads a save. |
+| Global events and short messages | `EventBus` | `emit_game_event()`, `post_message()` | No persistence. Pure signal transport. |
+| World layout | `World` | `world_seed`, `landmarks`, `hill_landmarks`, `pond_landmarks`, `_create_landmarks()` | Visual and collision representation of the current world. |
+| Visible resources | `World` + `ResourceNode` | spawned nodes, growth stage, resource groups | This is the visible layer of biomass and loot. |
+| Abstract biome ecology | `EcosystemDirector` | `biome_states`, `_update_ecosystem_tick()`, `load_save_data()` | Holds per-biome biomass, populations, niche, food stress, aggregate traits. |
+| Predator evolution profile | `EvolutionDirector` | profile save data and generation changes | Shared by future and visible Varnaks. |
+| Player runtime state | `Player` | position, weapon flags, torch state, interaction state | Combines movement, combat, crafting, and world interaction. |
+| Player survival stats | `PlayerStats` | `health`, `hunger`, `stamina`, `rest`, `campfire_regen_active`, `god_mode` | Local numeric model updated every physics tick. |
+| Inventory | `Inventory` | item amounts and serialization | Separate from `PlayerStats`, owned by `Player`. |
+| HUD projection state | `HUD`, `Minimap`, `MapScreen`, `DebugPanel` | cached text, message history, cached resources, redraw timers | Derived presentation state, not authoritative gameplay state. |
+| Save file | `SaveSystem` | `_collect_save_data()`, `_restore_save_data()` | Serialized snapshot of authoritative runtime owners. |
+
+## Startup And Boot Sequence
+
+The current boot path is:
+
+1. Godot opens `res://scenes/ui/start_menu.tscn` because `project.godot` sets `run/main_scene` to the start menu.
+2. `StartMenu` gets `GameSession` from `/root/GameSession`.
+3. `New Game` calls `GameSession.request_new_game()`.
+   - `load_save_requested` becomes `false`.
+   - `pending_landmarks` is cleared.
+   - `pending_world_seed` is regenerated.
+4. `Continue` and `Load Save` call `GameSession.request_continue()`.
+   - `load_save_requested` becomes `true`.
+   - `_load_bootstrap_from_save()` extracts `world.world_seed` and `world.landmarks` from the save file into `pending_world_seed` and `pending_landmarks`.
+5. The menu changes scene to `res://scenes/main.tscn`.
+6. `World._ready()` bootstraps first:
+   - randomizes local RNGs,
+   - binds `EvolutionDirector`, `DayNightSystem`, and `EcosystemDirector`,
+   - connects to `EventBus.game_event`,
+   - calls `_create_landmarks()`,
+   - queues biome terrain cache generation,
+   - spawns resources,
+   - syncs visible small prey,
+   - spawns initial grazers,
+   - syncs visible Varnaks,
+   - emits `world_initialized`.
+7. `GameManager._ready()` waits for `world_initialized` through `_wait_for_world_boot()`.
+8. After world boot:
+   - `player.evolution_director` is assigned,
+   - `HUD.bind(...)` is called,
+   - player death signal is connected,
+   - `_apply_boot_action()` checks `GameSession.consume_load_save_request()`,
+   - if `true`, `SaveSystem.load_game()` restores the full save.
+9. `EventBus.post_message("Apex Shift 2D prototype ready")` sends the final startup message to UI.
+
+The important runtime detail is that `GameSession` only carries enough data to bootstrap a stable world shape before a full load happens. Full restoration still belongs to `SaveSystem`.
+
+## Detailed Data Flow
+
+### 1. Menu Intent To Runtime Scene
+
+The flow is:
+
+`StartMenu` -> `GameSession` -> scene change -> `World` bootstrap -> `GameManager` -> optional `SaveSystem.load_game()`
+
+More concretely:
+
+- `StartMenu` does not create the world directly.
+- `GameSession` stores the next run intent and bootstrap world data.
+- `World._create_landmarks()` pulls `get_bootstrap_world_seed()` and `get_bootstrap_landmarks()` from `GameSession`.
+- `GameManager` decides whether to stop at bootstrapped runtime or continue into full save restoration.
+
+This split matters because the game needs landmark geometry early for collisions, water, vegetation, maps, and spawn logic, even before the rest of the save snapshot is restored.
+
+### 2. Player Input To Player State
+
+Main path:
+
+`Input` -> `Player._unhandled_input()` / `Player._physics_process()` -> `PlayerStats` / `Inventory` / spawned gameplay nodes -> `EventBus` -> UI refresh
+
+Details:
+
+- `Player._physics_process(delta)` reads movement input through `Input.get_vector(...)`.
+- `Player` queries `World.get_terrain_speed_multiplier(global_position)` and `World.is_position_in_water(global_position)` every physics tick.
+- `Player` computes `wants_run`, movement speed, `is_swimming`, and clamps position to `world_limits`.
+- `PlayerStats.tick(delta, wants_run)` mutates `hunger`, `rest`, `stamina`, and possibly `health`.
+- `Player._update_campfire_regen_state()` scans `campfires` group nodes and sets `PlayerStats.campfire_regen_active` and `campfire_regen_distance`.
+- Discrete actions such as attack, craft, torch activation, eating, or debug item grants update inventory, booleans like `has_spear` and `has_bow`, and emit messages/events through `EventBus`.
+
+The player is both a simulation owner and an orchestration node. It owns short-lived interaction state such as `nearby_interactables`, `attack_visual_time`, `bow_cooldown`, and `torch_remaining_seconds`, not just movement.
+
+### 3. Resource Harvest To Inventory, Ecosystem, And UI
+
+Main path:
+
+`ResourceNode.interact()` -> `Player.inventory` mutation -> `ResourceNode` local visual/regrowth mutation -> `EventBus.emit_game_event(...)` -> `EcosystemDirector._on_game_event(...)` -> `HUD`
+
+Important event examples:
+
+- `plant_resource_harvested`
+- `meat_collected`
+- `meat_consumed_by_creature`
+
+What changes where:
+
+- `Player.inventory` is the source of truth for carried items.
+- `ResourceNode` keeps its own harvestable/regrowth state and group membership.
+- `EcosystemDirector` listens for harvest pressure and converts visible harvesting into abstract per-biome pressure and biomass changes.
+- `HUD` does not query the event payload to build inventory values. It re-reads the current player state every refresh cycle and only uses the event bus mainly for messages.
+
+This means item collection has both a direct state mutation path and a parallel observational event path.
+
+### 4. Creature Behavior To Ecosystem Model
+
+Main path:
+
+visible creature AI -> `EventBus.emit_game_event(...)` -> `EcosystemDirector._on_game_event(...)` -> `biome_states` update -> `EventBus.emit_game_event("ecosystem_vegetation_changed", ...)` -> `World` and `HUD`
+
+Examples:
+
+- `small_prey_consumed_plants` and `grazer_consumed_plants` reduce visible plant pressure in the abstract biome model.
+- `grazer_scavenged` and `grazer_hunted_small_prey` increment `grazer_non_plant_food_events`.
+- `small_prey_killed_by_*`, `grazer_killed_by_*`, and `varnak_killed_by_*` decrease abstract population counters.
+
+On each ecosystem tick, `EcosystemDirector` then recomputes derived values:
+
+- `plant_biomass_percent`
+- `food_stress`
+- `status`
+- `predator_pressure`
+- aggregate visible creature hunger/energy/fitness
+- grazer niche transition
+- species generation increments
+
+This is one of the key dual-state systems in the prototype:
+
+- `World` owns visible creatures.
+- `EcosystemDirector` owns aggregate biome truth.
+
+The two are synchronized by periodic scans and event ingestion, not by one unified creature model.
+
+### 5. Ecosystem Biomass To Visible Vegetation
+
+Main path:
+
+`EcosystemDirector` status change -> `EventBus.emit_game_event("ecosystem_vegetation_changed", state)` -> `World._on_game_event(...)` -> queued vegetation sync -> resource node state/count changes -> minimap/map/debug reflect new state
+
+The intended rule is:
+
+- biomass is abstract in `EcosystemDirector`,
+- visible vegetation lives in `World`,
+- resource nodes are the player-facing manifestation of biomass.
+
+This separation is useful for tuning, but it also means biomass-driven vegetation changes cross system boundaries and can become expensive if synchronization is too eager.
+
+### 6. Day/Night To World And UI
+
+Main path:
+
+`DayNightSystem._process(delta)` -> `night_amount`, `day`, `time_of_day` mutation -> `HUD` text refresh + `World` background redraw + event messages on day change
+
+Details:
+
+- `HUD` uses `get_clock_time()`, `get_time_label()`, and `get_day()`.
+- `World._process(delta)` compares current `night_amount` to `last_drawn_night_amount` and redraws the background when the delta is large enough.
+- `_start_new_day(reason)` emits:
+  - `day_ended`
+  - `center_notification`
+  - a player-facing text message
+
+So the day/night system is numerically simple, but it fans out into render, notifications, sleep, and AI pressure.
+
+### 7. Save/Load Data Flow
+
+Save path:
+
+`HUD` / hotkey -> `SaveSystem.save_game()` -> `_collect_save_data()` -> JSON file
+
+Load path:
+
+`StartMenu Continue`, `PauseMenu Load`, `GameOver Load Save`, or hotkey -> `SaveSystem.load_game()` -> `_restore_save_data()`
+
+Restore order inside `_restore_save_data()` is important:
+
+1. Restore world landmarks and seed first with `World.restore_landmarks(...)`.
+2. Push the same landmark bootstrap back into `GameSession.set_bootstrap_world_state(...)`.
+3. Restore player position, stats, inventory, weapon flags, and torch state.
+4. Restore `EvolutionDirector`.
+5. Restore `EcosystemDirector`.
+6. Restore `DayNightSystem`.
+7. Restore world resources.
+8. Restore buildings.
+9. Restore Varnaks.
+10. Restore SmallPrey.
+11. Restore Grazers.
+
+This order ensures spatial dependencies exist before systems that depend on them. For example, ponds and hills need to exist before pond vegetation, water checks, or creature restoration become reliable.
+
+## Runtime Update Cadence
+
+For performance work, these are the main recurring loops:
+
+| System | Method | Cadence | Main work |
+| --- | --- | --- | --- |
+| `Player` | `_physics_process(delta)` | every physics tick | movement, terrain/water query, campfire scan, survival stat tick |
+| `Player` | `_process(delta)` | every frame | torch timer, facing, attack visuals, redraw requests |
+| `DayNightSystem` | `_process(delta)` | every frame | time progression and `night_amount` update |
+| `EcosystemDirector` | `_process(delta)` | every frame, but only simulates when `tick_timer >= simulation_tick_seconds` | biome model update |
+| `World` | `_process(delta)` | every frame | spawn timers, visible creature sync cadence, world redraw cadence |
+| `HUD` | `_process(delta)` | every frame, text rebuild every `0.10s` | labels, prompt, FPS, message panel |
+| `DebugPanel` | `_process(delta)` | every frame, text rebuild every `0.15s` | debug text and creature overlay refresh |
+| `Minimap` | `_process(delta)` | redraw every `0.20s`, resource cache refresh every `0.5s` | map redraw and cached resource list rebuild |
+| `MapScreen` | `_process(delta)` when visible | redraw each frame while open, resource cache refresh every `0.5s` | full map redraw |
+| `BenchmarkRunner` | `_process(delta)` when active | captures a sample every `1.0s` for `60s` | runtime telemetry |
+
+## Refactor-Focused Dependency Notes
+
+These points are especially relevant if the next step is performance refactoring:
+
+1. The prototype mixes direct references, scene lookups, group scans, autoload signals, and duplicated derived UI caches.
+2. `World`, `HUD`, `Minimap`, `MapScreen`, and `DebugPanel` each perform their own view-facing queries over world state.
+3. `EcosystemDirector` owns abstract ecology, but `World` owns visible ecology. Synchronization happens through both periodic scans and event-driven updates.
+4. Many systems still call `get_tree().current_scene.get_node_or_null("World")` or scan groups at read time. This is flexible, but it spreads lookup cost and ownership assumptions.
+5. Rendering and simulation are partly coupled through `queue_redraw()`, group cache invalidation, and vegetation sync events.
+6. Startup is intentionally staged across several frames, which helps the first-load spike, but also means boot timing and readiness are now part of the contract.
 
 ## Parameter Name Index
 
@@ -1351,19 +1598,50 @@ Important saved areas:
 - Day/night state.
 - Varnak adaptation/profile data.
 
-Important restore rule:
+Exact save assembly:
+
+- `SaveSystem._collect_save_data()` pulls from `World`, `Player`, `DayNightSystem`, `EvolutionDirector`, and `EcosystemDirector`.
+- `world.get_save_data()` stores `world_seed` and serialized `landmarks`.
+- `world.get_resource_save_data()`, `get_varnak_save_data()`, `get_small_prey_save_data()`, and `get_grazer_save_data()` serialize visible entities separately.
+- `_get_player_data(player)` serializes:
+  - `position`
+  - `stats`
+  - `inventory`
+  - `has_spear`
+  - `has_bow`
+  - `torch_active`
+  - `torch_remaining_seconds`
+- `_get_buildings_data()` serializes built world objects by group.
+
+Important restore rules:
 
 - When a saved resource is restored, derived groups and visual state must be reapplied from its kind and context. For example, pond vegetation needs its group and visual multiplier restored.
+- Landmark geometry must be restored before dependent world content, because ponds and hills affect water queries, vegetation placement, minimap output, and creature navigation.
+- `GameSession.set_bootstrap_world_state(...)` is updated during load so future scene transitions still boot the same world layout.
 
 ## Performance Notes
 
 Known performance-sensitive areas:
 
-- Biome terrain visuals should use cached textures instead of heavy per-frame polygon drawing.
-- Map rendering should reuse world configuration and cached data where possible.
-- Resource and creature loops should avoid unnecessary full-world scans during every frame.
-- Debug text should be readable but not rebuilt more often than needed.
-- World startup now batches resource and pond-vegetation spawning, and biome vegetation syncs are deferred, so the first seconds should be noticeably calmer than a full-frame spawn burst.
+- `World` is both a simulation host and a large renderer. It owns biome drawing, landmark drawing, resource spawning, visible creature synchronization, vegetation syncing, and save restoration hooks.
+- `World.get_cached_group_nodes(group_name)` uses a short TTL cache (`GROUP_CACHE_TTL_SECONDS = 0.12`) to reduce repeated `get_nodes_in_group(...)` scans, but many systems still perform parallel reads over the same groups.
+- Biome terrain visuals are cached through `biome_sample_images`, `biome_terrain_accent_cache`, and `pending_biome_terrain_accent_biomes`. Refactors should preserve cache invalidation boundaries, not only the final image output.
+- `HUD`, `DebugPanel`, `Minimap`, and `MapScreen` all rebuild some derived presentation from world state on their own cadence. This is good for decoupling but increases repeated reads.
+- `Minimap` and `MapScreen` keep separate resource caches and both re-read `World.get_landmarks()` during drawing.
+- `Player._update_campfire_regen_state()` scans the full `campfires` group every physics tick.
+- `EcosystemDirector` combines event-driven updates with periodic aggregation. Refactors should be careful not to apply the same visible action twice through both channels.
+- World startup already batches resource and pond-vegetation spawning across frames, and biome vegetation syncs are deferred. This is currently one of the main protections against the first-load spike.
+- `BenchmarkRunner` exists specifically to sample FPS, frame time, physics time, draw calls, node counts, world counts, and aggregate ecosystem state every second for one minute. Use it as the baseline before and after refactors.
+
+Practical performance reading order for refactor planning:
+
+1. `scripts/world/world.gd`
+2. `scripts/ui/minimap.gd`
+3. `scripts/ui/map_screen.gd`
+4. `scripts/ui/hud.gd`
+5. `scripts/ui/debug_panel.gd`
+6. `scripts/systems/ecosystem_director.gd`
+7. `scripts/player/player.gd`
 
 ## Verification Commands
 
