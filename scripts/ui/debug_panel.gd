@@ -13,7 +13,7 @@ const DEBUG_TABS := [
 	"Events",
 	"Tools"
 ]
-const DEBUG_STATE_REFRESH_INTERVAL := 0.15
+const DEBUG_STATE_REFRESH_INTERVAL := 0.5
 const STATE_LABEL_MIN_SIZE := Vector2(680.0, 430.0)
 const STATE_LINE_HEIGHT := 20.0
 
@@ -61,6 +61,7 @@ var biome_texture_toggle_button: Button
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
+	set_process(false)
 	title_label.text = "Debug"
 	_create_debug_tabs()
 	_create_tools_container()
@@ -93,8 +94,6 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 
 
 func _process(_delta: float) -> void:
-	if not visible:
-		return
 	state_refresh_timer += _delta
 	if state_refresh_timer < DEBUG_STATE_REFRESH_INTERVAL:
 		return
@@ -108,10 +107,16 @@ func toggle() -> void:
 
 
 func set_open(open: bool) -> void:
+	if visible == open:
+		return
 	visible = open
+	set_process(open)
+	state_refresh_timer = 0.0
 	if visible:
 		_update_active_tab_view()
 		_set_state_text(_build_state_text(), true)
+	else:
+		last_state_text = ""
 	_refresh_creature_debug_overlays()
 
 
