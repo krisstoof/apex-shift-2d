@@ -10,6 +10,7 @@ const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
 const WORLD_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_query_service.gd")
 const LANDMARK_SERVICE_SCRIPT := preload("res://scripts/world/landmark_service.gd")
 const RESOURCE_SERVICE_SCRIPT := preload("res://scripts/world/resource_service.gd")
+const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const VARNAK_SPAWN_TICK_SECONDS := 5.5
@@ -110,16 +111,12 @@ var landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
 var pond_landmarks: Array[Dictionary] = []
 var pond_water_search_radius := 0.0
-var biome_blend_texture: ImageTexture
-var biome_blend_colors_key := ""
 var biome_sample_images: Dictionary = {}
 var biome_terrain_accent_cache: Dictionary = {}
 var pending_biome_terrain_accent_biomes: Array[Dictionary] = []
 var biome_terrain_accent_cache_build_running := false
 var debug_landmark_overlay_enabled := false
 var biome_textures_enabled := true
-var world_background_redraw_timer := 0.0
-var last_drawn_night_amount := -1.0
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
 var pending_biome_vegetation_syncs: Dictionary = {}
@@ -129,6 +126,7 @@ var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
 var landmark_service = LANDMARK_SERVICE_SCRIPT.new()
 var resource_service = RESOURCE_SERVICE_SCRIPT.new()
+var render_controller = WORLD_RENDER_CONTROLLER_SCRIPT.new()
 const GROUP_CACHE_TTL_SECONDS := 0.12
 
 signal world_initialized
@@ -142,11 +140,15 @@ func _ready() -> void:
 	varnak_rng.randomize()
 	small_prey_rng.randomize()
 	grazer_rng.randomize()
-	evolution_director = get_parent().get_node("EvolutionDirector")
-	day_night_system = get_parent().get_node("DayNightSystem")
-	ecosystem_director = get_parent().get_node("EcosystemDirector")
-	evolution_director.profile_changed.connect(_on_profile_changed)
-	get_node("/root/EventBus").game_event.connect(_on_game_event)
+	evolution_director = _get_sibling_node("EvolutionDirector")
+	day_night_system = _get_sibling_node("DayNightSystem")
+	ecosystem_director = _get_sibling_node("EcosystemDirector")
+	if evolution_director and evolution_director.has_method("connect") and evolution_director.has_signal("profile_changed"):
+		evolution_director.profile_changed.connect(_on_profile_changed)
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_signal("game_event"):
+		event_bus.game_event.connect(_on_game_event)
+	_ensure_render_controller()
 	_create_landmarks()
 	_queue_biome_terrain_accent_cache_rebuild()
 	await _spawn_resources()
@@ -171,11 +173,8 @@ func _process(delta: float) -> void:
 	if varnak_spawn_timer >= VARNAK_SPAWN_TICK_SECONDS:
 		varnak_spawn_timer = 0.0
 		_sync_visible_varnaks()
-	world_background_redraw_timer += delta
 	var current_night_amount := _get_night_amount()
-	if world_background_redraw_timer >= WORLD_BACKGROUND_REDRAW_INTERVAL or abs(current_night_amount - last_drawn_night_amount) >= NIGHT_REDRAW_MIN_DELTA:
-		world_background_redraw_timer = 0.0
-		last_drawn_night_amount = current_night_amount
+	if _ensure_render_controller().process(delta, current_night_amount):
 		queue_redraw()
 
 
@@ -217,12 +216,16 @@ func get_current_biome_texture_id(position: Vector2) -> String:
 
 
 func get_biome_texture_cache_status() -> Dictionary:
+	var render_state: Dictionary = _ensure_render_controller().get_biome_texture_cache_status()
 	return {
 		"sample_image_cache_count": biome_sample_images.size(),
 		"accent_cache_count": biome_terrain_accent_cache.size(),
 		"pending_biomes": pending_biome_terrain_accent_biomes.size(),
 		"build_running": biome_terrain_accent_cache_build_running,
-		"textures_enabled": biome_textures_enabled
+		"textures_enabled": biome_textures_enabled,
+		"has_blend_texture": bool(render_state.get("has_texture", false)),
+		"blend_colors_key": str(render_state.get("colors_key", "")),
+		"blend_texture_size": render_state.get("size", Vector2i.ZERO)
 	}
 
 
@@ -346,6 +349,18 @@ func _ensure_resource_service():
 	return resource_service
 
 
+func _ensure_render_controller():
+	if render_controller == null:
+		render_controller = WORLD_RENDER_CONTROLLER_SCRIPT.new()
+		render_controller.bind_world(
+			WORLD_CONFIG.WORLD_RECT,
+			Callable(self, "get_biome_zones"),
+			Callable(self, "_get_biome_colors_key"),
+			Callable(self, "_get_biome_surface_color_at")
+		)
+	return render_controller
+
+
 func _ensure_query_service():
 	if query_service == null:
 		query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
@@ -410,16 +425,20 @@ func debug_teleport_out_of_bounds_creatures() -> void:
 		else:
 			creature.global_position = _clamp_position_to_world(creature.global_position)
 	if creatures.size() > 0:
-		get_node("/root/EventBus").post_message("Teleported %d out-of-bounds creature%s" % [
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("Teleported %d out-of-bounds creature%s" % [
 			creatures.size(),
 			"" if creatures.size() == 1 else "s"
-		])
+			])
 	else:
-		get_node("/root/EventBus").post_message("No out-of-bounds creatures")
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("No out-of-bounds creatures")
 
 
 func _create_landmarks() -> void:
-	var game_session := get_node_or_null("/root/GameSession")
+	var game_session := _get_game_session()
 	var bootstrap_landmarks: Array[Dictionary] = []
 	if game_session and game_session.has_method("get_bootstrap_landmarks"):
 		bootstrap_landmarks = game_session.get_bootstrap_landmarks()
@@ -476,6 +495,7 @@ func debug_toggle_biome_textures() -> bool:
 
 func debug_rebuild_biome_texture_cache() -> void:
 	biome_sample_images.clear()
+	_ensure_render_controller().invalidate_biome_blend_texture()
 	_queue_biome_terrain_accent_cache_rebuild()
 	queue_redraw()
 
@@ -491,7 +511,7 @@ func debug_regenerate_landmarks() -> void:
 	_rebuild_landmark_runtime_state()
 	await _respawn_pond_vegetation_for_current_landmarks()
 	_sync_all_biome_vegetation()
-	var game_session: Node = get_node_or_null("/root/GameSession")
+	var game_session: Node = _get_game_session()
 	if game_session and game_session.has_method("set_bootstrap_world_state"):
 		game_session.set_bootstrap_world_state(world_seed, get_landmark_save_data())
 	clear_cached_group_nodes()
@@ -847,11 +867,13 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	var node := _spawn_resource_at("meat_drop", _clamp_position_to_world(drop_position))
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
-	get_node("/root/EventBus").emit_game_event("animal_dropped_meat", {
-		"animal_kind": animal_kind,
-		"amount": amount,
-		"position": node.global_position
-	})
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.emit_game_event("animal_dropped_meat", {
+			"animal_kind": animal_kind,
+			"amount": amount,
+			"position": node.global_position
+		})
 	return node
 
 
@@ -971,7 +993,9 @@ func _get_player_position() -> Vector2:
 func advance_resource_growth_days(days: float) -> void:
 	var changed_count := _ensure_resource_service().advance_growth_days(get_registered_resources(), days)
 	if changed_count > 0:
-		get_node("/root/EventBus").post_message("%d resources advanced growth" % changed_count)
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("%d resources advanced growth" % changed_count)
 
 
 func debug_advance_resource_growth_day() -> void:
@@ -985,7 +1009,9 @@ func debug_force_full_vegetation_regrowth() -> void:
 			continue
 		resource.force_full_regrowth()
 		changed_count += 1
-	get_node("/root/EventBus").post_message("Forced full regrowth on %d resources" % changed_count)
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.post_message("Forced full regrowth on %d resources" % changed_count)
 
 
 func debug_reset_resource_growth() -> void:
@@ -995,7 +1021,9 @@ func debug_reset_resource_growth() -> void:
 			continue
 		resource.reset_growth_state()
 		changed_count += 1
-	get_node("/root/EventBus").post_message("Reset growth state on %d resources" % changed_count)
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.post_message("Reset growth state on %d resources" % changed_count)
 
 
 func get_resource_growth_debug_summary() -> Dictionary:
@@ -1022,18 +1050,7 @@ func get_resource_growth_debug_summary() -> Dictionary:
 
 
 func get_resource_save_data() -> Array[Dictionary]:
-	var resources: Array[Dictionary] = []
-	for resource in get_registered_resources():
-		if not is_instance_valid(resource):
-			continue
-		if resource.has_method("get_save_data"):
-			resources.append(resource.get_save_data())
-		else:
-			resources.append({
-				"kind": str(resource.get("resource_kind")),
-				"position": _vector_to_data(resource.global_position)
-			})
-	return resources
+	return _ensure_resource_service().build_save_data(get_registered_resources())
 
 
 func restore_resources(resources: Array) -> void:
@@ -1041,17 +1058,12 @@ func restore_resources(resources: Array) -> void:
 		if is_instance_valid(resource):
 			resource.queue_free()
 	await get_tree().process_frame
-	for resource_data in resources:
-		if typeof(resource_data) != TYPE_DICTIONARY:
-			continue
-		var data := Dictionary(resource_data)
-		var kind := str(data.get("kind", "tree"))
-		var pos := _get_safe_restored_resource_position(kind, _data_to_vector(data.get("position", {})))
-		data["position"] = _vector_to_data(pos)
-		data["biome_id"] = _get_biome_id_for_position(pos)
-		var resource := _spawn_resource_at(kind, pos)
-		if resource.has_method("restore_from_data"):
-			resource.restore_from_data(data)
+	_ensure_resource_service().restore_resources_from_data(
+		resources,
+		Callable(self, "_get_safe_restored_resource_position"),
+		Callable(self, "_spawn_restored_resource_at"),
+		Callable(self, "_apply_restored_resource_data")
+	)
 
 
 func _get_safe_restored_resource_position(resource_kind: String, requested_position: Vector2) -> Vector2:
@@ -1091,6 +1103,18 @@ func _get_safe_restored_resource_position(resource_kind: String, requested_posit
 	return position
 
 
+func _apply_restored_resource_data(resource_node: Variant, resource_data: Dictionary) -> bool:
+	var data := Dictionary(resource_data).duplicate(true)
+	var position := _data_to_vector(data.get("position", {}))
+	data["position"] = _vector_to_data(position)
+	data["biome_id"] = _get_biome_id_for_position(position)
+	return _ensure_resource_service().apply_restore_data(resource_node, data)
+
+
+func _spawn_restored_resource_at(resource_kind: String, position_data: Dictionary) -> Node:
+	return _spawn_resource_at(resource_kind, _data_to_vector(position_data))
+
+
 func _get_nearest_pond_landmark(position: Vector2) -> Dictionary:
 	var nearest: Dictionary = {}
 	var nearest_distance := INF
@@ -1126,7 +1150,9 @@ func _sync_visible_small_prey() -> void:
 		if _try_spawn_small_prey_near_player(player_biome, player_position, used_positions, slot_index, spawn_budget):
 			spawned += 1
 	if spawned > 0:
-		get_node("/root/EventBus").post_message("%d SmallPrey entered the ecosystem" % spawned)
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("%d SmallPrey entered the ecosystem" % spawned)
 
 
 func _get_desired_small_prey_count(biome: Dictionary, biome_state: Dictionary) -> int:
@@ -1388,7 +1414,9 @@ func _spawn_initial_grazers() -> void:
 		if _try_spawn_grazer_in_biome(biome, player_position, used_positions):
 			spawned += 1
 	if spawned > 0:
-		get_node("/root/EventBus").post_message("%d Grazer%s dispersed into the ecosystem" % [spawned, "" if spawned == 1 else "s"])
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("%d Grazer%s dispersed into the ecosystem" % [spawned, "" if spawned == 1 else "s"])
 
 
 func _get_initial_grazer_biomes() -> Array[Dictionary]:
@@ -1498,10 +1526,32 @@ func _is_valid_initial_grazer_position(candidate: Vector2, used_positions: Array
 		GRAZER_INITIAL_PLAYER_SAFE_DISTANCE
 	):
 		return false
-	var world := get_tree().current_scene.get_node_or_null("World")
+	var world := _get_world_node()
 	if world and world.has_method("is_creature_navigation_blocked") and world.is_creature_navigation_blocked(candidate) == true:
 		return false
 	return true
+
+
+func _get_world_node() -> Node:
+	var scene_tree := get_tree()
+	if scene_tree == null or scene_tree.current_scene == null:
+		return null
+	return scene_tree.current_scene.get_node_or_null("World")
+
+
+func _get_sibling_node(node_name: String) -> Node:
+	var parent := get_parent()
+	if parent == null:
+		return null
+	return parent.get_node_or_null(node_name)
+
+
+func _get_event_bus() -> Node:
+	return get_node_or_null("/root/EventBus")
+
+
+func _get_game_session() -> Node:
+	return get_node_or_null("/root/GameSession")
 
 
 func _try_spawn_varnak_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
@@ -1551,7 +1601,9 @@ func _sync_visible_varnaks() -> void:
 		if _try_spawn_varnak_near_player(player_biome, player_position, used_positions):
 			spawned += 1
 	if spawned > 0:
-		get_node("/root/EventBus").post_message("%d Varnak%s entered the area" % [spawned, "" if spawned == 1 else "s"])
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("%d Varnak%s entered the area" % [spawned, "" if spawned == 1 else "s"])
 
 
 func _prune_distant_varnaks(player_position: Vector2) -> void:
@@ -1573,7 +1625,9 @@ func respawn_varnaks() -> void:
 			varnak.queue_free()
 	await get_tree().process_frame
 	_sync_visible_varnaks()
-	get_node("/root/EventBus").post_message("Varnaks respawned with current profile")
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.post_message("Varnaks respawned with current profile")
 
 
 func debug_spawn_animal(aggressive: bool) -> void:
@@ -1581,10 +1635,14 @@ func debug_spawn_animal(aggressive: bool) -> void:
 	var varnak := _spawn_varnak_at(spawn_position)
 	if aggressive:
 		varnak.apply_profile(_get_debug_aggressive_profile())
-		get_node("/root/EventBus").post_message("Debug spawned aggressive animal")
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("Debug spawned aggressive animal")
 	else:
 		varnak.apply_profile(_get_debug_neutral_profile())
-		get_node("/root/EventBus").post_message("Debug spawned neutral animal")
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("Debug spawned neutral animal")
 
 
 func debug_spawn_small_prey_near_player() -> void:
@@ -1598,13 +1656,17 @@ func debug_spawn_small_prey_near_player() -> void:
 		_spawn_small_prey_at(spawn_position, biome_id)
 		spawned += 1
 	if spawned > 0:
-		get_node("/root/EventBus").post_message("Debug spawned %d SmallPrey" % spawned)
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("Debug spawned %d SmallPrey" % spawned)
 
 
 func debug_remove_small_prey_near_player() -> void:
 	var removed := _debug_remove_nearest_creatures("small_prey", DEBUG_SMALL_PREY_VISIBLE_COUNT)
 	if removed > 0:
-		get_node("/root/EventBus").post_message("Debug removed %d SmallPrey" % removed)
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("Debug removed %d SmallPrey" % removed)
 
 
 func debug_spawn_grazers_near_player() -> void:
@@ -1618,13 +1680,17 @@ func debug_spawn_grazers_near_player() -> void:
 		_spawn_grazer_at(spawn_position, biome_id)
 		spawned += 1
 	if spawned > 0:
-		get_node("/root/EventBus").post_message("Debug spawned %d Grazers" % spawned)
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("Debug spawned %d Grazers" % spawned)
 
 
 func debug_remove_grazers_near_player() -> void:
 	var removed := _debug_remove_nearest_creatures("grazer", DEBUG_GRAZER_VISIBLE_COUNT)
 	if removed > 0:
-		get_node("/root/EventBus").post_message("Debug removed %d Grazers" % removed)
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("Debug removed %d Grazers" % removed)
 
 
 func _get_out_of_bounds_creatures() -> Array[Node2D]:
@@ -2168,26 +2234,9 @@ func _get_string_seed(text: String) -> int:
 
 
 func _draw_biome_blend_texture() -> void:
-	_ensure_biome_blend_texture()
-	if biome_blend_texture:
-		draw_texture_rect(biome_blend_texture, WORLD_CONFIG.WORLD_RECT, false)
-
-
-func _ensure_biome_blend_texture() -> void:
-	var current_key := _get_biome_colors_key()
-	if biome_blend_texture and biome_blend_colors_key == current_key:
-		return
-	var biome_zones := WORLD_CONFIG.get_biome_zones()
-	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
-	for y in range(BIOME_BLEND_TEXTURE_SIZE.y):
-		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
-			var world_position := WORLD_CONFIG.WORLD_RECT.position + Vector2(
-				(float(x) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.x) * WORLD_CONFIG.WORLD_RECT.size.x,
-				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y) * WORLD_CONFIG.WORLD_RECT.size.y
-			)
-			image.set_pixel(x, y, _get_biome_surface_color_at(world_position, biome_zones))
-	biome_blend_texture = ImageTexture.create_from_image(image)
-	biome_blend_colors_key = current_key
+	var blend_texture := _ensure_render_controller().ensure_biome_blend_texture()
+	if blend_texture:
+		draw_texture_rect(blend_texture, WORLD_CONFIG.WORLD_RECT, false)
 
 
 func _get_biome_surface_color_at(position: Vector2, biome_zones: Array[Dictionary]) -> Color:
