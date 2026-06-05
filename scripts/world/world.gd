@@ -112,6 +112,8 @@ var biome_sample_images: Dictionary = {}
 var biome_terrain_accent_cache: Dictionary = {}
 var pending_biome_terrain_accent_biomes: Array[Dictionary] = []
 var biome_terrain_accent_cache_build_running := false
+var debug_landmark_overlay_enabled := false
+var biome_textures_enabled := true
 var world_background_redraw_timer := 0.0
 var last_drawn_night_amount := -1.0
 var group_nodes_cache: Dictionary = {}
@@ -183,6 +185,55 @@ func get_landmarks() -> Array[Dictionary]:
 
 func get_world_seed() -> int:
 	return world_seed
+
+
+func get_landmark_counts() -> Dictionary:
+	return {
+		"generated": landmarks.size(),
+		"hill": hill_landmarks.size(),
+		"pond": pond_landmarks.size()
+	}
+
+
+func get_nearest_landmark_data(position: Vector2) -> Dictionary:
+	var nearest: Dictionary = {}
+	var nearest_distance := INF
+	for landmark_value in landmarks:
+		var landmark := Dictionary(landmark_value)
+		var landmark_position := Vector2(landmark.get("position", Vector2.ZERO))
+		var distance := position.distance_to(landmark_position)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = landmark.duplicate(true)
+	if nearest.is_empty():
+		return {}
+	nearest["distance_to_position"] = nearest_distance
+	return nearest
+
+
+func get_current_biome_texture_id(position: Vector2) -> String:
+	var biome := _get_biome_for_position(position)
+	if biome.is_empty():
+		return "none"
+	return _get_biome_terrain_texture_key(biome)
+
+
+func get_biome_texture_cache_status() -> Dictionary:
+	return {
+		"sample_image_cache_count": biome_sample_images.size(),
+		"accent_cache_count": biome_terrain_accent_cache.size(),
+		"pending_biomes": pending_biome_terrain_accent_biomes.size(),
+		"build_running": biome_terrain_accent_cache_build_running,
+		"textures_enabled": biome_textures_enabled
+	}
+
+
+func is_landmark_debug_overlay_enabled() -> bool:
+	return debug_landmark_overlay_enabled
+
+
+func are_biome_textures_enabled() -> bool:
+	return biome_textures_enabled
 
 
 func get_landmark_save_data() -> Array[Dictionary]:
@@ -343,16 +394,53 @@ func _rebuild_landmark_runtime_state() -> void:
 
 
 func restore_landmarks(landmark_data: Array, restored_world_seed: int = 0) -> void:
-	for landmark_area in get_tree().get_nodes_in_group("landmarks"):
-		if is_instance_valid(landmark_area):
-			landmark_area.queue_free()
-	await get_tree().process_frame
+	await _clear_landmark_areas()
 	world_seed = restored_world_seed if restored_world_seed != 0 else world_seed
 	landmarks = _deserialize_landmark_save_data(landmark_data)
 	if landmarks.is_empty():
 		landmarks = WORLD_CONFIG.generate_landmarks(world_seed)
 	_rebuild_landmark_runtime_state()
+	clear_cached_group_nodes()
 	queue_redraw()
+
+
+func debug_toggle_landmark_overlay() -> bool:
+	debug_landmark_overlay_enabled = not debug_landmark_overlay_enabled
+	queue_redraw()
+	return debug_landmark_overlay_enabled
+
+
+func debug_toggle_biome_textures() -> bool:
+	biome_textures_enabled = not biome_textures_enabled
+	queue_redraw()
+	return biome_textures_enabled
+
+
+func debug_rebuild_biome_texture_cache() -> void:
+	biome_sample_images.clear()
+	_queue_biome_terrain_accent_cache_rebuild()
+	queue_redraw()
+
+
+func debug_regenerate_landmarks() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var new_seed: int = max(rng.randi(), 1)
+	await _clear_landmark_areas()
+	_clear_pond_vegetation_resources()
+	world_seed = new_seed
+	landmarks = WORLD_CONFIG.generate_landmarks(world_seed)
+	_rebuild_landmark_runtime_state()
+	await _respawn_pond_vegetation_for_current_landmarks()
+	_sync_all_biome_vegetation()
+	var game_session: Node = get_node_or_null("/root/GameSession")
+	if game_session and game_session.has_method("set_bootstrap_world_state"):
+		game_session.set_bootstrap_world_state(world_seed, get_landmark_save_data())
+	clear_cached_group_nodes()
+	queue_redraw()
+	var event_bus: Node = get_node_or_null("/root/EventBus")
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message("Regenerated landmarks with seed %d" % world_seed)
 
 
 func _deserialize_landmark_save_data(landmark_data: Array) -> Array[Dictionary]:
@@ -365,6 +453,25 @@ func _deserialize_landmark_save_data(landmark_data: Array) -> Array[Dictionary]:
 		landmark["radius"] = float(landmark.get("radius", 0.0))
 		restored_landmarks.append(landmark)
 	return restored_landmarks
+
+
+func _clear_landmark_areas() -> void:
+	for landmark_area in get_tree().get_nodes_in_group("landmarks"):
+		if is_instance_valid(landmark_area):
+			landmark_area.queue_free()
+	await get_tree().process_frame
+
+
+func _clear_pond_vegetation_resources() -> void:
+	for resource in get_tree().get_nodes_in_group("pond_vegetation"):
+		if is_instance_valid(resource):
+			resource.queue_free()
+
+
+func _respawn_pond_vegetation_for_current_landmarks() -> void:
+	await get_tree().process_frame
+	var used_positions := _get_existing_resource_positions()
+	await _spawn_pond_vegetation(used_positions, _get_player_position())
 
 
 func _create_landmark_area(landmark: Dictionary, group_name: String) -> void:
@@ -1737,6 +1844,8 @@ func _data_to_vector(data: Variant) -> Vector2:
 func _draw() -> void:
 	_draw_biomes()
 	_draw_landmarks()
+	if debug_landmark_overlay_enabled:
+		_draw_landmark_debug_overlay()
 	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
 	var night_amount := _get_night_amount()
 	if night_amount > 0.0:
@@ -1755,7 +1864,8 @@ func _draw_biomes() -> void:
 		var points := PackedVector2Array(biome["points"])
 		var base_color := _get_biome_visual_color(biome)
 		draw_colored_polygon(points, base_color)
-		_draw_biome_terrain_accents(biome, base_color)
+		if biome_textures_enabled:
+			_draw_biome_terrain_accents(biome, base_color)
 
 
 func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
@@ -2323,6 +2433,40 @@ func _draw_landmarks() -> void:
 				_draw_hill_landmark(landmark)
 			"pond":
 				_draw_pond_landmark(landmark)
+
+
+func _draw_landmark_debug_overlay() -> void:
+	var font := ThemeDB.fallback_font
+	for landmark_value in landmarks:
+		var landmark := Dictionary(landmark_value)
+		var center := Vector2(landmark.get("position", Vector2.ZERO))
+		var radius := float(landmark.get("radius", 120.0))
+		var label := "%s | %s | r:%d" % [
+			str(landmark.get("type", "landmark")),
+			str(landmark.get("biome_id", "unknown")),
+			int(round(radius))
+		]
+		match str(landmark.get("type", "")):
+			"pond":
+				_draw_debug_ellipse_outline(center, radius, radius * POND_VISUAL_Y_SCALE, Color(0.34, 0.86, 0.92, 0.92), 2.0)
+			"hill":
+				_draw_debug_ellipse_outline(center, radius, radius * HILL_VISUAL_Y_SCALE, Color(0.98, 0.86, 0.44, 0.92), 2.0)
+			_:
+				draw_circle(center, max(radius, 6.0), Color(0.94, 0.94, 0.94, 0.32))
+		draw_circle(center, 4.0, Color(1.0, 0.95, 0.82, 0.90))
+		if font:
+			draw_string(font, center + Vector2(-radius * 0.35, -radius - 10.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color(0.98, 0.98, 0.88, 0.92))
+
+
+func _draw_debug_ellipse_outline(center: Vector2, radius_x: float, radius_y: float, outline_color: Color, line_width: float) -> void:
+	var points := PackedVector2Array()
+	for i in range(48):
+		var angle := TAU * float(i) / 48.0
+		points.append(center + Vector2(cos(angle) * radius_x, sin(angle) * radius_y))
+	for i in range(points.size()):
+		var from := points[i]
+		var to := points[(i + 1) % points.size()]
+		draw_line(from, to, outline_color, line_width)
 
 
 func _draw_hill_landmark(landmark: Dictionary) -> void:

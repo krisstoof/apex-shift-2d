@@ -22,6 +22,10 @@ func run() -> Array[String]:
 	_test_biome_surface_color_uses_the_containing_biome_without_blending(failures)
 	_test_biome_sample_texture_varies_with_position(failures)
 	_test_redfang_wilds_sample_texture_has_drawn_cracks(failures)
+	_test_landmark_debug_counts_and_nearest_selection(failures)
+	_test_landmark_debug_toggles_flip_runtime_state(failures)
+	_test_biome_texture_cache_status_reports_runtime_flags(failures)
+	_test_current_biome_texture_id_uses_player_position_biome(failures)
 	return failures
 
 
@@ -286,6 +290,79 @@ func _test_redfang_wilds_sample_texture_has_drawn_cracks(failures: Array[String]
 	TEST_UTILS.expect(lightest > 0.34, failures, "Redfang Wilds sample texture should keep lighter plates")
 	TEST_UTILS.expect(lightest - darkest > 0.16, failures, "Redfang Wilds sample texture should show a visible cracked-earth contrast")
 	TEST_UTILS.expect(unique_colors.size() >= 4, failures, "Redfang Wilds sample texture should include several drawn colors, not a flat blotch")
+	world.free()
+
+
+func _test_landmark_debug_counts_and_nearest_selection(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.landmarks = [
+		{
+			"id": "near_pond",
+			"type": "pond",
+			"position": Vector2(90.0, 30.0),
+			"radius": 120.0,
+			"biome_id": "westwood"
+		},
+		{
+			"id": "far_hill",
+			"type": "hill",
+			"position": Vector2(620.0, -180.0),
+			"radius": 180.0,
+			"biome_id": "stoneback_ridge"
+		}
+	]
+	world.pond_landmarks = [world.landmarks[0]]
+	world.hill_landmarks = [world.landmarks[1]]
+	var counts: Dictionary = world.get_landmark_counts()
+	TEST_UTILS.expect_equal(int(counts.get("generated", 0)), 2, failures, "Landmark debug counts should include the generated landmark total")
+	TEST_UTILS.expect_equal(int(counts.get("pond", 0)), 1, failures, "Landmark debug counts should report pond totals")
+	TEST_UTILS.expect_equal(int(counts.get("hill", 0)), 1, failures, "Landmark debug counts should report hill totals")
+	var nearest: Dictionary = world.get_nearest_landmark_data(Vector2(100.0, 35.0))
+	TEST_UTILS.expect_equal(str(nearest.get("id", "")), "near_pond", failures, "Nearest landmark lookup should prefer the closest landmark")
+	TEST_UTILS.expect_equal(str(nearest.get("type", "")), "pond", failures, "Nearest landmark lookup should preserve landmark type")
+	TEST_UTILS.expect(float(nearest.get("distance_to_position", INF)) < 20.0, failures, "Nearest landmark lookup should report a small distance for nearby targets")
+	world.free()
+
+
+func _test_landmark_debug_toggles_flip_runtime_state(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	TEST_UTILS.expect(not world.is_landmark_debug_overlay_enabled(), failures, "Landmark overlay debug should start disabled")
+	TEST_UTILS.expect(world.are_biome_textures_enabled(), failures, "Biome textures should start enabled")
+	var overlay_enabled: bool = world.debug_toggle_landmark_overlay()
+	var textures_enabled: bool = world.debug_toggle_biome_textures()
+	TEST_UTILS.expect(overlay_enabled, failures, "Landmark overlay debug toggle should enable the overlay on first press")
+	TEST_UTILS.expect(not textures_enabled, failures, "Biome texture debug toggle should disable textures on first press")
+	TEST_UTILS.expect(world.is_landmark_debug_overlay_enabled(), failures, "Landmark overlay debug state should persist after toggling")
+	TEST_UTILS.expect(not world.are_biome_textures_enabled(), failures, "Biome texture debug state should persist after toggling")
+	world.free()
+
+
+func _test_biome_texture_cache_status_reports_runtime_flags(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.biome_sample_images["westwood"] = Image.create(4, 4, false, Image.FORMAT_RGBA8)
+	world.biome_terrain_accent_cache["westwood"] = [{"position": Vector2.ZERO, "kind": "grass"}]
+	world.pending_biome_terrain_accent_biomes = [_get_biome_by_name("Westwood")]
+	world.biome_terrain_accent_cache_build_running = true
+	world.biome_textures_enabled = false
+	var status: Dictionary = world.get_biome_texture_cache_status()
+	TEST_UTILS.expect_equal(int(status.get("sample_image_cache_count", 0)), 1, failures, "Biome texture cache status should report loaded sample images")
+	TEST_UTILS.expect_equal(int(status.get("accent_cache_count", 0)), 1, failures, "Biome texture cache status should report cached accent layouts")
+	TEST_UTILS.expect_equal(int(status.get("pending_biomes", 0)), 1, failures, "Biome texture cache status should report queued biome rebuilds")
+	TEST_UTILS.expect(status.get("build_running", false) == true, failures, "Biome texture cache status should expose whether the cache builder is running")
+	TEST_UTILS.expect(status.get("textures_enabled", true) == false, failures, "Biome texture cache status should expose whether biome textures are enabled")
+	world.free()
+
+
+func _test_current_biome_texture_id_uses_player_position_biome(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var westwood := _get_biome_by_name("Westwood")
+	var sample_point := _find_boundary_sample_point(westwood, WORLD_CONFIG.get_biome_zones())
+	TEST_UTILS.expect(sample_point != Vector2.INF, failures, "Westwood should expose a sample point for biome texture id checks")
+	if sample_point == Vector2.INF:
+		world.free()
+		return
+	var texture_id := world.get_current_biome_texture_id(sample_point)
+	TEST_UTILS.expect(texture_id.contains("westwood_sample"), failures, "Current biome texture id should resolve from the biome containing the sampled world position")
 	world.free()
 
 
