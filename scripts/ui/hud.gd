@@ -1,6 +1,7 @@
 extends CanvasLayer
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const WORLD_SNAPSHOT_SERVICE := preload("res://scripts/systems/world_snapshot_service.gd")
 const ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS := 30.0
 const HUD_REFRESH_INTERVAL := 0.10
 
@@ -15,6 +16,7 @@ var pause_menu_open := false
 var center_notification_time := 0.0
 var hud_refresh_timer := 0.0
 var ecosystem_message_cooldowns: Dictionary = {}
+var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 
 @onready var stats_label: Label = $Panel/StatsLabel
 @onready var prompt_label: Label = $Panel/PromptLabel
@@ -53,13 +55,17 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	ecosystem_director = p_ecosystem_director
 	skill_icon_bar.bind(player)
 	var world := get_tree().current_scene.get_node_or_null("World")
-	var world_rect: Rect2 = world.get_world_rect() if world and world.has_method("get_world_rect") else WORLD_CONFIG.WORLD_RECT
-	var biome_zones: Array[Dictionary] = world.get_biome_zones() if world and world.has_method("get_biome_zones") else WORLD_CONFIG.get_biome_zones()
-	var landmarks: Array[Dictionary] = world.get_landmarks() if world and world.has_method("get_landmarks") else WORLD_CONFIG.get_landmarks()
-	minimap.bind(player, world_rect, biome_zones, landmarks)
-	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones, landmarks)
-	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director)
-	_refresh_hud_text()
+	snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
+	snapshot_service.bind(player, evolution_director, day_night_system, ecosystem_director, world)
+	var snapshot := snapshot_service.refresh(true)
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	var world_rect: Rect2 = Rect2(world_snapshot.get("world_rect", WORLD_CONFIG.WORLD_RECT))
+	var biome_zones: Array[Dictionary] = Array(world_snapshot.get("biome_zones", WORLD_CONFIG.get_biome_zones()))
+	var landmarks: Array[Dictionary] = Array(world_snapshot.get("landmarks", WORLD_CONFIG.get_landmarks()))
+	minimap.bind(player, world_rect, biome_zones, landmarks, snapshot_service)
+	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones, landmarks, snapshot_service)
+	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director, snapshot_service)
+	_apply_snapshot(snapshot)
 
 
 func _process(delta: float) -> void:
@@ -78,16 +84,53 @@ func _process(delta: float) -> void:
 func _refresh_hud_text() -> void:
 	if not player or not evolution_director or not day_night_system:
 		return
-	var clock_text: String = day_night_system.get_clock_time() if day_night_system.has_method("get_clock_time") else "--:--"
-	var time_label: String = day_night_system.get_time_label() if day_night_system.has_method("get_time_label") else ""
-	clock_label.text = "%s\n%s" % [clock_text, time_label]
+	_apply_snapshot(snapshot_service.refresh())
+
+
+func _apply_snapshot(snapshot: Dictionary) -> void:
+	clock_label.text = _build_clock_text_from_snapshot(snapshot)
 	fps_label.text = "FPS: %d" % Engine.get_frames_per_second()
-	stats_label.text = "\n".join([
-		"Health: %3d  Hunger: %3d  Stamina: %3d  Rest: %3d  %s%s" % [player.stats.health, player.stats.hunger, player.stats.stamina, player.stats.rest, player.stats.get_condition_text(), _get_campfire_regen_status_text()],
-		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Torch: %d %s  Spear: %s  Bow: %s" % [player.inventory.get_amount("wood"), player.inventory.get_amount("stone"), player.inventory.get_amount("fiber"), player.inventory.get_amount("meat"), player.inventory.get_amount("torch"), _get_torch_status_text(), "yes" if player.has_spear else "no", "yes" if player.has_bow else "no"]
-	])
-	prompt_label.text = player.get_interaction_prompt() if player.has_method("get_interaction_prompt") else ""
+	stats_label.text = _build_stats_text_from_snapshot(snapshot)
+	prompt_label.text = _get_prompt_text_from_snapshot(snapshot)
 	message_label.text = "\n".join(message_history)
+
+
+func _build_clock_text_from_snapshot(snapshot: Dictionary) -> String:
+	var time_snapshot := Dictionary(snapshot.get("time", {}))
+	return "%s\n%s" % [
+		str(time_snapshot.get("clock_time", "--:--")),
+		str(time_snapshot.get("time_label", ""))
+	]
+
+
+func _build_stats_text_from_snapshot(snapshot: Dictionary) -> String:
+	var player_snapshot := Dictionary(snapshot.get("player", {}))
+	var inventory := Dictionary(player_snapshot.get("inventory", {}))
+	return "\n".join([
+		"Health: %3d  Hunger: %3d  Stamina: %3d  Rest: %3d  %s%s" % [
+			int(player_snapshot.get("health", 0)),
+			int(player_snapshot.get("hunger", 0)),
+			int(player_snapshot.get("stamina", 0)),
+			int(player_snapshot.get("rest", 0)),
+			str(player_snapshot.get("condition_text", "unknown")),
+			" campfire_regen_active" if player_snapshot.get("campfire_regen_active", false) == true else ""
+		],
+		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Torch: %d %s  Spear: %s  Bow: %s" % [
+			int(inventory.get("wood", 0)),
+			int(inventory.get("stone", 0)),
+			int(inventory.get("fiber", 0)),
+			int(inventory.get("meat", 0)),
+			int(inventory.get("torch", 0)),
+			_get_torch_status_text_from_snapshot(player_snapshot),
+			"yes" if player_snapshot.get("has_spear", false) == true else "no",
+			"yes" if player_snapshot.get("has_bow", false) == true else "no"
+		]
+	])
+
+
+func _get_prompt_text_from_snapshot(snapshot: Dictionary) -> String:
+	var player_snapshot := Dictionary(snapshot.get("player", {}))
+	return str(player_snapshot.get("prompt_text", ""))
 
 
 func _on_message(new_message: String) -> void:
@@ -167,6 +210,12 @@ func _get_torch_status_text() -> String:
 		return "inactive"
 	var remaining := int(ceil(player.get_torch_remaining_seconds())) if player.has_method("get_torch_remaining_seconds") else 0
 	return "active %ds" % remaining
+
+
+func _get_torch_status_text_from_snapshot(player_snapshot: Dictionary) -> String:
+	if player_snapshot.get("torch_active", false) != true:
+		return "inactive"
+	return "active %ds" % int(ceil(float(player_snapshot.get("torch_remaining_seconds", 0.0))))
 
 
 func show_game_over(day_survived: int, reason: String) -> void:

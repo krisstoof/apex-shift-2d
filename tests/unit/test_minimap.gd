@@ -32,6 +32,17 @@ class MockWorld:
 		return []
 
 
+class MockSnapshotService:
+	extends RefCounted
+	var snapshot := {}
+
+	func get_snapshot() -> Dictionary:
+		return snapshot
+
+	func refresh(_force := false) -> Dictionary:
+		return snapshot
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_minimap_view_rect_follows_player_and_stays_larger_than_camera(failures)
@@ -117,15 +128,18 @@ func _test_landmark_markers_stay_inside_minimap_content(failures: Array[String])
 
 
 func _test_minimap_reads_registry_resources_and_varnaks(failures: Array[String]) -> void:
-	var world := MockWorld.new()
-	var resource := MockResource.new()
-	resource.global_position = Vector2(-180.0, 60.0)
-	var varnak := MockVarnak.new()
-	varnak.global_position = Vector2(220.0, -90.0)
-	world.registered_resources = [resource]
-	world.registered_varnaks = [varnak]
 	var minimap := _make_minimap()
-	minimap.world = world
+	var snapshot_service := MockSnapshotService.new()
+	snapshot_service.snapshot = {
+		"markers": {
+			"resources": [{"position": Vector2(-180.0, 60.0), "item_name": "berries", "resource_kind": "berry_bush"}],
+			"varnaks": [{"position": Vector2(220.0, -90.0), "type": "varnak"}]
+		},
+		"world": {
+			"landmarks": []
+		}
+	}
+	minimap.snapshot_service = snapshot_service
 	minimap.call("_update_resources_cache")
 	var cached_resources: Array = minimap.get("cached_resources")
 	var registered_varnaks: Array = minimap.call("_get_registered_varnaks")

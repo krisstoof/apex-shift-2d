@@ -1,0 +1,267 @@
+extends RefCounted
+
+const SNAPSHOT_SERVICE_SCRIPT := preload("res://scripts/systems/world_snapshot_service.gd")
+const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
+
+
+class MockStats:
+	extends RefCounted
+	var health := 91
+	var hunger := 62
+	var stamina := 48
+	var rest := 77
+	var campfire_regen_active := true
+	var campfire_regen_distance := 88.0
+
+	func get_condition_text() -> String:
+		return "steady"
+
+
+class MockInventory:
+	extends RefCounted
+
+	func get_amount(item_id: String) -> int:
+		match item_id:
+			"wood":
+				return 4
+			"stone":
+				return 3
+			"fiber":
+				return 2
+			"meat":
+				return 1
+			"hide":
+				return 5
+			"bone":
+				return 6
+			"torch":
+				return 2
+		return 0
+
+
+class MockPlayer:
+	extends Node2D
+	var stats := MockStats.new()
+	var inventory := MockInventory.new()
+	var has_spear := true
+	var has_bow := false
+	var torch_active := true
+
+	func get_interaction_prompt() -> String:
+		return "E: interact"
+
+	func is_torch_active() -> bool:
+		return torch_active
+
+	func get_torch_remaining_seconds() -> float:
+		return 17.2
+
+
+class MockEvolutionDirector:
+	extends Node
+
+	func get_profile() -> Dictionary:
+		return {
+			"generation": 4,
+			"aggression": 0.45,
+			"fire_fear": 0.80,
+			"trap_awareness": 0.30,
+			"pack_coordination": 0.22
+		}
+
+
+class MockDayNightSystem:
+	extends Node
+	var night_amount := 0.35
+
+	func get_day() -> int:
+		return 3
+
+	func get_clock_time() -> String:
+		return "13:48"
+
+	func get_time_label() -> String:
+		return "Day"
+
+	func get_phase_label() -> String:
+		return "Afternoon"
+
+
+class MockEcosystemDirector:
+	extends Node
+
+	func get_biome_states() -> Dictionary:
+		return {
+			"westwood": {
+				"name": "Westwood",
+				"status": "stable",
+				"small_prey_population": 4.0,
+				"grazer_population": 3.0,
+				"varnak_population": 1.0
+			},
+			"redfang_wilds": {
+				"name": "Redfang Wilds",
+				"status": "stressed",
+				"small_prey_population": 1.0,
+				"grazer_population": 0.0,
+				"varnak_population": 2.0
+			}
+		}
+
+
+class MockResource:
+	extends Node2D
+	var resource_kind := ""
+	var item_name := ""
+	var player_harvestable := true
+
+
+class MockCreature:
+	extends Node2D
+
+
+class MockWorld:
+	extends Node
+	var resources: Array = []
+	var varnaks: Array = []
+	var small_prey: Array = []
+	var grazers: Array = []
+
+	func get_world_rect() -> Rect2:
+		return Rect2(Vector2(-1000.0, -800.0), Vector2(2000.0, 1600.0))
+
+	func get_biome_zones() -> Array[Dictionary]:
+		return [{
+			"name": "Westwood",
+			"points": PackedVector2Array([
+				Vector2(-1000.0, -800.0),
+				Vector2(1000.0, -800.0),
+				Vector2(1000.0, 800.0),
+				Vector2(-1000.0, 800.0)
+			]),
+			"color": Color(0.2, 0.4, 0.2)
+		}]
+
+	func get_landmarks() -> Array[Dictionary]:
+		return [{
+			"id": "pond_a",
+			"type": "pond",
+			"position": Vector2(120.0, -60.0),
+			"radius": 90.0
+		}]
+
+	func get_landmark_counts() -> Dictionary:
+		return {"generated": 1, "hill": 0, "pond": 1}
+
+	func get_world_seed() -> int:
+		return 2468
+
+	func get_creatures_out_of_bounds_count() -> int:
+		return 2
+
+	func get_current_biome_texture_id(_position: Vector2) -> String:
+		return "westwood_sample"
+
+	func get_nearest_landmark_data(_position: Vector2) -> Dictionary:
+		return {"id": "pond_a", "type": "pond", "distance_to_position": 42.0}
+
+	func get_biome_texture_cache_status() -> Dictionary:
+		return {"sample_image_cache_count": 1, "accent_cache_count": 2, "pending_biomes": 0, "build_running": false}
+
+	func is_landmark_debug_overlay_enabled() -> bool:
+		return true
+
+	func are_biome_textures_enabled() -> bool:
+		return true
+
+	func get_registered_resources() -> Array:
+		return resources
+
+	func get_registered_creatures_by_type(creature_type: String) -> Array:
+		match creature_type:
+			"varnak":
+				return varnaks
+			"small_prey":
+				return small_prey
+			"grazer":
+				return grazers
+		return []
+
+	func get_cached_group_nodes(group_name: String) -> Array:
+		match group_name:
+			"trees":
+				return resources.filter(func(resource): return resource.resource_kind == "conifer_tree")
+			"bushes":
+				return resources.filter(func(resource): return resource.resource_kind == "bush")
+			"grass":
+				return resources.filter(func(resource): return resource.resource_kind == "grass_patch")
+			"rocks":
+				return resources.filter(func(resource): return resource.resource_kind == "rock")
+			"pond_vegetation":
+				return []
+			"campfires":
+				return [Node.new()]
+			"traps":
+				return [Node.new(), Node.new()]
+			"walls":
+				return []
+			"storage_boxes":
+				return []
+			"tents":
+				return []
+		return []
+
+
+func run() -> Array[String]:
+	var failures: Array[String] = []
+	_test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures)
+	return failures
+
+
+func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Array[String]) -> void:
+	var service = SNAPSHOT_SERVICE_SCRIPT.new()
+	var player := MockPlayer.new()
+	player.global_position = Vector2(50.0, 20.0)
+	var world := MockWorld.new()
+	world.resources = [
+		_make_resource("conifer_tree", "wood", Vector2(10.0, 10.0), true),
+		_make_resource("berry_bush", "berries", Vector2(20.0, 20.0), true),
+		_make_resource("rock", "stone", Vector2(30.0, 30.0), true),
+		_make_resource("grass_patch", "grass", Vector2(40.0, 40.0), true),
+		_make_resource("bush", "fiber", Vector2(50.0, 50.0), false)
+	]
+	world.varnaks = [_make_creature(Vector2(120.0, 0.0))]
+	world.small_prey = [_make_creature(Vector2(-90.0, 20.0)), _make_creature(Vector2(-60.0, 10.0))]
+	world.grazers = [_make_creature(Vector2(70.0, -40.0))]
+	service.bind(player, MockEvolutionDirector.new(), MockDayNightSystem.new(), MockEcosystemDirector.new(), world)
+	var snapshot: Dictionary = service.refresh(true)
+	var player_snapshot := Dictionary(snapshot.get("player", {}))
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	var markers := Dictionary(snapshot.get("markers", {}))
+	var ecosystem_snapshot := Dictionary(snapshot.get("ecosystem", {}))
+	var debug_snapshot := Dictionary(snapshot.get("debug", {}))
+	TEST_UTILS.expect_equal(int(player_snapshot.get("health", 0)), 91, failures, "Snapshot service should capture player health")
+	TEST_UTILS.expect_equal(str(player_snapshot.get("condition_text", "")), "steady", failures, "Snapshot service should capture player condition text")
+	TEST_UTILS.expect_equal(int(Dictionary(player_snapshot.get("inventory", {})).get("torch", 0)), 2, failures, "Snapshot service should capture inventory amounts")
+	TEST_UTILS.expect_equal(str(world_snapshot.get("current_biome_name", "")), "Westwood", failures, "Snapshot service should resolve the current biome name")
+	TEST_UTILS.expect_equal(int(Dictionary(world_snapshot.get("building_counts", {})).get("traps", 0)), 2, failures, "Snapshot service should expose building counts for debug/UI")
+	TEST_UTILS.expect_equal(Array(markers.get("resources", [])).size(), 2, failures, "Snapshot service should expose only minimap/map resource markers that stay visible to the player")
+	TEST_UTILS.expect_equal(Array(markers.get("varnaks", [])).size(), 1, failures, "Snapshot service should expose varnak markers")
+	TEST_UTILS.expect_equal(int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("small_prey_population", 0)), 5, failures, "Snapshot service should aggregate ecosystem population totals")
+	TEST_UTILS.expect(str(ecosystem_snapshot.get("warnings_text", "")).contains("Redfang Wilds:stressed"), failures, "Snapshot service should expose ecosystem warnings text")
+	TEST_UTILS.expect_equal(int(debug_snapshot.get("live_varnaks", 0)), 1, failures, "Snapshot service should expose debug summary creature counts")
+
+
+func _make_resource(kind: String, item_name: String, position: Vector2, harvestable: bool) -> MockResource:
+	var resource := MockResource.new()
+	resource.resource_kind = kind
+	resource.item_name = item_name
+	resource.player_harvestable = harvestable
+	resource.global_position = position
+	return resource
+
+
+func _make_creature(position: Vector2) -> MockCreature:
+	var creature := MockCreature.new()
+	creature.global_position = position
+	return creature

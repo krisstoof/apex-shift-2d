@@ -12,30 +12,33 @@ const MINIMAP_FALLBACK_VIEW_WORLD_SIZE := Vector2(1280.0, 760.0)
 
 var player: Node2D
 var world: Node
+var snapshot_service
 var world_rect := WORLD_CONFIG.WORLD_RECT
 var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
 var minimap_redraw_timer := 0.0
-var cached_resources: Array[Node] = []
-var resources_cache_timer := 0.0
+var cached_resources: Array[Dictionary] = []
+var cached_varnaks: Array[Dictionary] = []
+var markers_cache_timer := 0.0
 var camera_world_size_override := Vector2.ZERO
-const RESOURCES_CACHE_INTERVAL := 0.5
+const MARKERS_CACHE_INTERVAL := 0.5
 
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	_update_resources_cache()
+	_update_marker_cache()
 
 
-func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = []) -> void:
+func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = [], p_snapshot_service = null) -> void:
 	player = p_player
 	world = _get_world()
+	snapshot_service = p_snapshot_service
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
-	_update_resources_cache()
+	_update_marker_cache()
 	queue_redraw()
 
 
@@ -46,10 +49,10 @@ func _process(delta: float) -> void:
 	if minimap_redraw_timer >= MINIMAP_REDRAW_INTERVAL:
 		minimap_redraw_timer = 0.0
 		queue_redraw()
-	resources_cache_timer += delta
-	if resources_cache_timer >= RESOURCES_CACHE_INTERVAL:
-		resources_cache_timer = 0.0
-		_update_resources_cache()
+	markers_cache_timer += delta
+	if markers_cache_timer >= MARKERS_CACHE_INTERVAL:
+		markers_cache_timer = 0.0
+		_update_marker_cache()
 
 
 func _draw() -> void:
@@ -185,12 +188,14 @@ func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 
 
 func _refresh_landmarks_from_world() -> void:
-	var tree := _get_safe_tree()
-	if not tree or not tree.current_scene:
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	if not world_snapshot.is_empty():
+		landmarks = Array(world_snapshot.get("landmarks", landmarks))
 		return
-	var world := tree.current_scene.get_node_or_null("World")
-	if world and world.has_method("get_landmarks"):
-		landmarks = world.get_landmarks()
+	var active_world := _get_world()
+	if active_world and active_world.has_method("get_landmarks"):
+		landmarks = active_world.get_landmarks()
 
 
 func _draw_pond_marker(center: Vector2, radius: float, landmark: Dictionary) -> void:
@@ -295,33 +300,22 @@ func _draw_filled_ellipse(rect: Rect2, ellipse_color: Color) -> void:
 
 
 func _draw_resources(content_rect: Rect2, view_world_rect: Rect2) -> void:
-	for resource in cached_resources:
-		if not is_instance_valid(resource):
+	for resource_marker_value in cached_resources:
+		var resource_marker := Dictionary(resource_marker_value)
+		var marker_position := Vector2(resource_marker.get("position", Vector2.ZERO))
+		if not view_world_rect.has_point(marker_position):
 			continue
-		if not _should_draw_resource_on_minimap(resource):
-			continue
-		if not view_world_rect.has_point(resource.global_position):
-			continue
-		var color := _get_resource_color(resource)
-		draw_circle(_world_to_map(resource.global_position, content_rect, view_world_rect), 3.3, color)
-
-
-func _should_draw_resource_on_minimap(resource: Node) -> bool:
-	var resource_kind := str(resource.get("resource_kind"))
-	if resource_kind in ["grass_patch", "dense_grass", "berry_bush"]:
-		return false
-	if resource.get("player_harvestable") == false:
-		return false
-	return true
+		var color := _get_resource_marker_color(resource_marker)
+		draw_circle(_world_to_map(marker_position, content_rect, view_world_rect), 3.3, color)
 
 
 func _draw_varnaks(content_rect: Rect2, view_world_rect: Rect2) -> void:
-	for varnak in _get_registered_varnaks():
-		if not is_instance_valid(varnak):
+	for varnak_marker_value in cached_varnaks:
+		var varnak_marker := Dictionary(varnak_marker_value)
+		var marker_position := Vector2(varnak_marker.get("position", Vector2.ZERO))
+		if not view_world_rect.has_point(marker_position):
 			continue
-		if not view_world_rect.has_point(varnak.global_position):
-			continue
-		var pos := _world_to_map(varnak.global_position, content_rect, view_world_rect)
+		var pos := _world_to_map(marker_position, content_rect, view_world_rect)
 		draw_circle(pos, 5.2, Color(0.88, 0.22, 0.16))
 		draw_circle(pos, 2.2, Color(1.0, 0.82, 0.42))
 
@@ -482,8 +476,8 @@ func _intersects_view_circle(center: Vector2, radius: float, view_world_rect: Re
 	return center.distance_squared_to(closest_point) <= radius * radius
 
 
-func _get_resource_color(resource: Node) -> Color:
-	match str(resource.get("item_name")):
+func _get_resource_marker_color(resource_marker: Dictionary) -> Color:
+	match str(resource_marker.get("item_name", "")):
 		"wood":
 			return Color(0.18, 0.72, 0.24)
 		"stone":
@@ -500,17 +494,19 @@ func _get_resource_color(resource: Node) -> Color:
 			return Color(0.86, 0.78, 0.45)
 
 
+func _update_marker_cache() -> void:
+	var snapshot := _get_snapshot()
+	var markers := Dictionary(snapshot.get("markers", {}))
+	if not markers.is_empty():
+		cached_resources = _to_dictionary_array(Array(markers.get("resources", [])))
+		cached_varnaks = _to_dictionary_array(Array(markers.get("varnaks", [])))
+		return
+	cached_resources = _build_resource_markers_from_world()
+	cached_varnaks = _build_varnak_markers_from_world()
+
+
 func _update_resources_cache() -> void:
-	var world := _get_world()
-	if world and world.has_method("get_registered_resources"):
-		cached_resources = _to_node_array(world.get_registered_resources())
-	else:
-		var tree := _get_safe_tree()
-		cached_resources = _to_node_array(tree.get_nodes_in_group("resources") if tree else [])
-	# Clean up dead references
-	for i in range(cached_resources.size() - 1, -1, -1):
-		if not is_instance_valid(cached_resources[i]):
-			cached_resources.remove_at(i)
+	_update_marker_cache()
 
 
 func _get_safe_tree() -> SceneTree:
@@ -529,20 +525,57 @@ func _get_world() -> Node:
 	return world
 
 
+func _get_snapshot() -> Dictionary:
+	if snapshot_service != null and snapshot_service.has_method("get_snapshot"):
+		var snapshot: Dictionary = snapshot_service.get_snapshot()
+		if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+			return snapshot_service.refresh(true)
+		return snapshot
+	return {}
+
+
+func _build_resource_markers_from_world() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	var active_world := _get_world()
+	if active_world == null or not active_world.has_method("get_registered_resources"):
+		return markers
+	for resource_value in active_world.get_registered_resources():
+		var resource := resource_value as Node2D
+		if resource == null or not is_instance_valid(resource):
+			continue
+		var resource_kind := str(resource.get("resource_kind"))
+		if resource_kind in ["grass_patch", "dense_grass", "berry_bush"]:
+			continue
+		if resource.get("player_harvestable") == false:
+			continue
+		markers.append({
+			"position": resource.global_position,
+			"resource_kind": resource_kind,
+			"item_name": str(resource.get("item_name"))
+		})
+	return markers
+
+
+func _build_varnak_markers_from_world() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	var active_world := _get_world()
+	if active_world == null or not active_world.has_method("get_registered_creatures_by_type"):
+		return markers
+	for varnak_value in active_world.get_registered_creatures_by_type("varnak"):
+		var varnak := varnak_value as Node2D
+		if varnak == null or not is_instance_valid(varnak):
+			continue
+		markers.append({"position": varnak.global_position, "type": "varnak"})
+	return markers
+
+
 func _get_registered_varnaks() -> Array:
-	var world := _get_world()
-	if world and world.has_method("get_registered_creatures_by_type"):
-		return world.get_registered_creatures_by_type("varnak")
-	var tree := _get_safe_tree()
-	if tree == null:
-		return []
-	return tree.get_nodes_in_group("varnak")
+	return cached_varnaks
 
 
-func _to_node_array(nodes: Array) -> Array[Node]:
-	var typed_nodes: Array[Node] = []
-	for node_value in nodes:
-		var node := node_value as Node
-		if node != null:
-			typed_nodes.append(node)
-	return typed_nodes
+func _to_dictionary_array(values: Array) -> Array[Dictionary]:
+	var typed_values: Array[Dictionary] = []
+	for value in values:
+		if typeof(value) == TYPE_DICTIONARY:
+			typed_values.append(Dictionary(value))
+	return typed_values

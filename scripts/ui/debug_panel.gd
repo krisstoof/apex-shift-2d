@@ -21,6 +21,7 @@ var player: Node
 var evolution_director: Node
 var day_night_system: Node
 var ecosystem_director: Node
+var snapshot_service
 var active_tab := "Overview"
 var tab_bar: TabBar
 var tools_scroll: ScrollContainer
@@ -86,11 +87,12 @@ func _ready() -> void:
 	_update_active_tab_view()
 
 
-func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null) -> void:
+func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null, p_snapshot_service = null) -> void:
 	player = p_player
 	evolution_director = p_evolution_director
 	day_night_system = p_day_night_system
 	ecosystem_director = p_ecosystem_director
+	snapshot_service = p_snapshot_service
 
 
 func _process(_delta: float) -> void:
@@ -303,71 +305,103 @@ func _build_state_text() -> String:
 
 
 func _build_overview_text(profile: Dictionary) -> String:
+	var snapshot := _get_snapshot()
+	var player_snapshot := Dictionary(snapshot.get("player", {}))
+	var time_snapshot := Dictionary(snapshot.get("time", {}))
+	var debug_snapshot := Dictionary(snapshot.get("debug", {}))
+	var ecosystem_snapshot := Dictionary(snapshot.get("ecosystem", {}))
 	var lines: Array[String] = []
-	lines.append("Day %d | %s | night %.2f" % [_get_day(), _get_day_phase(), _get_night_amount()])
-	lines.append("Player HP %d | H %d | Sta %d | Rest %d | campfire_regen_active %s" % [int(player.stats.health), int(player.stats.hunger), int(player.stats.stamina), int(player.stats.rest), _get_campfire_regen_active_text()])
-	lines.append("God mode %s" % _get_god_mode_state_text())
-	lines.append("Biome %s" % _get_current_biome_name())
-	lines.append("Live Varnaks %d | SmallPrey %d | Grazers %d" % [
-		_get_cached_group_nodes("varnak").size(),
-		_get_ecosystem_population_total("small_prey_population"),
-		_get_ecosystem_population_total("grazer_population")
+	lines.append("Day %d | %s | night %.2f" % [
+		int(time_snapshot.get("day", _get_day())),
+		str(time_snapshot.get("phase_label", _get_day_phase())),
+		float(time_snapshot.get("night_amount", _get_night_amount()))
 	])
-	lines.append("creatures_out_of_bounds_count = %d" % _get_creatures_out_of_bounds_count())
-	lines.append("Ecosystem warnings: %s" % _get_ecosystem_warnings_text())
-	lines.append("Generation %d" % int(profile.get("generation", 1)))
+	lines.append("Player HP %d | H %d | Sta %d | Rest %d | campfire_regen_active %s" % [
+		int(player_snapshot.get("health", int(player.stats.health))),
+		int(player_snapshot.get("hunger", int(player.stats.hunger))),
+		int(player_snapshot.get("stamina", int(player.stats.stamina))),
+		int(player_snapshot.get("rest", int(player.stats.rest))),
+		"yes" if player_snapshot.get("campfire_regen_active", false) == true else _get_campfire_regen_active_text()
+	])
+	lines.append("God mode %s" % _get_god_mode_state_text())
+	lines.append("Biome %s" % str(debug_snapshot.get("current_biome_name", _get_current_biome_name())))
+	lines.append("Live Varnaks %d | SmallPrey %d | Grazers %d" % [
+		int(debug_snapshot.get("live_varnaks", _get_cached_group_nodes("varnak").size())),
+		int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("small_prey_population", _get_ecosystem_population_total("small_prey_population"))),
+		int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("grazer_population", _get_ecosystem_population_total("grazer_population")))
+	])
+	lines.append("creatures_out_of_bounds_count = %d" % int(Dictionary(snapshot.get("world", {})).get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))
+	lines.append("Ecosystem warnings: %s" % str(ecosystem_snapshot.get("warnings_text", _get_ecosystem_warnings_text())))
+	lines.append("Generation %d" % int(Dictionary(snapshot.get("evolution", {})).get("generation", int(profile.get("generation", 1)))))
 	return "\n".join(lines)
 
 
 func _build_player_text() -> String:
+	var snapshot := _get_snapshot()
+	var player_snapshot := Dictionary(snapshot.get("player", {}))
+	var inventory_snapshot := Dictionary(player_snapshot.get("inventory", {}))
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
 	var lines: Array[String] = []
 	lines.append("Player")
 	lines.append("Health %d | Hunger %d | Stamina %d | Rest %d" % [
-		int(player.stats.health),
-		int(player.stats.hunger),
-		int(player.stats.stamina),
-		int(player.stats.rest)
+		int(player_snapshot.get("health", int(player.stats.health))),
+		int(player_snapshot.get("hunger", int(player.stats.hunger))),
+		int(player_snapshot.get("stamina", int(player.stats.stamina))),
+		int(player_snapshot.get("rest", int(player.stats.rest)))
 	])
 	lines.append("God mode %s" % _get_god_mode_state_text())
 	lines.append("campfire_regen_active %s | stamina_regen %.1f/s | distance %s" % [
-		_get_campfire_regen_active_text(),
+		"yes" if player_snapshot.get("campfire_regen_active", false) == true else _get_campfire_regen_active_text(),
 		player.stats.get_stamina_regen_rate(),
-		_get_campfire_regen_distance_text()
+		("%.0fpx" % float(player_snapshot.get("campfire_regen_distance", -1.0))) if float(player_snapshot.get("campfire_regen_distance", -1.0)) >= 0.0 else _get_campfire_regen_distance_text()
 	])
 	lines.append("Inventory")
 	lines.append("Wood %d | Stone %d | Fiber %d | Meat %d" % [
-		_get_item_count("wood"),
-		_get_item_count("stone"),
-		_get_item_count("fiber"),
-		_get_item_count("meat")
+		int(inventory_snapshot.get("wood", _get_item_count("wood"))),
+		int(inventory_snapshot.get("stone", _get_item_count("stone"))),
+		int(inventory_snapshot.get("fiber", _get_item_count("fiber"))),
+		int(inventory_snapshot.get("meat", _get_item_count("meat")))
 	])
 	lines.append("Torch %d | %s" % [
-		_get_item_count("torch"),
+		int(inventory_snapshot.get("torch", _get_item_count("torch"))),
 		_get_torch_state()
 	])
-	lines.append("Spear %s | Bow %s" % [_get_spear_state(), _get_bow_state()])
-	lines.append("Campfire %s | Traps %d" % [_get_campfire_state(), _get_cached_group_nodes("traps").size()])
+	lines.append("Spear %s | Bow %s" % [
+		"yes" if player_snapshot.get("has_spear", player and player.get("has_spear")) == true else "no",
+		"yes" if player_snapshot.get("has_bow", player and player.get("has_bow")) == true else "no"
+	])
+	lines.append("Campfire %s | Traps %d" % [
+		_get_campfire_state(),
+		int(Dictionary(world_snapshot.get("building_counts", {})).get("traps", _get_cached_group_nodes("traps").size()))
+	])
 	return "\n".join(lines)
 
 
 func _build_world_text() -> String:
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	var landmark_counts := Dictionary(world_snapshot.get("landmark_counts", _get_world_landmark_counts()))
+	var resource_counts := Dictionary(world_snapshot.get("resource_counts", {}))
+	var building_counts := Dictionary(world_snapshot.get("building_counts", {}))
 	var lines: Array[String] = []
-	var landmark_counts := _get_world_landmark_counts()
 	lines.append("World")
-	lines.append("Current biome: %s" % _get_current_biome_name())
-	lines.append("World seed: %s | biome texture: %s" % [_get_world_seed_text(), _get_current_biome_texture_id_text()])
-	lines.append("Player position: %s" % _get_position_text(player.global_position if player else Vector2.ZERO))
+	lines.append("Current biome: %s" % str(world_snapshot.get("current_biome_name", _get_current_biome_name())))
+	lines.append("World seed: %s | biome texture: %s" % [
+		str(world_snapshot.get("world_seed", _get_world_seed_text())),
+		str(world_snapshot.get("current_biome_texture_id", _get_current_biome_texture_id_text()))
+	])
+	lines.append("Player position: %s" % _get_position_text(Vector2(Dictionary(snapshot.get("player", {})).get("position", player.global_position if player else Vector2.ZERO))))
 	lines.append("World bounds: %s" % str(WORLD_CONFIG.WORLD_RECT))
-	lines.append("creatures_out_of_bounds_count = %d" % _get_creatures_out_of_bounds_count())
+	lines.append("creatures_out_of_bounds_count = %d" % int(world_snapshot.get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))
 	lines.append("Campfires: %d | Traps: %d" % [
-		_get_cached_group_nodes("campfires").size(),
-		_get_cached_group_nodes("traps").size()
+		int(building_counts.get("campfires", _get_cached_group_nodes("campfires").size())),
+		int(building_counts.get("traps", _get_cached_group_nodes("traps").size()))
 	])
 	lines.append("Resources: trees %d | bushes %d | grass %d | rocks %d" % [
-		_get_cached_group_nodes("trees").size(),
-		_get_cached_group_nodes("bushes").size(),
-		_get_cached_group_nodes("grass").size(),
-		_get_cached_group_nodes("rocks").size()
+		int(resource_counts.get("trees", _get_cached_group_nodes("trees").size())),
+		int(resource_counts.get("bushes", _get_cached_group_nodes("bushes").size())),
+		int(resource_counts.get("grass", _get_cached_group_nodes("grass").size())),
+		int(resource_counts.get("rocks", _get_cached_group_nodes("rocks").size()))
 	])
 	lines.append("Landmarks: %s | generated %d" % [_get_landmark_summary_text(), int(landmark_counts.get("generated", 0))])
 	lines.append("Ponds %d | Hills %d | nearest %s" % [
@@ -391,6 +425,10 @@ func _build_world_text() -> String:
 
 
 func _build_ecosystem_text() -> String:
+	var snapshot := _get_snapshot()
+	var ecosystem_snapshot := Dictionary(snapshot.get("ecosystem", {}))
+	if not ecosystem_snapshot.is_empty():
+		return "\n".join(_get_ecosystem_debug_lines_from_snapshot(ecosystem_snapshot))
 	return "\n".join(_get_ecosystem_debug_lines())
 
 
@@ -442,16 +480,19 @@ func _build_evolution_text(profile: Dictionary) -> String:
 
 
 func _build_combat_text() -> String:
+	var snapshot := _get_snapshot()
+	var player_snapshot := Dictionary(snapshot.get("player", {}))
+	var debug_snapshot := Dictionary(snapshot.get("debug", {}))
 	var lines: Array[String] = []
 	lines.append("Combat")
 	lines.append("Player HP %d | Spear %s | Bow %s" % [
-		int(player.stats.health),
-		_get_spear_state(),
-		_get_bow_state()
+		int(player_snapshot.get("health", int(player.stats.health))),
+		"yes" if player_snapshot.get("has_spear", player and player.get("has_spear")) == true else "no",
+		"yes" if player_snapshot.get("has_bow", player and player.get("has_bow")) == true else "no"
 	])
 	lines.append("Torch %s | Campfire %s" % [_get_torch_state(), _get_campfire_state()])
 	lines.append("Varnaks %d | nearest %s" % [
-		_get_cached_group_nodes("varnak").size(),
+		int(debug_snapshot.get("live_varnaks", _get_cached_group_nodes("varnak").size())),
 		_get_nearest_varnak_text(_get_cached_group_nodes("varnak"))
 	])
 	lines.append("Visible prey %d | grazers %d" % [
@@ -587,11 +628,16 @@ func _get_resource_growth_text() -> String:
 
 
 func _get_landmark_summary_text() -> String:
-	var world := _get_world_node()
-	if not world or not world.has_method("get_landmarks"):
-		return "unavailable"
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
 	var counts := {}
-	for landmark in world.get_landmarks():
+	var landmarks: Array = Array(world_snapshot.get("landmarks", []))
+	if landmarks.is_empty():
+		var world := _get_world_node()
+		if not world or not world.has_method("get_landmarks"):
+			return "unavailable"
+		landmarks = world.get_landmarks()
+	for landmark in landmarks:
 		var landmark_type := str(Dictionary(landmark).get("type", "unknown"))
 		counts[landmark_type] = int(counts.get(landmark_type, 0)) + 1
 	var parts: Array[String] = []
@@ -601,6 +647,10 @@ func _get_landmark_summary_text() -> String:
 
 
 func _get_world_landmark_counts() -> Dictionary:
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	if world_snapshot.has("landmark_counts"):
+		return Dictionary(world_snapshot.get("landmark_counts", {}))
 	var world := _get_world_node()
 	if world and world.has_method("get_landmark_counts"):
 		return Dictionary(world.get_landmark_counts())
@@ -621,6 +671,10 @@ func _get_world_landmark_counts() -> Dictionary:
 
 
 func _get_world_seed_text() -> String:
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	if world_snapshot.has("world_seed"):
+		return str(int(world_snapshot.get("world_seed", 0)))
 	var world := _get_world_node()
 	if world and world.has_method("get_world_seed"):
 		return str(int(world.get_world_seed()))
@@ -630,10 +684,18 @@ func _get_world_seed_text() -> String:
 func _get_nearest_landmark_text() -> String:
 	if not player:
 		return "none"
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	var landmark: Dictionary = Dictionary(world_snapshot.get("nearest_landmark", {}))
+	if not landmark.is_empty():
+		return "%s %.0fpx" % [
+			str(landmark.get("id", str(landmark.get("type", "landmark")))),
+			float(landmark.get("distance_to_position", 0.0))
+		]
 	var world := _get_world_node()
 	if not world or not world.has_method("get_nearest_landmark_data"):
 		return "unavailable"
-	var landmark: Dictionary = world.get_nearest_landmark_data(player.global_position)
+	landmark = world.get_nearest_landmark_data(player.global_position)
 	if landmark.is_empty():
 		return "none"
 	return "%s %.0fpx" % [
@@ -645,6 +707,10 @@ func _get_nearest_landmark_text() -> String:
 func _get_current_biome_texture_id_text() -> String:
 	if not player:
 		return "none"
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	if world_snapshot.has("current_biome_texture_id"):
+		return str(world_snapshot.get("current_biome_texture_id", "none"))
 	var world := _get_world_node()
 	if world and world.has_method("get_current_biome_texture_id"):
 		return str(world.get_current_biome_texture_id(player.global_position))
@@ -652,10 +718,14 @@ func _get_current_biome_texture_id_text() -> String:
 
 
 func _get_biome_texture_cache_status_text() -> String:
-	var world := _get_world_node()
-	if not world or not world.has_method("get_biome_texture_cache_status"):
-		return "unavailable"
-	var status: Dictionary = world.get_biome_texture_cache_status()
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	var status: Dictionary = Dictionary(world_snapshot.get("biome_texture_cache", {}))
+	if status.is_empty():
+		var world := _get_world_node()
+		if not world or not world.has_method("get_biome_texture_cache_status"):
+			return "unavailable"
+		status = world.get_biome_texture_cache_status()
 	return "images %d | accents %d | pending %d | building %s" % [
 		int(status.get("sample_image_cache_count", 0)),
 		int(status.get("accent_cache_count", 0)),
@@ -665,6 +735,10 @@ func _get_biome_texture_cache_status_text() -> String:
 
 
 func _get_landmark_overlay_state_text() -> String:
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	if world_snapshot.has("landmark_overlay_enabled"):
+		return "ON" if world_snapshot.get("landmark_overlay_enabled", false) == true else "OFF"
 	var world := _get_world_node()
 	if world and world.has_method("is_landmark_debug_overlay_enabled"):
 		return "ON" if world.is_landmark_debug_overlay_enabled() else "OFF"
@@ -672,6 +746,10 @@ func _get_landmark_overlay_state_text() -> String:
 
 
 func _get_biome_texture_state_text() -> String:
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	if world_snapshot.has("biome_textures_enabled"):
+		return "ON" if world_snapshot.get("biome_textures_enabled", true) == true else "OFF"
 	var world := _get_world_node()
 	if world and world.has_method("are_biome_textures_enabled"):
 		return "ON" if world.are_biome_textures_enabled() else "OFF"
@@ -792,6 +870,53 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 			float(state.get("average_varnak_hunt_drive", 0.0))
 		])
 	return lines
+
+
+func _get_ecosystem_debug_lines_from_snapshot(ecosystem_snapshot: Dictionary) -> Array[String]:
+	var lines: Array[String] = []
+	lines.append("")
+	lines.append("Ecosystem")
+	lines.append("Visible Grazers %d | %s" % [
+		Array(Dictionary(_get_snapshot().get("markers", {})).get("grazers", [])).size(),
+		_get_grazer_state_summary()
+	])
+	var biome_states: Dictionary = Dictionary(ecosystem_snapshot.get("biome_states", {}))
+	if biome_states.is_empty():
+		lines.append("No biome states")
+		return lines
+	var biome_ids := biome_states.keys()
+	biome_ids.sort()
+	for biome_id in biome_ids:
+		var state: Dictionary = Dictionary(biome_states[biome_id])
+		lines.append("%s | plants %d%% | %s" % [
+			str(state.get("name", biome_id)),
+			int(round(float(state.get("plant_biomass_percent", 0.0)))),
+			str(state.get("status", "unknown"))
+		])
+		lines.append("  SmallPrey %d | Grazers %d | Varnaks %d | niche %s | stress %d" % [
+			int(round(float(state.get("small_prey_population", 0.0)))),
+			int(round(float(state.get("grazer_population", 0.0)))),
+			int(round(float(state.get("varnak_population", 0.0)))),
+			str(state.get("current_niche", "HERBIVORE")).to_lower(),
+			int(state.get("generations_under_food_stress", 0))
+		])
+		lines.append("  aggregate pop %.1f | hunger %d%% | energy %d%% | birth %.2f death %.2f" % [
+			float(state.get("population_count", 0.0)),
+			int(round(float(state.get("average_hunger", 0.0)) * 100.0)),
+			int(round(float(state.get("average_energy", 1.0)) * 100.0)),
+			float(state.get("birth_rate", 0.0)),
+			float(state.get("death_rate", 0.0))
+		])
+	return lines
+
+
+func _get_snapshot() -> Dictionary:
+	if snapshot_service != null and snapshot_service.has_method("get_snapshot"):
+		var snapshot: Dictionary = snapshot_service.get_snapshot()
+		if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+			return snapshot_service.refresh(true)
+		return snapshot
+	return {}
 
 
 func _get_grazer_state_summary() -> String:
