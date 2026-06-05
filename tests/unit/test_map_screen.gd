@@ -95,6 +95,17 @@ class MockWorld:
 		return []
 
 
+class MockSnapshotService:
+	extends RefCounted
+	var snapshot := {}
+
+	func get_snapshot() -> Dictionary:
+		return snapshot
+
+	func refresh(_force := false) -> Dictionary:
+		return snapshot
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_info_lines_fall_back_when_player_is_missing(failures)
@@ -191,20 +202,44 @@ func _test_map_redraw_state_reacts_to_resource_signature_changes(failures: Array
 
 
 func _test_map_screen_reads_registry_resources_and_varnaks(failures: Array[String]) -> void:
-	var world := MockWorld.new()
-	var resource := MockResource.new()
-	resource.global_position = Vector2(120.0, -40.0)
-	var varnak := MockVarnak.new()
-	varnak.global_position = Vector2(260.0, 80.0)
-	world.registered_resources = [resource]
-	world.registered_varnaks = [varnak]
 	var map_screen: Control = _make_bound_map_screen()
-	map_screen.set("world", world)
+	var snapshot_service := MockSnapshotService.new()
+	snapshot_service.snapshot = {
+		"markers": {
+			"resources": [{"position": Vector2(120.0, -40.0), "item_name": "berries", "resource_kind": "berry_bush", "player_harvestable": true}],
+			"varnaks": [{"position": Vector2(260.0, 80.0), "type": "varnak"}]
+		},
+		"player": {
+			"health": 86,
+			"hunger": 72,
+			"stamina": 54,
+			"rest": 43,
+			"condition_text": "steady",
+			"inventory": {"wood": 3, "stone": 4, "fiber": 5, "meat": 6, "hide": 7, "bone": 8}
+		},
+		"time": {
+			"day": 2,
+			"clock_time": "10:31",
+			"time_label": "Day"
+		},
+		"world": {
+			"current_biome_name": "Westwood",
+			"landmarks": []
+		},
+		"evolution": {
+			"profile": MockEvolutionDirector.new().get_profile(),
+			"generation": 3
+		},
+		"debug": {
+			"live_varnaks": 1
+		}
+	}
+	map_screen.set("snapshot_service", snapshot_service)
 	var cache_changed: bool = map_screen.call("_update_resources_cache")
 	var lines: Array[String] = map_screen.call("_build_info_lines")
-	TEST_UTILS.expect(cache_changed, failures, "Map screen should rebuild its resource cache when WorldRegistry provides a new resource marker")
-	TEST_UTILS.expect_equal(Array(map_screen.get("cached_resources")).size(), 1, failures, "Map screen should cache resource markers from WorldRegistry")
-	TEST_UTILS.expect(lines.has("Live Varnaks: 1"), failures, "Map screen info panel should count varnaks from WorldRegistry instead of group scans")
+	TEST_UTILS.expect(cache_changed, failures, "Map screen should rebuild its resource cache when the snapshot service provides a new resource marker")
+	TEST_UTILS.expect_equal(Array(map_screen.get("cached_resources")).size(), 1, failures, "Map screen should cache resource markers from the snapshot service")
+	TEST_UTILS.expect(lines.has("Live Varnaks: 1"), failures, "Map screen info panel should count varnaks from the snapshot service instead of direct group scans")
 	map_screen.free()
 
 

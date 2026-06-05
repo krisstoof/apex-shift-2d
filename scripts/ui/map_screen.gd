@@ -11,6 +11,7 @@ const MAP_STATE_REFRESH_INTERVAL := 0.25
 
 var player: Node2D
 var world: Node
+var snapshot_service
 var evolution_director: Node
 var day_night_system: Node
 var world_rect := WORLD_CONFIG.WORLD_RECT
@@ -18,10 +19,12 @@ var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
-var cached_resources: Array[Node] = []
+var cached_resources: Array[Dictionary] = []
+var cached_varnaks: Array[Dictionary] = []
 var resources_cache_timer := 0.0
 var map_state_refresh_timer := 0.0
 var cached_resources_signature := ""
+var cached_varnaks_signature := ""
 var landmarks_signature := ""
 var last_render_state_key := ""
 const RESOURCES_CACHE_INTERVAL := 0.5
@@ -31,18 +34,19 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	visible = false
-	_update_resources_cache()
+	_update_marker_cache()
 
 
-func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = []) -> void:
+func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = [], p_snapshot_service = null) -> void:
 	player = p_player
 	world = _get_world()
+	snapshot_service = p_snapshot_service
 	evolution_director = p_evolution_director
 	day_night_system = p_day_night_system
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
-	_update_resources_cache()
+	_update_marker_cache()
 	_update_landmarks_signature()
 	_request_map_redraw(true)
 
@@ -54,7 +58,7 @@ func _process(_delta: float) -> void:
 	resources_cache_timer += _delta
 	if resources_cache_timer >= RESOURCES_CACHE_INTERVAL:
 		resources_cache_timer = 0.0
-		cache_changed = _update_resources_cache() or cache_changed
+		cache_changed = _update_marker_cache() or cache_changed
 		cache_changed = _refresh_landmarks_from_world() or cache_changed
 	map_state_refresh_timer += _delta
 	if cache_changed:
@@ -101,19 +105,26 @@ func _draw_info_panel(rect: Rect2) -> void:
 
 
 func _build_info_lines() -> Array[String]:
-	var profile: Dictionary = evolution_director.get_profile() if evolution_director else {}
-	var live_varnaks := _get_registered_varnaks().size()
+	var snapshot := _get_snapshot()
+	var evolution_snapshot := Dictionary(snapshot.get("evolution", {}))
+	var profile: Dictionary = Dictionary(evolution_snapshot.get("profile", evolution_director.get_profile() if evolution_director else {}))
+	var live_varnaks := int(Dictionary(snapshot.get("debug", {})).get("live_varnaks", cached_varnaks.size()))
 	var pond_count := _get_landmark_count("pond")
 	var hill_count := _get_landmark_count("hill")
-	var zone_name := _get_player_zone_name()
-	var time_label := _get_time_label()
-	var player_stats: Variant = _get_player_stats()
-	var player_inventory: Variant = _get_player_inventory()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	var player_snapshot := Dictionary(snapshot.get("player", {}))
+	var time_snapshot := Dictionary(snapshot.get("time", {}))
+	var zone_name := str(world_snapshot.get("current_biome_name", _get_player_zone_name()))
+	var time_label := str(time_snapshot.get("time_label", _get_time_label()))
+	var player_stats: Variant = player_snapshot if not player_snapshot.is_empty() else _get_player_stats()
+	var player_inventory: Variant = Dictionary(player_snapshot.get("inventory", {}))
+	if player_inventory.is_empty():
+		player_inventory = _get_player_inventory()
 	return [
 		"Field Map",
 		"",
 		"Zone: %s" % zone_name,
-		"Day: %d  Time: %s %s" % [day_night_system.get_day() if day_night_system else 1, _get_clock_time(), time_label],
+		"Day: %d  Time: %s %s" % [int(time_snapshot.get("day", day_night_system.get_day() if day_night_system else 1)), str(time_snapshot.get("clock_time", _get_clock_time())), time_label],
 		"Ponds: %d  Hills: %d" % [pond_count, hill_count],
 		"Live Varnaks: %d" % live_varnaks,
 		"",
@@ -151,17 +162,27 @@ func _get_player_inventory() -> Variant:
 func _read_int_property(target: Variant, property_name: String) -> int:
 	if target == null:
 		return 0
+	if typeof(target) == TYPE_DICTIONARY:
+		return int(Dictionary(target).get(property_name, 0))
 	return int(target.get(property_name))
 
 
 func _read_condition_text(target: Variant) -> String:
-	if target == null or not target.has_method("get_condition_text"):
+	if target == null:
+		return "unknown"
+	if typeof(target) == TYPE_DICTIONARY:
+		return str(Dictionary(target).get("condition_text", "unknown"))
+	if not target.has_method("get_condition_text"):
 		return "unknown"
 	return str(target.get_condition_text())
 
 
 func _read_inventory_amount(inventory: Variant, item_id: String) -> int:
-	if inventory == null or not inventory.has_method("get_amount"):
+	if inventory == null:
+		return 0
+	if typeof(inventory) == TYPE_DICTIONARY:
+		return int(Dictionary(inventory).get(item_id, 0))
+	if not inventory.has_method("get_amount"):
 		return 0
 	return int(inventory.get_amount(item_id))
 
@@ -205,21 +226,9 @@ func _draw_grid(map_rect: Rect2) -> void:
 
 
 func _draw_resources(map_rect: Rect2) -> void:
-	for resource in cached_resources:
-		if not is_instance_valid(resource):
-			continue
-		if not _should_draw_resource_on_map(resource):
-			continue
-		draw_circle(_world_to_map(resource.global_position, map_rect), 3.0, _get_resource_color(resource))
-
-
-func _should_draw_resource_on_map(resource: Node) -> bool:
-	var resource_kind := str(resource.get("resource_kind"))
-	if resource_kind in ["grass_patch", "dense_grass", "berry_bush"]:
-		return false
-	if resource.get("player_harvestable") == false:
-		return false
-	return true
+	for resource_marker_value in cached_resources:
+		var resource_marker := Dictionary(resource_marker_value)
+		draw_circle(_world_to_map(Vector2(resource_marker.get("position", Vector2.ZERO)), map_rect), 3.0, _get_resource_color(resource_marker))
 
 
 func _draw_landmarks(map_rect: Rect2) -> void:
@@ -236,12 +245,14 @@ func _draw_landmarks(map_rect: Rect2) -> void:
 
 
 func _refresh_landmarks_from_world() -> bool:
-	var tree := _get_safe_tree()
-	if not tree or not tree.current_scene:
-		return false
-	var world := tree.current_scene.get_node_or_null("World")
-	if world and world.has_method("get_landmarks"):
-		landmarks = world.get_landmarks()
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	if not world_snapshot.is_empty():
+		landmarks = Array(world_snapshot.get("landmarks", landmarks))
+		return _update_landmarks_signature()
+	var active_world := _get_world()
+	if active_world and active_world.has_method("get_landmarks"):
+		landmarks = active_world.get_landmarks()
 		return _update_landmarks_signature()
 	return false
 
@@ -389,11 +400,11 @@ func _draw_legend_entry(position: Vector2, label: String, color: Color) -> void:
 
 
 func _draw_varnaks(map_rect: Rect2) -> void:
-	for varnak in _get_registered_varnaks():
-		if is_instance_valid(varnak):
-			var pos := _world_to_map(varnak.global_position, map_rect)
-			draw_circle(pos, 5.0, Color(0.88, 0.22, 0.16))
-			draw_circle(pos, 2.0, Color(1.0, 0.82, 0.42))
+	for varnak_marker_value in cached_varnaks:
+		var varnak_marker := Dictionary(varnak_marker_value)
+		var pos := _world_to_map(Vector2(varnak_marker.get("position", Vector2.ZERO)), map_rect)
+		draw_circle(pos, 5.0, Color(0.88, 0.22, 0.16))
+		draw_circle(pos, 2.0, Color(1.0, 0.82, 0.42))
 
 
 func _draw_player(map_rect: Rect2) -> void:
@@ -513,8 +524,8 @@ func _get_clock_time() -> String:
 	return "--:--"
 
 
-func _get_resource_color(resource: Node) -> Color:
-	match str(resource.get("item_name")):
+func _get_resource_color(resource_marker: Dictionary) -> Color:
+	match str(resource_marker.get("item_name", "")):
 		"wood":
 			return Color(0.18, 0.72, 0.24)
 		"stone":
@@ -531,21 +542,25 @@ func _get_resource_color(resource: Node) -> Color:
 			return Color(0.86, 0.78, 0.45)
 
 
-func _update_resources_cache() -> bool:
-	var world := _get_world()
-	if world and world.has_method("get_registered_resources"):
-		cached_resources = _to_node_array(world.get_registered_resources())
+func _update_marker_cache() -> bool:
+	var snapshot := _get_snapshot()
+	var markers := Dictionary(snapshot.get("markers", {}))
+	if not markers.is_empty():
+		cached_resources = _to_dictionary_array(Array(markers.get("resources", [])))
+		cached_varnaks = _to_dictionary_array(Array(markers.get("varnaks", [])))
 	else:
-		var tree := _get_safe_tree()
-		cached_resources = _to_node_array(tree.get_nodes_in_group("resources") if tree else [])
-	# Clean up dead references
-	for i in range(cached_resources.size() - 1, -1, -1):
-		if not is_instance_valid(cached_resources[i]):
-			cached_resources.remove_at(i)
-	var signature := _build_resources_signature()
-	var changed := signature != cached_resources_signature
-	cached_resources_signature = signature
+		cached_resources = _build_resource_markers_from_world()
+		cached_varnaks = _build_varnak_markers_from_world()
+	var resource_signature := _build_resources_signature()
+	var varnak_signature := _build_varnaks_signature()
+	var changed := resource_signature != cached_resources_signature or varnak_signature != cached_varnaks_signature
+	cached_resources_signature = resource_signature
+	cached_varnaks_signature = varnak_signature
 	return changed
+
+
+func _update_resources_cache() -> bool:
+	return _update_marker_cache()
 
 
 func _request_map_redraw(force := false) -> bool:
@@ -588,21 +603,32 @@ func _build_render_state_key() -> String:
 		"%.2f" % float(profile.get("trap_awareness", 0.0)),
 		"%.2f" % float(profile.get("pack_coordination", 0.0)),
 		cached_resources_signature,
+		cached_varnaks_signature,
 		landmarks_signature
 	])
 
 
 func _build_resources_signature() -> String:
 	var parts: Array[String] = []
-	for resource in cached_resources:
-		if not is_instance_valid(resource):
-			continue
+	for resource_value in cached_resources:
+		var resource := Dictionary(resource_value)
 		parts.append("%s:%d:%d:%s:%s" % [
-			str(resource.get_instance_id()),
-			int(round(resource.global_position.x)),
-			int(round(resource.global_position.y)),
+			str(resource.get("resource_kind", resource.get("item_name", "resource"))),
+			int(round(Vector2(resource.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(resource.get("position", Vector2.ZERO)).y)),
 			str(resource.get("resource_kind")),
-			"1" if resource.get("player_harvestable") != false else "0"
+			"1" if resource.get("player_harvestable", true) != false else "0"
+		])
+	return "|".join(parts)
+
+
+func _build_varnaks_signature() -> String:
+	var parts: Array[String] = []
+	for varnak_value in cached_varnaks:
+		var varnak_marker := Dictionary(varnak_value)
+		parts.append("%d:%d" % [
+			int(round(Vector2(varnak_marker.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(varnak_marker.get("position", Vector2.ZERO)).y))
 		])
 	return "|".join(parts)
 
@@ -639,20 +665,57 @@ func _get_world() -> Node:
 	return world
 
 
+func _get_snapshot() -> Dictionary:
+	if snapshot_service != null and snapshot_service.has_method("get_snapshot"):
+		var snapshot: Dictionary = snapshot_service.get_snapshot()
+		if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+			return snapshot_service.refresh(true)
+		return snapshot
+	return {}
+
+
+func _to_dictionary_array(values: Array) -> Array[Dictionary]:
+	var typed_values: Array[Dictionary] = []
+	for value in values:
+		typed_values.append(Dictionary(value))
+	return typed_values
+
+
+func _build_resource_markers_from_world() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	var active_world := _get_world()
+	if active_world == null or not active_world.has_method("get_registered_resources"):
+		return markers
+	for resource_value in active_world.get_registered_resources():
+		var resource := resource_value as Node2D
+		if resource == null or not is_instance_valid(resource):
+			continue
+		var resource_kind := str(resource.get("resource_kind"))
+		if resource_kind in ["grass_patch", "dense_grass", "berry_bush"]:
+			continue
+		if resource.get("player_harvestable") == false:
+			continue
+		markers.append({
+			"position": resource.global_position,
+			"resource_kind": resource_kind,
+			"item_name": str(resource.get("item_name")),
+			"player_harvestable": resource.get("player_harvestable") != false
+		})
+	return markers
+
+
+func _build_varnak_markers_from_world() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	var active_world := _get_world()
+	if active_world == null or not active_world.has_method("get_registered_creatures_by_type"):
+		return markers
+	for varnak_value in active_world.get_registered_creatures_by_type("varnak"):
+		var varnak := varnak_value as Node2D
+		if varnak == null or not is_instance_valid(varnak):
+			continue
+		markers.append({"position": varnak.global_position, "type": "varnak"})
+	return markers
+
+
 func _get_registered_varnaks() -> Array:
-	var world := _get_world()
-	if world and world.has_method("get_registered_creatures_by_type"):
-		return world.get_registered_creatures_by_type("varnak")
-	var tree := _get_safe_tree()
-	if tree == null:
-		return []
-	return tree.get_nodes_in_group("varnak")
-
-
-func _to_node_array(nodes: Array) -> Array[Node]:
-	var typed_nodes: Array[Node] = []
-	for node_value in nodes:
-		var node := node_value as Node
-		if node != null:
-			typed_nodes.append(node)
-	return typed_nodes
+	return cached_varnaks

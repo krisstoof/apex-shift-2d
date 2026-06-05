@@ -1,0 +1,407 @@
+extends RefCounted
+class_name WorldSnapshotService
+
+const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+
+var player: Node
+var evolution_director: Node
+var day_night_system: Node
+var ecosystem_director: Node
+var world: Node
+
+var snapshot: Dictionary = {}
+var snapshot_version := 0
+var last_refresh_frame := -1
+
+
+func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null, p_world: Node = null) -> void:
+	player = p_player
+	evolution_director = p_evolution_director
+	day_night_system = p_day_night_system
+	ecosystem_director = p_ecosystem_director
+	world = p_world
+
+
+func refresh(force := false) -> Dictionary:
+	var current_frame := Engine.get_process_frames()
+	if not force and not snapshot.is_empty() and current_frame == last_refresh_frame:
+		return snapshot
+	last_refresh_frame = current_frame
+	snapshot = _build_snapshot()
+	snapshot_version += 1
+	snapshot["snapshot_version"] = snapshot_version
+	return snapshot
+
+
+func get_snapshot() -> Dictionary:
+	return snapshot.duplicate(true)
+
+
+func _build_snapshot() -> Dictionary:
+	var player_snapshot := _build_player_snapshot()
+	var world_snapshot := _build_world_snapshot(player_snapshot)
+	var ecosystem_snapshot := _build_ecosystem_snapshot()
+	return {
+		"player": player_snapshot,
+		"time": _build_time_snapshot(),
+		"world": world_snapshot,
+		"markers": _build_marker_snapshot(),
+		"ecosystem": ecosystem_snapshot,
+		"evolution": _build_evolution_snapshot(),
+		"debug": _build_debug_snapshot(player_snapshot, world_snapshot, ecosystem_snapshot)
+	}
+
+
+func _build_player_snapshot() -> Dictionary:
+	var player_position: Vector2 = player.global_position if is_instance_valid(player) and player is Node2D else Vector2.ZERO
+	return {
+		"position": player_position,
+		"health": _read_player_stat("health"),
+		"hunger": _read_player_stat("hunger"),
+		"stamina": _read_player_stat("stamina"),
+		"rest": _read_player_stat("rest"),
+		"condition_text": _get_player_condition_text(),
+		"prompt_text": _get_player_prompt_text(),
+		"campfire_regen_active": _read_player_stat_bool("campfire_regen_active"),
+		"campfire_regen_distance": _read_player_stat_float("campfire_regen_distance", -1.0),
+		"inventory": _build_inventory_snapshot(),
+		"has_spear": _read_player_bool("has_spear"),
+		"has_bow": _read_player_bool("has_bow"),
+		"torch_active": _read_player_torch_active(),
+		"torch_remaining_seconds": _read_player_torch_remaining_seconds()
+	}
+
+
+func _build_inventory_snapshot() -> Dictionary:
+	return {
+		"wood": _read_inventory_amount("wood"),
+		"stone": _read_inventory_amount("stone"),
+		"fiber": _read_inventory_amount("fiber"),
+		"meat": _read_inventory_amount("meat"),
+		"hide": _read_inventory_amount("hide"),
+		"bone": _read_inventory_amount("bone"),
+		"torch": _read_inventory_amount("torch")
+	}
+
+
+func _build_time_snapshot() -> Dictionary:
+	var day_value: int = 1
+	if day_night_system and day_night_system.has_method("get_day"):
+		day_value = int(day_night_system.get_day())
+	var clock_time: String = "--:--"
+	if day_night_system and day_night_system.has_method("get_clock_time"):
+		clock_time = str(day_night_system.get_clock_time())
+	var time_label: String = ""
+	if day_night_system and day_night_system.has_method("get_time_label"):
+		time_label = str(day_night_system.get_time_label())
+	return {
+		"day": day_value,
+		"clock_time": clock_time,
+		"time_label": time_label,
+		"phase_label": _get_phase_label(time_label),
+		"night_amount": _get_night_amount()
+	}
+
+
+func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
+	var active_world := _get_world()
+	var world_rect: Rect2 = WORLD_CONFIG.WORLD_RECT
+	var biome_zones: Array[Dictionary] = WORLD_CONFIG.get_biome_zones()
+	var landmarks: Array[Dictionary] = WORLD_CONFIG.get_landmarks()
+	var landmark_counts := {"generated": 0, "hill": 0, "pond": 0}
+	var world_seed := 0
+	var current_biome_texture_id := "none"
+	var nearest_landmark: Dictionary = {}
+	var out_of_bounds_count := 0
+	var resource_counts := {
+		"trees": 0,
+		"bushes": 0,
+		"grass": 0,
+		"rocks": 0,
+		"pond_vegetation": 0
+	}
+	var building_counts := {
+		"campfires": 0,
+		"traps": 0,
+		"walls": 0,
+		"storage_boxes": 0,
+		"tents": 0
+	}
+	var biome_texture_cache: Dictionary = {}
+	var landmark_overlay_enabled := false
+	var biome_textures_enabled := true
+	if active_world:
+		if active_world.has_method("get_world_rect"):
+			world_rect = active_world.get_world_rect()
+		if active_world.has_method("get_biome_zones"):
+			biome_zones = active_world.get_biome_zones()
+		if active_world.has_method("get_landmarks"):
+			landmarks = active_world.get_landmarks()
+		if active_world.has_method("get_landmark_counts"):
+			landmark_counts = Dictionary(active_world.get_landmark_counts())
+		if active_world.has_method("get_world_seed"):
+			world_seed = int(active_world.get_world_seed())
+		if active_world.has_method("get_creatures_out_of_bounds_count"):
+			out_of_bounds_count = int(active_world.get_creatures_out_of_bounds_count())
+		if active_world.has_method("get_current_biome_texture_id"):
+			current_biome_texture_id = str(active_world.get_current_biome_texture_id(Vector2(player_snapshot.get("position", Vector2.ZERO))))
+		if active_world.has_method("get_nearest_landmark_data"):
+			nearest_landmark = Dictionary(active_world.get_nearest_landmark_data(Vector2(player_snapshot.get("position", Vector2.ZERO))))
+		if active_world.has_method("get_biome_texture_cache_status"):
+			biome_texture_cache = Dictionary(active_world.get_biome_texture_cache_status())
+		if active_world.has_method("is_landmark_debug_overlay_enabled"):
+			landmark_overlay_enabled = active_world.is_landmark_debug_overlay_enabled()
+		if active_world.has_method("are_biome_textures_enabled"):
+			biome_textures_enabled = active_world.are_biome_textures_enabled()
+		resource_counts["trees"] = _get_world_group_count(active_world, "trees")
+		resource_counts["bushes"] = _get_world_group_count(active_world, "bushes")
+		resource_counts["grass"] = _get_world_group_count(active_world, "grass")
+		resource_counts["rocks"] = _get_world_group_count(active_world, "rocks")
+		resource_counts["pond_vegetation"] = _get_world_group_count(active_world, "pond_vegetation")
+		building_counts["campfires"] = _get_world_group_count(active_world, "campfires")
+		building_counts["traps"] = _get_world_group_count(active_world, "traps")
+		building_counts["walls"] = _get_world_group_count(active_world, "walls")
+		building_counts["storage_boxes"] = _get_world_group_count(active_world, "storage_boxes")
+		building_counts["tents"] = _get_world_group_count(active_world, "tents")
+	return {
+		"world_rect": world_rect,
+		"biome_zones": biome_zones.duplicate(true),
+		"landmarks": landmarks.duplicate(true),
+		"landmark_counts": landmark_counts,
+		"world_seed": world_seed,
+		"current_biome_name": _get_current_biome_name(Vector2(player_snapshot.get("position", Vector2.ZERO)), biome_zones),
+		"current_biome_texture_id": current_biome_texture_id,
+		"nearest_landmark": nearest_landmark,
+		"out_of_bounds_count": out_of_bounds_count,
+		"resource_counts": resource_counts,
+		"building_counts": building_counts,
+		"biome_texture_cache": biome_texture_cache,
+		"landmark_overlay_enabled": landmark_overlay_enabled,
+		"biome_textures_enabled": biome_textures_enabled
+	}
+
+
+func _build_marker_snapshot() -> Dictionary:
+	return {
+		"resources": _build_resource_markers(),
+		"varnaks": _build_creature_markers("varnak"),
+		"small_prey": _build_creature_markers("small_prey"),
+		"grazers": _build_creature_markers("grazer")
+	}
+
+
+func _build_resource_markers() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	for resource_value in _get_world_resources():
+		var resource := resource_value as Node2D
+		if resource == null or not is_instance_valid(resource):
+			continue
+		var resource_kind := str(resource.get("resource_kind"))
+		if resource_kind in ["grass_patch", "dense_grass", "berry_bush"]:
+			continue
+		if resource.get("player_harvestable") == false:
+			continue
+		markers.append({
+			"position": resource.global_position,
+			"resource_kind": resource_kind,
+			"item_name": str(resource.get("item_name")),
+			"player_harvestable": resource.get("player_harvestable") != false
+		})
+	return markers
+
+
+func _build_creature_markers(creature_type: String) -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	for creature_value in _get_world_creatures(creature_type):
+		var creature := creature_value as Node2D
+		if creature == null or not is_instance_valid(creature):
+			continue
+		markers.append({
+			"position": creature.global_position,
+			"type": creature_type
+		})
+	return markers
+
+
+func _build_ecosystem_snapshot() -> Dictionary:
+	var biome_states := {}
+	if ecosystem_director and ecosystem_director.has_method("get_biome_states"):
+		biome_states = ecosystem_director.get_biome_states()
+	return {
+		"biome_states": Dictionary(biome_states).duplicate(true),
+		"warnings_text": _get_ecosystem_warnings_text(Dictionary(biome_states)),
+		"population_totals": {
+			"small_prey_population": _get_ecosystem_population_total(Dictionary(biome_states), "small_prey_population"),
+			"grazer_population": _get_ecosystem_population_total(Dictionary(biome_states), "grazer_population"),
+			"varnak_population": _get_ecosystem_population_total(Dictionary(biome_states), "varnak_population")
+		}
+	}
+
+
+func _build_evolution_snapshot() -> Dictionary:
+	var profile: Dictionary = {}
+	if evolution_director and evolution_director.has_method("get_profile"):
+		profile = evolution_director.get_profile()
+	return {
+		"profile": profile.duplicate(true),
+		"generation": int(profile.get("generation", 1))
+	}
+
+
+func _build_debug_snapshot(player_snapshot: Dictionary, world_snapshot: Dictionary, ecosystem_snapshot: Dictionary) -> Dictionary:
+	var markers := _build_marker_snapshot()
+	return {
+		"live_varnaks": Array(markers.get("varnaks", [])).size(),
+		"live_small_prey": Array(markers.get("small_prey", [])).size(),
+		"live_grazers": Array(markers.get("grazers", [])).size(),
+		"current_biome_name": str(world_snapshot.get("current_biome_name", "unknown")),
+		"world_seed": int(world_snapshot.get("world_seed", 0)),
+		"warnings_text": str(ecosystem_snapshot.get("warnings_text", "none")),
+		"player_health": int(player_snapshot.get("health", 0))
+	}
+
+
+func _get_world() -> Node:
+	if is_instance_valid(world):
+		return world
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.current_scene == null:
+		return null
+	world = tree.current_scene.get_node_or_null("World")
+	return world
+
+
+func _get_world_resources() -> Array:
+	var active_world := _get_world()
+	if active_world and active_world.has_method("get_registered_resources"):
+		return active_world.get_registered_resources()
+	return []
+
+
+func _get_world_creatures(creature_type: String) -> Array:
+	var active_world := _get_world()
+	if active_world and active_world.has_method("get_registered_creatures_by_type"):
+		return active_world.get_registered_creatures_by_type(creature_type)
+	return []
+
+
+func _get_world_group_count(active_world: Node, group_name: String) -> int:
+	if active_world == null:
+		return 0
+	if active_world.has_method("get_cached_group_nodes"):
+		return int((active_world.get_cached_group_nodes(group_name) as Array).size())
+	return 0
+
+
+func _get_current_biome_name(position: Vector2, biome_zones: Array[Dictionary]) -> String:
+	for biome_value in biome_zones:
+		var biome := Dictionary(biome_value)
+		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome.get("points", []))):
+			return str(biome.get("name", "Biome"))
+	return "outside world"
+
+
+func _get_phase_label(time_label: String) -> String:
+	if day_night_system and day_night_system.has_method("get_phase_label"):
+		return str(day_night_system.get_phase_label())
+	if not time_label.is_empty():
+		return time_label
+	if day_night_system and day_night_system.has_method("is_night") and day_night_system.is_night():
+		return "Night"
+	return "Day"
+
+
+func _get_night_amount() -> float:
+	if day_night_system == null:
+		return 0.0
+	var night_amount: Variant = day_night_system.get("night_amount")
+	return float(night_amount) if night_amount != null else 0.0
+
+
+func _read_player_stat(property_name: String) -> int:
+	if not is_instance_valid(player):
+		return 0
+	var stats: Variant = player.get("stats")
+	if stats == null:
+		return 0
+	return int(stats.get(property_name))
+
+
+func _read_player_stat_float(property_name: String, fallback := 0.0) -> float:
+	if not is_instance_valid(player):
+		return fallback
+	var stats: Variant = player.get("stats")
+	if stats == null:
+		return fallback
+	return float(stats.get(property_name))
+
+
+func _read_player_stat_bool(property_name: String) -> bool:
+	if not is_instance_valid(player):
+		return false
+	var stats: Variant = player.get("stats")
+	if stats == null:
+		return false
+	return stats.get(property_name) == true
+
+
+func _get_player_condition_text() -> String:
+	if not is_instance_valid(player):
+		return "unknown"
+	var stats: Variant = player.get("stats")
+	if stats == null or not stats.has_method("get_condition_text"):
+		return "unknown"
+	return str(stats.get_condition_text())
+
+
+func _get_player_prompt_text() -> String:
+	if not is_instance_valid(player) or not player.has_method("get_interaction_prompt"):
+		return ""
+	return str(player.get_interaction_prompt())
+
+
+func _read_inventory_amount(item_name: String) -> int:
+	if not is_instance_valid(player):
+		return 0
+	var inventory: Variant = player.get("inventory")
+	if inventory == null or not inventory.has_method("get_amount"):
+		return 0
+	return int(inventory.get_amount(item_name))
+
+
+func _read_player_bool(property_name: String) -> bool:
+	if not is_instance_valid(player):
+		return false
+	return player.get(property_name) == true
+
+
+func _read_player_torch_active() -> bool:
+	if not is_instance_valid(player) or not player.has_method("is_torch_active"):
+		return false
+	return player.is_torch_active()
+
+
+func _read_player_torch_remaining_seconds() -> float:
+	if not is_instance_valid(player) or not player.has_method("get_torch_remaining_seconds"):
+		return 0.0
+	return float(player.get_torch_remaining_seconds())
+
+
+func _get_ecosystem_population_total(biome_states: Dictionary, population_key: String) -> int:
+	var total := 0
+	for biome_id in biome_states.keys():
+		var state: Dictionary = Dictionary(biome_states[biome_id])
+		total += int(round(float(state.get(population_key, 0.0))))
+	return total
+
+
+func _get_ecosystem_warnings_text(biome_states: Dictionary) -> String:
+	if biome_states.is_empty():
+		return "none"
+	var warnings: Array[String] = []
+	for biome_id in biome_states.keys():
+		var state: Dictionary = Dictionary(biome_states[biome_id])
+		var status := str(state.get("status", "unknown")).to_lower()
+		if status != "healthy" and status != "stable" and status != "ok":
+			warnings.append("%s:%s" % [str(state.get("name", biome_id)), status])
+	return "none" if warnings.is_empty() else ", ".join(warnings)
