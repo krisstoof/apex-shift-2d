@@ -10,6 +10,7 @@ func run() -> Array[String]:
 	_test_landmark_service_resolves_restored_layout(failures)
 	_test_landmark_service_splits_hills_and_ponds(failures)
 	_test_landmark_service_calculates_nearest_landmark(failures)
+	_test_landmark_service_exports_save_data(failures)
 	_test_landmark_service_returns_deep_copies(failures)
 	return failures
 
@@ -142,6 +143,30 @@ func _test_landmark_service_calculates_nearest_landmark(failures: Array[String])
 	var nearest := service.get_nearest_landmark_data(Vector2(180.0, 10.0))
 	TEST_UTILS.expect_equal(str(nearest.get("id", "")), "pond_alpha", failures, "LandmarkService should return the nearest landmark by distance")
 	TEST_UTILS.expect(float(nearest.get("distance_to_position", INF)) < 60.0, failures, "LandmarkService should report the computed distance for the nearest landmark")
+
+
+func _test_landmark_service_exports_save_data(failures: Array[String]) -> void:
+	var service := LANDMARK_SERVICE.new()
+	service.set_landmarks([
+		{
+			"id": "pond_alpha",
+			"type": "pond",
+			"position": Vector2(30.0, -10.0),
+			"radius": 95.0,
+			"biome_id": "westwood",
+			"gameplay_tags": ["water_source"]
+		}
+	])
+	var save_data := service.get_landmark_save_data()
+	TEST_UTILS.expect_equal(save_data.size(), 1, failures, "LandmarkService should export one save entry per landmark")
+	if save_data.size() == 1:
+		var exported := Dictionary(save_data[0])
+		var position_data := Dictionary(exported.get("position", {}))
+		TEST_UTILS.expect_equal(str(exported.get("id", "")), "pond_alpha", failures, "LandmarkService should preserve landmark ids in save export")
+		TEST_UTILS.expect_equal(str(exported.get("type", "")), "pond", failures, "LandmarkService should preserve landmark types in save export")
+		TEST_UTILS.expect_close(float(position_data.get("x", 0.0)), 30.0, failures, "LandmarkService should serialize landmark position X")
+		TEST_UTILS.expect_close(float(position_data.get("y", 0.0)), -10.0, failures, "LandmarkService should serialize landmark position Y")
+		TEST_UTILS.expect_close(float(exported.get("radius", 0.0)), 95.0, failures, "LandmarkService should preserve landmark radii in save export")
 
 
 func _test_landmark_service_returns_deep_copies(failures: Array[String]) -> void:

@@ -233,13 +233,7 @@ func are_biome_textures_enabled() -> bool:
 
 
 func get_landmark_save_data() -> Array[Dictionary]:
-	var landmark_data: Array[Dictionary] = []
-	for landmark_value in landmarks:
-		var landmark := Dictionary(landmark_value).duplicate(true)
-		landmark["position"] = _vector_to_data(Vector2(landmark.get("position", Vector2.ZERO)))
-		landmark["radius"] = float(landmark.get("radius", 0.0))
-		landmark_data.append(landmark)
-	return landmark_data
+	return _ensure_landmark_service().get_landmark_save_data()
 
 
 func get_save_data() -> Dictionary:
