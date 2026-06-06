@@ -468,16 +468,17 @@ func _set_boot_progress(stage_message: String, progress: float) -> void:
 
 
 func _prepare_boot_render_cache() -> void:
-	if not biome_textures_enabled:
-		_sync_biome_blend_background()
-		return
-	_ensure_render_controller().ensure_biome_blend_texture()
-	_sync_biome_blend_background()
+	if is_instance_valid(biome_blend_background):
+		biome_blend_background.visible = false
 	queue_redraw()
 
 
 func _get_world_biome_blend_texture_size() -> Vector2i:
-	return BIOME_BLEND_TEXTURE_SIZE
+	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 2.0)), 1.0, 3.0)
+	return Vector2i(
+		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.x) * cache_scale)), BIOME_BLEND_TEXTURE_SIZE.x),
+		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.y) * cache_scale)), BIOME_BLEND_TEXTURE_SIZE.y)
+	)
 
 
 func _sync_biome_blend_background() -> void:
@@ -613,7 +614,8 @@ func debug_toggle_landmark_overlay() -> bool:
 
 func debug_toggle_biome_textures() -> bool:
 	biome_textures_enabled = not biome_textures_enabled
-	_sync_biome_blend_background()
+	if is_instance_valid(biome_blend_background):
+		biome_blend_background.visible = false
 	queue_redraw()
 	return biome_textures_enabled
 
@@ -622,7 +624,6 @@ func debug_rebuild_biome_texture_cache() -> void:
 	biome_sample_images.clear()
 	_ensure_render_controller().invalidate_biome_blend_texture()
 	_queue_biome_terrain_accent_cache_rebuild()
-	_sync_biome_blend_background()
 	queue_redraw()
 
 
@@ -2213,12 +2214,6 @@ func _get_night_amount() -> float:
 
 
 func _draw_biomes() -> void:
-	if biome_textures_enabled:
-		_sync_biome_blend_background()
-		for biome_value in WORLD_CONFIG.get_biome_zones():
-			var biome := Dictionary(biome_value)
-			_draw_biome_terrain_accents(biome, _get_biome_visual_color(biome))
-		return
 	if is_instance_valid(biome_blend_background):
 		biome_blend_background.visible = false
 	for biome_value in WORLD_CONFIG.get_biome_zones():
@@ -2226,6 +2221,8 @@ func _draw_biomes() -> void:
 		var points := PackedVector2Array(biome["points"])
 		var base_color := _get_biome_visual_color(biome)
 		draw_colored_polygon(points, base_color)
+		if biome_textures_enabled:
+			_draw_biome_terrain_accents(biome, base_color)
 
 
 func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
@@ -2237,20 +2234,57 @@ func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
 		var rotation := float(accent.get("rotation", 0.0))
 		var scale := float(accent.get("scale", 1.0))
 		var tint := float(accent.get("tint", 0.0))
+		var is_secondary: bool = accent.get("secondary", false) == true
+		var detail_alpha: float = float(GAME_BALANCE.BIOME_TEXTURES.get(
+			"secondary_detail_alpha" if is_secondary else "detail_alpha",
+			0.18 if is_secondary else 0.30
+		))
+		var colors := _get_biome_accent_colors(str(accent.get("kind", "")), base_color, tint, detail_alpha)
+		var light_color := Color(colors.get("light", base_color))
+		var dark_color := Color(colors.get("dark", base_color.darkened(0.18)))
 		match str(accent.get("kind", "")):
 			"grass":
-				_draw_biome_grass_accent(position, rotation, scale, base_color.lightened(0.12 + tint * 0.10), base_color.darkened(0.16))
+				_draw_biome_grass_accent(position, rotation, scale, light_color, dark_color)
 			"leaf":
-				_draw_biome_leaf_accent(position, rotation, scale, base_color.lightened(0.08 + tint * 0.08), base_color.darkened(0.20))
+				_draw_biome_leaf_accent(position, rotation, scale, light_color, dark_color)
 			"plate":
-				_draw_biome_plate_accent(position, rotation, scale, base_color.lightened(0.18 + tint * 0.06), base_color.darkened(0.24))
+				_draw_biome_plate_accent(position, rotation, scale, light_color, dark_color)
 			"thicket":
-				_draw_biome_thicket_accent(position, rotation, scale, base_color.lightened(0.10 + tint * 0.08), base_color.darkened(0.18))
+				_draw_biome_thicket_accent(position, rotation, scale, light_color, dark_color)
 			"crack":
-				_draw_biome_crack_accent(position, rotation, scale, base_color.lightened(0.14), base_color.darkened(0.28))
+				_draw_biome_crack_accent(position, rotation, scale, light_color, dark_color)
 			_:
 				if biome_id == "hearth_meadow":
-					_draw_biome_grass_accent(position, rotation, scale, base_color.lightened(0.12), base_color.darkened(0.16))
+					_draw_biome_grass_accent(position, rotation, scale, light_color, dark_color)
+
+
+func _get_biome_accent_colors(kind: String, base_color: Color, tint: float, alpha: float) -> Dictionary:
+	var light := base_color.lightened(0.08)
+	var dark := base_color.darkened(0.18)
+	match kind:
+		"grass":
+			light = base_color.lerp(Color(0.28, 0.70, 0.22), 0.78).lightened(tint * 0.08)
+			dark = base_color.lerp(Color(0.12, 0.30, 0.09), 0.82)
+		"leaf":
+			light = base_color.lerp(Color(0.36, 0.76, 0.20), 0.70).lightened(tint * 0.06)
+			dark = base_color.lerp(Color(0.11, 0.24, 0.09), 0.80)
+		"plate":
+			light = base_color.lerp(Color(0.55, 0.56, 0.60), 0.72).lightened(tint * 0.05)
+			dark = base_color.lerp(Color(0.22, 0.23, 0.25), 0.82)
+		"thicket":
+			light = base_color.lerp(Color(0.43, 0.86, 0.25), 0.68).lightened(tint * 0.06)
+			dark = base_color.lerp(Color(0.12, 0.26, 0.10), 0.82)
+		"crack":
+			light = base_color.lerp(Color(0.66, 0.49, 0.22), 0.76).lightened(tint * 0.05)
+			dark = base_color.lerp(Color(0.38, 0.27, 0.12), 0.84)
+	return {
+		"light": _color_with_alpha(light, alpha),
+		"dark": _color_with_alpha(dark, minf(alpha * 1.20, 0.42))
+	}
+
+
+func _color_with_alpha(color: Color, alpha: float) -> Color:
+	return Color(color.r, color.g, color.b, clampf(alpha, 0.0, 1.0))
 
 
 func _rebuild_biome_terrain_accent_cache() -> void:
@@ -2323,8 +2357,9 @@ func _build_biome_terrain_accent_layout(biome: Dictionary) -> Array:
 			"kind": _pick_biome_accent_kind(biome_id, rng.randf()),
 			"position": candidate,
 			"rotation": rng.randf_range(-0.55, 0.55),
-			"scale": rng.randf_range(0.95, 1.45),
-			"tint": rng.randf_range(-0.10, 0.22)
+			"scale": rng.randf_range(0.62, 1.42),
+			"tint": rng.randf_range(-0.10, 0.22),
+			"secondary": rng.randf() < 0.42
 		})
 	return accents
 
@@ -2334,7 +2369,10 @@ func _get_biome_terrain_accent_target_count(biome: Dictionary) -> int:
 	var points := PackedVector2Array(biome["points"])
 	var area := _get_polygon_area(points)
 	var area_scale := clampf(area / 900000.0, 0.85, 1.45)
-	return clampi(int(round(float(BIOME_TERRAIN_ACCENT_COUNTS.get(biome_id, 20)) * area_scale)), 14, 36)
+	var density_multiplier := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)), 0.1)
+	var max_details := maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("max_detail_per_chunk", 120)), 1)
+	var target := int(round(float(BIOME_TERRAIN_ACCENT_COUNTS.get(biome_id, 20)) * area_scale * density_multiplier))
+	return clampi(target, mini(int(round(14.0 * density_multiplier)), max_details), max_details)
 
 
 func _pick_biome_accent_kind(biome_id: String, roll: float) -> String:
@@ -2353,80 +2391,69 @@ func _pick_biome_accent_kind(biome_id: String, roll: float) -> String:
 
 
 func _draw_biome_grass_accent(position: Vector2, rotation: float, scale: float, light_color: Color, dark_color: Color) -> void:
-	var blades := [
-		[Vector2(-6.0, 8.0), Vector2(-2.0, -8.0)],
-		[Vector2(-1.0, 10.0), Vector2(1.0, -11.0)],
-		[Vector2(5.0, 8.0), Vector2(4.0, -6.0)]
-	]
-	for blade in blades:
-		var start := _transform_biome_accent_point(blade[0], position, rotation, scale)
-		var end := _transform_biome_accent_point(blade[1], position, rotation, scale)
-		draw_line(start, end, light_color, max(1.0, 2.2 * scale))
-	var shadow_start := _transform_biome_accent_point(Vector2(-6.0, 10.0), position, rotation, scale)
-	var shadow_end := _transform_biome_accent_point(Vector2(6.0, 10.0), position, rotation, scale)
-	draw_line(shadow_start, shadow_end, dark_color, max(1.0, 1.2 * scale))
+	for i in 6:
+		var offset := -6.0 + float(i) * 2.4
+		var height := 8.0 + float(i % 3) * 2.0
+		var start := _transform_biome_accent_point(Vector2(offset, 7.0), position, rotation, scale)
+		var end := _transform_biome_accent_point(Vector2(offset + sin(float(i)) * 3.0, 7.0 - height), position, rotation, scale)
+		draw_line(start, end, light_color, max(1.0, 1.6 * scale))
+	draw_circle(position, 8.0 * scale, _color_with_alpha(dark_color, dark_color.a * 0.38))
 
 
 func _draw_biome_leaf_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
-	var leaf := PackedVector2Array([
-		Vector2(-11.0, 1.0),
-		Vector2(-3.0, -7.0),
-		Vector2(7.0, -4.0),
-		Vector2(12.0, 2.0),
-		Vector2(6.0, 8.0),
-		Vector2(-5.0, 7.0)
-	])
-	var transformed := _transform_biome_accent_points(leaf, position, rotation, scale)
-	draw_colored_polygon(transformed, fill_color)
-	draw_polyline(_close_polyline(transformed), outline_color, max(1.0, 1.2 * scale))
-	var vein_start := _transform_biome_accent_point(Vector2(-7.0, 3.0), position, rotation, scale)
-	var vein_end := _transform_biome_accent_point(Vector2(7.0, -2.0), position, rotation, scale)
-	draw_line(vein_start, vein_end, outline_color.darkened(0.06), max(1.0, 1.0 * scale))
+	draw_circle(_transform_biome_accent_point(Vector2(-6.0, 3.0), position, rotation, scale), 8.0 * scale, fill_color.darkened(0.08))
+	draw_circle(_transform_biome_accent_point(Vector2(3.0, -3.0), position, rotation, scale), 9.0 * scale, fill_color)
+	draw_circle(_transform_biome_accent_point(Vector2(8.0, 5.0), position, rotation, scale), 7.0 * scale, fill_color.darkened(0.14))
+	var stem_start := _transform_biome_accent_point(Vector2(-10.0, 7.0), position, rotation, scale)
+	var stem_end := _transform_biome_accent_point(Vector2(10.0, 7.0), position, rotation, scale)
+	draw_line(stem_start, stem_end, outline_color, max(1.0, 1.5 * scale))
 
 
 func _draw_biome_plate_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
 	var plate := PackedVector2Array([
-		Vector2(-14.0, -2.0),
-		Vector2(-6.0, -10.0),
-		Vector2(8.0, -9.0),
-		Vector2(15.0, -1.0),
-		Vector2(11.0, 9.0),
-		Vector2(-8.0, 10.0)
+		Vector2(-17.0, 8.0),
+		Vector2(-9.0, -13.0),
+		Vector2(10.0, -12.0),
+		Vector2(18.0, 5.0),
+		Vector2(3.0, 16.0)
 	])
 	var transformed := _transform_biome_accent_points(plate, position, rotation, scale)
-	draw_colored_polygon(transformed, fill_color)
-	draw_polyline(_close_polyline(transformed), outline_color, max(1.0, 1.6 * scale))
-	var crack_start := _transform_biome_accent_point(Vector2(-5.0, 1.0), position, rotation, scale)
-	var crack_mid := _transform_biome_accent_point(Vector2(1.0, -3.0), position, rotation, scale)
-	var crack_end := _transform_biome_accent_point(Vector2(7.0, 2.0), position, rotation, scale)
-	draw_polyline(PackedVector2Array([crack_start, crack_mid, crack_end]), outline_color.darkened(0.10), max(1.0, 1.2 * scale))
+	draw_colored_polygon(transformed, fill_color.darkened(0.12))
+	var highlight := PackedVector2Array([
+		Vector2(-9.0, -13.0),
+		Vector2(10.0, -12.0),
+		Vector2(3.0, 1.0),
+		Vector2(-14.0, 4.0)
+	])
+	draw_colored_polygon(_transform_biome_accent_points(highlight, position, rotation, scale), fill_color)
+	var crack_start := _transform_biome_accent_point(Vector2(-5.0, -8.0), position, rotation, scale)
+	var crack_end := _transform_biome_accent_point(Vector2(4.0, 10.0), position, rotation, scale)
+	draw_line(crack_start, crack_end, outline_color, max(1.0, 2.0 * scale))
 
 
 func _draw_biome_thicket_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
-	_draw_biome_leaf_accent(position + Vector2(-4.0, 0.0).rotated(rotation) * scale, rotation - 0.20, scale * 0.78, fill_color, outline_color)
-	_draw_biome_leaf_accent(position + Vector2(6.0, 2.0).rotated(rotation) * scale, rotation + 0.18, scale * 0.70, fill_color.lightened(0.04), outline_color)
-	var stem_start := _transform_biome_accent_point(Vector2(-2.0, 9.0), position, rotation, scale)
-	var stem_end := _transform_biome_accent_point(Vector2(-1.0, -6.0), position, rotation, scale)
-	draw_line(stem_start, stem_end, outline_color.darkened(0.05), max(1.0, 1.4 * scale))
+	draw_circle(_transform_biome_accent_point(Vector2(-10.0, 4.0), position, rotation, scale), 12.0 * scale, fill_color.darkened(0.10))
+	draw_circle(_transform_biome_accent_point(Vector2(2.0, -4.0), position, rotation, scale), 14.0 * scale, fill_color)
+	draw_circle(_transform_biome_accent_point(Vector2(13.0, 5.0), position, rotation, scale), 11.0 * scale, fill_color.darkened(0.16))
+	draw_circle(_transform_biome_accent_point(Vector2(2.0, 9.0), position, rotation, scale), 11.0 * scale, fill_color.darkened(0.06))
+	var base_start := _transform_biome_accent_point(Vector2(-16.0, 8.0), position, rotation, scale)
+	var base_end := _transform_biome_accent_point(Vector2(16.0, 8.0), position, rotation, scale)
+	draw_line(base_start, base_end, outline_color, max(1.0, 2.0 * scale))
 
 
 func _draw_biome_crack_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
-	var ridge := PackedVector2Array([
-		Vector2(-12.0, 6.0),
-		Vector2(-4.0, -2.0),
-		Vector2(0.0, 1.0),
-		Vector2(8.0, -6.0),
-		Vector2(13.0, 2.0)
-	])
-	var transformed := _transform_biome_accent_points(ridge, position, rotation, scale)
-	draw_polyline(transformed, outline_color, max(1.0, 1.8 * scale))
-	var chip := PackedVector2Array([
-		Vector2(-3.0, 3.0),
-		Vector2(2.0, -3.0),
-		Vector2(5.0, 2.0),
-		Vector2(1.0, 5.0)
-	])
-	draw_colored_polygon(_transform_biome_accent_points(chip, position, rotation + 0.25, scale * 0.52), fill_color.darkened(0.06))
+	var branches := [
+		[Vector2(0.0, 12.0), Vector2(-18.0, -8.0)],
+		[Vector2(0.0, 12.0), Vector2(18.0, -9.0)],
+		[Vector2(0.0, 12.0), Vector2(0.0, -16.0)],
+		[Vector2(-8.0, 1.0), Vector2(-19.0, 3.0)],
+		[Vector2(7.0, 1.0), Vector2(19.0, 5.0)]
+	]
+	for branch in branches:
+		var start := _transform_biome_accent_point(branch[0], position, rotation, scale)
+		var end := _transform_biome_accent_point(branch[1], position, rotation, scale)
+		draw_line(start, end, fill_color, max(1.0, 2.0 * scale))
+	draw_circle(position, 15.0 * scale, _color_with_alpha(outline_color, outline_color.a * 0.24))
 
 
 func _transform_biome_accent_point(point: Vector2, position: Vector2, rotation: float, scale: float) -> Vector2:
@@ -2491,14 +2518,16 @@ func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color
 		var biome: Dictionary = biome_zones[i]
 		var points := PackedVector2Array(biome["points"])
 		if Geometry2D.is_point_in_polygon(position, points):
-			return _get_biome_visual_color(biome)
+			var visual_color := _get_biome_visual_color(biome)
+			return _get_biome_terrain_color(biome, position, visual_color)
 		var edge_distance := _get_point_polygon_edge_distance(position, points)
 		if edge_distance < nearest_distance:
 			nearest_distance = edge_distance
 			nearest_index = i
 	if nearest_index >= 0:
 		var nearest_biome: Dictionary = biome_zones[nearest_index]
-		return _get_biome_visual_color(nearest_biome)
+		var visual_color := _get_biome_visual_color(nearest_biome)
+		return _get_biome_terrain_color(nearest_biome, position, visual_color)
 	return Color.BLACK
 
 
@@ -2525,6 +2554,14 @@ func _get_biome_colors_key() -> String:
 	for biome in WORLD_CONFIG.get_biome_zones():
 		var color := _get_biome_visual_color(biome)
 		parts.append("%.3f:%.3f:%.3f:%s" % [color.r, color.g, color.b, _get_biome_terrain_texture_key(biome)])
+	parts.append("texture_balance:%.2f:%.2f:%.2f:%.2f:%d" % [
+		float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("detail_alpha", 0.18)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("secondary_detail_alpha", 0.10)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("variation_noise_strength", 0.22)),
+		int(GAME_BALANCE.BIOME_TEXTURES.get("max_detail_per_chunk", 120))
+	])
+	parts.append("texture_scale:%.2f" % float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 2.0)))
 	return "|".join(parts)
 
 
@@ -2546,12 +2583,7 @@ func _get_biome_visual_color(biome: Dictionary) -> Color:
 
 
 func _get_biome_terrain_color(biome: Dictionary, world_position: Vector2, base_color: Color) -> Color:
-	var terrain_pattern: Dictionary = _get_biome_terrain_pattern(biome)
-	if terrain_pattern.is_empty():
-		return base_color
-	var sampled_color: Color = _sample_biome_texture_color(terrain_pattern, world_position)
-	var texture_mix: float = clampf(float(terrain_pattern.get("mix", 0.88)), 0.0, 1.0)
-	return base_color.lerp(sampled_color, texture_mix)
+	return base_color
 
 
 func _sample_biome_terrain_pattern(terrain_pattern: Dictionary, world_position: Vector2) -> float:
@@ -2754,14 +2786,20 @@ func _get_biome_texture_image(terrain_pattern: Dictionary) -> Image:
 
 func _get_biome_texture_position(terrain_pattern: Dictionary, world_position: Vector2, texture_image: Image) -> Vector2i:
 	var seed := float(terrain_pattern.get("seed", 0.0))
+	var density_multiplier := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)), 0.1)
+	density_multiplier *= maxf(float(terrain_pattern.get("density_scale", 1.0)), 0.1)
 	var world_rect := WORLD_CONFIG.WORLD_RECT
 	var world_uv := Vector2(
 		inverse_lerp(world_rect.position.x, world_rect.end.x, world_position.x),
 		inverse_lerp(world_rect.position.y, world_rect.end.y, world_position.y)
 	)
+	var tiled_uv := Vector2(
+		clampf(world_uv.x * density_multiplier + seed * 0.013, 0.0, 1.0),
+		clampf(world_uv.y * density_multiplier + seed * 0.007, 0.0, 1.0)
+	)
 	var sample_position := Vector2(
-		(world_uv.x + seed * 0.137) * float(texture_image.get_width() - 1),
-		(world_uv.y + seed * 0.071) * float(texture_image.get_height() - 1)
+		tiled_uv.x * float(texture_image.get_width() - 1),
+		tiled_uv.y * float(texture_image.get_height() - 1)
 	)
 	return Vector2i(
 		clampi(int(round(sample_position.x)), 0, texture_image.get_width() - 1),

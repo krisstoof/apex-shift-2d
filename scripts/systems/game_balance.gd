@@ -316,6 +316,15 @@ const BIOME_VISUALS := {
 	"biomass_visual_bucket_percent": 5.0
 }
 
+const BIOME_TEXTURES := {
+	"detail_density_multiplier": 1.35,
+	"detail_alpha": 0.30,
+	"secondary_detail_alpha": 0.18,
+	"variation_noise_strength": 0.22,
+	"blend_cache_scale": 2.0,
+	"max_detail_per_chunk": 120
+}
+
 const POPULATION_RECOVERY := {
 	"small_prey_min_population": 12.0,
 	"small_prey_target_population": 25.0,

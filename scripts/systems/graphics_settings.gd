@@ -80,11 +80,12 @@ func get_effective_resolution() -> Vector2i:
 
 
 func apply_settings() -> void:
+	var resolution := get_effective_resolution()
+	_apply_content_resolution(resolution)
 	if is_embedded_window():
 		return
 	_apply_serial += 1
 	var apply_serial := _apply_serial
-	var resolution := get_effective_resolution()
 	match display_mode_index:
 		DISPLAY_MODE_FULLSCREEN:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
@@ -106,6 +107,13 @@ func apply_and_save() -> void:
 
 func _apply_windowed_border(borderless: bool) -> void:
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, borderless)
+
+
+func _apply_content_resolution(resolution: Vector2i) -> void:
+	var root_window := get_tree().root
+	root_window.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	root_window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+	root_window.content_scale_size = resolution
 
 
 func _finish_exclusive_fullscreen(apply_serial: int, resolution: Vector2i) -> void:
