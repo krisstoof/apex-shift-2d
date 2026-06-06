@@ -143,7 +143,11 @@ func _on_apply_pressed() -> void:
 			graphics_settings.get_display_mode_label(graphics_settings.display_mode_index)
 		]
 	else:
-		status_label.text = "Settings saved. Embedded editor preview keeps its own window size."
+		var resolution: Vector2i = graphics_settings.get_effective_resolution()
+		status_label.text = "Editor preview resolution applied: %dx%d. Window mode applies in standalone." % [
+			resolution.x,
+			resolution.y
+		]
 
 
 func _on_resolution_selected(_index: int) -> void:
@@ -162,7 +166,7 @@ func _refresh_resolution_availability() -> void:
 
 func _refresh_status_text() -> void:
 	if not graphics_settings.can_apply_window_settings():
-		status_label.text = "Embedded editor preview cannot change its host window. Settings apply in a standalone run."
+		status_label.text = "Resolution changes the editor preview canvas. Window mode applies in a standalone run."
 		return
 	if display_mode_option.selected == graphics_settings.DISPLAY_MODE_BORDERLESS_FULLSCREEN:
 		status_label.text = "Borderless Fullscreen uses the current desktop resolution."

@@ -10,6 +10,7 @@ func run() -> Array[String]:
 	_test_borderless_mode_uses_desktop_resolution(failures)
 	_test_exclusive_fullscreen_fits_current_screen(failures)
 	_test_embedded_detection_uses_engine_runtime_state(failures)
+	_test_embedded_preview_still_applies_content_resolution(failures)
 	return failures
 
 
@@ -42,3 +43,12 @@ func _test_embedded_detection_uses_engine_runtime_state(failures: Array[String])
 	var script_text := FileAccess.get_file_as_string("res://scripts/systems/graphics_settings.gd")
 	TEST_UTILS.expect(script_text.contains("return Engine.is_embedded_in_editor()"), failures, "Graphics settings should detect the editor-embedded game through Engine")
 	TEST_UTILS.expect(not script_text.contains("display/window/subwindows/embed_subwindows"), failures, "Subwindow embedding must not disable main-window settings")
+
+
+func _test_embedded_preview_still_applies_content_resolution(failures: Array[String]) -> void:
+	var script_text := FileAccess.get_file_as_string("res://scripts/systems/graphics_settings.gd")
+	var content_resolution_position := script_text.find("_apply_content_resolution(resolution)")
+	var embedded_guard_position := script_text.find("if is_embedded_window():", content_resolution_position)
+	TEST_UTILS.expect(content_resolution_position >= 0, failures, "Graphics settings should apply the selected logical content resolution")
+	TEST_UTILS.expect(embedded_guard_position > content_resolution_position, failures, "Editor embedding should only skip physical window changes, not viewport resolution")
+	TEST_UTILS.expect(script_text.contains("root_window.content_scale_size = resolution"), failures, "Selected resolution should drive the root viewport content scale")
