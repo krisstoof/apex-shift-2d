@@ -5,7 +5,7 @@ Apex Shift 2D is a small Godot 4.x top-down survival prototype. The current buil
 ## Running
 
 1. Open this folder in Godot 4.x.
-2. Run the project. The main scene is `res://scenes/main.tscn`.
+2. Run the project. The project start with scene `res://scenes/ui/start_menu.tscn`.
 
 ## Controls
 

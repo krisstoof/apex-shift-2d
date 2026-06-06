@@ -13,7 +13,6 @@ const RESOURCE_SERVICE_SCRIPT := preload("res://scripts/world/resource_service.g
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
-const VARNAK_SPAWN_TICK_SECONDS := 5.5
 const SMALL_PREY_MAX_VISIBLE_COUNT := 12
 const SMALL_PREY_MAX_VISIBLE_PER_BIOME := 5
 const SMALL_PREY_VISIBLE_SPAWN_RADIUS := 850.0
@@ -21,9 +20,6 @@ const SMALL_PREY_PLAYER_SAFE_DISTANCE := 240.0
 const SMALL_PREY_MIN_DISTANCE := 190.0
 const INITIAL_GRAZER_VISIBLE_COUNT := 3
 const GRAZER_INITIAL_PLAYER_SAFE_DISTANCE := 720.0
-const VARNAK_MAX_VISIBLE_COUNT := 4
-const VARNAK_MAX_VISIBLE_PER_BIOME := 2
-const VARNAK_VISIBLE_SPAWN_RADIUS := 1250.0
 const VARNAK_MIN_DISTANCE := 360.0
 const GRAZER_VISIBLE_SPAWN_RADIUS := 1000.0
 const GRAZER_PLAYER_SAFE_DISTANCE := 340.0
@@ -152,6 +148,8 @@ func _ready() -> void:
 	evolution_director = _get_sibling_node("EvolutionDirector")
 	day_night_system = _get_sibling_node("DayNightSystem")
 	ecosystem_director = _get_sibling_node("EcosystemDirector")
+	if day_night_system and day_night_system.has_signal("day_changed"):
+		day_night_system.day_changed.connect(_on_day_changed)
 	if evolution_director and evolution_director.has_method("connect") and evolution_director.has_signal("profile_changed"):
 		evolution_director.profile_changed.connect(_on_profile_changed)
 	var event_bus := _get_event_bus()
@@ -171,7 +169,7 @@ func _ready() -> void:
 	_spawn_initial_grazers()
 	await _yield_initial_boot_step()
 	_set_boot_progress("Spawning predators...", 0.84)
-	_sync_visible_varnaks()
+	_sync_visible_varnaks(true)
 	await _yield_initial_boot_step()
 	_set_boot_progress("Rendering world...", 0.94)
 	_prepare_boot_render_cache()
@@ -189,7 +187,7 @@ func _process(delta: float) -> void:
 		small_prey_spawn_timer = 0.0
 		_sync_visible_small_prey()
 	varnak_spawn_timer += delta
-	if varnak_spawn_timer >= VARNAK_SPAWN_TICK_SECONDS:
+	if varnak_spawn_timer >= _get_varnak_spawn_check_interval():
 		varnak_spawn_timer = 0.0
 		_sync_visible_varnaks()
 	var current_night_amount := _get_night_amount()
@@ -213,6 +211,18 @@ func get_landmarks() -> Array[Dictionary]:
 
 func get_world_seed() -> int:
 	return world_seed
+
+
+func get_varnak_population_status() -> Dictionary:
+	var current_day := _get_current_day()
+	return {
+		"day": current_day,
+		"target": _get_varnak_target_count(current_day),
+		"live": get_registered_creatures_by_type("varnak").size(),
+		"max": int(GAME_BALANCE.VARNAK_DAY_SCALING["max_varnaks"]),
+		"spawn_chance": _get_varnak_spawn_chance(current_day),
+		"spawn_batch_limit": int(GAME_BALANCE.VARNAK_DAY_SCALING["spawn_batch_limit"])
+	}
 
 
 func get_boot_progress_state() -> Dictionary:
@@ -1667,11 +1677,23 @@ func _get_game_session() -> Node:
 	return get_node_or_null("/root/GameSession")
 
 
-func _try_spawn_varnak_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
+func _try_spawn_varnak_in_dangerous_biome(player_position: Vector2, used_positions: Array[Vector2]) -> bool:
+	var dangerous_biomes: Array[Dictionary] = []
+	for biome_value in WORLD_CONFIG.BIOME_ZONES:
+		var biome := Dictionary(biome_value)
+		if biome.get("dangerous", false) == true:
+			dangerous_biomes.append(biome)
+	if dangerous_biomes.is_empty():
+		return false
 	for _attempt in WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS:
-		var offset := Vector2.RIGHT.rotated(varnak_rng.randf_range(0.0, TAU)) * varnak_rng.randf_range(WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE, VARNAK_VISIBLE_SPAWN_RADIUS)
-		var candidate := player_position + offset
-		if not _is_point_in_biome(candidate, biome):
+		var biome_index := varnak_rng.randi_range(0, dangerous_biomes.size() - 1)
+		var biome: Dictionary = dangerous_biomes[biome_index]
+		var spawn_area := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+		var candidate := Vector2(
+			varnak_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
+			varnak_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
+		)
+		if not _is_point_in_scaled_biome(candidate, biome):
 			continue
 		if not _is_valid_varnak_spawn_position(candidate, player_position, used_positions):
 			continue
@@ -1694,42 +1716,27 @@ func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
 	return grazer
 
 
-func _sync_visible_varnaks() -> void:
+func _sync_visible_varnaks(force_spawn_check := false) -> void:
 	var player_position := _get_player_position()
-	_prune_distant_varnaks(player_position)
-	var player_biome := _get_biome_for_position(player_position)
-	if player_biome.is_empty():
-		return
-	if player_biome.get("dangerous", false) != true:
-		return
-	var biome_id := _get_biome_id(player_biome)
-	var current_biome_count := _get_visible_varnak_count(biome_id)
 	var global_count := get_registered_creatures_by_type("varnak").size()
-	var spawn_budget: int = min(VARNAK_MAX_VISIBLE_PER_BIOME - current_biome_count, VARNAK_MAX_VISIBLE_COUNT - global_count)
+	var spawn_budget := _get_varnak_spawn_budget(global_count, _get_current_day())
 	if spawn_budget <= 0:
+		return
+	if not force_spawn_check and varnak_rng.randf() > _get_varnak_spawn_chance(_get_current_day()):
 		return
 	var spawned := 0
 	var used_positions := _get_existing_varnak_positions()
 	for _i in spawn_budget:
-		if _try_spawn_varnak_near_player(player_biome, player_position, used_positions):
+		if _try_spawn_varnak_in_dangerous_biome(player_position, used_positions):
 			spawned += 1
 	if spawned > 0:
 		var event_bus := _get_event_bus()
 		if event_bus:
-			event_bus.post_message("%d Varnak%s entered the area" % [spawned, "" if spawned == 1 else "s"])
-
-
-func _prune_distant_varnaks(player_position: Vector2) -> void:
-	var despawn_distance := VARNAK_VISIBLE_SPAWN_RADIUS * 1.45
-	for varnak in get_registered_creatures_by_type("varnak"):
-		if not is_instance_valid(varnak):
-			continue
-		if varnak.global_position.distance_to(player_position) > despawn_distance:
-			varnak.queue_free()
+			event_bus.post_message("Varnak population increased by %d" % spawned)
 
 
 func respawn_missing_varnaks() -> void:
-	_sync_visible_varnaks()
+	_sync_visible_varnaks(true)
 
 
 func respawn_varnaks() -> void:
@@ -1737,7 +1744,7 @@ func respawn_varnaks() -> void:
 		if is_instance_valid(varnak):
 			varnak.queue_free()
 	await get_tree().process_frame
-	_sync_visible_varnaks()
+	_sync_visible_varnaks(true)
 	var event_bus := _get_event_bus()
 	if event_bus:
 		event_bus.post_message("Varnaks respawned with current profile")
@@ -2016,7 +2023,55 @@ func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2, u
 	for varnak in get_registered_creatures_by_type("varnak"):
 		if is_instance_valid(varnak) and varnak.global_position.distance_to(point) < VARNAK_MIN_DISTANCE:
 			return false
+	var other_creature_min_distance := float(GAME_BALANCE.VARNAK_DAY_SCALING["other_creature_min_distance"])
+	for creature_type in ["small_prey", "grazer"]:
+		for creature_value in get_registered_creatures_by_type(creature_type):
+			var creature := creature_value as Node2D
+			if creature and is_instance_valid(creature) and creature.global_position.distance_to(point) < other_creature_min_distance:
+				return false
 	return true
+
+
+func _get_current_day() -> int:
+	if day_night_system and day_night_system.has_method("get_day"):
+		return maxi(int(day_night_system.get_day()), 1)
+	return 1
+
+
+func _get_varnak_target_count(day: int) -> int:
+	var safe_day := maxi(day, 1)
+	var scaling := GAME_BALANCE.VARNAK_DAY_SCALING
+	if safe_day == 1:
+		return int(scaling["day_1_max"])
+	if safe_day == 2:
+		return int(scaling["day_2_max"])
+	if safe_day == 3:
+		return int(scaling["day_3_max"])
+	var grown_target := int(scaling["day_3_max"]) + (safe_day - 3) * int(scaling["daily_growth"])
+	return mini(grown_target, int(scaling["max_varnaks"]))
+
+
+func _get_varnak_spawn_chance(day: int) -> float:
+	var scaling := GAME_BALANCE.VARNAK_DAY_SCALING
+	var daily_growth_steps := maxi(day - 1, 0)
+	return minf(
+		float(scaling["day_1_spawn_chance"]) + float(daily_growth_steps) * float(scaling["spawn_chance_daily_growth"]),
+		float(scaling["max_spawn_chance"])
+	)
+
+
+func _get_varnak_spawn_budget(global_count: int, day: int) -> int:
+	var missing_count := _get_varnak_target_count(day) - maxi(global_count, 0)
+	return maxi(mini(missing_count, int(GAME_BALANCE.VARNAK_DAY_SCALING["spawn_batch_limit"])), 0)
+
+
+func _get_varnak_spawn_check_interval() -> float:
+	return maxf(float(GAME_BALANCE.VARNAK_DAY_SCALING["spawn_check_interval_seconds"]), 0.1)
+
+
+func _on_day_changed(_day: int) -> void:
+	varnak_spawn_timer = 0.0
+	call_deferred("_sync_visible_varnaks", true)
 
 
 func _on_profile_changed(profile: Dictionary) -> void:
@@ -2029,8 +2084,6 @@ func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 		call_deferred("respawn_varnaks")
 	elif event_name == "day_ended":
 		call_deferred("advance_resource_growth_days", 1.0)
-		if _payload.get("reason", "") == "slept_in_tent":
-			call_deferred("respawn_missing_varnaks")
 	elif event_name == "ecosystem_vegetation_changed":
 		var biome_id := str(_payload.get("biome_id", ""))
 		_queue_biome_vegetation_sync(biome_id)

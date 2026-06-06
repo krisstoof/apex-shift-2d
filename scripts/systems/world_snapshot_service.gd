@@ -129,6 +129,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 		"tents": 0
 	}
 	var biome_texture_cache: Dictionary = {}
+	var varnak_population: Dictionary = {}
 	var landmark_overlay_enabled := false
 	var biome_textures_enabled := true
 	if active_world:
@@ -150,6 +151,8 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 			nearest_landmark = Dictionary(active_world.get_nearest_landmark_data(Vector2(player_snapshot.get("position", Vector2.ZERO))))
 		if active_world.has_method("get_biome_texture_cache_status"):
 			biome_texture_cache = Dictionary(active_world.get_biome_texture_cache_status())
+		if active_world.has_method("get_varnak_population_status"):
+			varnak_population = Dictionary(active_world.get_varnak_population_status())
 		if active_world.has_method("is_landmark_debug_overlay_enabled"):
 			landmark_overlay_enabled = active_world.is_landmark_debug_overlay_enabled()
 		if active_world.has_method("are_biome_textures_enabled"):
@@ -177,6 +180,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 		"resource_counts": resource_counts,
 		"building_counts": building_counts,
 		"biome_texture_cache": biome_texture_cache,
+		"varnak_population": varnak_population,
 		"landmark_overlay_enabled": landmark_overlay_enabled,
 		"biome_textures_enabled": biome_textures_enabled
 	}
