@@ -1,6 +1,7 @@
 extends Control
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const BENCHMARK_RUNNER := preload("res://scripts/systems/benchmark_runner.gd")
 const DEBUG_TABS := [
 	"Overview",
@@ -846,6 +847,7 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 			str(state.get("current_niche", "HERBIVORE")).to_lower(),
 			int(state.get("generations_under_food_stress", 0))
 		])
+		lines.append_array(_get_population_recovery_debug_lines(state))
 		lines.append("  aggregate pop %.1f | hunger %d%% | energy %d%% | birth %.2f death %.2f" % [
 			float(state.get("population_count", 0.0)),
 			int(round(float(state.get("average_hunger", 0.0)) * 100.0)),
@@ -916,6 +918,7 @@ func _get_ecosystem_debug_lines_from_snapshot(ecosystem_snapshot: Dictionary) ->
 			str(state.get("current_niche", "HERBIVORE")).to_lower(),
 			int(state.get("generations_under_food_stress", 0))
 		])
+		lines.append_array(_get_population_recovery_debug_lines(state))
 		lines.append("  aggregate pop %.1f | hunger %d%% | energy %d%% | birth %.2f death %.2f" % [
 			float(state.get("population_count", 0.0)),
 			int(round(float(state.get("average_hunger", 0.0)) * 100.0)),
@@ -924,6 +927,29 @@ func _get_ecosystem_debug_lines_from_snapshot(ecosystem_snapshot: Dictionary) ->
 			float(state.get("death_rate", 0.0))
 		])
 	return lines
+
+
+func _get_population_recovery_debug_lines(state: Dictionary) -> Array[String]:
+	var recovery: Dictionary = GAME_BALANCE.POPULATION_RECOVERY
+	return [
+		"  SmallPrey min/target/max %d/%d/%d | daily +%.2f | pred %.2f | %s" % [
+			int(recovery["small_prey_min_population"]),
+			int(recovery["small_prey_target_population"]),
+			int(recovery["small_prey_max_population"]),
+			float(state.get("small_prey_daily_recovery", 0.0)),
+			float(state.get("small_prey_predation_pressure", 0.0)),
+			str(state.get("small_prey_population_trend", "stable"))
+		],
+		"  Grazer min/target/max %d/%d/%d | daily +%.2f | pred %.2f starve %.2f | %s" % [
+			int(recovery["grazer_min_population"]),
+			int(recovery["grazer_target_population"]),
+			int(recovery["grazer_max_population"]),
+			float(state.get("grazer_daily_recovery", 0.0)),
+			float(state.get("grazer_predation_pressure", 0.0)),
+			float(state.get("grazer_starvation_pressure", 0.0)),
+			str(state.get("grazer_population_trend", "stable"))
+		]
+	]
 
 
 func _get_snapshot() -> Dictionary:

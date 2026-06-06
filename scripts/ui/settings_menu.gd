@@ -66,6 +66,7 @@ func _build_ui() -> void:
 
 	resolution_option = OptionButton.new()
 	resolution_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	resolution_option.item_selected.connect(_on_resolution_selected)
 	resolution_row.add_child(resolution_option)
 
 	var display_row := HBoxContainer.new()
@@ -80,6 +81,7 @@ func _build_ui() -> void:
 
 	display_mode_option = OptionButton.new()
 	display_mode_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	display_mode_option.item_selected.connect(_on_display_mode_selected)
 	display_row.add_child(display_mode_option)
 
 	status_label = Label.new()
@@ -126,13 +128,46 @@ func _sync_from_settings() -> void:
 	display_mode_option.add_item("Borderless Fullscreen")
 	display_mode_option.select(clamp(int(graphics_settings.display_mode_index), 0, graphics_settings.get_display_mode_count() - 1))
 
-	status_label.text = "Apply saves local settings to user://settings.json." if graphics_settings.can_apply_window_settings() else "Embedded preview cannot change window mode or resolution. Settings will still be saved."
+	_refresh_resolution_availability()
+	_refresh_status_text()
 
 
 func _on_apply_pressed() -> void:
 	graphics_settings.set_from_indices(resolution_option.selected, display_mode_option.selected)
 	graphics_settings.apply_and_save()
-	status_label.text = "Settings applied." if graphics_settings.can_apply_window_settings() else "Settings saved for the next standalone run."
+	if graphics_settings.can_apply_window_settings():
+		var resolution: Vector2i = graphics_settings.get_effective_resolution()
+		status_label.text = "Settings applied: %dx%d, %s." % [
+			resolution.x,
+			resolution.y,
+			graphics_settings.get_display_mode_label(graphics_settings.display_mode_index)
+		]
+	else:
+		status_label.text = "Settings saved. Embedded editor preview keeps its own window size."
+
+
+func _on_resolution_selected(_index: int) -> void:
+	_refresh_status_text()
+
+
+func _on_display_mode_selected(_index: int) -> void:
+	_refresh_resolution_availability()
+	_refresh_status_text()
+
+
+func _refresh_resolution_availability() -> void:
+	var mode := display_mode_option.selected
+	resolution_option.disabled = not graphics_settings.is_resolution_selectable(mode)
+
+
+func _refresh_status_text() -> void:
+	if not graphics_settings.can_apply_window_settings():
+		status_label.text = "Embedded editor preview cannot change its host window. Settings apply in a standalone run."
+		return
+	if display_mode_option.selected == graphics_settings.DISPLAY_MODE_BORDERLESS_FULLSCREEN:
+		status_label.text = "Borderless Fullscreen uses the current desktop resolution."
+		return
+	status_label.text = "Selected resolution will be applied and saved locally."
 
 
 func _back_to_start_menu() -> void:

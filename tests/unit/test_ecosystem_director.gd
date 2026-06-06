@@ -14,6 +14,8 @@ func run() -> Array[String]:
 	_test_command_flow_applies_plant_harvest_and_returns_delta(failures)
 	_test_save_and_load_round_trip_restores_biome_state(failures)
 	_test_runtime_tick_queues_biomes_across_frames(failures)
+	_test_daily_population_recovery_uses_biomass_and_caps_at_target(failures)
+	_test_critical_populations_reduce_predation_pressure(failures)
 	return failures
 
 
@@ -157,5 +159,50 @@ func _test_runtime_tick_queues_biomes_across_frames(failures: Array[String]) -> 
 		max(queued_count - 1, 0),
 		failures,
 		"Taking one runtime biome should leave the remaining biomes for later frames"
+	)
+	director.free()
+
+
+func _test_daily_population_recovery_uses_biomass_and_caps_at_target(failures: Array[String]) -> void:
+	var director := ECOSYSTEM_DIRECTOR.new()
+	director.biome_states = {
+		"healthy": {
+			"plant_biomass_percent": 100.0,
+			"small_prey_population": 10.0,
+			"grazer_population": 5.0,
+			"varnak_population": 1.0
+		},
+		"depleted": {
+			"plant_biomass_percent": 20.0,
+			"small_prey_population": 24.5,
+			"grazer_population": 13.5,
+			"varnak_population": 0.0
+		}
+	}
+	director.call("_apply_daily_population_recovery")
+	var healthy: Dictionary = director.get_biome_state("healthy")
+	var depleted: Dictionary = director.get_biome_state("depleted")
+	TEST_UTILS.expect_close(float(healthy.get("small_prey_daily_recovery", 0.0)), 5.0, failures, "Healthy biomass should boost daily SmallPrey recovery")
+	TEST_UTILS.expect_close(float(healthy.get("grazer_daily_recovery", 0.0)), 2.5, failures, "Healthy biomass should boost daily Grazer recovery")
+	TEST_UTILS.expect_close(float(depleted.get("small_prey_population", 0.0)), 25.0, failures, "Daily SmallPrey recovery should stop at the target population")
+	TEST_UTILS.expect_close(float(depleted.get("grazer_population", 0.0)), 14.0, failures, "Daily Grazer recovery should stop at the target population")
+	TEST_UTILS.expect_equal(str(healthy.get("small_prey_population_trend", "")), "growing", failures, "Successful daily recovery should mark SmallPrey as growing")
+	director.free()
+
+
+func _test_critical_populations_reduce_predation_pressure(failures: Array[String]) -> void:
+	var director := ECOSYSTEM_DIRECTOR.new()
+	var critical_multiplier := float(GAME_BALANCE.POPULATION_RECOVERY["critical_population_predation_multiplier"])
+	TEST_UTILS.expect_close(
+		float(director.call("_get_critical_predation_multiplier", 5.0, 12.0)),
+		critical_multiplier,
+		failures,
+		"Critical prey populations should reduce predator pressure"
+	)
+	TEST_UTILS.expect_close(
+		float(director.call("_get_critical_predation_multiplier", 12.0, 12.0)),
+		1.0,
+		failures,
+		"Healthy prey populations should receive full predator pressure"
 	)
 	director.free()

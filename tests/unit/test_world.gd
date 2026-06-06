@@ -34,6 +34,8 @@ func run() -> Array[String]:
 	_test_varnak_population_target_scales_with_day_and_caps(failures)
 	_test_varnak_spawn_chance_scales_with_day_and_caps(failures)
 	_test_varnak_spawn_budget_is_batched_and_stops_at_target(failures)
+	_test_grazer_visible_target_tracks_model_population_and_biomass(failures)
+	_test_creature_spawn_horizon_stays_outside_camera_view(failures)
 	return failures
 
 
@@ -68,6 +70,44 @@ func _test_varnak_spawn_budget_is_batched_and_stops_at_target(failures: Array[St
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 0, 99)), 2, failures, "Missing Varnaks should be restored in small batches")
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 11, 99)), 1, failures, "The final recovery batch should not exceed the hard target")
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 12, 99)), 0, failures, "No Varnaks should spawn after reaching the hard target")
+	world.free()
+
+
+func _test_grazer_visible_target_tracks_model_population_and_biomass(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	TEST_UTILS.expect_equal(
+		int(world.call("_get_desired_grazer_count", {"grazer_population": 14.0, "plant_biomass_percent": 100.0})),
+		3,
+		failures,
+		"A healthy target Grazer population should expose the full per-biome visible count"
+	)
+	TEST_UTILS.expect_equal(
+		int(world.call("_get_desired_grazer_count", {"grazer_population": 1.0, "plant_biomass_percent": 80.0})),
+		1,
+		failures,
+		"A surviving Grazer population should keep one visible animal while biomass supports it"
+	)
+	TEST_UTILS.expect_equal(
+		int(world.call("_get_desired_grazer_count", {"grazer_population": 8.0, "plant_biomass_percent": 0.0})),
+		0,
+		failures,
+		"Completely depleted biomass should not spawn visible Grazers"
+	)
+	world.free()
+
+
+func _test_creature_spawn_horizon_stays_outside_camera_view(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var viewport_size := Vector2(1152.0, 648.0)
+	var camera_zoom := Vector2(1.1, 1.1)
+	var visible_half_diagonal := Vector2(viewport_size.x / camera_zoom.x, viewport_size.y / camera_zoom.y).length() * 0.5
+	var horizon_distance := float(world.call("_calculate_creature_horizon_distance", viewport_size, camera_zoom))
+	TEST_UTILS.expect(horizon_distance > visible_half_diagonal, failures, "Runtime creatures should spawn beyond the farthest visible camera corner")
+	TEST_UTILS.expect(horizon_distance - visible_half_diagonal >= 139.0, failures, "Runtime creature spawns should keep the configured horizon margin")
+	var wide_viewport := Vector2(3840.0, 2160.0)
+	var wide_half_diagonal := Vector2(wide_viewport.x / camera_zoom.x, wide_viewport.y / camera_zoom.y).length() * 0.5
+	var wide_horizon_distance := float(world.call("_calculate_creature_horizon_distance", wide_viewport, camera_zoom))
+	TEST_UTILS.expect(wide_horizon_distance > wide_half_diagonal, failures, "Large viewports should push the spawn horizon farther out instead of capping it inside the view")
 	world.free()
 
 

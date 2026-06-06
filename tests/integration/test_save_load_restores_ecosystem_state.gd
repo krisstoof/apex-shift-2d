@@ -54,7 +54,12 @@ func run() -> Array[String]:
 	var expected_health: float = float(player.stats.health)
 	var expected_wood: int = player.inventory.get_amount("wood")
 	var expected_fiber: int = player.inventory.get_amount("fiber")
-	var expected_biomass: float = float(ecosystem.get_biome_state(biome_id).get("plant_biomass", 0.0))
+	var expected_ecosystem_state: Dictionary = ecosystem.get_biome_state(biome_id)
+	var expected_biomass: float = float(expected_ecosystem_state.get("plant_biomass", 0.0))
+	var expected_small_prey_population: float = float(expected_ecosystem_state.get("small_prey_population", 0.0))
+	var expected_grazer_population: float = float(expected_ecosystem_state.get("grazer_population", 0.0))
+	var expected_small_prey_recovery: float = float(expected_ecosystem_state.get("small_prey_daily_recovery", 0.0))
+	var expected_grazer_recovery: float = float(expected_ecosystem_state.get("grazer_daily_recovery", 0.0))
 
 	save_system.call("save_game")
 	await tree.process_frame
@@ -65,6 +70,10 @@ func run() -> Array[String]:
 	player.inventory.add_item("fiber", 6)
 	day_night.call("debug_next_day")
 	ecosystem.call("debug_restore_plant_biomass", biome_point)
+	ecosystem.biome_states[biome_id]["small_prey_population"] = 1.0
+	ecosystem.biome_states[biome_id]["grazer_population"] = 1.0
+	ecosystem.biome_states[biome_id]["small_prey_daily_recovery"] = 0.0
+	ecosystem.biome_states[biome_id]["grazer_daily_recovery"] = 0.0
 	await tree.process_frame
 	await tree.process_frame
 
@@ -80,6 +89,10 @@ func run() -> Array[String]:
 	TEST_UTILS.expect_equal(player.inventory.get_amount("wood"), expected_wood, failures, "Wood inventory should be restored from save")
 	TEST_UTILS.expect_equal(player.inventory.get_amount("fiber"), expected_fiber, failures, "Fiber inventory should be restored from save")
 	TEST_UTILS.expect_close(float(ecosystem.get_biome_state(biome_id).get("plant_biomass", 0.0)), expected_biomass, failures, "Biome biomass should be restored from save")
+	TEST_UTILS.expect_close(float(ecosystem.get_biome_state(biome_id).get("small_prey_population", 0.0)), expected_small_prey_population, failures, "SmallPrey population should be restored from save")
+	TEST_UTILS.expect_close(float(ecosystem.get_biome_state(biome_id).get("grazer_population", 0.0)), expected_grazer_population, failures, "Grazer population should be restored from save")
+	TEST_UTILS.expect_close(float(ecosystem.get_biome_state(biome_id).get("small_prey_daily_recovery", 0.0)), expected_small_prey_recovery, failures, "SmallPrey recovery diagnostics should be restored from save")
+	TEST_UTILS.expect_close(float(ecosystem.get_biome_state(biome_id).get("grazer_daily_recovery", 0.0)), expected_grazer_recovery, failures, "Grazer recovery diagnostics should be restored from save")
 
 	var save_path := ProjectSettings.globalize_path("user://savegame.json")
 	if FileAccess.file_exists("user://savegame.json"):
