@@ -310,6 +310,8 @@ func _build_overview_text(profile: Dictionary) -> String:
 	var time_snapshot := Dictionary(snapshot.get("time", {}))
 	var debug_snapshot := Dictionary(snapshot.get("debug", {}))
 	var ecosystem_snapshot := Dictionary(snapshot.get("ecosystem", {}))
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	var varnak_population := Dictionary(world_snapshot.get("varnak_population", {}))
 	var lines: Array[String] = []
 	lines.append("Day %d | %s | night %.2f" % [
 		int(time_snapshot.get("day", _get_day())),
@@ -329,6 +331,12 @@ func _build_overview_text(profile: Dictionary) -> String:
 		int(debug_snapshot.get("live_varnaks", _get_cached_group_nodes("varnak").size())),
 		int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("small_prey_population", _get_ecosystem_population_total("small_prey_population"))),
 		int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("grazer_population", _get_ecosystem_population_total("grazer_population")))
+	])
+	lines.append("Varnak pressure: day %d | target %d | live %d | max %d" % [
+		int(varnak_population.get("day", time_snapshot.get("day", _get_day()))),
+		int(varnak_population.get("target", 0)),
+		int(varnak_population.get("live", debug_snapshot.get("live_varnaks", 0))),
+		int(varnak_population.get("max", 0))
 	])
 	lines.append("creatures_out_of_bounds_count = %d" % int(Dictionary(snapshot.get("world", {})).get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))
 	lines.append("Ecosystem warnings: %s" % str(ecosystem_snapshot.get("warnings_text", _get_ecosystem_warnings_text())))
@@ -433,11 +441,19 @@ func _build_ecosystem_text() -> String:
 
 
 func _build_creatures_text() -> String:
+	var snapshot := _get_snapshot()
+	var varnak_population := Dictionary(Dictionary(snapshot.get("world", {})).get("varnak_population", {}))
 	var lines: Array[String] = []
 	var varnaks := _get_cached_group_nodes("varnak")
 	lines.append("Creatures")
 	lines.append("creatures_out_of_bounds_count = %d" % _get_creatures_out_of_bounds_count())
 	lines.append_array(_get_population_aggregate_lines())
+	lines.append("Varnak population: day %d | target %d | live %d | max %d" % [
+		int(varnak_population.get("day", _get_day())),
+		int(varnak_population.get("target", 0)),
+		int(varnak_population.get("live", varnaks.size())),
+		int(varnak_population.get("max", 0))
+	])
 	lines.append("Varnaks %d | %s" % [varnaks.size(), _get_varnak_state_summary(varnaks)])
 	lines.append("SmallPrey visible %d | %s" % [
 		_get_cached_group_nodes("small_prey").size(),

@@ -170,6 +170,9 @@ class MockWorld:
 	func get_biome_texture_cache_status() -> Dictionary:
 		return {"sample_image_cache_count": 1, "accent_cache_count": 2, "pending_biomes": 0, "build_running": false}
 
+	func get_varnak_population_status() -> Dictionary:
+		return {"day": 4, "target": 5, "live": varnaks.size(), "max": 12, "spawn_chance": 0.76}
+
 	func is_landmark_debug_overlay_enabled() -> bool:
 		return true
 
@@ -249,6 +252,9 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	TEST_UTILS.expect_equal(int(Dictionary(player_snapshot.get("inventory", {})).get("torch", 0)), 2, failures, "Snapshot service should capture inventory amounts")
 	TEST_UTILS.expect_equal(str(world_snapshot.get("current_biome_name", "")), "Westwood", failures, "Snapshot service should resolve the current biome name")
 	TEST_UTILS.expect_equal(int(Dictionary(world_snapshot.get("building_counts", {})).get("traps", 0)), 2, failures, "Snapshot service should expose building counts for debug/UI")
+	var varnak_population := Dictionary(world_snapshot.get("varnak_population", {}))
+	TEST_UTILS.expect_equal(int(varnak_population.get("target", 0)), 5, failures, "Snapshot service should expose the current Varnak population target")
+	TEST_UTILS.expect_equal(int(varnak_population.get("max", 0)), 12, failures, "Snapshot service should expose the Varnak population hard limit")
 	TEST_UTILS.expect_equal(Array(markers.get("resources", [])).size(), 2, failures, "Snapshot service should expose only minimap/map resource markers that stay visible to the player")
 	TEST_UTILS.expect_equal(Array(markers.get("varnaks", [])).size(), 1, failures, "Snapshot service should expose varnak markers")
 	TEST_UTILS.expect_equal(int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("small_prey_population", 0)), 5, failures, "Snapshot service should aggregate ecosystem population totals")

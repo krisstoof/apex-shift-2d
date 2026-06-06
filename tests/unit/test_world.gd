@@ -31,12 +31,43 @@ func run() -> Array[String]:
 	_test_current_biome_texture_id_uses_player_position_biome(failures)
 	_test_cached_group_nodes_prune_freed_entries(failures)
 	_test_world_registry_tracks_spawned_nodes_and_prunes_freed_entries(failures)
+	_test_varnak_population_target_scales_with_day_and_caps(failures)
+	_test_varnak_spawn_chance_scales_with_day_and_caps(failures)
+	_test_varnak_spawn_budget_is_batched_and_stops_at_target(failures)
 	return failures
 
 
 func _test_world_rect_matches_config(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
 	TEST_UTILS.expect_equal(world.get_world_rect(), WORLD_CONFIG.WORLD_RECT, failures, "World rectangle should match world config")
+	world.free()
+
+
+func _test_varnak_population_target_scales_with_day_and_caps(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 1)), 2, failures, "Day 1 should keep the Varnak target low")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 2)), 3, failures, "Day 2 should raise the Varnak target")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 3)), 4, failures, "Day 3 should raise the Varnak target again")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 4)), 5, failures, "Later days should grow the target gradually")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 99)), 12, failures, "Varnak population target should respect the hard maximum")
+	world.free()
+
+
+func _test_varnak_spawn_chance_scales_with_day_and_caps(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var day_one_chance := float(world.call("_get_varnak_spawn_chance", 1))
+	var day_five_chance := float(world.call("_get_varnak_spawn_chance", 5))
+	var late_game_chance := float(world.call("_get_varnak_spawn_chance", 99))
+	TEST_UTILS.expect(day_five_chance > day_one_chance, failures, "Varnak spawn chance should increase with survived days")
+	TEST_UTILS.expect_close(late_game_chance, 0.90, failures, "Varnak spawn chance should respect its configured cap")
+	world.free()
+
+
+func _test_varnak_spawn_budget_is_batched_and_stops_at_target(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 0, 99)), 2, failures, "Missing Varnaks should be restored in small batches")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 11, 99)), 1, failures, "The final recovery batch should not exceed the hard target")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 12, 99)), 0, failures, "No Varnaks should spawn after reaching the hard target")
 	world.free()
 
 
