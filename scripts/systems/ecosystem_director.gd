@@ -521,11 +521,37 @@ func _update_biome_populations(state: Dictionary) -> void:
 	small_prey_delta -= predator_pressure * _ecosystem_value("small_prey_predation_rate")
 	if biomass_factor < _ecosystem_value("small_prey_collapse_biomass_factor"):
 		small_prey_delta -= _ecosystem_value("small_prey_collapse_loss_rate")
+
 	var grazer_delta: float = biomass_factor * _ecosystem_value("grazer_growth_rate")
 	grazer_delta -= food_stress * _ecosystem_value("grazer_starvation_rate") * (1.0 - clamp(omnivore_resilience, 0.0, _ecosystem_value("max_omnivore_resilience")))
 	grazer_delta -= predator_pressure * _ecosystem_value("grazer_predation_rate")
-	state["small_prey_population"] = clamp(small_prey_population + small_prey_delta, 0.0, _ecosystem_value("max_small_prey_population"))
-	state["grazer_population"] = clamp(grazer_population + grazer_delta, 0.0, _ecosystem_value("max_grazer_population"))
+
+	var small_prey_floor := 6.0
+	var grazer_floor := 3.0
+	var recovery_bonus := 0.65
+
+	if small_prey_population < small_prey_floor and biomass_factor >= 0.30:
+		var missing_small_prey_ratio: float = 1.0 - (small_prey_population / maxf(small_prey_floor, 1.0))
+		small_prey_delta += recovery_bonus * missing_small_prey_ratio
+
+	if grazer_population < grazer_floor and biomass_factor >= 0.35:
+		var missing_grazer_ratio: float = 1.0 - (grazer_population / maxf(grazer_floor, 1.0))
+		grazer_delta += recovery_bonus * missing_grazer_ratio
+
+	var small_prey_min_population := small_prey_floor if biomass_factor >= 0.30 else 0.0
+	var grazer_min_population := grazer_floor if biomass_factor >= 0.35 else 0.0
+
+	state["small_prey_population"] = clamp(
+		small_prey_population + small_prey_delta,
+		small_prey_min_population,
+		_ecosystem_value("max_small_prey_population")
+	)
+
+	state["grazer_population"] = clamp(
+		grazer_population + grazer_delta,
+		grazer_min_population,
+		_ecosystem_value("max_grazer_population")
+	)
 	var total_delta := small_prey_delta + grazer_delta
 	state["population_count"] = float(state.get("small_prey_population", 0.0)) + float(state.get("grazer_population", 0.0)) + varnak_population
 	state["birth_rate"] = max(total_delta, 0.0)
