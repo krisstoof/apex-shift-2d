@@ -119,20 +119,21 @@ const LIVING_WORLD := {
 # Varnak population pressure rises with survived days. Population recovery is
 # intentionally batched so a new day cannot create a large spawn spike.
 const VARNAK_DAY_SCALING := {
-	"day_1_min": 1,
-	"day_1_max": 2,
-	"day_2_min": 2,
-	"day_2_max": 3,
-	"day_3_min": 3,
+	"day_1_min": 0,
+	"day_1_max": 0,
+	"day_2_min": 1,
+	"day_2_max": 2,
+	"day_3_min": 2,
 	"day_3_max": 4,
 	"max_varnaks": 12,
 	"daily_growth": 1,
 	"spawn_check_interval_seconds": 10.0,
 	"spawn_batch_limit": 2,
-	"day_1_spawn_chance": 0.55,
+	"day_1_spawn_chance": 0.0,
+	"day_2_spawn_chance": 0.55,
 	"spawn_chance_daily_growth": 0.07,
-	"max_spawn_chance": 0.90,
-	"other_creature_min_distance": 180.0
+	"max_spawn_chance": 0.9,
+	"other_creature_min_distance": 140.0
 }
 
 # Food values and decision thresholds for living creatures. Future creature AI

@@ -2039,19 +2039,31 @@ func _get_current_day() -> int:
 
 
 func _get_varnak_target_count(day: int) -> int:
-	var safe_day := maxi(day, 1)
-	var scaling := GAME_BALANCE.VARNAK_DAY_SCALING
-	if safe_day == 1:
-		return int(scaling["day_1_max"])
-	if safe_day == 2:
-		return int(scaling["day_2_max"])
-	if safe_day == 3:
-		return int(scaling["day_3_max"])
-	var grown_target := int(scaling["day_3_max"]) + (safe_day - 3) * int(scaling["daily_growth"])
-	return mini(grown_target, int(scaling["max_varnaks"]))
+	if day < 2:
+		return 0
+
+	var scaling := GameBalance.VARNAK_DAY_SCALING
+	if day == 2:
+		return randi_range(
+			int(scaling.get("day_2_min", 1)),
+			int(scaling.get("day_2_max", 2))
+		)
+	if day == 3:
+		return randi_range(
+			int(scaling.get("day_3_min", 2)),
+			int(scaling.get("day_3_max", 3))
+		)
+
+	var day_3_max := int(scaling.get("day_3_max", 3))
+	var daily_growth := int(scaling.get("daily_growth", 1))
+	var max_varnaks := int(scaling.get("max_varnaks", 12))
+	return clampi(day_3_max + ((day - 3) * daily_growth), 0, max_varnaks)
 
 
 func _get_varnak_spawn_chance(day: int) -> float:
+	if day < 2:
+		return 0.0
+		
 	var scaling := GAME_BALANCE.VARNAK_DAY_SCALING
 	var daily_growth_steps := maxi(day - 1, 0)
 	return minf(
