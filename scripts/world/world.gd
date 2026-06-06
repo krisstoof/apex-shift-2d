@@ -19,6 +19,8 @@ const SMALL_PREY_VISIBLE_SPAWN_RADIUS := 850.0
 const SMALL_PREY_PLAYER_SAFE_DISTANCE := 240.0
 const SMALL_PREY_MIN_DISTANCE := 190.0
 const INITIAL_GRAZER_VISIBLE_COUNT := 3
+const GRAZER_MAX_VISIBLE_COUNT := 6
+const GRAZER_MAX_VISIBLE_PER_BIOME := 3
 const GRAZER_INITIAL_PLAYER_SAFE_DISTANCE := 720.0
 const VARNAK_MIN_DISTANCE := 360.0
 const GRAZER_VISIBLE_SPAWN_RADIUS := 1000.0
@@ -186,6 +188,7 @@ func _process(delta: float) -> void:
 	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
 		small_prey_spawn_timer = 0.0
 		_sync_visible_small_prey()
+		_sync_visible_grazers()
 	varnak_spawn_timer += delta
 	if varnak_spawn_timer >= _get_varnak_spawn_check_interval():
 		varnak_spawn_timer = 0.0
@@ -1309,12 +1312,13 @@ func _get_existing_small_prey_positions() -> Array[Vector2]:
 
 
 func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2], slot_index: int, slot_count: int) -> bool:
+	var spawn_ring := _get_creature_horizon_spawn_ring()
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
-		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(SMALL_PREY_PLAYER_SAFE_DISTANCE, SMALL_PREY_VISIBLE_SPAWN_RADIUS)
+		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):
 			continue
-		if not _is_valid_small_prey_position(candidate, used_positions, player_position):
+		if not _is_valid_small_prey_position(candidate, used_positions, player_position, spawn_ring.x):
 			continue
 		used_positions.append(candidate)
 		_spawn_small_prey_at(candidate, _get_biome_id(biome))
@@ -1322,7 +1326,7 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 	var player_limits: Vector2 = WORLD_CONFIG.get_player_limits()
 	for distance_step in 8:
 		var distance_factor: float = float(distance_step) / 7.0
-		var distance: float = lerp(SMALL_PREY_PLAYER_SAFE_DISTANCE, SMALL_PREY_VISIBLE_SPAWN_RADIUS, distance_factor)
+		var distance: float = lerp(spawn_ring.y, spawn_ring.x, distance_factor)
 		for angle_step in 48:
 			var angle: float = TAU * float(angle_step) / 48.0 + float(slot_index) * 0.21
 			var candidate: Vector2 = player_position + Vector2.RIGHT.rotated(angle) * distance
@@ -1330,26 +1334,21 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 			candidate.y = clamp(candidate.y, -player_limits.y, player_limits.y)
 			if not _is_point_in_biome(candidate, biome):
 				continue
-			if not _is_valid_small_prey_position(candidate, used_positions, player_position):
+			if not _is_valid_small_prey_position(candidate, used_positions, player_position, spawn_ring.x):
 				continue
 			used_positions.append(candidate)
 			_spawn_small_prey_at(candidate, _get_biome_id(biome))
 			return true
-	var fallback: Vector2 = _get_fallback_dry_creature_spawn_position(player_position)
-	if _is_point_in_biome(fallback, biome) and _is_valid_small_prey_position(fallback, used_positions, player_position):
-		used_positions.append(fallback)
-		_spawn_small_prey_at(fallback, _get_biome_id(biome))
-		return true
 	return false
 
 
-func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2, player_safe_distance: float = SMALL_PREY_PLAYER_SAFE_DISTANCE) -> bool:
 	return _is_valid_creature_spawn_position(
 		candidate,
 		used_positions,
 		SMALL_PREY_MIN_DISTANCE,
 		player_position,
-		SMALL_PREY_PLAYER_SAFE_DISTANCE
+		player_safe_distance
 	)
 
 
@@ -1542,6 +1541,56 @@ func _spawn_initial_grazers() -> void:
 			event_bus.post_message("%d Grazer%s dispersed into the ecosystem" % [spawned, "" if spawned == 1 else "s"])
 
 
+func _sync_visible_grazers() -> void:
+	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
+		return
+	var player_position := _get_player_position()
+	var player_biome := _get_biome_for_position(player_position)
+	if player_biome.is_empty():
+		return
+	var biome_id := _get_biome_id(player_biome)
+	var biome_state: Dictionary = ecosystem_director.get_biome_state(biome_id)
+	if biome_state.is_empty():
+		return
+	var desired_count := _get_desired_grazer_count(biome_state)
+	var current_biome_count := _get_visible_grazer_count(biome_id)
+	var global_count := get_registered_creatures_by_type("grazer").size()
+	var spawn_budget: int = min(desired_count - current_biome_count, GRAZER_MAX_VISIBLE_COUNT - global_count)
+	if spawn_budget <= 0:
+		return
+	var spawned := 0
+	var used_positions := _get_existing_grazer_positions()
+	for _i in spawn_budget:
+		if _try_spawn_grazer_near_player(player_biome, player_position, used_positions):
+			spawned += 1
+	if spawned > 0:
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("%d Grazer%s entered the ecosystem" % [spawned, "" if spawned == 1 else "s"])
+
+
+func _get_desired_grazer_count(biome_state: Dictionary) -> int:
+	var population := float(biome_state.get("grazer_population", 0.0))
+	var biomass_percent := float(biome_state.get("plant_biomass_percent", 0.0))
+	var target_population := float(GAME_BALANCE.POPULATION_RECOVERY["grazer_target_population"])
+	var population_factor: float = clamp(population / maxf(target_population, 1.0), 0.0, 1.0)
+	var biomass_factor: float = clamp(biomass_percent / 100.0, 0.0, 1.0)
+	var desired := int(round(float(GRAZER_MAX_VISIBLE_PER_BIOME) * population_factor * biomass_factor))
+	if population > 0.0 and biomass_percent >= 30.0:
+		desired = max(desired, 1)
+	return clampi(desired, 0, GRAZER_MAX_VISIBLE_PER_BIOME)
+
+
+func _get_visible_grazer_count(biome_id: String) -> int:
+	var count := 0
+	for grazer in get_registered_creatures_by_type("grazer"):
+		if not is_instance_valid(grazer):
+			continue
+		if _get_biome_id_for_position(grazer.global_position) == biome_id:
+			count += 1
+	return count
+
+
 func _get_initial_grazer_biomes() -> Array[Dictionary]:
 	var biomes: Array[Dictionary] = []
 	for biome_value in WORLD_CONFIG.get_biome_zones():
@@ -1578,12 +1627,13 @@ func _try_spawn_grazer_in_biome(biome: Dictionary, player_position: Vector2, use
 
 
 func _try_spawn_grazer_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
+	var spawn_ring := _get_creature_horizon_spawn_ring()
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
-		var offset := Vector2.RIGHT.rotated(grazer_rng.randf_range(0.0, TAU)) * grazer_rng.randf_range(GRAZER_PLAYER_SAFE_DISTANCE, GRAZER_VISIBLE_SPAWN_RADIUS)
+		var offset := Vector2.RIGHT.rotated(grazer_rng.randf_range(0.0, TAU)) * grazer_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):
 			continue
-		if not _is_valid_grazer_position(candidate, used_positions, player_position):
+		if not _is_valid_grazer_position(candidate, used_positions, player_position, spawn_ring.x):
 			continue
 		used_positions.append(candidate)
 		_spawn_grazer_at(candidate, _get_biome_id(biome))
@@ -1630,14 +1680,36 @@ func _get_visible_varnak_count(biome_id: String) -> int:
 	return count
 
 
-func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2, player_safe_distance: float = GRAZER_PLAYER_SAFE_DISTANCE) -> bool:
 	return _is_valid_creature_spawn_position(
 		candidate,
 		used_positions,
 		GRAZER_MIN_DISTANCE,
 		player_position,
-		GRAZER_PLAYER_SAFE_DISTANCE
+		player_safe_distance
 	)
+
+
+func _get_creature_horizon_spawn_ring() -> Vector2:
+	var viewport_size := get_viewport_rect().size
+	var camera_zoom := Vector2.ONE
+	var player := get_tree().get_first_node_in_group("player")
+	if player:
+		var camera := player.get_node_or_null("Camera2D") as Camera2D
+		if camera:
+			camera_zoom = camera.zoom
+	var minimum_distance := _calculate_creature_horizon_distance(viewport_size, camera_zoom)
+	var ring_width := float(GAME_BALANCE.CREATURE_SPAWN["horizon_ring_width"])
+	return Vector2(minimum_distance, minimum_distance + ring_width)
+
+
+func _calculate_creature_horizon_distance(viewport_size: Vector2, camera_zoom: Vector2) -> float:
+	var safe_zoom := Vector2(maxf(absf(camera_zoom.x), 0.01), maxf(absf(camera_zoom.y), 0.01))
+	var visible_world_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y)
+	var visible_half_diagonal := visible_world_size.length() * 0.5
+	var horizon_margin := float(GAME_BALANCE.CREATURE_SPAWN["horizon_margin"])
+	var fallback_distance := float(GAME_BALANCE.CREATURE_SPAWN["horizon_fallback_distance"])
+	return maxf(visible_half_diagonal + horizon_margin, fallback_distance)
 
 
 func _is_valid_initial_grazer_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
@@ -1678,24 +1750,14 @@ func _get_game_session() -> Node:
 
 
 func _try_spawn_varnak_in_dangerous_biome(player_position: Vector2, used_positions: Array[Vector2]) -> bool:
-	var dangerous_biomes: Array[Dictionary] = []
-	for biome_value in WORLD_CONFIG.BIOME_ZONES:
-		var biome := Dictionary(biome_value)
-		if biome.get("dangerous", false) == true:
-			dangerous_biomes.append(biome)
-	if dangerous_biomes.is_empty():
-		return false
+	var spawn_ring := _get_creature_horizon_spawn_ring()
 	for _attempt in WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS:
-		var biome_index := varnak_rng.randi_range(0, dangerous_biomes.size() - 1)
-		var biome: Dictionary = dangerous_biomes[biome_index]
-		var spawn_area := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
-		var candidate := Vector2(
-			varnak_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
-			varnak_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
-		)
-		if not _is_point_in_scaled_biome(candidate, biome):
+		var angle := varnak_rng.randf_range(0.0, TAU)
+		var distance := varnak_rng.randf_range(spawn_ring.x, spawn_ring.y)
+		var candidate := player_position + Vector2.RIGHT.rotated(angle) * distance
+		if not _is_point_in_dangerous_biome(candidate):
 			continue
-		if not _is_valid_varnak_spawn_position(candidate, player_position, used_positions):
+		if not _is_valid_varnak_spawn_position(candidate, player_position, used_positions, spawn_ring.x):
 			continue
 		used_positions.append(candidate)
 		var varnak := _spawn_varnak_at(candidate)
@@ -2010,12 +2072,12 @@ func _is_point_in_dangerous_biome(point: Vector2) -> bool:
 	return false
 
 
-func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2, used_positions: Array[Vector2] = []) -> bool:
+func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2, used_positions: Array[Vector2] = [], player_safe_distance: float = WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE) -> bool:
 	if not WORLD_CONFIG.WORLD_RECT.has_point(point):
 		return false
 	if is_creature_spawn_blocked_by_water(point):
 		return false
-	if point.distance_to(player_position) < WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE:
+	if point.distance_to(player_position) < player_safe_distance:
 		return false
 	for used_position in used_positions:
 		if point.distance_to(used_position) < VARNAK_MIN_DISTANCE:
@@ -2084,6 +2146,8 @@ func _get_varnak_spawn_check_interval() -> float:
 func _on_day_changed(_day: int) -> void:
 	varnak_spawn_timer = 0.0
 	call_deferred("_sync_visible_varnaks", true)
+	call_deferred("_sync_visible_small_prey")
+	call_deferred("_sync_visible_grazers")
 
 
 func _on_profile_changed(profile: Dictionary) -> void:

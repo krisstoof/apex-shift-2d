@@ -12,6 +12,7 @@ var wander_radius := 0.0
 var wander_reached_distance := 0.0
 var player_flee_range := 0.0
 var varnak_flee_range := 0.0
+var flee_duration_seconds := 0.0
 var low_biomass_percent := 0.0
 var eat_duration_seconds := 0.0
 var eat_visual_duration := 0.0
@@ -248,12 +249,16 @@ func _should_update_ai_decision(delta: float) -> bool:
 
 
 func _update_state() -> void:
-	flee_origin = _get_flee_origin()
-	if flee_origin != Vector2.INF:
+	var detected_flee_origin := _get_flee_origin()
+	if detected_flee_origin != Vector2.INF:
+		flee_origin = detected_flee_origin
 		decision_reason = "threat_detected"
 		_set_state(State.FLEE)
 		return
 	if state == State.FLEE:
+		if state_time > 0.0:
+			decision_reason = "threat_lost_keep_fleeing"
+			return
 		decision_reason = "threat_lost_return_wander"
 		_set_state(State.WANDER)
 		_pick_wander_target()
@@ -823,6 +828,8 @@ func _get_world_query():
 
 
 func _set_state(next_state: State) -> void:
+	if next_state == State.FLEE:
+		state_time = maxf(state_time, flee_duration_seconds)
 	if state == next_state:
 		return
 	state = next_state
@@ -1127,6 +1134,7 @@ func _initialize_from_game_balance() -> void:
 	wander_reached_distance = float(ai_config.get("wander_reached_distance", 22.0))
 	player_flee_range = float(ai_config.get("player_flee_range", 105.0))
 	varnak_flee_range = float(ai_config.get("varnak_flee_range", 220.0))
+	flee_duration_seconds = float(ai_config.get("flee_duration_seconds", 4.0))
 	low_biomass_percent = float(ai_config.get("low_biomass_percent", 35.0))
 	eat_duration_seconds = float(ai_config.get("eat_duration_seconds", 1.4))
 	eat_visual_duration = float(ai_config.get("eat_visual_duration", 0.55))

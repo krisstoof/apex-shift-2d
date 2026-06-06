@@ -369,6 +369,15 @@ func _test_grazer_takes_damage(failures: Array[String]) -> void:
 	grazer.take_damage(5.0, "player")
 	TEST_UTILS.expect(grazer.health < before_health, failures, "Damage should reduce grazer health")
 	TEST_UTILS.expect_equal(grazer.state, grazer.State.FLEE, failures, "Surviving damage should make grazer flee")
+	TEST_UTILS.expect_close(grazer.state_time, 4.0, failures, "Grazer should keep fleeing for the configured duration")
+	_neutralize_threats(grazer)
+	grazer.state_time = 1.0
+	grazer.call("_update_state")
+	TEST_UTILS.expect_equal(grazer.state, grazer.State.FLEE, failures, "Grazer should continue fleeing briefly after losing the threat")
+	TEST_UTILS.expect_equal(grazer.decision_reason, "threat_lost_keep_fleeing", failures, "Grazer should explain that it remembers the lost threat")
+	grazer.state_time = 0.0
+	grazer.call("_update_state")
+	TEST_UTILS.expect_equal(grazer.state, grazer.State.WANDER, failures, "Grazer should return to wandering after the flee timer expires")
 	grazer.queue_free()
 
 
