@@ -988,10 +988,15 @@ func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
 
 
 func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
-	var amount := _get_meat_drop_amount(animal_kind)
+	var amount: int = _get_meat_drop_amount(animal_kind)
 	if amount <= 0:
 		return null
-	var node := _spawn_resource_at("meat_drop", _clamp_position_to_world(drop_position))
+	var initial_position: Vector2 = _clamp_position_to_world(drop_position)
+	# Ensure meat drop does not spawn in water or hills
+	var safe_position: Vector2 = _get_safe_restored_resource_position("meat_drop", initial_position)
+	if is_resource_position_blocked_by_water("meat_drop", safe_position):
+		push_warning("Meat drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
+	var node: Node = _spawn_resource_at("meat_drop", safe_position)
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
 	var event_bus := _get_event_bus()
@@ -1280,6 +1285,14 @@ func _sync_visible_small_prey() -> void:
 		var event_bus := _get_event_bus()
 		if event_bus:
 			event_bus.post_message("%d SmallPrey entered the ecosystem" % spawned)
+	elif spawned < spawn_budget:
+		push_warning("Failed to spawn %d out of %d SmallPrey" % [spawn_budget - spawned, spawn_budget])
+	elif spawned < spawn_budget:
+		push_warning("Failed to spawn %d out of %d SmallPrey" % [spawn_budget - spawned, spawn_budget])
+	elif spawned < spawn_budget:
+		push_warning("Failed to spawn %d out of %d SmallPrey" % [spawn_budget - spawned, spawn_budget])
+	elif spawned < spawn_budget:
+		push_warning("Failed to spawn %d out of %d SmallPrey" % [spawn_budget - spawned, spawn_budget])
 
 
 func _get_desired_small_prey_count(biome: Dictionary, biome_state: Dictionary) -> int:
@@ -1568,6 +1581,8 @@ func _sync_visible_grazers() -> void:
 		var event_bus := _get_event_bus()
 		if event_bus:
 			event_bus.post_message("%d Grazer%s entered the ecosystem" % [spawned, "" if spawned == 1 else "s"])
+	elif spawned < spawn_budget:
+		push_warning("Failed to spawn %d out of %d Grazers" % [spawn_budget - spawned, spawn_budget])
 
 
 func _get_desired_grazer_count(biome_state: Dictionary) -> int:
@@ -1796,6 +1811,12 @@ func _sync_visible_varnaks(force_spawn_check := false) -> void:
 		var event_bus := _get_event_bus()
 		if event_bus:
 			event_bus.post_message("Varnak population increased by %d" % spawned)
+	elif spawned < spawn_budget:
+		push_warning("Failed to spawn %d out of %d Varnaks" % [spawn_budget - spawned, spawn_budget])
+	elif spawned < spawn_budget:
+		push_warning("Failed to spawn %d out of %d Varnaks" % [spawn_budget - spawned, spawn_budget])
+	elif spawned < spawn_budget:
+		push_warning("Failed to spawn %d out of %d Varnaks" % [spawn_budget - spawned, spawn_budget])
 
 
 func respawn_missing_varnaks() -> void:
