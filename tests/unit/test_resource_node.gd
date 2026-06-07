@@ -7,7 +7,9 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_resource_node_setup_exposes_herbivore_food(failures)
+	_test_resource_node_marks_grass_as_render_only_and_edible(failures)
 	_test_resource_node_restore_recreates_edible_food_value(failures)
+	_test_resource_node_restore_defaults_render_only_for_legacy_saves(failures)
 	_test_resource_node_syncs_collision_radius_with_growth(failures)
 	_test_resource_node_uses_shared_atlas_and_depleted_region(failures)
 	return failures
@@ -50,6 +52,29 @@ func _test_resource_node_restore_recreates_edible_food_value(failures: Array[Str
 	resource.free()
 
 
+func _test_resource_node_marks_grass_as_render_only_and_edible(failures: Array[String]) -> void:
+	for kind in ["grass_patch", "dense_grass"]:
+		var resource := RESOURCE_NODE_SCENE.instantiate()
+		resource.call("setup", kind)
+		TEST_UTILS.expect_equal(resource.call("is_render_only_resource"), true, failures, "%s should be render-only" % kind)
+		TEST_UTILS.expect_equal(resource.get("player_harvestable"), false, failures, "%s should not be player harvestable" % kind)
+		TEST_UTILS.expect_equal(str(resource.call("get_prompt")), "", failures, "%s should not show a player prompt" % kind)
+		TEST_UTILS.expect(resource.is_in_group("grass"), failures, "%s should remain in the grass group" % kind)
+		TEST_UTILS.expect(resource.is_in_group("vegetation"), failures, "%s should remain in the vegetation group" % kind)
+		TEST_UTILS.expect(resource.is_in_group("edible_vegetation"), failures, "%s should stay edible for herbivores" % kind)
+		TEST_UTILS.expect(resource.get("is_edible_by_herbivores") == true, failures, "%s should stay edible for herbivores after setup" % kind)
+		var collision_shape := resource.get_node("CollisionShape2D") as CollisionShape2D
+		TEST_UTILS.expect(collision_shape != null, failures, "%s should have a collision shape" % kind)
+		if collision_shape != null:
+			TEST_UTILS.expect_equal(collision_shape.disabled, true, failures, "%s should disable collision in render-only mode" % kind)
+		var eaten := float(resource.call("consume_by_creature", null, 1.0))
+		TEST_UTILS.expect(eaten > 0.0, failures, "%s should still be edible by herbivores" % kind)
+		TEST_UTILS.expect_equal(int(resource.get("growth_stage")), 2, failures, "%s should regrow after herbivore consumption" % kind)
+		if collision_shape != null:
+			TEST_UTILS.expect_equal(collision_shape.disabled, true, failures, "%s should keep collision disabled after consumption" % kind)
+		resource.free()
+
+
 func _test_resource_node_syncs_collision_radius_with_growth(failures: Array[String]) -> void:
 	var resource := RESOURCE_NODE_SCENE.instantiate()
 	resource.call("setup", "bush")
@@ -63,6 +88,56 @@ func _test_resource_node_syncs_collision_radius_with_growth(failures: Array[Stri
 	if circle != null:
 		TEST_UTILS.expect_close(circle.radius, float(resource.get("radius")), failures, "Bush collision radius should stay synced after growth stage changes")
 	resource.free()
+
+
+func _test_resource_node_restore_defaults_render_only_for_legacy_saves(failures: Array[String]) -> void:
+	var grass_resource := RESOURCE_NODE_SCENE.instantiate()
+	grass_resource.call("setup", "grass_patch")
+	grass_resource.call("restore_from_data", {
+		"biome_id": "hearth_meadow",
+		"mature_amount": 1,
+		"amount": 1,
+		"growth_stage": 3,
+		"max_growth_stage": 3,
+		"growth_progress": 0.0,
+		"days_to_next_stage": 1.0,
+		"days_since_harvested": 0.0,
+		"is_harvested": false,
+		"can_be_harvested": false,
+		"player_harvestable": false,
+		"is_edible_by_herbivores": true,
+		"food_value": 0.2,
+		"is_pond_vegetation": false,
+		"pond_id": "",
+		"food_bonus_multiplier": 1.0,
+		"pond_visual_multiplier": 1.0
+	})
+	TEST_UTILS.expect_equal(grass_resource.get("render_only"), true, failures, "Legacy grass saves should restore render-only mode automatically")
+	grass_resource.free()
+
+	var bush_resource := RESOURCE_NODE_SCENE.instantiate()
+	bush_resource.call("setup", "bush")
+	bush_resource.call("restore_from_data", {
+		"biome_id": "hearth_meadow",
+		"mature_amount": 2,
+		"amount": 2,
+		"growth_stage": 3,
+		"max_growth_stage": 3,
+		"growth_progress": 0.0,
+		"days_to_next_stage": 1.0,
+		"days_since_harvested": 0.0,
+		"is_harvested": false,
+		"can_be_harvested": true,
+		"player_harvestable": true,
+		"is_edible_by_herbivores": true,
+		"food_value": 0.45,
+		"is_pond_vegetation": false,
+		"pond_id": "",
+		"food_bonus_multiplier": 1.0,
+		"pond_visual_multiplier": 1.0
+	})
+	TEST_UTILS.expect_equal(bush_resource.get("render_only"), false, failures, "Legacy non-grass saves should stay interactive after restore")
+	bush_resource.free()
 
 
 func _test_resource_node_uses_shared_atlas_and_depleted_region(failures: Array[String]) -> void:

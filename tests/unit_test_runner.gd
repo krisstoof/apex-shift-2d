@@ -28,32 +28,36 @@ const SAVE_SYSTEM_TESTS := preload("res://tests/unit/test_save_system.gd")
 
 
 func _ready() -> void:
+	call_deferred("_run_tests")
+
+
+func _run_tests() -> void:
 	var failures: Array[String] = []
-	_run_suite("WorldConfig", WORLD_CONFIG_TESTS.new(), failures)
-	_run_suite("World", WORLD_TESTS.new(), failures)
-	_run_suite("WorldQueryService", WORLD_QUERY_SERVICE_TESTS.new(), failures)
-	_run_suite("WorldRenderController", WORLD_RENDER_CONTROLLER_TESTS.new(), failures)
-	_run_suite("LandmarkService", LANDMARK_SERVICE_TESTS.new(), failures)
-	_run_suite("ResourceService", RESOURCE_SERVICE_TESTS.new(), failures)
-	_run_suite("BenchmarkRunner", BENCHMARK_RUNNER_TESTS.new(), failures)
-	_run_suite("GameSession", GAME_SESSION_TESTS.new(), failures)
-	_run_suite("HungerDiet", HUNGER_DIET_TESTS.new(), failures)
-	_run_suite("ResourceNode", RESOURCE_NODE_TESTS.new(), failures)
-	_run_suite("EcosystemDirector", ECOSYSTEM_DIRECTOR_TESTS.new(), failures)
-	_run_suite("EcosystemCommandDelta", ECOSYSTEM_COMMAND_DELTA_TESTS.new(), failures)
-	_run_suite("Player", PLAYER_TESTS.new(), failures)
-	_run_suite("HUD", HUD_TESTS.new(), failures)
-	_run_suite("LoadingOverlay", LOADING_OVERLAY_TESTS.new(), failures)
-	_run_suite("Minimap", MINIMAP_TESTS.new(), failures)
-	_run_suite("MapScreen", MAP_SCREEN_TESTS.new(), failures)
-	_run_suite("WorldSnapshotService", WORLD_SNAPSHOT_SERVICE_TESTS.new(), failures)
-	_run_suite("DebugPanel", DEBUG_PANEL_TESTS.new(), failures)
-	_run_suite("StartMenu", START_MENU_TESTS.new(), failures)
-	_run_suite("GraphicsSettings", GRAPHICS_SETTINGS_TESTS.new(), failures)
-	_run_suite("SmallPrey", SMALL_PREY_TESTS.new(), failures)
-	_run_suite("Grazer", GRAZER_TESTS.new(), failures)
-	_run_suite("Varnak", VARNAK_TESTS.new(), failures)
-	_run_suite("SaveSystem", SAVE_SYSTEM_TESTS.new(), failures)
+	await _run_suite("WorldConfig", WORLD_CONFIG_TESTS.new(), failures)
+	await _run_suite("World", WORLD_TESTS.new(), failures)
+	await _run_suite("WorldQueryService", WORLD_QUERY_SERVICE_TESTS.new(), failures)
+	await _run_suite("WorldRenderController", WORLD_RENDER_CONTROLLER_TESTS.new(), failures)
+	await _run_suite("LandmarkService", LANDMARK_SERVICE_TESTS.new(), failures)
+	await _run_suite("ResourceService", RESOURCE_SERVICE_TESTS.new(), failures)
+	await _run_suite("BenchmarkRunner", BENCHMARK_RUNNER_TESTS.new(), failures)
+	await _run_suite("GameSession", GAME_SESSION_TESTS.new(), failures)
+	await _run_suite("HungerDiet", HUNGER_DIET_TESTS.new(), failures)
+	await _run_suite("ResourceNode", RESOURCE_NODE_TESTS.new(), failures)
+	await _run_suite("EcosystemDirector", ECOSYSTEM_DIRECTOR_TESTS.new(), failures)
+	await _run_suite("EcosystemCommandDelta", ECOSYSTEM_COMMAND_DELTA_TESTS.new(), failures)
+	await _run_suite("Player", PLAYER_TESTS.new(), failures)
+	await _run_suite("HUD", HUD_TESTS.new(), failures)
+	await _run_suite("LoadingOverlay", LOADING_OVERLAY_TESTS.new(), failures)
+	await _run_suite("Minimap", MINIMAP_TESTS.new(), failures)
+	await _run_suite("MapScreen", MAP_SCREEN_TESTS.new(), failures)
+	await _run_suite("WorldSnapshotService", WORLD_SNAPSHOT_SERVICE_TESTS.new(), failures)
+	await _run_suite("DebugPanel", DEBUG_PANEL_TESTS.new(), failures)
+	await _run_suite("StartMenu", START_MENU_TESTS.new(), failures)
+	await _run_suite("GraphicsSettings", GRAPHICS_SETTINGS_TESTS.new(), failures)
+	await _run_suite("SmallPrey", SMALL_PREY_TESTS.new(), failures)
+	await _run_suite("Grazer", GRAZER_TESTS.new(), failures)
+	await _run_suite("Varnak", VARNAK_TESTS.new(), failures)
+	await _run_suite("SaveSystem", SAVE_SYSTEM_TESTS.new(), failures)
 	if failures.is_empty():
 		print("[UnitTests] All helper tests passed.")
 		get_tree().quit(0)
@@ -68,7 +72,12 @@ func _run_suite(name: String, suite: Object, failures: Array[String]) -> void:
 	if not suite.has_method("run"):
 		failures.append("%s suite does not implement run()" % name)
 		return
-	var suite_failures: Array[String] = suite.call("run")
+	var suite_result: Variant = await suite.call("run")
+	if typeof(suite_result) != TYPE_ARRAY:
+		failures.append("%s suite setup failed or returned an invalid result" % name)
+		print("[UnitTests] %s: setup failed" % name)
+		return
+	var suite_failures: Array[String] = Array(suite_result)
 	if suite_failures.is_empty():
 		print("[UnitTests] %s: OK" % name)
 		return

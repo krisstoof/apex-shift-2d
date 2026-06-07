@@ -267,12 +267,7 @@ func _test_map_screen_reads_registry_resources_and_varnaks(failures: Array[Strin
 
 func _test_map_screen_builds_texture_outside_draw_path(failures: Array[String]) -> void:
 	var map_screen := _make_map_screen()
-	map_screen.bind(
-		MockPlayer.new(),
-		MockEvolutionDirector.new(),
-		MockDayNightSystem.new(),
-		Rect2(Vector2(-240.0, -160.0), Vector2(480.0, 320.0)),
-		[{
+	var biome_zones_config: Array[Dictionary] = [{
 		"name": "Test Biome",
 		"points": PackedVector2Array([
 			Vector2(-240.0, -160.0),
@@ -281,8 +276,15 @@ func _test_map_screen_builds_texture_outside_draw_path(failures: Array[String]) 
 			Vector2(-240.0, 160.0)
 		]),
 		"color": Color(0.2, 0.4, 0.2)
-		}],
-		[],
+	}]
+	var landmarks: Array[Dictionary] = []
+	map_screen.bind(
+		MockPlayer.new(),
+		MockEvolutionDirector.new(),
+		MockDayNightSystem.new(),
+		Rect2(Vector2(-240.0, -160.0), Vector2(480.0, 320.0)),
+		biome_zones_config,
+		landmarks,
 		MockSnapshotService.new()
 	)
 	TEST_UTILS.expect_equal(map_screen.get("map_screen_texture_build_count"), 1, failures, "Map screen should build its biome texture outside _draw()")

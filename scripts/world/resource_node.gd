@@ -36,6 +36,7 @@ var can_be_harvested := true
 var player_harvestable := true
 var is_edible_by_herbivores := false
 var food_value := 0.0
+var render_only := false
 var is_pond_vegetation := false
 var pond_id := ""
 var food_bonus_multiplier := 1.0
@@ -59,6 +60,7 @@ func setup(kind: String) -> void:
 	resource_kind = "conifer_tree" if kind == "tree" else kind
 	biome_id = _get_biome_id_for_position(global_position)
 	player_harvestable = true
+	render_only = false
 	food_value = 0.0
 	match kind:
 		"tree", "conifer_tree":
@@ -113,6 +115,7 @@ func setup(kind: String) -> void:
 			item_name = "grass"
 			mature_amount = 1
 			player_harvestable = false
+			render_only = true
 			mature_color = Color(0.34, 0.78, 0.27)
 			mature_radius = 8.0
 			food_value = float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2))
@@ -120,6 +123,7 @@ func setup(kind: String) -> void:
 			item_name = "grass"
 			mature_amount = 1
 			player_harvestable = false
+			render_only = true
 			mature_color = Color(0.25, 0.68, 0.20)
 			mature_radius = 12.0
 			food_value = float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2)) * 1.5
@@ -174,6 +178,7 @@ func get_save_data() -> Dictionary:
 		"player_harvestable": player_harvestable,
 		"is_edible_by_herbivores": is_edible_by_herbivores,
 		"food_value": food_value,
+		"render_only": render_only,
 		"is_pond_vegetation": is_pond_vegetation,
 		"pond_id": pond_id,
 		"food_bonus_multiplier": food_bonus_multiplier,
@@ -192,6 +197,7 @@ func restore_from_data(data: Dictionary) -> void:
 	is_harvested = data.get("is_harvested", growth_stage <= 0) == true
 	can_be_harvested = data.get("can_be_harvested", growth_stage > 0) == true
 	food_value = max(float(data.get("food_value", food_value)), 0.0)
+	render_only = data.get("render_only", _is_render_only_kind()) == true
 	if food_value <= 0.0:
 		food_value = _get_default_herbivore_food_value()
 	is_pond_vegetation = data.get("is_pond_vegetation", false) == true
@@ -287,7 +293,7 @@ func _apply_growth_stage() -> void:
 	_sync_collision_shape_radius()
 	var shape := _get_collision_shape()
 	if shape:
-		shape.set_deferred("disabled", not player_harvestable or not can_be_harvested)
+		shape.disabled = render_only or not player_harvestable or not can_be_harvested
 	_sync_resource_groups()
 	_sync_visual_sprite()
 	queue_redraw()
@@ -439,6 +445,14 @@ func _uses_regrowth() -> bool:
 
 func _get_resource_label() -> String:
 	return str(resource_kind).replace("_", " ")
+
+
+func is_render_only_resource() -> bool:
+	return render_only
+
+
+func _is_render_only_kind() -> bool:
+	return resource_kind in ["grass_patch", "dense_grass"]
 
 
 func _sync_resource_groups() -> void:
