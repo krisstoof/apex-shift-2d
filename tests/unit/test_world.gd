@@ -19,6 +19,42 @@ class FixedRenderControllerStub:
 	extends RefCounted
 
 	var should_redraw := false
+	var biome_surface_color_getter: Callable = Callable()
+	var biome_blend_texture: ImageTexture
+	var biome_blend_colors_key := ""
+	var biome_blend_texture_rebuild_count: int = 0
+	var biome_blend_texture_last_build_ms: float = 0.0
+	var biome_blend_texture_rebuild_blocked_count: int = 0
+	var biome_blend_texture_dirty_key := ""
+	var freeze_blend_texture_after_first_build := true
+
+	func bind_world(
+		_world_rect: Rect2,
+		_biome_zones_getter: Callable,
+		_biome_colors_key_getter: Callable,
+		assigned_biome_surface_color_getter: Callable,
+		_biome_texture_size: Vector2i = Vector2i(384, 236),
+		_world_redraw_interval := 0.20,
+		_night_redraw_min_delta := 0.03
+	) -> void:
+		biome_surface_color_getter = assigned_biome_surface_color_getter
+
+	func ensure_biome_blend_texture() -> ImageTexture:
+		if biome_blend_texture == null:
+			biome_blend_texture = ImageTexture.create_from_image(Image.create(2, 2, false, Image.FORMAT_RGBA8))
+		biome_blend_texture_rebuild_count += 1
+		return biome_blend_texture
+
+	func get_biome_texture_cache_status() -> Dictionary:
+		return {
+			"has_texture": biome_blend_texture != null,
+			"colors_key": biome_blend_colors_key,
+			"rebuild_count": biome_blend_texture_rebuild_count,
+			"last_build_ms": biome_blend_texture_last_build_ms,
+			"rebuild_blocked_count": biome_blend_texture_rebuild_blocked_count,
+			"dirty_key_pending": not biome_blend_texture_dirty_key.is_empty(),
+			"freeze_after_first_build": freeze_blend_texture_after_first_build
+		}
 
 	func process(_delta: float, _current_night_amount: float) -> bool:
 		return should_redraw

@@ -6,15 +6,15 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
-	_test_debug_panel_starts_closed_without_processing(failures)
-	_test_debug_panel_open_and_close_toggle_processing(failures)
-	_test_debug_panel_skips_heavy_refresh_when_hidden(failures)
-	_test_population_recovery_debug_lines_explain_population_changes(failures)
+	await _test_debug_panel_starts_closed_without_processing(failures)
+	await _test_debug_panel_open_and_close_toggle_processing(failures)
+	await _test_debug_panel_skips_heavy_refresh_when_hidden(failures)
+	await _test_population_recovery_debug_lines_explain_population_changes(failures)
 	return failures
 
 
 func _test_debug_panel_starts_closed_without_processing(failures: Array[String]) -> void:
-	var hud: CanvasLayer = _instantiate_hud()
+	var hud: CanvasLayer = await _instantiate_hud()
 	if hud == null:
 		failures.append("HUD scene should instantiate for debug panel tests")
 		return
@@ -25,7 +25,7 @@ func _test_debug_panel_starts_closed_without_processing(failures: Array[String])
 
 
 func _test_debug_panel_open_and_close_toggle_processing(failures: Array[String]) -> void:
-	var hud: CanvasLayer = _instantiate_hud()
+	var hud: CanvasLayer = await _instantiate_hud()
 	if hud == null:
 		failures.append("HUD scene should instantiate for debug panel toggle tests")
 		return
@@ -42,7 +42,7 @@ func _test_debug_panel_open_and_close_toggle_processing(failures: Array[String])
 
 
 func _test_debug_panel_skips_heavy_refresh_when_hidden(failures: Array[String]) -> void:
-	var hud: CanvasLayer = _instantiate_hud()
+	var hud: CanvasLayer = await _instantiate_hud()
 	if hud == null:
 		failures.append("HUD scene should instantiate for hidden debug panel tests")
 		return
@@ -57,7 +57,7 @@ func _test_debug_panel_skips_heavy_refresh_when_hidden(failures: Array[String]) 
 
 
 func _test_population_recovery_debug_lines_explain_population_changes(failures: Array[String]) -> void:
-	var hud: CanvasLayer = _instantiate_hud()
+	var hud: CanvasLayer = await _instantiate_hud()
 	if hud == null:
 		failures.append("HUD scene should instantiate for population recovery debug tests")
 		return
@@ -84,5 +84,7 @@ func _instantiate_hud() -> CanvasLayer:
 	if tree == null or tree.root == null:
 		return null
 	var hud := HUD_SCENE.instantiate() as CanvasLayer
-	tree.root.add_child(hud)
+	tree.root.call_deferred("add_child", hud)
+	await tree.process_frame
+	await tree.process_frame
 	return hud

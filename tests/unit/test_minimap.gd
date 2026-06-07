@@ -171,7 +171,8 @@ func _test_minimap_builds_texture_outside_draw_path(failures: Array[String]) -> 
 		]),
 		"color": Color(0.2, 0.4, 0.2)
 	}]
-	minimap.bind(player, Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0)), biome_zones, [], MockSnapshotService.new())
+	var landmarks: Array[Dictionary] = []
+	minimap.bind(player, Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0)), biome_zones, landmarks, MockSnapshotService.new())
 	TEST_UTILS.expect_equal(minimap.get("minimap_texture_build_count"), 1, failures, "Minimap should build its biome texture outside _draw()")
 	TEST_UTILS.expect(float(minimap.get("minimap_texture_last_build_ms")) >= 0.0, failures, "Minimap should track the last biome texture build time")
 	minimap.free()
