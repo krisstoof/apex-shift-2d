@@ -207,6 +207,7 @@ func _ready() -> void:
 	_set_boot_progress("Finalizing world...", 0.98)
 	boot_ready = true
 	_set_boot_progress("World ready", 1.0)
+	_sync_biome_blend_background()
 	world_initialized.emit()
 	queue_redraw()
 
@@ -231,8 +232,8 @@ func _process(delta: float) -> void:
 		_sync_visible_varnaks()
 	var current_night_amount := _get_night_amount()
 	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
-	_sync_biome_blend_background()
 	if should_redraw_background:
+		_sync_biome_blend_background()
 		queue_redraw()
 	_update_night_overlay(current_night_amount)
 
@@ -307,6 +308,9 @@ func get_biome_texture_cache_status() -> Dictionary:
 		"has_blend_texture": bool(render_state.get("has_texture", false)),
 		"blend_colors_key": str(render_state.get("colors_key", "")),
 		"blend_texture_size": render_state.get("size", Vector2i.ZERO),
+		"rebuild_blocked_count": int(render_state.get("rebuild_blocked_count", 0)),
+		"dirty_key_pending": bool(render_state.get("dirty_key_pending", false)),
+		"freeze_after_first_build": bool(render_state.get("freeze_after_first_build", false)),
 		"world_biome_texture_build_count": world_biome_texture_build_count,
 		"world_biome_texture_last_build_ms": world_biome_texture_last_build_ms
 	}
@@ -676,7 +680,8 @@ func debug_toggle_biome_textures() -> bool:
 
 func debug_rebuild_biome_texture_cache() -> void:
 	biome_sample_images.clear()
-	_ensure_render_controller().invalidate_biome_blend_texture()
+	_ensure_render_controller().force_rebuild_biome_blend_texture()
+	_sync_biome_blend_background()
 	_queue_biome_terrain_accent_cache_rebuild()
 	queue_redraw()
 

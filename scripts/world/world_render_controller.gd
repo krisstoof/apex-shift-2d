@@ -14,10 +14,13 @@ var world_redraw_interval := 0.20
 var night_redraw_min_delta := 0.03
 var world_background_redraw_timer := 0.0
 var last_drawn_night_amount := -1.0
+var freeze_blend_texture_after_first_build := true
 
 # HITCH LOGGER COUNTERS
 var biome_blend_texture_rebuild_count: int = 0
 var biome_blend_texture_last_build_ms: float = 0.0
+var biome_blend_texture_rebuild_blocked_count: int = 0
+var biome_blend_texture_dirty_key := ""
 
 
 func bind_world(
@@ -55,15 +58,29 @@ func get_biome_texture_cache_status() -> Dictionary:
 		"colors_key": biome_blend_colors_key,
 		"size": biome_texture_size,
 		"rebuild_count": biome_blend_texture_rebuild_count,
-		"last_build_ms": biome_blend_texture_last_build_ms
+		"last_build_ms": biome_blend_texture_last_build_ms,
+		"rebuild_blocked_count": biome_blend_texture_rebuild_blocked_count,
+		"dirty_key_pending": not biome_blend_texture_dirty_key.is_empty(),
+		"freeze_after_first_build": freeze_blend_texture_after_first_build
 	}
 
 
 func ensure_biome_blend_texture() -> ImageTexture:
 	var current_key := _get_biome_colors_key()
 	if biome_blend_texture != null and biome_blend_colors_key == current_key:
+		biome_blend_texture_dirty_key = ""
 		return biome_blend_texture
+	if biome_blend_texture != null and freeze_blend_texture_after_first_build:
+		biome_blend_texture_dirty_key = current_key
+		biome_blend_texture_rebuild_blocked_count += 1
+		return biome_blend_texture
+	return _rebuild_biome_blend_texture(current_key)
 
+func force_rebuild_biome_blend_texture() -> ImageTexture:
+	return _rebuild_biome_blend_texture(_get_biome_colors_key())
+
+
+func _rebuild_biome_blend_texture(current_key: String) -> ImageTexture:
 	# Track blend texture rebuild timing for hitch logging.
 	var build_start_ms: int = Time.get_ticks_msec()
 	var biome_zones: Array = []
@@ -81,6 +98,7 @@ func ensure_biome_blend_texture() -> ImageTexture:
 
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
+	biome_blend_texture_dirty_key = ""
 	biome_blend_texture_rebuild_count += 1
 	biome_blend_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 	return biome_blend_texture
@@ -89,6 +107,7 @@ func ensure_biome_blend_texture() -> ImageTexture:
 func invalidate_biome_blend_texture() -> void:
 	biome_blend_texture = null
 	biome_blend_colors_key = ""
+	biome_blend_texture_dirty_key = ""
 
 
 func _get_biome_colors_key() -> String:

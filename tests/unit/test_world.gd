@@ -15,6 +15,15 @@ class CountingWorld:
 		sync_calls += 1
 
 
+class FixedRenderControllerStub:
+	extends RefCounted
+
+	var should_redraw := false
+
+	func process(_delta: float, _current_night_amount: float) -> bool:
+		return should_redraw
+
+
 class MockSmallPreyEcosystemDirector:
 	extends Node
 
@@ -118,6 +127,7 @@ func run() -> Array[String]:
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
 	_test_world_builds_cached_biome_blend_texture(failures)
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
+	_test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures)
 	_test_small_prey_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_varnak_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
@@ -537,6 +547,9 @@ func _test_biome_texture_cache_status_reports_runtime_flags(failures: Array[Stri
 	TEST_UTILS.expect_equal(int(status.get("pending_biomes", 0)), 1, failures, "Biome texture cache status should report queued biome rebuilds")
 	TEST_UTILS.expect(status.get("build_running", false) == true, failures, "Biome texture cache status should expose whether the cache builder is running")
 	TEST_UTILS.expect(status.get("textures_enabled", true) == false, failures, "Biome texture cache status should expose whether biome textures are enabled")
+	TEST_UTILS.expect_equal(int(status.get("rebuild_blocked_count", 0)), 0, failures, "Biome texture cache status should report blocked rebuild attempts")
+	TEST_UTILS.expect_equal(bool(status.get("dirty_key_pending", false)), false, failures, "Biome texture cache status should report that no dirty key is pending yet")
+	TEST_UTILS.expect_equal(bool(status.get("freeze_after_first_build", false)), true, failures, "Biome texture cache status should report that rebuilds freeze after the first build")
 	world.free()
 
 
@@ -564,6 +577,24 @@ func _test_world_draw_biomes_uses_existing_background_texture(failures: Array[St
 	var sync_calls_before := world.sync_calls
 	world.call("_draw_biomes")
 	TEST_UTILS.expect_equal(world.sync_calls, sync_calls_before, failures, "World draw path should reuse the cached biome background instead of rebuilding it")
+	world.free()
+
+
+func _test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures: Array[String]) -> void:
+	var world := CountingWorld.new()
+	world.render_controller = FixedRenderControllerStub.new()
+	world.night_overlay_polygon = Polygon2D.new()
+	world.small_prey_spawn_timer = 0.0
+	world.varnak_spawn_timer = 0.0
+	world.small_prey_failed_spawn_retry_timer = 0.0
+	world.varnak_failed_spawn_retry_timer = 0.0
+	var controller: FixedRenderControllerStub = world.render_controller
+	controller.should_redraw = false
+	world._process(0.05)
+	TEST_UTILS.expect_equal(world.sync_calls, 0, failures, "World process should not sync the biome background when the render controller does not request a redraw")
+	controller.should_redraw = true
+	world._process(0.05)
+	TEST_UTILS.expect_equal(world.sync_calls, 1, failures, "World process should sync the biome background only when the render controller requests a redraw")
 	world.free()
 
 
