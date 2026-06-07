@@ -63,6 +63,19 @@ func _ready() -> void:
 	interaction_area.area_entered.connect(_on_interactable_entered)
 	interaction_area.area_exited.connect(_on_interactable_exited)
 	rotation = 0.0
+	var camera := get_node_or_null("Camera2D")
+	var main := get_tree().current_scene
+	var world := main.get_node_or_null("World") if main else null
+	var hud := main.get_node_or_null("HUD") if main else null
+	print("[VIEW_SCALE_DEBUG] window_size=%s viewport_size=%s camera_zoom=%s player_scale=%s main_scale=%s world_scale=%s hud_scale=%s" % [
+		DisplayServer.window_get_size(),
+		get_viewport().get_visible_rect().size,
+		camera.zoom if camera else Vector2.ZERO,
+		scale,
+		main.scale if main and main is Node2D else Vector2.ONE,
+		world.scale if world and world is Node2D else Vector2.ONE,
+		hud.scale if hud and hud is CanvasLayer else Vector2.ONE
+	])
 	_update_campfire_regen_state()
 	queue_redraw()
 

@@ -25,8 +25,8 @@ GraphicsSettings="*res://scripts/systems/graphics_settings.gd"
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
-window/size/window_width_override=1280
-window/size/window_height_override=720
+window/size/window_width_override=0
+window/size/window_height_override=0
 window/stretch/mode="disabled"
 
 [input]
