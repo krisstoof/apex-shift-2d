@@ -144,11 +144,13 @@ func _apply_windowed_border(borderless: bool) -> void:
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, borderless)
 
 
-func _apply_content_resolution(resolution: Vector2i) -> void:
+func _apply_content_resolution(_resolution: Vector2i) -> void:
+	# Keep gameplay world pixel scale independent from selected window resolution.
+	# Window size may change, but CanvasItems must not be globally scaled.
 	var root_window := get_tree().root
-	root_window.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
-	root_window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
-	root_window.content_scale_size = resolution
+	root_window.content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
+	root_window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_IGNORE
+	root_window.content_scale_size = Vector2i.ZERO
 
 
 func _finish_exclusive_fullscreen(apply_serial: int, resolution: Vector2i) -> void:
