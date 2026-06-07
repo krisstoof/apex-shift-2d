@@ -255,8 +255,12 @@ func _test_map_screen_reads_registry_resources_and_varnaks(failures: Array[Strin
 
 func _test_map_screen_builds_texture_outside_draw_path(failures: Array[String]) -> void:
 	var map_screen := _make_map_screen()
-	map_screen.world_rect = Rect2(Vector2(-240.0, -160.0), Vector2(480.0, 320.0))
-	map_screen.set("biome_zones", [{
+	map_screen.bind(
+		MockPlayer.new(),
+		MockEvolutionDirector.new(),
+		MockDayNightSystem.new(),
+		Rect2(Vector2(-240.0, -160.0), Vector2(480.0, 320.0)),
+		[{
 		"name": "Test Biome",
 		"points": PackedVector2Array([
 			Vector2(-240.0, -160.0),
@@ -265,8 +269,10 @@ func _test_map_screen_builds_texture_outside_draw_path(failures: Array[String]) 
 			Vector2(-240.0, 160.0)
 		]),
 		"color": Color(0.2, 0.4, 0.2)
-	}])
-	map_screen.call("_sync_biome_texture")
+		}],
+		[],
+		MockSnapshotService.new()
+	)
 	TEST_UTILS.expect_equal(map_screen.get("map_screen_texture_build_count"), 1, failures, "Map screen should build its biome texture outside _draw()")
 	TEST_UTILS.expect(float(map_screen.get("map_screen_texture_last_build_ms")) >= 0.0, failures, "Map screen should track the last biome texture build time")
 	var biome_zones: Array[Dictionary] = map_screen.biome_zones.duplicate(true)
@@ -275,6 +281,8 @@ func _test_map_screen_builds_texture_outside_draw_path(failures: Array[String]) 
 	var draw_spy := CountingMapScreen.new()
 	draw_spy.world_rect = Rect2(Vector2(-240.0, -160.0), Vector2(480.0, 320.0))
 	draw_spy.set("biome_zones", biome_zones)
+	draw_spy.set("biome_blend_texture", ImageTexture.create_from_image(Image.create(2, 2, false, Image.FORMAT_RGBA8)))
+	draw_spy.set("biome_blend_colors_key", "test")
 	var ensure_calls_before := draw_spy.ensure_calls
 	draw_spy.call("_draw_biomes", Rect2(Vector2.ZERO, Vector2(300.0, 180.0)))
 	TEST_UTILS.expect_equal(draw_spy.ensure_calls, ensure_calls_before, failures, "Map screen draw path should reuse the cached biome texture instead of rebuilding it")
