@@ -160,8 +160,8 @@ func _test_minimap_reads_registry_resources_and_varnaks(failures: Array[String])
 
 func _test_minimap_builds_texture_outside_draw_path(failures: Array[String]) -> void:
 	var minimap := _make_minimap()
-	minimap.world_rect = Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0))
-	minimap.set("biome_zones", [{
+	var player := Node2D.new()
+	var biome_zones: Array[Dictionary] = [{
 		"name": "Test Biome",
 		"points": PackedVector2Array([
 			Vector2(-200.0, -120.0),
@@ -170,16 +170,18 @@ func _test_minimap_builds_texture_outside_draw_path(failures: Array[String]) -> 
 			Vector2(-200.0, 120.0)
 		]),
 		"color": Color(0.2, 0.4, 0.2)
-	}])
-	minimap.call("_sync_biome_texture")
+	}]
+	minimap.bind(player, Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0)), biome_zones, [], MockSnapshotService.new())
 	TEST_UTILS.expect_equal(minimap.get("minimap_texture_build_count"), 1, failures, "Minimap should build its biome texture outside _draw()")
 	TEST_UTILS.expect(float(minimap.get("minimap_texture_last_build_ms")) >= 0.0, failures, "Minimap should track the last biome texture build time")
-	var biome_zones: Array[Dictionary] = minimap.biome_zones.duplicate(true)
 	minimap.free()
+	player.free()
 
 	var draw_spy := CountingMinimap.new()
 	draw_spy.world_rect = Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0))
 	draw_spy.set("biome_zones", biome_zones)
+	draw_spy.set("biome_blend_texture", ImageTexture.create_from_image(Image.create(2, 2, false, Image.FORMAT_RGBA8)))
+	draw_spy.set("biome_blend_colors_key", "test")
 	var ensure_calls_before := draw_spy.ensure_calls
 	draw_spy.call("_draw_biomes", Rect2(Vector2.ZERO, Vector2(160.0, 100.0)), Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0)))
 	TEST_UTILS.expect_equal(draw_spy.ensure_calls, ensure_calls_before, failures, "Minimap draw path should reuse the cached biome texture instead of rebuilding it")

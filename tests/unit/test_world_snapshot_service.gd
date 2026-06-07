@@ -179,6 +179,18 @@ class MockWorld:
 	func get_varnak_population_status() -> Dictionary:
 		return {"day": 4, "target": 5, "live": varnaks.size(), "max": 12, "spawn_chance": 0.76}
 
+	func get_varnak_spawn_sync_debug() -> Dictionary:
+		return {
+			"retry_timer": 0.0,
+			"warning_printed": false,
+			"attempt_count": 1,
+			"failed_count": 0,
+			"skipped_by_cooldown_count": 0,
+			"last_requested": 2,
+			"last_failed": 0,
+			"last_success": 2
+		}
+
 	func is_landmark_debug_overlay_enabled() -> bool:
 		return true
 
@@ -254,6 +266,7 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	var markers := Dictionary(snapshot.get("markers", {}))
 	var ecosystem_snapshot := Dictionary(snapshot.get("ecosystem", {}))
 	var debug_snapshot := Dictionary(snapshot.get("debug", {}))
+	var varnak_sync := Dictionary(world_snapshot.get("varnak_spawn_sync", {}))
 	TEST_UTILS.expect_equal(int(player_snapshot.get("health", 0)), 91, failures, "Snapshot service should capture player health")
 	TEST_UTILS.expect_equal(str(player_snapshot.get("condition_text", "")), "steady", failures, "Snapshot service should capture player condition text")
 	TEST_UTILS.expect_equal(int(Dictionary(player_snapshot.get("inventory", {})).get("torch", 0)), 2, failures, "Snapshot service should capture inventory amounts")
@@ -265,6 +278,7 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	TEST_UTILS.expect_equal(Array(markers.get("resources", [])).size(), 2, failures, "Snapshot service should expose only minimap/map resource markers that stay visible to the player")
 	TEST_UTILS.expect_equal(Array(markers.get("varnaks", [])).size(), 1, failures, "Snapshot service should expose varnak markers")
 	TEST_UTILS.expect_equal(int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("small_prey_population", 0)), 5, failures, "Snapshot service should aggregate ecosystem population totals")
+	TEST_UTILS.expect_equal(int(varnak_sync.get("attempt_count", 0)), 1, failures, "Snapshot service should expose Varnak spawn sync diagnostics")
 	TEST_UTILS.expect(str(ecosystem_snapshot.get("warnings_text", "")).contains("Redfang Wilds:stressed"), failures, "Snapshot service should expose ecosystem warnings text")
 	TEST_UTILS.expect_equal(int(debug_snapshot.get("live_varnaks", 0)), 1, failures, "Snapshot service should expose debug summary creature counts")
 	TEST_UTILS.expect_equal(world.resource_reads, 1, failures, "Snapshot service should build resource markers only once per refresh")

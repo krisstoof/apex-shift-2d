@@ -16,6 +16,7 @@ const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_rende
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS := 5.0
+const VARNAK_FAILED_SPAWN_RETRY_SECONDS := 5.0
 const SMALL_PREY_MAX_VISIBLE_COUNT := 12
 const SMALL_PREY_MAX_VISIBLE_PER_BIOME := 5
 const SMALL_PREY_VISIBLE_SPAWN_RADIUS := 850.0
@@ -115,6 +116,14 @@ var small_prey_spawn_sync_last_requested := 0
 var small_prey_spawn_sync_last_failed := 0
 var small_prey_spawn_sync_last_success := 0
 var varnak_spawn_timer := 0.0
+var varnak_failed_spawn_retry_timer := 0.0
+var varnak_failed_spawn_warning_printed := false
+var varnak_spawn_sync_attempt_count := 0
+var varnak_spawn_sync_failed_count := 0
+var varnak_spawn_sync_skipped_by_cooldown_count := 0
+var varnak_spawn_sync_last_requested := 0
+var varnak_spawn_sync_last_failed := 0
+var varnak_spawn_sync_last_success := 0
 var world_seed := 0
 var landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
@@ -209,6 +218,8 @@ func _process(delta: float) -> void:
 	})
 	if small_prey_failed_spawn_retry_timer > 0.0:
 		small_prey_failed_spawn_retry_timer = maxf(0.0, small_prey_failed_spawn_retry_timer - delta)
+	if varnak_failed_spawn_retry_timer > 0.0:
+		varnak_failed_spawn_retry_timer = maxf(0.0, varnak_failed_spawn_retry_timer - delta)
 	small_prey_spawn_timer += delta
 	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
 		small_prey_spawn_timer = 0.0
@@ -299,6 +310,10 @@ func get_biome_texture_cache_status() -> Dictionary:
 		"world_biome_texture_build_count": world_biome_texture_build_count,
 		"world_biome_texture_last_build_ms": world_biome_texture_last_build_ms
 	}
+
+
+func get_biome_texture_cache_debug() -> Dictionary:
+	return get_biome_texture_cache_status()
 
 
 func is_landmark_debug_overlay_enabled() -> bool:
@@ -1849,9 +1864,14 @@ func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
 
 
 func _sync_visible_varnaks(force_spawn_check := false) -> void:
+	if varnak_failed_spawn_retry_timer > 0.0 and not force_spawn_check:
+		varnak_spawn_sync_skipped_by_cooldown_count += 1
+		return
+	varnak_spawn_sync_attempt_count += 1
 	var player_position := _get_player_position()
 	var global_count := get_registered_creatures_by_type("varnak").size()
 	var spawn_budget := _get_varnak_spawn_budget(global_count, _get_current_day())
+	varnak_spawn_sync_last_requested = spawn_budget
 	if spawn_budget <= 0:
 		return
 	if not force_spawn_check and varnak_rng.randf() > _get_varnak_spawn_chance(_get_current_day()):
@@ -1865,12 +1885,24 @@ func _sync_visible_varnaks(force_spawn_check := false) -> void:
 		var event_bus := _get_event_bus()
 		if event_bus:
 			event_bus.post_message("Varnak population increased by %d" % spawned)
-	elif spawned < spawn_budget:
-		push_warning("Failed to spawn %d out of %d Varnaks" % [spawn_budget - spawned, spawn_budget])
-	elif spawned < spawn_budget:
-		push_warning("Failed to spawn %d out of %d Varnaks" % [spawn_budget - spawned, spawn_budget])
-	elif spawned < spawn_budget:
-		push_warning("Failed to spawn %d out of %d Varnaks" % [spawn_budget - spawned, spawn_budget])
+	var failed_count: int = spawn_budget - spawned
+	if failed_count <= 0:
+		varnak_failed_spawn_retry_timer = 0.0
+		varnak_failed_spawn_warning_printed = false
+		varnak_spawn_sync_last_failed = 0
+		varnak_spawn_sync_last_success = spawn_budget
+		return
+	varnak_failed_spawn_retry_timer = VARNAK_FAILED_SPAWN_RETRY_SECONDS
+	varnak_spawn_sync_failed_count += 1
+	varnak_spawn_sync_last_failed = failed_count
+	varnak_spawn_sync_last_success = spawned
+	if not varnak_failed_spawn_warning_printed:
+		push_warning("Failed to spawn %d out of %d Varnaks. Retrying in %.1f seconds." % [
+			failed_count,
+			spawn_budget,
+			VARNAK_FAILED_SPAWN_RETRY_SECONDS
+		])
+		varnak_failed_spawn_warning_printed = true
 
 
 func respawn_missing_varnaks() -> void:
@@ -1995,6 +2027,19 @@ func get_small_prey_spawn_sync_debug() -> Dictionary:
 		"last_requested": small_prey_spawn_sync_last_requested,
 		"last_failed": small_prey_spawn_sync_last_failed,
 		"last_success": small_prey_spawn_sync_last_success
+	}
+
+
+func get_varnak_spawn_sync_debug() -> Dictionary:
+	return {
+		"retry_timer": varnak_failed_spawn_retry_timer,
+		"warning_printed": varnak_failed_spawn_warning_printed,
+		"attempt_count": varnak_spawn_sync_attempt_count,
+		"failed_count": varnak_spawn_sync_failed_count,
+		"skipped_by_cooldown_count": varnak_spawn_sync_skipped_by_cooldown_count,
+		"last_requested": varnak_spawn_sync_last_requested,
+		"last_failed": varnak_spawn_sync_last_failed,
+		"last_success": varnak_spawn_sync_last_success
 	}
 
 

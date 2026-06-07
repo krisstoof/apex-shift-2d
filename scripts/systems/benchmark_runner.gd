@@ -36,6 +36,10 @@ var start_ticks_usec := 0
 var start_unix_time := 0.0
 var benchmark_base_name := ""
 var samples: Array = []
+var last_process_ticks_msec := 0
+var realtime_hitch_count := 0
+var max_realtime_delta_ms := 0
+var realtime_hitches: Array = []
 
 # HITCH LOGGER COUNTERS
 var benchmark_sample_build_ms: float = 0.0
@@ -68,6 +72,10 @@ func start() -> bool:
 	start_unix_time = Time.get_unix_time_from_system()
 	benchmark_base_name = "benchmark_%d" % int(start_unix_time)
 	samples.clear()
+	last_process_ticks_msec = 0
+	realtime_hitch_count = 0
+	max_realtime_delta_ms = 0
+	realtime_hitches.clear()
 	last_reported_second = -1
 	benchmark_progress.emit(0.0, BENCHMARK_DURATION_SECONDS)
 	return true
@@ -76,6 +84,8 @@ func start() -> bool:
 func _process(delta: float) -> void:
 	if not running:
 		return
+	var now_ticks := Time.get_ticks_msec()
+	_capture_realtime_hitch(now_ticks, delta)
 	_log_hitch(delta, "BenchmarkRunner", {
 		"running": running,
 		"sample_timer": sample_timer,
@@ -90,6 +100,31 @@ func _process(delta: float) -> void:
 	_report_progress()
 	if elapsed_seconds >= BENCHMARK_DURATION_SECONDS:
 		_finish()
+
+
+func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
+	if last_process_ticks_msec > 0:
+		var realtime_delta_ms: int = now_ticks - last_process_ticks_msec
+		if realtime_delta_ms > 250:
+			realtime_hitch_count += 1
+			max_realtime_delta_ms = maxi(max_realtime_delta_ms, realtime_delta_ms)
+			var hitch := {
+				"elapsed_seconds": elapsed_seconds,
+				"realtime_delta_ms": realtime_delta_ms,
+				"engine_delta_ms": delta * 1000.0,
+				"sample_count": samples.size(),
+				"sample_timer": sample_timer,
+				"world_debug": _capture_lightweight_world_debug()
+			}
+			realtime_hitches.append(hitch)
+			if realtime_hitches.size() > 20:
+				realtime_hitches.pop_front()
+			push_warning("[REALTIME_HITCH] %d ms engine_delta=%.1f sample_count=%d" % [
+				realtime_delta_ms,
+				delta * 1000.0,
+				samples.size()
+			])
+	last_process_ticks_msec = now_ticks
 
 
 func _capture_context() -> bool:
@@ -171,6 +206,7 @@ func _capture_world_stats() -> Dictionary:
 	stats["boot"] = _capture_world_boot_stats()
 	stats["biome_texture_cache"] = _capture_world_biome_texture_cache_stats()
 	stats["small_prey_spawn_sync"] = _capture_world_small_prey_spawn_sync_stats()
+	stats["varnak_spawn_sync"] = _capture_world_varnak_spawn_sync_stats()
 	stats["landmark_debug"] = _capture_world_landmark_debug_stats()
 	stats["registry"] = _capture_world_registry_stats()
 	stats["render_flags"] = _capture_world_render_flags()
@@ -227,6 +263,31 @@ func _capture_world_small_prey_spawn_sync_stats() -> Dictionary:
 	if not is_instance_valid(world) or not world.has_method("get_small_prey_spawn_sync_debug"):
 		return {}
 	return Dictionary(world.get_small_prey_spawn_sync_debug())
+
+
+func _capture_world_varnak_spawn_sync_stats() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_varnak_spawn_sync_debug"):
+		return {}
+	return Dictionary(world.get_varnak_spawn_sync_debug())
+
+
+func _capture_lightweight_world_debug() -> Dictionary:
+	var scene_tree := get_tree()
+	if scene_tree == null:
+		return {}
+	var active_world: Node = scene_tree.get_first_node_in_group("world")
+	if active_world == null and scene_tree.current_scene != null:
+		active_world = scene_tree.current_scene.get_node_or_null("World")
+	if active_world == null:
+		return {}
+	var result: Dictionary = {}
+	if active_world.has_method("get_small_prey_spawn_sync_debug"):
+		result["small_prey_spawn_sync"] = active_world.get_small_prey_spawn_sync_debug()
+	if active_world.has_method("get_varnak_spawn_sync_debug"):
+		result["varnak_spawn_sync"] = active_world.get_varnak_spawn_sync_debug()
+	if active_world.has_method("get_biome_texture_cache_debug"):
+		result["biome_texture_cache"] = active_world.get_biome_texture_cache_debug()
+	return result
 
 
 func _capture_world_landmark_debug_stats() -> Dictionary:
@@ -468,6 +529,9 @@ func _build_report() -> Dictionary:
 		"max_fps": max_fps,
 		"max_frame_time_ms": max_frame_time_ms,
 		"max_physics_time_ms": max_physics_time_ms,
+		"realtime_hitch_count": realtime_hitch_count,
+		"max_realtime_delta_ms": max_realtime_delta_ms,
+		"realtime_hitches": realtime_hitches,
 		"heaviest_sample": heaviest_sample,
 		"top_samples": top_samples,
 		"samples": samples
@@ -500,6 +564,8 @@ func _format_report_text(report: Dictionary) -> String:
 	lines.append("Max FPS: %.2f" % float(report.get("max_fps", 0.0)))
 	lines.append("Max frame time: %.2f ms" % float(report.get("max_frame_time_ms", 0.0)))
 	lines.append("Max physics time: %.2f ms" % float(report.get("max_physics_time_ms", 0.0)))
+	lines.append("Realtime hitch count: %d" % int(report.get("realtime_hitch_count", 0)))
+	lines.append("Max realtime delta: %d ms" % int(report.get("max_realtime_delta_ms", 0)))
 	var heaviest_sample: Dictionary = Dictionary(report.get("heaviest_sample", {}))
 	if not heaviest_sample.is_empty():
 		lines.append("")
