@@ -34,8 +34,8 @@ const DEBUG_SMALL_PREY_VISIBLE_COUNT := 3
 const DEBUG_GRAZER_VISIBLE_COUNT := 2
 const DEBUG_SMALL_PREY_SPAWN_RADIUS := 180.0
 const DEBUG_GRAZER_SPAWN_RADIUS := 240.0
-const VISIBILITY_CULL_INTERVAL_SECONDS := 0.25
-const VISIBILITY_CULL_MARGIN := 256.0
+const VISIBILITY_CULL_INTERVAL_SECONDS := 0.35
+const VISIBILITY_CULL_MARGIN := 384.0
 const VISIBILITY_CULL_GROUPS := ["resources", "small_prey", "grazer", "varnak"]
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
 const BIOME_TERRAIN_ACCENT_COUNTS := {
@@ -139,6 +139,7 @@ var biome_terrain_accent_cache_build_running := false
 var debug_landmark_overlay_enabled: bool = false
 var biome_textures_enabled: bool = true
 var biome_terrain_accents_enabled: bool = false
+var visibility_culling_enabled: bool = true
 var graphics_settings: Node = GRAPHICS_SETTINGS_SCRIPT.new()
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
@@ -151,6 +152,10 @@ var biome_blend_background: Sprite2D
 var world_biome_texture_build_count: int = 0
 var world_biome_texture_last_build_ms: float = 0.0
 var visibility_cull_timer := 0.0
+var visibility_cull_last_visible_resources: int = 0
+var visibility_cull_last_hidden_resources: int = 0
+var visibility_cull_last_visible_creatures: int = 0
+var visibility_cull_last_hidden_creatures: int = 0
 var night_overlay_polygon: Polygon2D
 var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
@@ -211,6 +216,8 @@ func _ready() -> void:
 	_set_boot_progress("Finalizing world...", 0.98)
 	boot_ready = true
 	_set_boot_progress("World ready", 1.0)
+	_update_world_object_visibility()
+	visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
 	_sync_biome_blend_background()
 	world_initialized.emit()
 	queue_redraw()
@@ -219,7 +226,12 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_log_hitch(delta, "World", {
 		"biome_textures_enabled": biome_textures_enabled,
-		"background_visible": is_instance_valid(biome_blend_background) and biome_blend_background.visible
+		"background_visible": is_instance_valid(biome_blend_background) and biome_blend_background.visible,
+		"visibility_culling_enabled": visibility_culling_enabled,
+		"visible_resources": visibility_cull_last_visible_resources,
+		"hidden_resources": visibility_cull_last_hidden_resources,
+		"visible_creatures": visibility_cull_last_visible_creatures,
+		"hidden_creatures": visibility_cull_last_hidden_creatures
 	})
 	if small_prey_failed_spawn_retry_timer > 0.0:
 		small_prey_failed_spawn_retry_timer = maxf(0.0, small_prey_failed_spawn_retry_timer - delta)
@@ -239,10 +251,11 @@ func _process(delta: float) -> void:
 	if should_redraw_background:
 		_sync_biome_blend_background()
 		queue_redraw()
-	visibility_cull_timer -= delta
-	if visibility_cull_timer <= 0.0:
-		visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
-		_update_world_object_visibility()
+	if boot_ready and visibility_culling_enabled:
+		visibility_cull_timer -= delta
+		if visibility_cull_timer <= 0.0:
+			visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
+			_update_world_object_visibility()
 	_update_night_overlay(current_night_amount)
 
 
@@ -256,41 +269,67 @@ func get_world_rect() -> Rect2:
 	return WORLD_CONFIG.WORLD_RECT
 
 
-func _update_world_object_visibility() -> void:
+func get_camera_visible_world_rect(margin := VISIBILITY_CULL_MARGIN) -> Rect2:
 	var viewport := get_viewport()
 	if viewport == null:
-		return
+		return WORLD_CONFIG.WORLD_RECT.grow(margin)
 	var camera := viewport.get_camera_2d()
 	if camera == null:
+		return WORLD_CONFIG.WORLD_RECT.grow(margin)
+	var viewport_size := get_viewport_rect().size
+	return _get_world_object_visibility_rect(viewport_size, camera.global_position, camera.zoom, margin)
+
+
+func _update_world_object_visibility() -> void:
+	if not boot_ready or not visibility_culling_enabled:
 		return
-	var visible_rect := _get_world_object_visibility_rect(get_viewport_rect().size, camera.global_position, camera.zoom)
-	_set_world_object_visibility_by_rect(visible_rect)
+	_set_world_object_visibility_by_rect(get_camera_visible_world_rect(VISIBILITY_CULL_MARGIN))
 
 
-func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2) -> Rect2:
+func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2, margin := VISIBILITY_CULL_MARGIN) -> Rect2:
 	var safe_zoom := Vector2(maxf(absf(camera_zoom.x), 0.01), maxf(absf(camera_zoom.y), 0.01))
 	var visible_world_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y)
-	var margin := Vector2.ONE * VISIBILITY_CULL_MARGIN
+	var margin_vector := Vector2.ONE * margin
 	return Rect2(
-		camera_position - visible_world_size * 0.5 - margin,
-		visible_world_size + margin * 2.0
+		camera_position - visible_world_size * 0.5 - margin_vector,
+		visible_world_size + margin_vector * 2.0
 	)
 
 
 func _set_world_object_visibility_by_rect(visible_rect: Rect2) -> void:
+	var visited: Dictionary = {}
+	visibility_cull_last_visible_resources = 0
+	visibility_cull_last_hidden_resources = 0
+	visibility_cull_last_visible_creatures = 0
+	visibility_cull_last_hidden_creatures = 0
 	for group_name in VISIBILITY_CULL_GROUPS:
-		_set_group_visibility_by_rect(group_name, visible_rect)
+		var is_resource_group: bool = group_name == "resources"
+		_update_group_visibility_by_rect(group_name, visible_rect, is_resource_group, visited)
 
 
-func _set_group_visibility_by_rect(group_name: String, visible_rect: Rect2) -> void:
+func _update_group_visibility_by_rect(group_name: String, visible_rect: Rect2, is_resource_group: bool, visited: Dictionary) -> void:
 	var scene_tree := get_tree()
 	if scene_tree == null:
 		return
 	for node in scene_tree.get_nodes_in_group(group_name):
-		var node_2d := node as Node2D
-		if node_2d == null or not is_instance_valid(node_2d):
+		if not is_instance_valid(node) or visited.has(node):
 			continue
-		node_2d.visible = visible_rect.has_point(node_2d.global_position)
+		visited[node] = true
+		var node_2d := node as Node2D
+		if node_2d == null:
+			continue
+		var should_be_visible := visible_rect.has_point(node_2d.global_position)
+		node_2d.visible = should_be_visible
+		if is_resource_group:
+			if should_be_visible:
+				visibility_cull_last_visible_resources += 1
+			else:
+				visibility_cull_last_hidden_resources += 1
+		else:
+			if should_be_visible:
+				visibility_cull_last_visible_creatures += 1
+			else:
+				visibility_cull_last_hidden_creatures += 1
 
 
 func get_biome_zones() -> Array[Dictionary]:
@@ -385,6 +424,18 @@ func are_biome_terrain_accents_enabled() -> bool:
 
 func is_low_end_rendering_enabled() -> bool:
 	return graphics_settings.has_method("is_low_end_rendering_enabled") and graphics_settings.is_low_end_rendering_enabled()
+
+
+func get_visibility_culling_debug() -> Dictionary:
+	return {
+		"enabled": visibility_culling_enabled,
+		"interval_seconds": VISIBILITY_CULL_INTERVAL_SECONDS,
+		"margin": VISIBILITY_CULL_MARGIN,
+		"visible_resources": visibility_cull_last_visible_resources,
+		"hidden_resources": visibility_cull_last_hidden_resources,
+		"visible_creatures": visibility_cull_last_visible_creatures,
+		"hidden_creatures": visibility_cull_last_hidden_creatures
+	}
 
 
 func get_landmark_save_data() -> Array[Dictionary]:

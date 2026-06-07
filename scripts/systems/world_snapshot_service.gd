@@ -147,6 +147,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 	var small_prey_spawn_sync: Dictionary = {}
 	var varnak_spawn_sync: Dictionary = {}
 	var varnak_population: Dictionary = {}
+	var visibility_culling: Dictionary = {}
 	var landmark_overlay_enabled := false
 	var biome_textures_enabled := true
 	var biome_terrain_accents_enabled := false
@@ -176,6 +177,8 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 			varnak_spawn_sync = Dictionary(active_world.get_varnak_spawn_sync_debug())
 		if active_world.has_method("get_varnak_population_status"):
 			varnak_population = Dictionary(active_world.get_varnak_population_status())
+		if active_world.has_method("get_visibility_culling_debug"):
+			visibility_culling = Dictionary(active_world.get_visibility_culling_debug())
 		if active_world.has_method("is_landmark_debug_overlay_enabled"):
 			landmark_overlay_enabled = active_world.is_landmark_debug_overlay_enabled()
 		if active_world.has_method("are_biome_textures_enabled"):
@@ -210,6 +213,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 		"small_prey_spawn_sync": small_prey_spawn_sync,
 		"varnak_spawn_sync": varnak_spawn_sync,
 		"varnak_population": varnak_population,
+		"visibility_culling": visibility_culling,
 		"landmark_overlay_enabled": landmark_overlay_enabled,
 		"biome_textures_enabled": biome_textures_enabled,
 		"biome_terrain_accents_enabled": biome_terrain_accents_enabled,

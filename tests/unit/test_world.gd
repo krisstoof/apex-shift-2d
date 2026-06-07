@@ -157,6 +157,7 @@ func run() -> Array[String]:
 	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
 	_test_world_boot_progress_state_tracks_stage_updates(failures)
 	_test_current_biome_texture_id_uses_player_position_biome(failures)
+	_test_get_camera_visible_world_rect_defaults_to_full_world_without_camera(failures)
 	_test_world_object_visibility_rect_accounts_for_camera_zoom_and_margin(failures)
 	_test_world_object_visibility_culls_and_restores_group_nodes(failures)
 	_test_cached_group_nodes_prune_freed_entries(failures)
@@ -730,6 +731,19 @@ func _test_world_boot_progress_state_tracks_stage_updates(failures: Array[String
 	world.free()
 
 
+func _test_get_camera_visible_world_rect_defaults_to_full_world_without_camera(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	TEST_UTILS.expect(tree != null and tree.current_scene != null, failures, "Test runner should provide a current scene for camera visibility tests")
+	if tree == null or tree.current_scene == null:
+		return
+	var world := VisibilityCullingWorld.new()
+	tree.current_scene.add_child(world)
+	var visible_rect: Rect2 = world.call("get_camera_visible_world_rect")
+	var expected_rect := WORLD_CONFIG.WORLD_RECT.grow(384.0)
+	TEST_UTILS.expect_equal(visible_rect, expected_rect, failures, "World should expose the full world rect when no camera is available")
+	world.free()
+
+
 func _test_current_biome_texture_id_uses_player_position_biome(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
 	var westwood := _get_biome_by_name("Westwood")
@@ -751,8 +765,8 @@ func _test_world_object_visibility_rect_accounts_for_camera_zoom_and_margin(fail
 	var visible_rect: Rect2 = world.call("_get_world_object_visibility_rect", viewport_size, camera_position, camera_zoom)
 	var safe_zoom := Vector2(maxf(absf(camera_zoom.x), 0.01), maxf(absf(camera_zoom.y), 0.01))
 	var visible_world_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y)
-	var expected_position := camera_position - visible_world_size * 0.5 - Vector2.ONE * 256.0
-	var expected_size := visible_world_size + Vector2.ONE * 512.0
+	var expected_position := camera_position - visible_world_size * 0.5 - Vector2.ONE * 384.0
+	var expected_size := visible_world_size + Vector2.ONE * 768.0
 	TEST_UTILS.expect_close(float(visible_rect.position.x), expected_position.x, failures, "World visibility culling should offset the rect from the camera center")
 	TEST_UTILS.expect_close(float(visible_rect.position.y), expected_position.y, failures, "World visibility culling should offset the rect from the camera center on Y")
 	TEST_UTILS.expect_close(float(visible_rect.size.x), expected_size.x, failures, "World visibility culling should expand the rect by the configured margin on X")
@@ -782,22 +796,38 @@ func _test_world_object_visibility_culls_and_restores_group_nodes(failures: Arra
 		outside.add_to_group(group_name)
 		tree.current_scene.add_child(outside)
 		outside_nodes.append(outside)
+	var shared_creature := Node2D.new()
+	shared_creature.position = Vector2.ZERO
+	shared_creature.add_to_group("small_prey")
+	shared_creature.add_to_group("grazer")
+	tree.current_scene.add_child(shared_creature)
 	var left_rect := Rect2(Vector2(-128.0, -128.0), Vector2(256.0, 256.0))
 	world.call("_set_world_object_visibility_by_rect", left_rect)
 	for inside in inside_nodes:
 		TEST_UTILS.expect_equal(inside.visible, true, failures, "World visibility culling should keep on-screen nodes visible")
 	for outside in outside_nodes:
 		TEST_UTILS.expect_equal(outside.visible, false, failures, "World visibility culling should hide off-screen nodes")
+	TEST_UTILS.expect_equal(shared_creature.visible, true, failures, "World visibility culling should keep shared nodes visible when they are inside the visible rect")
+	var left_debug: Dictionary = Dictionary(world.call("get_visibility_culling_debug"))
+	TEST_UTILS.expect_equal(int(left_debug.get("visible_resources", -1)), 1, failures, "World visibility culling should count visible resources once")
+	TEST_UTILS.expect_equal(int(left_debug.get("hidden_resources", -1)), 1, failures, "World visibility culling should count hidden resources once")
+	TEST_UTILS.expect_equal(int(left_debug.get("visible_creatures", -1)), 4, failures, "World visibility culling should deduplicate shared creature group membership")
+	TEST_UTILS.expect_equal(int(left_debug.get("hidden_creatures", -1)), 3, failures, "World visibility culling should count hidden creatures once")
 	var right_rect := Rect2(Vector2(872.0, -128.0), Vector2(256.0, 256.0))
 	world.call("_set_world_object_visibility_by_rect", right_rect)
 	for inside in inside_nodes:
 		TEST_UTILS.expect_equal(inside.visible, false, failures, "World visibility culling should hide nodes that moved outside the camera rect")
 	for outside in outside_nodes:
 		TEST_UTILS.expect_equal(outside.visible, true, failures, "World visibility culling should restore nodes when they re-enter the camera rect")
+	TEST_UTILS.expect_equal(shared_creature.visible, false, failures, "World visibility culling should hide shared nodes when they move outside the visible rect")
+	var right_debug: Dictionary = Dictionary(world.call("get_visibility_culling_debug"))
+	TEST_UTILS.expect_equal(int(right_debug.get("visible_creatures", -1)), 3, failures, "World visibility culling should keep deduplicated creature counts stable when nodes move outside")
+	TEST_UTILS.expect_equal(int(right_debug.get("hidden_creatures", -1)), 4, failures, "World visibility culling should update hidden creature counts when shared nodes move outside")
 	for node in inside_nodes:
 		node.free()
 	for node in outside_nodes:
 		node.free()
+	shared_creature.free()
 	world.free()
 
 

@@ -77,6 +77,17 @@ class FakeWorld extends Node:
 			"last_success": 2
 		}
 
+	func get_visibility_culling_debug() -> Dictionary:
+		return {
+			"enabled": true,
+			"interval_seconds": 0.35,
+			"margin": 384.0,
+			"visible_resources": 3,
+			"hidden_resources": 8,
+			"visible_creatures": 2,
+			"hidden_creatures": 6
+		}
+
 	func get_landmark_counts() -> Dictionary:
 		return {"generated": 3, "pond": 1, "hill": 2}
 
@@ -143,6 +154,7 @@ func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) 
 	var varnak_sync: Dictionary = Dictionary(stats.get("varnak_spawn_sync", {}))
 	var registry: Dictionary = Dictionary(stats.get("registry", {}))
 	var render_flags: Dictionary = Dictionary(stats.get("render_flags", {}))
+	var visibility_culling: Dictionary = Dictionary(stats.get("visibility_culling", {}))
 	TEST_UTILS.expect_equal(str(boot.get("stage_message", "")), "Rendering world...", failures, "Benchmark runner should capture the current world boot stage")
 	TEST_UTILS.expect_close(float(boot.get("progress", 0.0)), 0.94, failures, "Benchmark runner should capture the current world boot progress")
 	TEST_UTILS.expect(texture_cache.get("has_blend_texture", false) == true, failures, "Benchmark runner should capture whether the world blend texture cache exists")
@@ -159,6 +171,10 @@ func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) 
 	TEST_UTILS.expect(render_flags.get("biome_textures_enabled", false) == true, failures, "Benchmark runner should capture whether biome textures are enabled")
 	TEST_UTILS.expect(render_flags.get("low_end_rendering", false) == true, failures, "Benchmark runner should capture whether low-end rendering is enabled")
 	TEST_UTILS.expect(render_flags.get("biome_terrain_accents_enabled", true) == false, failures, "Benchmark runner should capture whether biome terrain accents are enabled")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("visible_resources", 0)), 3, failures, "Benchmark runner should capture visible resource counts")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_resources", 0)), 8, failures, "Benchmark runner should capture hidden resource counts")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("visible_creatures", 0)), 2, failures, "Benchmark runner should capture visible creature counts")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_creatures", 0)), 6, failures, "Benchmark runner should capture hidden creature counts")
 
 
 func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[String]) -> void:
@@ -209,6 +225,15 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 				"biome_textures_enabled": true,
 				"landmark_debug_overlay_enabled": false,
 				"biome_terrain_accents_enabled": false
+			},
+			"visibility_culling": {
+				"enabled": true,
+				"interval_seconds": 0.35,
+				"margin": 384.0,
+				"visible_resources": 3,
+				"hidden_resources": 8,
+				"visible_creatures": 2,
+				"hidden_creatures": 6
 			}
 		}
 	}
@@ -217,6 +242,7 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 	TEST_UTILS.expect(line.contains("boot=loading 94%"), failures, "Benchmark runner diagnostics should include boot progress")
 	TEST_UTILS.expect(line.contains("textures=on blend=yes"), failures, "Benchmark runner diagnostics should include biome texture cache state")
 	TEST_UTILS.expect(line.contains("flags low_end=true biome_textures=true landmark_overlay=false biome_terrain_accents=false"), failures, "Benchmark runner diagnostics should include low-end render flags")
+	TEST_UTILS.expect(line.contains("culling enabled=true visible_resources=3 hidden_resources=8 visible_creatures=2 hidden_creatures=6"), failures, "Benchmark runner diagnostics should include visibility culling counts")
 	TEST_UTILS.expect(line.contains("registry resources=3 buildings=1"), failures, "Benchmark runner diagnostics should include registry totals")
 	TEST_UTILS.expect(sample_line.contains("focused=true"), failures, "Benchmark runner sample lines should report whether the game window had focus")
 
