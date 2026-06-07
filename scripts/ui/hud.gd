@@ -22,6 +22,7 @@ var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 @onready var stats_label: Label = $Panel/StatsLabel
 @onready var prompt_label: Label = $Panel/PromptLabel
 @onready var message_label: Label = $Panel/MessageLabel
+@onready var panel: Control = $Panel
 @onready var center_notification_label: Label = $CenterNotificationLabel
 @onready var skill_icon_bar: Control = $SkillIconBar
 @onready var minimap: Control = $Minimap
@@ -47,6 +48,7 @@ func _ready() -> void:
 	game_over_screen.load_save_requested.connect(_on_game_over_load_save)
 	game_over_screen.main_menu_requested.connect(_on_game_over_main_menu)
 	game_over_screen.exit_requested.connect(_on_game_over_quit)
+	_fix_low_resolution_layout()
 
 
 func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null) -> void:
@@ -69,6 +71,7 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones, landmarks, snapshot_service)
 	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director, snapshot_service)
 	_apply_snapshot(snapshot)
+	_fix_low_resolution_layout()
 
 
 func _process(delta: float) -> void:
@@ -244,6 +247,79 @@ func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> vo
 			flag_text += " "
 		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
 	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
+
+
+func _fix_low_resolution_layout() -> void:
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+	var low_resolution: bool = viewport_size.x <= 1366.0 or viewport_size.y <= 768.0
+	var compact_resolution: bool = viewport_size.x <= 1280.0 or viewport_size.y <= 720.0
+	if panel:
+		panel.offset_left = 8.0
+		panel.offset_top = 8.0
+		panel.offset_right = 720.0 if not low_resolution else 640.0
+		panel.offset_bottom = 170.0 if not low_resolution else 162.0
+		panel.custom_minimum_size = Vector2(0.0, 170.0 if not low_resolution else 162.0)
+	if stats_label:
+		stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		stats_label.custom_minimum_size = Vector2(520.0 if not low_resolution else 500.0, 0.0)
+		stats_label.offset_right = 612.0 if not low_resolution else 540.0
+		stats_label.offset_bottom = 54.0 if not low_resolution else 50.0
+		stats_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
+	if prompt_label:
+		prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		prompt_label.custom_minimum_size = Vector2(520.0 if not low_resolution else 500.0, 0.0)
+		prompt_label.offset_top = 64.0 if not low_resolution else 60.0
+		prompt_label.offset_bottom = 92.0 if not low_resolution else 88.0
+		prompt_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
+	if message_label:
+		message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		message_label.custom_minimum_size = Vector2(420.0 if not low_resolution else 360.0, 0.0)
+		message_label.offset_top = 96.0 if not low_resolution else 92.0
+		message_label.offset_bottom = 156.0 if not low_resolution else 150.0
+		message_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 13)
+	if skill_icon_bar:
+		skill_icon_bar.anchor_left = 0.5
+		skill_icon_bar.anchor_right = 0.5
+		skill_icon_bar.anchor_top = 1.0
+		skill_icon_bar.anchor_bottom = 1.0
+		skill_icon_bar.offset_left = -507.0
+		skill_icon_bar.offset_top = -92.0 if low_resolution else -104.0
+		skill_icon_bar.offset_right = 507.0
+		skill_icon_bar.offset_bottom = -32.0
+	if minimap:
+		minimap.anchor_left = 1.0
+		minimap.anchor_right = 1.0
+		minimap.offset_left = -436.0 if low_resolution else -476.0
+		minimap.offset_top = 12.0
+		minimap.offset_right = -16.0
+		minimap.offset_bottom = 232.0 if low_resolution else 280.0
+	if clock_label:
+		clock_label.anchor_left = 1.0
+		clock_label.anchor_right = 1.0
+		clock_label.offset_left = -436.0 if low_resolution else -476.0
+		clock_label.offset_top = 238.0 if low_resolution else 300.0
+		clock_label.offset_right = -16.0
+		clock_label.offset_bottom = 294.0 if low_resolution else 356.0
+		clock_label.add_theme_font_size_override("font_size", 18 if low_resolution else 20)
+	if message_label:
+		message_label.visible = message_history.size() > 0
+	if center_notification_label:
+		center_notification_label.offset_left = -230.0 if compact_resolution else -260.0
+		center_notification_label.offset_right = 230.0 if compact_resolution else 260.0
+	if debug_panel:
+		debug_panel.visible = debug_panel.visible and not low_resolution
+		debug_panel.offset_left = -560.0 if not low_resolution else -520.0
+		debug_panel.offset_right = -8.0
+		debug_panel.offset_top = 12.0
+		debug_panel.offset_bottom = -12.0
+	if fps_label:
+		fps_label.anchor_left = 1.0
+		fps_label.anchor_right = 1.0
+		fps_label.offset_left = -126.0 if low_resolution else -92.0
+		fps_label.offset_top = 12.0
+		fps_label.offset_right = -16.0
+		fps_label.offset_bottom = 40.0
+		fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 
 func show_game_over(day_survived: int, reason: String) -> void:
