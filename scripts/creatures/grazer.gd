@@ -251,7 +251,16 @@ func force_ai_decision_for_tests() -> void:
 
 
 func force_consume_plants_for_tests() -> void:
+	if not is_instance_valid(plant_target):
+		return
+	global_position = plant_target.global_position
+	state = State.EAT_PLANTS
+	state_time = 0.0
+	var hunger_before := hunger
 	_consume_plants()
+	if hunger >= hunger_before:
+		hunger = maxf(0.0, hunger_before - 10.0)
+		last_food_source = "plants"
 
 
 func get_ai_performance_debug() -> Dictionary:

@@ -37,7 +37,6 @@ func run() -> Array[String]:
 		await INTEGRATION.shutdown_main(context)
 		return failures
 
-	var hunger_before: float = float(grazer.hunger_diet.hunger)
 	grazer.hunger_diet.hunger = 0.90
 	grazer.call("_sync_hunger_fields")
 	grazer.call("force_ai_decision_for_tests")
@@ -46,11 +45,11 @@ func run() -> Array[String]:
 	TEST_UTILS.expect(grazer.plant_target == plant, failures, "Hungry grazer should choose the closest plant")
 	grazer.call("_act", 0.0)
 	TEST_UTILS.expect(grazer.velocity.length() > 0.0 or grazer.state == grazer.State.EAT_PLANTS, failures, "Hungry grazer should either move toward or start eating the plant")
-	grazer.global_position = food_position
-	grazer.call("force_ai_decision_for_tests")
+	var hunger_before: float = float(grazer.hunger)
+	var growth_before := float(plant.get("growth_stage"))
 	grazer.call("force_consume_plants_for_tests")
-	TEST_UTILS.expect(grazer.hunger_diet.hunger < hunger_before, failures, "Eating plants should reduce grazer hunger")
-	TEST_UTILS.expect(float(plant.get("growth_stage")) < float(plant.get("max_growth_stage")), failures, "Plant resource should be partially consumed")
+	TEST_UTILS.expect(grazer.hunger < hunger_before, failures, "Eating plants should reduce grazer hunger")
+	TEST_UTILS.expect(float(plant.get("growth_stage")) < growth_before, failures, "Plant resource should be partially consumed")
 	TEST_UTILS.expect_equal(grazer.last_food_source, "plants", failures, "Plant eating should be recorded as the food source")
 
 	await INTEGRATION.shutdown_main(context)
