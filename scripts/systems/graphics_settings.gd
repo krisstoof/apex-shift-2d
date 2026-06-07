@@ -44,6 +44,8 @@ func apply_low_end_rendering_defaults() -> void:
 
 func _ready() -> void:
 	load_settings()
+	_apply_resolution_override_from_args()
+	_apply_display_override_from_args()
 	apply_settings()
 
 
@@ -95,6 +97,54 @@ func save_settings() -> void:
 	config.save(SETTINGS_PATH)
 
 
+func _apply_resolution_override_from_args() -> void:
+	var args := OS.get_cmdline_args()
+	for arg in args:
+		if not arg.begins_with("--resolution="):
+			continue
+
+		var value := arg.replace("--resolution=", "")
+		var parts := value.split("x")
+		if parts.size() != 2:
+			push_warning("Invalid --resolution argument: %s" % value)
+			return
+
+		var width := int(parts[0])
+		var height := int(parts[1])
+		var requested := Vector2i(width, height)
+
+		for i in RESOLUTIONS.size():
+			if RESOLUTIONS[i] == requested:
+				resolution_index = i
+				print("[GRAPHICS_SETTINGS] resolution override applied: %s" % requested)
+				return
+
+		push_warning("Unsupported --resolution argument: %s" % value)
+		return
+
+
+func _apply_display_override_from_args() -> void:
+	var args := OS.get_cmdline_args()
+	for arg in args:
+		if not arg.begins_with("--display="):
+			continue
+
+		var value := arg.replace("--display=", "").to_lower()
+		match value:
+			"windowed":
+				display_mode_index = 0
+				print("[GRAPHICS_SETTINGS] display override applied: windowed")
+			"fullscreen":
+				display_mode_index = 1
+				print("[GRAPHICS_SETTINGS] display override applied: fullscreen")
+			"borderless":
+				display_mode_index = 2
+				print("[GRAPHICS_SETTINGS] display override applied: borderless")
+			_:
+				push_warning("Unsupported --display argument: %s" % value)
+		return
+
+
 func set_from_indices(new_resolution_index: int, new_display_mode_index: int) -> void:
 	resolution_index = int(clamp(new_resolution_index, 0, RESOLUTIONS.size() - 1))
 	display_mode_index = int(clamp(new_display_mode_index, 0, 2))
@@ -117,21 +167,18 @@ func get_effective_resolution() -> Vector2i:
 func apply_settings() -> void:
 	var resolution := get_effective_resolution()
 	_apply_content_resolution(resolution)
+	_apply_display_mode()
+	_apply_window_resolution(resolution)
 	if is_embedded_window():
 		return
 	_apply_serial += 1
 	var apply_serial := _apply_serial
 	match display_mode_index:
 		DISPLAY_MODE_FULLSCREEN:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			_apply_windowed_border(false)
-			DisplayServer.window_set_size(resolution)
 			call_deferred("_finish_exclusive_fullscreen", apply_serial, resolution)
 		DISPLAY_MODE_BORDERLESS_FULLSCREEN:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+			pass
 		_:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			_apply_windowed_border(false)
 			call_deferred("_finish_windowed_mode", apply_serial, resolution)
 
 
@@ -142,6 +189,29 @@ func apply_and_save() -> void:
 
 func _apply_windowed_border(borderless: bool) -> void:
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, borderless)
+
+
+func _apply_display_mode() -> void:
+	match display_mode_index:
+		DISPLAY_MODE_FULLSCREEN:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			_apply_windowed_border(false)
+		DISPLAY_MODE_BORDERLESS_FULLSCREEN:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		_:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			_apply_windowed_border(false)
+
+
+func _apply_window_resolution(resolution: Vector2i) -> void:
+	if display_mode_index != DISPLAY_MODE_WINDOWED:
+		return
+	DisplayServer.window_set_size(resolution)
+	var current_screen := DisplayServer.window_get_current_screen()
+	var screen_position := DisplayServer.screen_get_position(current_screen)
+	var screen_size := DisplayServer.screen_get_size(current_screen)
+	DisplayServer.window_set_position(screen_position + (screen_size - resolution) / 2)
+	print("[GRAPHICS_SETTINGS] windowed size applied: %s" % resolution)
 
 
 func _apply_content_resolution(_resolution: Vector2i) -> void:
