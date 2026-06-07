@@ -41,7 +41,7 @@ func run() -> Array[String]:
 	prey.hunger_diet.hunger = 0.92
 	prey.call("_sync_hunger_fields")
 	INTEGRATION.refresh_world_cache(world)
-	prey.call("_update_state")
+	prey.call("force_ai_decision_for_tests")
 	TEST_UTILS.expect_equal(prey.state, prey.State.SEEK_FOOD, failures, "Hungry small prey should switch to SEEK_FOOD")
 	TEST_UTILS.expect(is_instance_valid(prey.plant_target), failures, "Hungry small prey should lock a plant target")
 	TEST_UTILS.expect(prey.plant_target == resource, failures, "Hungry small prey should choose the closest spawned food source")

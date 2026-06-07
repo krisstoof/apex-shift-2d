@@ -248,6 +248,15 @@ func _should_update_ai_decision(delta: float) -> bool:
 	return true
 
 
+func force_ai_decision_for_tests() -> void:
+	ai_decision_timer = 0.0
+	_update_state()
+
+
+func force_consume_plants_for_tests() -> void:
+	_consume_plants()
+
+
 func _update_state() -> void:
 	var detected_flee_origin := _get_flee_origin()
 	if detected_flee_origin != Vector2.INF:
