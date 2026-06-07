@@ -24,6 +24,7 @@ var minimap_marker_cache_rebuild_count: int = 0
 var minimap_landmark_cache_rebuild_count: int = 0
 var minimap_texture_build_count: int = 0
 var minimap_texture_last_build_ms: float = 0.0
+var _is_drawing_biomes := false
 var minimap_redraw_timer := 0.0
 var cached_resources: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
@@ -81,7 +82,9 @@ func _draw() -> void:
 	draw_rect(map_rect, Color(0.74, 0.78, 0.68, 0.9), false, 1.0)
 	draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
 	draw_rect(content_rect, Color(0.35, 0.43, 0.32, 0.8), false, 1.0)
+	_is_drawing_biomes = true
 	_draw_biomes(content_rect, view_world_rect)
+	_is_drawing_biomes = false
 	_draw_landmarks(content_rect, view_world_rect)
 	_draw_grid(content_rect, view_world_rect)
 	_draw_resources(content_rect, view_world_rect)
@@ -92,6 +95,8 @@ func _draw() -> void:
 
 func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if biome_zones.is_empty():
+		return
+	if not _is_drawing_biomes:
 		return
 	if not biome_blend_texture:
 		return

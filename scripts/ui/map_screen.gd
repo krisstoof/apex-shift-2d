@@ -25,6 +25,7 @@ var map_screen_cache_rebuild_count: int = 0
 var map_screen_skipped_update_hidden_count: int = 0
 var map_screen_texture_build_count: int = 0
 var map_screen_texture_last_build_ms: float = 0.0
+var _is_drawing_biomes := false
 var cached_resources: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
 var resources_cache_timer := 0.0
@@ -113,7 +114,9 @@ func _draw_map_panel(rect: Rect2) -> void:
 	draw_rect(rect, Color(0.70, 0.74, 0.66, 0.78), false, 1.0)
 	var map_rect := _fit_world_rect(rect.grow(-16.0))
 	draw_rect(map_rect, Color(0.10, 0.14, 0.10), true)
+	_is_drawing_biomes = true
 	_draw_biomes(map_rect)
+	_is_drawing_biomes = false
 	_draw_grid(map_rect)
 	_draw_landmarks(map_rect)
 	_draw_resources(map_rect)
@@ -236,6 +239,8 @@ func _fit_world_rect(bounds: Rect2) -> Rect2:
 
 func _draw_biomes(map_rect: Rect2) -> void:
 	if biome_zones.is_empty():
+		return
+	if not _is_drawing_biomes:
 		return
 	if biome_blend_texture:
 		draw_texture_rect(biome_blend_texture, map_rect, false)

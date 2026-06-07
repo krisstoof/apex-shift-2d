@@ -1,6 +1,7 @@
 extends RefCounted
 
 const BENCHMARK_RUNNER := preload("res://scripts/systems/benchmark_runner.gd")
+const RESOURCE_NODE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -20,6 +21,7 @@ class FakeWorld extends Node:
 		{"type": "hill"},
 		{"type": "hill"}
 	]
+	var resources: Array[Node] = []
 
 	func get_world_rect() -> Rect2:
 		return Rect2(Vector2.ZERO, Vector2(100.0, 100.0))
@@ -129,7 +131,15 @@ class FakeWorld extends Node:
 				return [Node.new()]
 			"edible_vegetation":
 				return [Node.new(), Node.new()]
+			"resources":
+				return resources
 		return []
+
+
+func _make_resource(kind: String) -> Node:
+	var resource := RESOURCE_NODE_SCENE.instantiate() as Node
+	resource.call("setup", kind)
+	return resource
 
 
 func run() -> Array[String]:
@@ -144,7 +154,13 @@ func run() -> Array[String]:
 
 func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) -> void:
 	var runner := BENCHMARK_RUNNER.new()
-	runner.world = FakeWorld.new()
+	var fake_world := FakeWorld.new()
+	fake_world.resources = [
+		_make_resource("grass_patch"),
+		_make_resource("dense_grass"),
+		_make_resource("bush")
+	]
+	runner.world = fake_world
 	var player := Node2D.new()
 	player.global_position = Vector2.ZERO
 	runner.player = player
@@ -155,6 +171,7 @@ func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) 
 	var registry: Dictionary = Dictionary(stats.get("registry", {}))
 	var render_flags: Dictionary = Dictionary(stats.get("render_flags", {}))
 	var visibility_culling: Dictionary = Dictionary(stats.get("visibility_culling", {}))
+	var resource_render_mode: Dictionary = Dictionary(stats.get("resource_render_mode", {}))
 	TEST_UTILS.expect_equal(str(boot.get("stage_message", "")), "Rendering world...", failures, "Benchmark runner should capture the current world boot stage")
 	TEST_UTILS.expect_close(float(boot.get("progress", 0.0)), 0.94, failures, "Benchmark runner should capture the current world boot progress")
 	TEST_UTILS.expect(texture_cache.get("has_blend_texture", false) == true, failures, "Benchmark runner should capture whether the world blend texture cache exists")
@@ -175,6 +192,11 @@ func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) 
 	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_resources", 0)), 8, failures, "Benchmark runner should capture hidden resource counts")
 	TEST_UTILS.expect_equal(int(visibility_culling.get("visible_creatures", 0)), 2, failures, "Benchmark runner should capture visible creature counts")
 	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_creatures", 0)), 6, failures, "Benchmark runner should capture hidden creature counts")
+	TEST_UTILS.expect_equal(int(resource_render_mode.get("render_only_resources", 0)), 2, failures, "Benchmark runner should capture render-only resource counts")
+	TEST_UTILS.expect_equal(int(resource_render_mode.get("render_only_grass", 0)), 2, failures, "Benchmark runner should capture render-only grass counts")
+	TEST_UTILS.expect_equal(int(resource_render_mode.get("active_resource_collisions", 0)), 1, failures, "Benchmark runner should capture active resource collision counts")
+	for resource in fake_world.resources:
+		resource.free()
 
 
 func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[String]) -> void:
@@ -234,6 +256,11 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 				"hidden_resources": 8,
 				"visible_creatures": 2,
 				"hidden_creatures": 6
+			},
+			"resource_render_mode": {
+				"render_only_resources": 2,
+				"render_only_grass": 2,
+				"active_resource_collisions": 1
 			}
 		}
 	}
@@ -243,6 +270,7 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 	TEST_UTILS.expect(line.contains("textures=on blend=yes"), failures, "Benchmark runner diagnostics should include biome texture cache state")
 	TEST_UTILS.expect(line.contains("flags low_end=true biome_textures=true landmark_overlay=false biome_terrain_accents=false"), failures, "Benchmark runner diagnostics should include low-end render flags")
 	TEST_UTILS.expect(line.contains("culling enabled=true visible_resources=3 hidden_resources=8 visible_creatures=2 hidden_creatures=6"), failures, "Benchmark runner diagnostics should include visibility culling counts")
+	TEST_UTILS.expect(line.contains("resource_render_mode render_only_resources=2 render_only_grass=2 active_resource_collisions=1"), failures, "Benchmark runner diagnostics should include render-only resource mode counts")
 	TEST_UTILS.expect(line.contains("registry resources=3 buildings=1"), failures, "Benchmark runner diagnostics should include registry totals")
 	TEST_UTILS.expect(sample_line.contains("focused=true"), failures, "Benchmark runner sample lines should report whether the game window had focus")
 

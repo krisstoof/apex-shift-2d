@@ -228,6 +228,7 @@ func _capture_world_stats() -> Dictionary:
 		"pond_vegetation",
 		"edible_vegetation"
 	])
+	stats["resource_render_mode"] = _capture_world_resource_render_mode_stats()
 	stats["total_creatures"] = _sum_group_counts(stats["creature_counts"])
 	stats["total_resources"] = _sum_group_counts(stats["resource_counts"])
 	return stats
@@ -339,6 +340,41 @@ func _capture_world_visibility_culling_stats() -> Dictionary:
 	if not is_instance_valid(world) or not world.has_method("get_visibility_culling_debug"):
 		return {}
 	return Dictionary(world.get_visibility_culling_debug())
+
+
+func _capture_world_resource_render_mode_stats() -> Dictionary:
+	if not is_instance_valid(world):
+		return {}
+	var resources: Array = []
+	if world.has_method("get_cached_group_nodes"):
+		resources = Array(world.call("get_cached_group_nodes", "resources"))
+	else:
+		resources = get_tree().get_nodes_in_group("resources")
+	var render_only_resources := 0
+	var render_only_grass := 0
+	var active_resource_collisions := 0
+	for resource_value in resources:
+		var resource := resource_value as Node
+		if resource == null:
+			continue
+		var is_render_only := false
+		if resource.has_method("is_render_only_resource"):
+			is_render_only = resource.call("is_render_only_resource") == true
+		elif resource.has_method("get"):
+			is_render_only = resource.get("render_only") == true
+		if is_render_only:
+			render_only_resources += 1
+		var resource_kind := str(resource.get("resource_kind")) if resource.has_method("get") else ""
+		if is_render_only and resource_kind in ["grass_patch", "dense_grass"]:
+			render_only_grass += 1
+		var collision_shape := resource.get_node_or_null("CollisionShape2D") as CollisionShape2D
+		if collision_shape != null and collision_shape.disabled == false:
+			active_resource_collisions += 1
+	return {
+		"render_only_resources": render_only_resources,
+		"render_only_grass": render_only_grass,
+		"active_resource_collisions": active_resource_collisions
+	}
 
 
 func _capture_player_stats() -> Dictionary:
@@ -705,6 +741,13 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			int(visibility_culling.get("hidden_resources", 0)),
 			int(visibility_culling.get("visible_creatures", 0)),
 			int(visibility_culling.get("hidden_creatures", 0))
+		])
+	var resource_render_mode: Dictionary = Dictionary(world_stats.get("resource_render_mode", {}))
+	if not resource_render_mode.is_empty():
+		diagnostics.append("resource_render_mode render_only_resources=%d render_only_grass=%d active_resource_collisions=%d" % [
+			int(resource_render_mode.get("render_only_resources", 0)),
+			int(resource_render_mode.get("render_only_grass", 0)),
+			int(resource_render_mode.get("active_resource_collisions", 0))
 		])
 	return "  diagnostics %s" % " | ".join(diagnostics)
 

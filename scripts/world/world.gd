@@ -1954,6 +1954,8 @@ func _get_sibling_node(node_name: String) -> Node:
 
 
 func _get_event_bus() -> Node:
+	if not is_inside_tree():
+		return null
 	return get_node_or_null("/root/EventBus")
 
 
