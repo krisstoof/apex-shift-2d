@@ -56,7 +56,7 @@ func run() -> Array[String]:
 	varnak.global_position = hunt_point - Vector2(120.0, 0.0)
 	varnak.hunger = 0.70
 	varnak.energy = 0.65
-	varnak.call("_update_state")
+	varnak.call("force_ai_decision_for_tests")
 	TEST_UTILS.expect_equal(varnak.state, varnak.State.HUNT_ECOSYSTEM, failures, "Hungry Varnak should switch to ecosystem hunting")
 	TEST_UTILS.expect_equal(varnak.ecosystem_target, prey, failures, "Hungry Varnak should lock onto the spawned prey")
 	TEST_UTILS.expect_equal(varnak.decision_reason, "hunt_drive_ecosystem_prey", failures, "Varnak should explain that it is hunting ecosystem prey")

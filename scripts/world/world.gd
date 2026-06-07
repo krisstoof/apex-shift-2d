@@ -148,6 +148,7 @@ var biome_vegetation_sync_scheduled := false
 var boot_ready := false
 var boot_status_message := "Preparing world..."
 var boot_status_progress := 0.0
+var integration_test_mode := false
 var biome_blend_background: Sprite2D
 var world_biome_texture_build_count: int = 0
 var world_biome_texture_last_build_ms: float = 0.0
@@ -202,13 +203,22 @@ func _ready() -> void:
 	await _spawn_resources()
 	await _yield_initial_boot_step()
 	_set_boot_progress("Spawning small prey...", 0.58)
-	_sync_visible_small_prey()
+	if integration_test_mode:
+		force_spawn_small_prey_for_tests(SMALL_PREY_MAX_VISIBLE_PER_BIOME)
+	else:
+		_sync_visible_small_prey()
 	await _yield_initial_boot_step()
 	_set_boot_progress("Spawning grazers...", 0.72)
-	_spawn_initial_grazers()
+	if integration_test_mode:
+		force_spawn_grazers_for_tests(INITIAL_GRAZER_VISIBLE_COUNT)
+	else:
+		_spawn_initial_grazers()
 	await _yield_initial_boot_step()
 	_set_boot_progress("Spawning predators...", 0.84)
-	_sync_visible_varnaks(true)
+	if integration_test_mode:
+		force_spawn_varnaks_for_tests(int(GAME_BALANCE.VARNAK_DAY_SCALING.get("spawn_batch_limit", 2)))
+	else:
+		_sync_visible_varnaks(true)
 	await _yield_initial_boot_step()
 	_set_boot_progress("Rendering world...", 0.94)
 	_prepare_boot_render_cache()
@@ -233,9 +243,9 @@ func _process(delta: float) -> void:
 		"visible_creatures": visibility_cull_last_visible_creatures,
 		"hidden_creatures": visibility_cull_last_hidden_creatures
 	})
-	if small_prey_failed_spawn_retry_timer > 0.0:
+	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
 		small_prey_failed_spawn_retry_timer = maxf(0.0, small_prey_failed_spawn_retry_timer - delta)
-	if varnak_failed_spawn_retry_timer > 0.0:
+	if varnak_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
 		varnak_failed_spawn_retry_timer = maxf(0.0, varnak_failed_spawn_retry_timer - delta)
 	small_prey_spawn_timer += delta
 	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
@@ -364,6 +374,110 @@ func get_boot_progress_state() -> Dictionary:
 		"progress": boot_status_progress,
 		"boot_ready": boot_ready
 	}
+
+
+func enable_integration_test_mode() -> void:
+	integration_test_mode = true
+	small_prey_failed_spawn_retry_timer = 0.0
+	small_prey_failed_spawn_warning_printed = false
+	small_prey_spawn_sync_attempt_count = 0
+	small_prey_spawn_sync_failed_count = 0
+	small_prey_spawn_sync_skipped_by_cooldown_count = 0
+	small_prey_spawn_sync_last_requested = 0
+	small_prey_spawn_sync_last_failed = 0
+	small_prey_spawn_sync_last_success = 0
+	varnak_failed_spawn_retry_timer = 0.0
+	varnak_failed_spawn_warning_printed = false
+	varnak_spawn_sync_attempt_count = 0
+	varnak_spawn_sync_failed_count = 0
+	varnak_spawn_sync_skipped_by_cooldown_count = 0
+	varnak_spawn_sync_last_requested = 0
+	varnak_spawn_sync_last_failed = 0
+	varnak_spawn_sync_last_success = 0
+
+
+func spawn_resource_for_tests(resource_kind: String, position: Vector2) -> Node:
+	return _spawn_resource_at(resource_kind, position)
+
+
+func spawn_small_prey_for_tests(position: Vector2, biome_id: String) -> Node:
+	return _spawn_small_prey_at(position, biome_id)
+
+
+func spawn_grazer_for_tests(position: Vector2, biome_id: String) -> Node:
+	return _spawn_grazer_at(position, biome_id)
+
+
+func spawn_varnak_for_tests(position: Vector2) -> Node:
+	return _spawn_varnak_at(position)
+
+
+func force_spawn_small_prey_for_tests(count: int, center: Vector2 = Vector2.INF) -> Array[Node]:
+	var spawned: Array[Node] = []
+	if count <= 0:
+		return spawned
+	var player_position := center if center != Vector2.INF else _get_player_position()
+	var biome := _get_biome_for_position(player_position)
+	if biome.is_empty():
+		biome = _get_first_biome_for_tests(false)
+	if biome.is_empty():
+		return spawned
+	var biome_id := _get_biome_id(biome)
+	for i in count:
+		var spawn_position := _get_debug_creature_spawn_position(biome, 220.0, i, count)
+		if spawn_position == Vector2.ZERO:
+			spawn_position = player_position
+		spawned.append(_spawn_small_prey_at(spawn_position, biome_id))
+	return spawned
+
+
+func force_spawn_grazers_for_tests(count: int, center: Vector2 = Vector2.INF) -> Array[Node]:
+	var spawned: Array[Node] = []
+	if count <= 0:
+		return spawned
+	var player_position := center if center != Vector2.INF else _get_player_position()
+	var biome := _get_first_biome_for_tests(false)
+	if biome.is_empty():
+		biome = _get_biome_for_position(player_position)
+	if biome.is_empty():
+		return spawned
+	var biome_id := _get_biome_id(biome)
+	for i in count:
+		var spawn_position := _get_debug_creature_spawn_position(biome, 280.0, i, count)
+		if spawn_position == Vector2.ZERO:
+			spawn_position = player_position
+		spawned.append(_spawn_grazer_at(spawn_position, biome_id))
+	return spawned
+
+
+func force_spawn_varnaks_for_tests(count: int, center: Vector2 = Vector2.INF) -> Array[Node]:
+	var spawned: Array[Node] = []
+	if count <= 0:
+		return spawned
+	var player_position := center if center != Vector2.INF else _get_player_position()
+	var biome := _get_first_biome_for_tests(true)
+	if biome.is_empty():
+		biome = _get_biome_for_position(player_position)
+	if biome.is_empty():
+		return spawned
+	var used_positions: Array[Vector2] = _get_existing_varnak_positions()
+	for i in count:
+		var spawn_position := _get_debug_creature_spawn_position(biome, 320.0, i, count)
+		if spawn_position == Vector2.ZERO:
+			spawn_position = player_position
+		if not _is_valid_varnak_spawn_position(spawn_position, player_position, used_positions):
+			spawn_position = _clamp_position_to_world(spawn_position)
+		used_positions.append(spawn_position)
+		spawned.append(_spawn_varnak_at(spawn_position))
+	return spawned
+
+
+func _get_first_biome_for_tests(dangerous: bool) -> Dictionary:
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		if biome.get("dangerous", false) == dangerous:
+			return biome
+	return {}
 
 
 func get_query_service():
@@ -1443,7 +1557,7 @@ func _get_nearest_pond_landmark(position: Vector2) -> Dictionary:
 func _sync_visible_small_prey() -> void:
 	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
 		return
-	if small_prey_failed_spawn_retry_timer > 0.0:
+	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
 		small_prey_spawn_sync_skipped_by_cooldown_count += 1
 		return
 	small_prey_spawn_sync_attempt_count += 1
@@ -1956,7 +2070,7 @@ func _get_sibling_node(node_name: String) -> Node:
 func _get_event_bus() -> Node:
 	if not is_inside_tree():
 		return null
-	return get_node_or_null("/root/EventBus")
+	return get_tree().root.get_node_or_null("EventBus")
 
 
 func _get_game_session() -> Node:
@@ -1993,7 +2107,7 @@ func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
 
 
 func _sync_visible_varnaks(force_spawn_check := false) -> void:
-	if varnak_failed_spawn_retry_timer > 0.0 and not force_spawn_check:
+	if varnak_failed_spawn_retry_timer > 0.0 and not force_spawn_check and not integration_test_mode:
 		varnak_spawn_sync_skipped_by_cooldown_count += 1
 		return
 	varnak_spawn_sync_attempt_count += 1

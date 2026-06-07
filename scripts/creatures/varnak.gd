@@ -215,6 +215,11 @@ func _should_update_ai_decision(delta: float) -> bool:
 	return true
 
 
+func force_ai_decision_for_tests() -> void:
+	ai_decision_timer = 0.0
+	_update_state()
+
+
 func take_damage(amount: float, source: String) -> void:
 	if is_dead:
 		return

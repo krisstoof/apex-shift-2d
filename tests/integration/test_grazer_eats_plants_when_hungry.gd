@@ -40,15 +40,15 @@ func run() -> Array[String]:
 	var hunger_before: float = float(grazer.hunger_diet.hunger)
 	grazer.hunger_diet.hunger = 0.90
 	grazer.call("_sync_hunger_fields")
-	grazer.call("_update_state")
+	grazer.call("force_ai_decision_for_tests")
 	TEST_UTILS.expect_equal(grazer.state, grazer.State.SEEK_FOOD, failures, "Hungry grazer should seek food")
 	TEST_UTILS.expect(is_instance_valid(grazer.plant_target), failures, "Hungry grazer should lock a plant target")
 	TEST_UTILS.expect(grazer.plant_target == plant, failures, "Hungry grazer should choose the closest plant")
 	grazer.call("_act", 0.0)
 	TEST_UTILS.expect(grazer.velocity.length() > 0.0 or grazer.state == grazer.State.EAT_PLANTS, failures, "Hungry grazer should either move toward or start eating the plant")
 	grazer.global_position = food_position
-	grazer.call("_update_state")
-	grazer.call("_consume_plants")
+	grazer.call("force_ai_decision_for_tests")
+	grazer.call("force_consume_plants_for_tests")
 	TEST_UTILS.expect(grazer.hunger_diet.hunger < hunger_before, failures, "Eating plants should reduce grazer hunger")
 	TEST_UTILS.expect(float(plant.get("growth_stage")) < float(plant.get("max_growth_stage")), failures, "Plant resource should be partially consumed")
 	TEST_UTILS.expect_equal(grazer.last_food_source, "plants", failures, "Plant eating should be recorded as the food source")
