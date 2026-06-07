@@ -1,4 +1,5 @@
 extends Node2D
+class_name World
 
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
@@ -113,8 +114,9 @@ var biome_sample_images: Dictionary = {}
 var biome_terrain_accent_cache: Dictionary = {}
 var pending_biome_terrain_accent_biomes: Array[Dictionary] = []
 var biome_terrain_accent_cache_build_running := false
-var debug_landmark_overlay_enabled := false
-var biome_textures_enabled := true
+var debug_landmark_overlay_enabled: bool = false
+var biome_textures_enabled: bool = false
+var graphics_settings: GraphicsSettings = GraphicsSettings
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
 var pending_biome_vegetation_syncs: Dictionary = {}
@@ -135,6 +137,8 @@ signal world_initialized
 signal world_boot_stage_changed(stage_message: String, progress: float)
 
 func _ready() -> void:
+	biome_textures_enabled = graphics_settings.get_default_biome_textures_enabled()
+	debug_landmark_overlay_enabled = graphics_settings.get_default_landmark_debug_overlay_enabled()
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_ensure_biome_blend_background()
 	_ensure_night_overlay_polygon()
@@ -2235,7 +2239,11 @@ func _get_night_amount() -> float:
 
 
 func _draw_biomes() -> void:
-	if is_instance_valid(biome_blend_background):
+	if biome_textures_enabled:
+		_sync_biome_blend_background()
+		if biome_blend_background.visible:
+			return
+	elif is_instance_valid(biome_blend_background):
 		biome_blend_background.visible = false
 	for biome_value in WORLD_CONFIG.get_biome_zones():
 		var biome := Dictionary(biome_value)
