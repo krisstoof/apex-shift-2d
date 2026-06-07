@@ -10,8 +10,10 @@ var ecosystem_director: Node
 var world: Node
 
 var snapshot: Dictionary = {}
+var hud_snapshot: Dictionary = {}
 var snapshot_version := 0
 var last_refresh_frame := -1
+var last_hud_refresh_frame := -1
 
 
 func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null, p_world: Node = null) -> void:
@@ -31,6 +33,19 @@ func refresh(force := false) -> Dictionary:
 	snapshot_version += 1
 	snapshot["snapshot_version"] = snapshot_version
 	return snapshot
+
+
+func refresh_hud(force := false) -> Dictionary:
+	var current_frame := Engine.get_process_frames()
+	if not force and not hud_snapshot.is_empty() and current_frame == last_hud_refresh_frame:
+		return hud_snapshot
+	last_hud_refresh_frame = current_frame
+	hud_snapshot = {
+		"player": _build_player_snapshot(),
+		"time": _build_time_snapshot(),
+		"snapshot_version": snapshot_version
+	}
+	return hud_snapshot
 
 
 func get_snapshot() -> Dictionary:

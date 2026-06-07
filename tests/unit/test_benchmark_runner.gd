@@ -4,6 +4,15 @@ const BENCHMARK_RUNNER := preload("res://scripts/systems/benchmark_runner.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
+class CountingBenchmarkRunner:
+	extends BENCHMARK_RUNNER
+
+	var record_calls := 0
+
+	func _record_sample() -> void:
+		record_calls += 1
+
+
 class FakeWorld extends Node:
 
 	var landmarks: Array[Dictionary] = [
@@ -93,6 +102,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_benchmark_runner_captures_world_diagnostics(failures)
 	_test_benchmark_runner_formats_diagnostics_into_text_log(failures)
+	_test_benchmark_runner_records_at_most_one_sample_per_frame(failures)
 	return failures
 
 
@@ -170,3 +180,13 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 	TEST_UTILS.expect(line.contains("textures=on blend=yes"), failures, "Benchmark runner diagnostics should include biome texture cache state")
 	TEST_UTILS.expect(line.contains("registry resources=3 buildings=1"), failures, "Benchmark runner diagnostics should include registry totals")
 	TEST_UTILS.expect(sample_line.contains("focused=true"), failures, "Benchmark runner sample lines should report whether the game window had focus")
+
+
+func _test_benchmark_runner_records_at_most_one_sample_per_frame(failures: Array[String]) -> void:
+	var runner := CountingBenchmarkRunner.new()
+	runner.running = true
+	runner.start_ticks_usec = Time.get_ticks_usec()
+	runner.sample_timer = 3.2
+	runner.elapsed_seconds = 12.0
+	runner._process(0.0)
+	TEST_UTILS.expect_equal(runner.record_calls, 1, failures, "Benchmark runner should record at most one sample per frame even after a hitch")

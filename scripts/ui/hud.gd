@@ -15,6 +15,7 @@ var map_screen_open := false
 var pause_menu_open := false
 var center_notification_time := 0.0
 var hud_refresh_timer := 0.0
+var hud_snapshot_build_ms: float = 0.0
 var ecosystem_message_cooldowns: Dictionary = {}
 var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 
@@ -57,7 +58,9 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	var world := get_tree().current_scene.get_node_or_null("World")
 	snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 	snapshot_service.bind(player, evolution_director, day_night_system, ecosystem_director, world)
+	var bind_snapshot_start_ms: int = Time.get_ticks_msec()
 	var snapshot := snapshot_service.refresh(true)
+	hud_snapshot_build_ms = float(Time.get_ticks_msec() - bind_snapshot_start_ms)
 	var world_snapshot := Dictionary(snapshot.get("world", {}))
 	var world_rect: Rect2 = Rect2(world_snapshot.get("world_rect", WORLD_CONFIG.WORLD_RECT))
 	var biome_zones: Array[Dictionary] = Array(world_snapshot.get("biome_zones", WORLD_CONFIG.get_biome_zones()))
@@ -71,6 +74,11 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 func _process(delta: float) -> void:
 	if not player or not evolution_director or not day_night_system:
 		return
+	_log_hitch(delta, "HUD", {
+		"map_screen_open": map_screen_open,
+		"pause_menu_open": pause_menu_open,
+		"refresh_timer": hud_refresh_timer
+	})
 	if center_notification_time > 0.0:
 		center_notification_time = max(center_notification_time - delta, 0.0)
 		center_notification_label.visible = center_notification_time > 0.0
@@ -84,7 +92,16 @@ func _process(delta: float) -> void:
 func _refresh_hud_text() -> void:
 	if not player or not evolution_director or not day_night_system:
 		return
-	_apply_snapshot(snapshot_service.refresh())
+	var snapshot_start_ms: int = Time.get_ticks_msec()
+	var snapshot: Dictionary
+	if snapshot_service != null and snapshot_service.has_method("refresh_hud"):
+		snapshot = snapshot_service.refresh_hud()
+	elif snapshot_service != null and snapshot_service.has_method("refresh"):
+		snapshot = snapshot_service.refresh()
+	else:
+		snapshot = {}
+	hud_snapshot_build_ms = float(Time.get_ticks_msec() - snapshot_start_ms)
+	_apply_snapshot(snapshot)
 
 
 func _apply_snapshot(snapshot: Dictionary) -> void:
@@ -216,6 +233,17 @@ func _get_torch_status_text_from_snapshot(player_snapshot: Dictionary) -> String
 	if player_snapshot.get("torch_active", false) != true:
 		return "inactive"
 	return "active %ds" % int(ceil(float(player_snapshot.get("torch_remaining_seconds", 0.0))))
+
+
+func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
+	if delta <= 0.1:
+		return
+	var flag_text := ""
+	for key in flags.keys():
+		if not flag_text.is_empty():
+			flag_text += " "
+		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
+	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func show_game_over(day_survived: int, reason: String) -> void:

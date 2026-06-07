@@ -246,7 +246,7 @@ func _update_state() -> void:
 		decision_reason = "threat_lost_return_wander"
 		_set_state(State.WANDER)
 		_pick_wander_target()
-		plant_target = null
+		return
 	_sync_population_traits()
 	if state == State.EAT:
 		decision_reason = "eating_target_plant"
