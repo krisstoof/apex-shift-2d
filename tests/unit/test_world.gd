@@ -15,6 +15,53 @@ class CountingWorld:
 		sync_calls += 1
 
 
+class MockSmallPreyEcosystemDirector:
+	extends Node
+
+	func get_biome_state(_biome_id: String) -> Dictionary:
+		return {
+			"small_prey_population": 4.0,
+			"plant_biomass_percent": 100.0
+		}
+
+
+class SmallPreySyncWorld:
+	extends WORLD_SCRIPT
+
+	var spawn_should_succeed := false
+	var spawn_attempt_calls := 0
+	var player_position := Vector2.ZERO
+
+	func _get_player_position() -> Vector2:
+		return player_position
+
+	func _get_biome_for_position(_position: Vector2) -> Dictionary:
+		return {
+			"id": "westwood",
+			"name": "Westwood",
+			"dangerous": false
+		}
+
+	func _get_biome_id(_biome: Dictionary) -> String:
+		return "westwood"
+
+	func _get_desired_small_prey_count(_biome: Dictionary, _biome_state: Dictionary) -> int:
+		return 2
+
+	func _get_visible_small_prey_count(_biome_id: String) -> int:
+		return 0
+
+	func get_registered_creatures_by_type(_creature_type: String) -> Array:
+		return []
+
+	func _get_existing_small_prey_positions() -> Array[Vector2]:
+		return []
+
+	func _try_spawn_small_prey_near_player(_biome: Dictionary, _player_position: Vector2, _used_positions: Array[Vector2], _slot_index: int, _slot_count: int) -> bool:
+		spawn_attempt_calls += 1
+		return spawn_should_succeed
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_world_rect_matches_config(failures)
@@ -39,6 +86,7 @@ func run() -> Array[String]:
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
 	_test_world_builds_cached_biome_blend_texture(failures)
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
+	_test_small_prey_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
 	_test_world_boot_progress_state_tracks_stage_updates(failures)
 	_test_current_biome_texture_id_uses_player_position_biome(failures)
@@ -483,6 +531,42 @@ func _test_world_draw_biomes_uses_existing_background_texture(failures: Array[St
 	var sync_calls_before := world.sync_calls
 	world.call("_draw_biomes")
 	TEST_UTILS.expect_equal(world.sync_calls, sync_calls_before, failures, "World draw path should reuse the cached biome background instead of rebuilding it")
+	world.free()
+
+
+func _test_small_prey_spawn_sync_uses_cooldown_after_failure(failures: Array[String]) -> void:
+	var world := SmallPreySyncWorld.new()
+	world.ecosystem_director = MockSmallPreyEcosystemDirector.new()
+	world.spawn_should_succeed = false
+	world.call("_sync_visible_small_prey")
+	var failed_debug: Dictionary = world.get_small_prey_spawn_sync_debug()
+	TEST_UTILS.expect_equal(int(failed_debug.get("attempt_count", 0)), 1, failures, "SmallPrey sync should count the first spawn attempt")
+	TEST_UTILS.expect_equal(int(failed_debug.get("failed_count", 0)), 1, failures, "SmallPrey sync should count the failed spawn pass")
+	TEST_UTILS.expect_equal(int(failed_debug.get("skipped_by_cooldown_count", 0)), 0, failures, "SmallPrey sync should not skip the first attempt")
+	TEST_UTILS.expect_equal(int(failed_debug.get("last_requested", 0)), 2, failures, "SmallPrey sync should record the requested spawn count")
+	TEST_UTILS.expect_equal(int(failed_debug.get("last_failed", 0)), 2, failures, "SmallPrey sync should record all failed spawn slots")
+	TEST_UTILS.expect_equal(int(failed_debug.get("last_success", 0)), 0, failures, "SmallPrey sync should record zero successful spawns on failure")
+	TEST_UTILS.expect_equal(float(failed_debug.get("retry_timer", 0.0)), 5.0, failures, "SmallPrey sync should start the cooldown after a failed spawn pass")
+	TEST_UTILS.expect_equal(bool(failed_debug.get("warning_printed", false)), true, failures, "SmallPrey sync should mark the warning as printed after the first failure")
+	world.call("_sync_visible_small_prey")
+	var skipped_debug: Dictionary = world.get_small_prey_spawn_sync_debug()
+	TEST_UTILS.expect_equal(int(skipped_debug.get("attempt_count", 0)), 1, failures, "SmallPrey sync should not retry during cooldown")
+	TEST_UTILS.expect_equal(int(skipped_debug.get("skipped_by_cooldown_count", 0)), 1, failures, "SmallPrey sync should count cooldown skips")
+	TEST_UTILS.expect_equal(int(skipped_debug.get("failed_count", 0)), 1, failures, "SmallPrey sync should not add new failures while cooled down")
+	world._process(1.5)
+	var cooled_debug: Dictionary = world.get_small_prey_spawn_sync_debug()
+	TEST_UTILS.expect_close(float(cooled_debug.get("retry_timer", 0.0)), 3.5, failures, "World process should reduce the failed-spawn cooldown")
+	world.small_prey_failed_spawn_retry_timer = 0.0
+	world.spawn_should_succeed = true
+	world.call("_sync_visible_small_prey")
+	var success_debug: Dictionary = world.get_small_prey_spawn_sync_debug()
+	TEST_UTILS.expect_equal(int(success_debug.get("attempt_count", 0)), 2, failures, "SmallPrey sync should try again after the cooldown expires")
+	TEST_UTILS.expect_equal(int(success_debug.get("failed_count", 0)), 1, failures, "SmallPrey sync should keep the historical failed-pass count")
+	TEST_UTILS.expect_equal(int(success_debug.get("last_requested", 0)), 2, failures, "SmallPrey sync should continue to request the same number of prey")
+	TEST_UTILS.expect_equal(int(success_debug.get("last_failed", 0)), 0, failures, "SmallPrey sync should clear the last failure count after a successful retry")
+	TEST_UTILS.expect_equal(int(success_debug.get("last_success", 0)), 2, failures, "SmallPrey sync should record a full success after the retry")
+	TEST_UTILS.expect_equal(float(success_debug.get("retry_timer", 0.0)), 0.0, failures, "SmallPrey sync should clear the cooldown after a successful spawn pass")
+	TEST_UTILS.expect_equal(bool(success_debug.get("warning_printed", true)), false, failures, "SmallPrey sync should clear the warning state after success")
 	world.free()
 
 
