@@ -1,21 +1,17 @@
 extends RefCounted
 
-const MAIN_SCENE := preload("res://scenes/main.tscn")
+const INTEGRATION := preload("res://tests/integration/integration_test_utils.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree == null:
+	var context := await INTEGRATION.boot_main()
+	var tree := context.get("tree") as SceneTree
+	var main := context.get("main") as Node
+	if tree == null or main == null:
 		failures.append("SceneTree is not available for the integration test run")
 		return failures
-	var original_scene := tree.current_scene
-
-	var main := MAIN_SCENE.instantiate()
-	tree.root.call_deferred("add_child", main)
-	tree.call_deferred("set_current_scene", main)
-	await main.ready
 
 	var world_boot := main.get_node_or_null("World")
 	if world_boot != null and world_boot.has_method("is_boot_ready") and not bool(world_boot.call("is_boot_ready")):
@@ -45,10 +41,6 @@ func run() -> Array[String]:
 		TEST_UTILS.expect_equal(grazers.size(), 3, failures, "Fresh game should spawn the expected visible grazer count")
 		TEST_UTILS.expect(world.call("get_world_rect").has_point(player.global_position), failures, "Player should spawn inside the world bounds")
 
-	if is_instance_valid(main):
-		main.queue_free()
-		await tree.process_frame
-	if is_instance_valid(original_scene):
-		tree.current_scene = original_scene
+	await INTEGRATION.shutdown_main(context)
 
 	return failures
