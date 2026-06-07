@@ -198,7 +198,9 @@ func _process(delta: float) -> void:
 		varnak_spawn_timer = 0.0
 		_sync_visible_varnaks()
 	var current_night_amount := _get_night_amount()
-	_ensure_render_controller().process(delta, current_night_amount)
+	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
+	if should_redraw_background:
+		queue_redraw()
 	_update_night_overlay(current_night_amount)
 
 
