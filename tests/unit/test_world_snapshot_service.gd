@@ -128,11 +128,16 @@ class MockWorld:
 	var grazers: Array = []
 	var resource_reads := 0
 	var creature_reads := 0
+	var world_rect_reads := 0
+	var biome_zone_reads := 0
+	var landmark_reads := 0
 
 	func get_world_rect() -> Rect2:
+		world_rect_reads += 1
 		return Rect2(Vector2(-1000.0, -800.0), Vector2(2000.0, 1600.0))
 
 	func get_biome_zones() -> Array[Dictionary]:
+		biome_zone_reads += 1
 		return [{
 			"name": "Westwood",
 			"points": PackedVector2Array([
@@ -145,6 +150,7 @@ class MockWorld:
 		}]
 
 	func get_landmarks() -> Array[Dictionary]:
+		landmark_reads += 1
 		return [{
 			"id": "pond_a",
 			"type": "pond",
@@ -222,6 +228,7 @@ class MockWorld:
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures)
+	_test_snapshot_service_refresh_hud_is_lightweight(failures)
 	return failures
 
 
@@ -262,6 +269,24 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	TEST_UTILS.expect_equal(int(debug_snapshot.get("live_varnaks", 0)), 1, failures, "Snapshot service should expose debug summary creature counts")
 	TEST_UTILS.expect_equal(world.resource_reads, 1, failures, "Snapshot service should build resource markers only once per refresh")
 	TEST_UTILS.expect_equal(world.creature_reads, 3, failures, "Snapshot service should build each creature marker list only once per refresh")
+
+
+func _test_snapshot_service_refresh_hud_is_lightweight(failures: Array[String]) -> void:
+	var service = SNAPSHOT_SERVICE_SCRIPT.new()
+	var player := MockPlayer.new()
+	player.global_position = Vector2(25.0, -10.0)
+	var world := MockWorld.new()
+	service.bind(player, MockEvolutionDirector.new(), MockDayNightSystem.new(), MockEcosystemDirector.new(), world)
+	var full_snapshot: Dictionary = service.refresh(true)
+	var world_reads_before := world.world_rect_reads + world.biome_zone_reads + world.landmark_reads
+	var hud_snapshot: Dictionary = service.refresh_hud()
+	var world_reads_after := world.world_rect_reads + world.biome_zone_reads + world.landmark_reads
+	TEST_UTILS.expect(hud_snapshot.has("player"), failures, "HUD snapshot should include player data")
+	TEST_UTILS.expect(hud_snapshot.has("time"), failures, "HUD snapshot should include time data")
+	TEST_UTILS.expect(not hud_snapshot.has("world"), failures, "HUD snapshot should not rebuild the full world snapshot")
+	TEST_UTILS.expect(not hud_snapshot.has("markers"), failures, "HUD snapshot should not rebuild marker data")
+	TEST_UTILS.expect_equal(world_reads_before, world_reads_after, failures, "HUD snapshot refresh should not reread world geometry or landmarks")
+	TEST_UTILS.expect_equal(str(Dictionary(full_snapshot.get("time", {})).get("clock_time", "")), "13:48", failures, "Full snapshot should still be available for world data consumers")
 
 
 func _make_resource(kind: String, item_name: String, position: Vector2, harvestable: bool) -> MockResource:

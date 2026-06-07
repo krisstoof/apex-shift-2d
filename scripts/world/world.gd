@@ -11,6 +11,7 @@ const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
 const WORLD_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_query_service.gd")
 const LANDMARK_SERVICE_SCRIPT := preload("res://scripts/world/landmark_service.gd")
 const RESOURCE_SERVICE_SCRIPT := preload("res://scripts/world/resource_service.gd")
+const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
@@ -115,8 +116,8 @@ var biome_terrain_accent_cache: Dictionary = {}
 var pending_biome_terrain_accent_biomes: Array[Dictionary] = []
 var biome_terrain_accent_cache_build_running := false
 var debug_landmark_overlay_enabled: bool = false
-var biome_textures_enabled: bool = false
-var graphics_settings: GraphicsSettings = GraphicsSettings
+var biome_textures_enabled: bool = true
+var graphics_settings: Node = GRAPHICS_SETTINGS_SCRIPT.new()
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
 var pending_biome_vegetation_syncs: Dictionary = {}
@@ -125,6 +126,8 @@ var boot_ready := false
 var boot_status_message := "Preparing world..."
 var boot_status_progress := 0.0
 var biome_blend_background: Sprite2D
+var world_biome_texture_build_count: int = 0
+var world_biome_texture_last_build_ms: float = 0.0
 var night_overlay_polygon: Polygon2D
 var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
@@ -137,8 +140,11 @@ signal world_initialized
 signal world_boot_stage_changed(stage_message: String, progress: float)
 
 func _ready() -> void:
-	biome_textures_enabled = graphics_settings.get_default_biome_textures_enabled()
-	debug_landmark_overlay_enabled = graphics_settings.get_default_landmark_debug_overlay_enabled()
+	biome_textures_enabled = true
+	var graphics_settings_node := get_node_or_null("/root/GraphicsSettings")
+	if graphics_settings_node != null:
+		graphics_settings = graphics_settings_node
+	debug_landmark_overlay_enabled = graphics_settings.has_method("get_default_landmark_debug_overlay_enabled") and graphics_settings.get_default_landmark_debug_overlay_enabled()
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_ensure_biome_blend_background()
 	_ensure_night_overlay_polygon()
@@ -188,6 +194,10 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_log_hitch(delta, "World", {
+		"biome_textures_enabled": biome_textures_enabled,
+		"background_visible": is_instance_valid(biome_blend_background) and biome_blend_background.visible
+	})
 	small_prey_spawn_timer += delta
 	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
 		small_prey_spawn_timer = 0.0
@@ -199,6 +209,7 @@ func _process(delta: float) -> void:
 		_sync_visible_varnaks()
 	var current_night_amount := _get_night_amount()
 	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
+	_sync_biome_blend_background()
 	if should_redraw_background:
 		queue_redraw()
 	_update_night_overlay(current_night_amount)
@@ -263,6 +274,8 @@ func get_current_biome_texture_id(position: Vector2) -> String:
 
 func get_biome_texture_cache_status() -> Dictionary:
 	var render_state: Dictionary = _ensure_render_controller().get_biome_texture_cache_status()
+	world_biome_texture_build_count = int(render_state.get("rebuild_count", world_biome_texture_build_count))
+	world_biome_texture_last_build_ms = float(render_state.get("last_build_ms", world_biome_texture_last_build_ms))
 	return {
 		"sample_image_cache_count": biome_sample_images.size(),
 		"accent_cache_count": biome_terrain_accent_cache.size(),
@@ -271,7 +284,9 @@ func get_biome_texture_cache_status() -> Dictionary:
 		"textures_enabled": biome_textures_enabled,
 		"has_blend_texture": bool(render_state.get("has_texture", false)),
 		"blend_colors_key": str(render_state.get("colors_key", "")),
-		"blend_texture_size": render_state.get("size", Vector2i.ZERO)
+		"blend_texture_size": render_state.get("size", Vector2i.ZERO),
+		"world_biome_texture_build_count": world_biome_texture_build_count,
+		"world_biome_texture_last_build_ms": world_biome_texture_last_build_ms
 	}
 
 
@@ -493,14 +508,18 @@ func _sync_biome_blend_background() -> void:
 		background.visible = false
 		background.texture = null
 		return
-	var blend_texture := _ensure_render_controller().ensure_biome_blend_texture()
+	var controller: Object = _ensure_render_controller()
+	var blend_texture: ImageTexture = controller.ensure_biome_blend_texture()
+	var render_state: Dictionary = controller.get_biome_texture_cache_status()
+	world_biome_texture_build_count = int(render_state.get("rebuild_count", world_biome_texture_build_count))
+	world_biome_texture_last_build_ms = float(render_state.get("last_build_ms", world_biome_texture_last_build_ms))
 	if blend_texture == null:
 		background.visible = false
 		background.texture = null
 		return
 	background.texture = blend_texture
 	background.position = WORLD_CONFIG.WORLD_RECT.position
-	var texture_size := blend_texture.get_size()
+	var texture_size: Vector2i = blend_texture.get_size()
 	if texture_size.x > 0 and texture_size.y > 0:
 		background.scale = Vector2(
 			WORLD_CONFIG.WORLD_RECT.size.x / float(texture_size.x),
@@ -622,6 +641,9 @@ func debug_toggle_biome_textures() -> bool:
 	biome_textures_enabled = not biome_textures_enabled
 	if is_instance_valid(biome_blend_background):
 		biome_blend_background.visible = false
+		biome_blend_background.texture = null
+	if biome_textures_enabled:
+		_sync_biome_blend_background()
 	queue_redraw()
 	return biome_textures_enabled
 
@@ -2129,25 +2151,12 @@ func _get_current_day() -> int:
 
 
 func _get_varnak_target_count(day: int) -> int:
-	if day < 2:
-		return 0
-
 	var scaling := GameBalance.VARNAK_DAY_SCALING
-	if day == 2:
-		return randi_range(
-			int(scaling.get("day_2_min", 1)),
-			int(scaling.get("day_2_max", 2))
-		)
-	if day == 3:
-		return randi_range(
-			int(scaling.get("day_3_min", 2)),
-			int(scaling.get("day_3_max", 3))
-		)
-
-	var day_3_max := int(scaling.get("day_3_max", 3))
+	var base_target := int(scaling.get("day_1_target", 2))
 	var daily_growth := int(scaling.get("daily_growth", 1))
 	var max_varnaks := int(scaling.get("max_varnaks", 12))
-	return clampi(day_3_max + ((day - 3) * daily_growth), 0, max_varnaks)
+	var normalized_day := maxi(day, 1)
+	return clampi(base_target + ((normalized_day - 1) * daily_growth), base_target, max_varnaks)
 
 
 func _get_varnak_spawn_chance(day: int) -> float:
@@ -2242,11 +2251,11 @@ func _get_night_amount() -> float:
 
 func _draw_biomes() -> void:
 	if biome_textures_enabled:
-		_sync_biome_blend_background()
-		if biome_blend_background.visible:
+		if is_instance_valid(biome_blend_background) and biome_blend_background.visible and biome_blend_background.texture != null:
 			return
 	elif is_instance_valid(biome_blend_background):
 		biome_blend_background.visible = false
+		biome_blend_background.texture = null
 	for biome_value in WORLD_CONFIG.get_biome_zones():
 		var biome := Dictionary(biome_value)
 		var points := PackedVector2Array(biome["points"])
@@ -2537,9 +2546,21 @@ func _get_string_seed(text: String) -> int:
 
 
 func _draw_biome_blend_texture() -> void:
-	var blend_texture := _ensure_render_controller().ensure_biome_blend_texture()
-	if blend_texture:
-		draw_texture_rect(blend_texture, WORLD_CONFIG.WORLD_RECT, false)
+	if not is_instance_valid(biome_blend_background) or not biome_blend_background.visible:
+		return
+	if biome_blend_background.texture:
+		draw_texture_rect(biome_blend_background.texture, WORLD_CONFIG.WORLD_RECT, false)
+
+
+func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
+	if delta <= 0.1:
+		return
+	var flag_text := ""
+	for key in flags.keys():
+		if not flag_text.is_empty():
+			flag_text += " "
+		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
+	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color:

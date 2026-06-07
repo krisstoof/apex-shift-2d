@@ -6,6 +6,15 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
+class CountingWorld:
+	extends WORLD_SCRIPT
+
+	var sync_calls := 0
+
+	func _sync_biome_blend_background() -> void:
+		sync_calls += 1
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_world_rect_matches_config(failures)
@@ -29,6 +38,7 @@ func run() -> Array[String]:
 	_test_landmark_debug_toggles_flip_runtime_state(failures)
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
 	_test_world_builds_cached_biome_blend_texture(failures)
+	_test_world_draw_biomes_uses_existing_background_texture(failures)
 	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
 	_test_world_boot_progress_state_tracks_stage_updates(failures)
 	_test_current_biome_texture_id_uses_player_position_biome(failures)
@@ -458,7 +468,21 @@ func _test_world_builds_cached_biome_blend_texture(failures: Array[String]) -> v
 	var expected_size: Vector2i = world.call("_get_world_biome_blend_texture_size")
 	TEST_UTILS.expect(status.get("has_blend_texture", false) == true, failures, "Biome texture cache status should report the built world blend texture")
 	TEST_UTILS.expect(str(status.get("blend_colors_key", "")) != "", failures, "Biome texture cache status should expose a non-empty blend texture key after building")
+	TEST_UTILS.expect(int(status.get("world_biome_texture_build_count", 0)) >= 1, failures, "Biome texture cache status should expose the world blend texture build counter")
+	TEST_UTILS.expect(float(status.get("world_biome_texture_last_build_ms", 0.0)) >= 0.0, failures, "Biome texture cache status should expose the world blend texture build time")
 	TEST_UTILS.expect_equal(status.get("blend_texture_size", Vector2i.ZERO), expected_size, failures, "World should build the blend texture at the configured cache size")
+	world.free()
+
+
+func _test_world_draw_biomes_uses_existing_background_texture(failures: Array[String]) -> void:
+	var world := CountingWorld.new()
+	world.biome_textures_enabled = true
+	world.biome_blend_background = Sprite2D.new()
+	world.biome_blend_background.visible = true
+	world.biome_blend_background.texture = ImageTexture.create_from_image(Image.create(2, 2, false, Image.FORMAT_RGBA8))
+	var sync_calls_before := world.sync_calls
+	world.call("_draw_biomes")
+	TEST_UTILS.expect_equal(world.sync_calls, sync_calls_before, failures, "World draw path should reuse the cached biome background instead of rebuilding it")
 	world.free()
 
 

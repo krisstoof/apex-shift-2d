@@ -18,6 +18,8 @@ var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
+var minimap_texture_build_count: int = 0
+var minimap_texture_last_build_ms: float = 0.0
 var minimap_redraw_timer := 0.0
 var cached_resources: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
@@ -38,6 +40,7 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
+	_sync_biome_texture()
 	_update_marker_cache()
 	queue_redraw()
 
@@ -45,6 +48,11 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 func _process(delta: float) -> void:
 	if not visible:
 		return
+	_log_hitch(delta, "Minimap", {
+		"texture_cached": biome_blend_texture != null,
+		"build_count": minimap_texture_build_count
+	})
+	_sync_biome_texture()
 	minimap_redraw_timer += delta
 	if minimap_redraw_timer >= MINIMAP_REDRAW_INTERVAL:
 		minimap_redraw_timer = 0.0
@@ -77,7 +85,6 @@ func _draw() -> void:
 func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if biome_zones.is_empty():
 		return
-	_ensure_biome_texture()
 	if not biome_blend_texture:
 		return
 	var visible_world_rect := world_rect.intersection(view_world_rect)
@@ -90,12 +97,21 @@ func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	draw_texture_rect_region(biome_blend_texture, destination_rect, source_rect)
 
 
+func _sync_biome_texture() -> void:
+	if biome_zones.is_empty():
+		biome_blend_texture = null
+		biome_blend_colors_key = ""
+		return
+	_ensure_biome_texture()
+
+
 func _ensure_biome_texture() -> void:
 	if biome_zones.is_empty():
 		return
 	var current_key := _get_biome_colors_key()
 	if biome_blend_texture and biome_blend_colors_key == current_key:
 		return
+	var build_start_ms: int = Time.get_ticks_msec()
 	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
 	var colors: Array[Color] = []
 	for biome in biome_zones:
@@ -110,6 +126,8 @@ func _ensure_biome_texture() -> void:
 			image.set_pixel(x, y, _get_direct_biome_color_at(world_position, biome_zones, colors))
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
+	minimap_texture_build_count += 1
+	minimap_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 
 
 func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
@@ -150,6 +168,17 @@ func _get_biome_colors_key() -> String:
 		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
 	return "|".join(parts)
+
+
+func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
+	if delta <= 0.1:
+		return
+	var flag_text := ""
+	for key in flags.keys():
+		if not flag_text.is_empty():
+			flag_text += " "
+		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
+	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _draw_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:

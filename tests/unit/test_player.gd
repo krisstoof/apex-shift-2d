@@ -293,6 +293,7 @@ func _test_player_prefers_world_query_service_for_terrain_reads(failures: Array[
 	world.query_service = TestWorldQueryService.new()
 	tree.current_scene.add_child(world)
 	var player := _make_player()
+	player.debug_world_query_override = world.query_service
 	player.global_position = Vector2.ZERO
 	TEST_UTILS.expect_close(float(player.call("_get_terrain_speed_multiplier")), 0.52, failures, "Player should read terrain speed from WorldQueryService when the world exposes one")
 	TEST_UTILS.expect(player.call("_is_in_water"), failures, "Player should read water state from WorldQueryService when the world exposes one")

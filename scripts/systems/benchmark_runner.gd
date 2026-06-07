@@ -35,7 +35,11 @@ var sample_timer := 0.0
 var start_ticks_usec := 0
 var start_unix_time := 0.0
 var benchmark_base_name := ""
-var samples: Array[Dictionary] = []
+var samples: Array = []
+
+# HITCH LOGGER COUNTERS
+var benchmark_sample_build_ms: float = 0.0
+var benchmark_file_write_ms: float = 0.0
 var last_reported_second := -1
 
 var scene: Node
@@ -72,14 +76,17 @@ func start() -> bool:
 func _process(delta: float) -> void:
 	if not running:
 		return
+	_log_hitch(delta, "BenchmarkRunner", {
+		"running": running,
+		"sample_timer": sample_timer,
+		"samples": samples.size()
+	})
 	elapsed_seconds = float(Time.get_ticks_usec() - start_ticks_usec) / 1000000.0
 	sample_timer += delta
-	while sample_timer >= SAMPLE_INTERVAL_SECONDS and running:
+	if sample_timer >= SAMPLE_INTERVAL_SECONDS and running:
 		sample_timer -= SAMPLE_INTERVAL_SECONDS
 		_record_sample()
 		elapsed_seconds = float(Time.get_ticks_usec() - start_ticks_usec) / 1000000.0
-		if elapsed_seconds >= BENCHMARK_DURATION_SECONDS:
-			break
 	_report_progress()
 	if elapsed_seconds >= BENCHMARK_DURATION_SECONDS:
 		_finish()
@@ -100,7 +107,10 @@ func _capture_context() -> bool:
 func _record_sample() -> void:
 	if not running:
 		return
+	var sample_start_ms: int = Time.get_ticks_msec()
 	var sample: Dictionary = _capture_sample()
+	benchmark_sample_build_ms = float(Time.get_ticks_msec() - sample_start_ms)
+	sample["benchmark_sample_build_ms"] = benchmark_sample_build_ms
 	samples.append(sample)
 
 
@@ -399,6 +409,8 @@ func _write_logs() -> Dictionary:
 	var text_path := "%s/%s.log" % [absolute_dir, benchmark_base_name]
 	var json_path := "%s/%s.json" % [absolute_dir, benchmark_base_name]
 	var report := _build_report()
+	# Track benchmark file write timing for hitch logging
+	var write_start_ms := Time.get_ticks_msec()
 	var text_file := FileAccess.open(text_path, FileAccess.WRITE)
 	if not text_file:
 		push_error("Could not open benchmark log file for writing: %s (error %d)" % [text_path, FileAccess.get_open_error()])
@@ -411,6 +423,7 @@ func _write_logs() -> Dictionary:
 		return output
 	json_file.store_string(JSON.stringify(report, "\t"))
 	json_file.flush()
+	benchmark_file_write_ms = float(Time.get_ticks_msec() - write_start_ms)
 	output["text"] = text_path
 	output["json"] = json_path
 	return output
@@ -610,6 +623,17 @@ func _sum_group_counts(counts: Dictionary) -> int:
 	for key in counts.keys():
 		total += int(counts.get(key, 0))
 	return total
+
+
+func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
+	if delta <= 0.1:
+		return
+	var flag_text := ""
+	for key in flags.keys():
+		if not flag_text.is_empty():
+			flag_text += " "
+		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
+	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _count_landmarks_by_type(landmarks: Array[Dictionary], landmark_type: String) -> int:

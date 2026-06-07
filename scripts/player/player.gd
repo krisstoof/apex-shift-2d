@@ -30,6 +30,7 @@ var is_dead := false
 var death_reason := "unknown"
 var god_mode := false
 var campfire_regen_refresh_timer := 0.0
+var debug_world_query_override: Variant = null
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -190,14 +191,14 @@ func get_torch_remaining_seconds() -> float:
 
 func _get_terrain_speed_multiplier() -> float:
 	var world_query: Variant = _get_world_query()
-	if world_query and world_query.has_method("get_terrain_speed_multiplier"):
+	if world_query != null:
 		return float(world_query.get_terrain_speed_multiplier(global_position))
 	return 1.0
 
 
 func _is_in_water() -> bool:
 	var world_query: Variant = _get_world_query()
-	if world_query and world_query.has_method("is_position_in_water"):
+	if world_query != null:
 		return world_query.is_position_in_water(global_position) == true
 	return false
 
@@ -240,17 +241,43 @@ func _get_campfires() -> Array:
 
 
 func _get_world_query():
+	if debug_world_query_override != null:
+		return debug_world_query_override
 	var world := _get_world_node()
-	if world and world.has_method("get_query_service"):
-		return world.get_query_service()
+	if world == null:
+		return null
+	var query_service: Variant = world.query_service
+	if query_service != null:
+		return query_service
+	if world.has_method("get_query_service"):
+		query_service = world.call("get_query_service")
+		if query_service != null:
+			return query_service
 	return world
 
 
 func _get_world_node() -> Node:
 	var tree := get_tree()
-	if tree == null or tree.current_scene == null:
+	if tree == null:
 		return null
-	return tree.current_scene.get_node_or_null("World")
+	var world_candidates: Array[Node] = []
+	if tree.current_scene != null:
+		world_candidates.append_array(tree.current_scene.find_children("World", "", true, false))
+	world_candidates.append_array(tree.root.find_children("World", "", true, false))
+	for candidate in world_candidates:
+		if not is_instance_valid(candidate):
+			continue
+		var candidate_query_service: Variant = null
+		if candidate.has_method("get_query_service"):
+			candidate_query_service = candidate.call("get_query_service")
+		else:
+			candidate_query_service = candidate.get("query_service")
+		if candidate_query_service != null:
+			return candidate
+	for candidate in world_candidates:
+		if is_instance_valid(candidate):
+			return candidate
+	return null
 
 
 func debug_add_item(item_name: String, amount := 1) -> void:

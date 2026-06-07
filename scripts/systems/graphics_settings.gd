@@ -16,7 +16,7 @@ var resolution_index := 0
 var display_mode_index := 0
 var _apply_serial := 0
 
-var low_end_rendering: bool = true
+var low_end_rendering: bool = false
 
 func is_low_end_rendering_enabled() -> bool:
 	return low_end_rendering
@@ -60,7 +60,7 @@ func load_settings() -> void:
 	var config := ConfigFile.new()
 	resolution_index = 0
 	display_mode_index = DISPLAY_MODE_WINDOWED
-	low_end_rendering = true
+	low_end_rendering = false
 	if config.load(SETTINGS_PATH) == OK:
 		resolution_index = int(clamp(int(config.get_value("graphics", "resolution_index", resolution_index)), 0, RESOLUTIONS.size() - 1))
 		display_mode_index = int(clamp(int(config.get_value("graphics", "display_mode_index", display_mode_index)), 0, 2))

@@ -19,6 +19,8 @@ var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
+var map_screen_texture_build_count: int = 0
+var map_screen_texture_last_build_ms: float = 0.0
 var cached_resources: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
 var resources_cache_timer := 0.0
@@ -46,6 +48,7 @@ func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
+	_sync_biome_texture()
 	_update_marker_cache()
 	_update_landmarks_signature()
 	_request_map_redraw(true)
@@ -54,6 +57,11 @@ func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node
 func _process(_delta: float) -> void:
 	if not visible:
 		return
+	_log_hitch(_delta, "MapScreen", {
+		"texture_cached": biome_blend_texture != null,
+		"build_count": map_screen_texture_build_count
+	})
+	_sync_biome_texture()
 	var cache_changed := false
 	resources_cache_timer += _delta
 	if resources_cache_timer >= RESOURCES_CACHE_INTERVAL:
@@ -211,7 +219,6 @@ func _fit_world_rect(bounds: Rect2) -> Rect2:
 func _draw_biomes(map_rect: Rect2) -> void:
 	if biome_zones.is_empty():
 		return
-	_ensure_biome_texture()
 	if biome_blend_texture:
 		draw_texture_rect(biome_blend_texture, map_rect, false)
 
@@ -415,12 +422,21 @@ func _draw_player(map_rect: Rect2) -> void:
 	draw_circle(pos, 3.0, Color.WHITE)
 
 
+func _sync_biome_texture() -> void:
+	if biome_zones.is_empty():
+		biome_blend_texture = null
+		biome_blend_colors_key = ""
+		return
+	_ensure_biome_texture()
+
+
 func _ensure_biome_texture() -> void:
 	if biome_zones.is_empty():
 		return
 	var current_key := _get_biome_colors_key()
 	if biome_blend_texture and biome_blend_colors_key == current_key:
 		return
+	var build_start_ms: int = Time.get_ticks_msec()
 	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
 	var colors: Array[Color] = []
 	for biome in biome_zones:
@@ -435,6 +451,8 @@ func _ensure_biome_texture() -> void:
 			image.set_pixel(x, y, _get_direct_biome_color_at(world_position, biome_zones, colors))
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
+	map_screen_texture_build_count += 1
+	map_screen_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 
 
 func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
@@ -475,6 +493,17 @@ func _get_biome_colors_key() -> String:
 		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
 	return "|".join(parts)
+
+
+func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
+	if delta <= 0.1:
+		return
+	var flag_text := ""
+	for key in flags.keys():
+		if not flag_text.is_empty():
+			flag_text += " "
+		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
+	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _world_to_map(world_position: Vector2, map_rect: Rect2) -> Vector2:
