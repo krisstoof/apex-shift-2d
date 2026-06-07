@@ -30,6 +30,10 @@ var is_dead := false
 var death_reason := "unknown"
 var god_mode := false
 var campfire_regen_refresh_timer := 0.0
+var debug_world_query_override: Variant = null
+var torch_light: PointLight2D
+var torch_light_flicker_time := 0.0
+static var cached_light_texture: Texture2D
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -62,6 +66,20 @@ func _ready() -> void:
 	interaction_area.area_entered.connect(_on_interactable_entered)
 	interaction_area.area_exited.connect(_on_interactable_exited)
 	rotation = 0.0
+	var camera := get_node_or_null("Camera2D")
+	var main := get_tree().current_scene
+	var world := main.get_node_or_null("World") if main else null
+	var hud := main.get_node_or_null("HUD") if main else null
+	print("[VIEW_SCALE_DEBUG] window_size=%s viewport_size=%s camera_zoom=%s player_scale=%s main_scale=%s world_scale=%s hud_scale=%s" % [
+		DisplayServer.window_get_size(),
+		get_viewport().get_visible_rect().size,
+		camera.zoom if camera else Vector2.ZERO,
+		scale,
+		main.scale if main and main is Node2D else Vector2.ONE,
+		world.scale if world and world is Node2D else Vector2.ONE,
+		hud.scale if hud and hud is CanvasLayer else Vector2.ONE
+	])
+	_ensure_torch_light()
 	_update_campfire_regen_state()
 	queue_redraw()
 
@@ -70,6 +88,7 @@ func _process(delta: float) -> void:
 	if is_dead:
 		return
 	_tick_torch(delta)
+	_update_torch_light(delta)
 	_face_mouse()
 	bow_cooldown = max(bow_cooldown - delta, 0.0)
 	if is_swimming:
@@ -190,14 +209,14 @@ func get_torch_remaining_seconds() -> float:
 
 func _get_terrain_speed_multiplier() -> float:
 	var world_query: Variant = _get_world_query()
-	if world_query and world_query.has_method("get_terrain_speed_multiplier"):
+	if world_query != null:
 		return float(world_query.get_terrain_speed_multiplier(global_position))
 	return 1.0
 
 
 func _is_in_water() -> bool:
 	var world_query: Variant = _get_world_query()
-	if world_query and world_query.has_method("is_position_in_water"):
+	if world_query != null:
 		return world_query.is_position_in_water(global_position) == true
 	return false
 
@@ -240,17 +259,43 @@ func _get_campfires() -> Array:
 
 
 func _get_world_query():
+	if debug_world_query_override != null:
+		return debug_world_query_override
 	var world := _get_world_node()
-	if world and world.has_method("get_query_service"):
-		return world.get_query_service()
+	if world == null:
+		return null
+	var query_service: Variant = world.query_service
+	if query_service != null:
+		return query_service
+	if world.has_method("get_query_service"):
+		query_service = world.call("get_query_service")
+		if query_service != null:
+			return query_service
 	return world
 
 
 func _get_world_node() -> Node:
 	var tree := get_tree()
-	if tree == null or tree.current_scene == null:
+	if tree == null:
 		return null
-	return tree.current_scene.get_node_or_null("World")
+	var world_candidates: Array[Node] = []
+	if tree.current_scene != null:
+		world_candidates.append_array(tree.current_scene.find_children("World", "", true, false))
+	world_candidates.append_array(tree.root.find_children("World", "", true, false))
+	for candidate in world_candidates:
+		if not is_instance_valid(candidate):
+			continue
+		var candidate_query_service: Variant = null
+		if candidate.has_method("get_query_service"):
+			candidate_query_service = candidate.call("get_query_service")
+		else:
+			candidate_query_service = candidate.get("query_service")
+		if candidate_query_service != null:
+			return candidate
+	for candidate in world_candidates:
+		if is_instance_valid(candidate):
+			return candidate
+	return null
 
 
 func debug_add_item(item_name: String, amount := 1) -> void:
@@ -527,6 +572,58 @@ func _tick_torch(delta: float) -> void:
 	if torch_remaining_seconds > 0.0:
 		return
 	deactivate_torch("expired")
+
+
+func _ensure_torch_light() -> void:
+	if torch_light != null:
+		return
+	torch_light = PointLight2D.new()
+	torch_light.name = "TorchLight"
+	torch_light.texture = _get_radial_light_texture()
+	torch_light.energy = 1.35
+	torch_light.texture_scale = 4.2
+	torch_light.color = Color(1.0, 0.76, 0.40)
+	torch_light.shadow_enabled = false
+	torch_light.enabled = false
+	torch_light.visible = false
+	add_child(torch_light)
+	print("[LIGHTING] Torch light created")
+
+
+func _update_torch_light(delta: float) -> void:
+	_ensure_torch_light()
+	var active := is_torch_active()
+	torch_light.visible = active
+	torch_light.enabled = active
+	if not active:
+		return
+	torch_light.global_position = global_position
+	torch_light_flicker_time += delta
+	var flicker := 0.92 + sin(torch_light_flicker_time * 9.0) * 0.05 + sin(torch_light_flicker_time * 17.0) * 0.03
+	torch_light.energy = 1.35 * flicker * _get_light_visibility_multiplier()
+
+
+func _get_light_visibility_multiplier() -> float:
+	var night_amount := _get_night_amount()
+	return lerpf(0.35, 1.0, clampf(night_amount, 0.0, 1.0))
+
+
+static func _get_radial_light_texture() -> Texture2D:
+	if cached_light_texture != null:
+		return cached_light_texture
+	var size := 128
+	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var center := Vector2(size * 0.5, size * 0.5)
+	var radius := float(size) * 0.5
+	for y in range(size):
+		for x in range(size):
+			var p := Vector2(x, y)
+			var distance := p.distance_to(center)
+			var t := clampf(1.0 - distance / radius, 0.0, 1.0)
+			t *= t
+			image.set_pixel(x, y, Color(1.0, 0.82, 0.45, t))
+	cached_light_texture = ImageTexture.create_from_image(image)
+	return cached_light_texture
 
 
 func _get_missing_ingredients(recipe: Dictionary) -> Array[String]:

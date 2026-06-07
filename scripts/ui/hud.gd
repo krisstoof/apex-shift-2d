@@ -4,6 +4,16 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const WORLD_SNAPSHOT_SERVICE := preload("res://scripts/systems/world_snapshot_service.gd")
 const ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS := 30.0
 const HUD_REFRESH_INTERVAL := 0.10
+const CRITICAL_HEALTH_THRESHOLD := 0.20
+const CRITICAL_HEALTH_WARNING_INTERVAL_SECONDS := 8.0
+const LOW_HUNGER_THRESHOLD := 25.0
+const LOW_STAMINA_THRESHOLD := 20.0
+const LOW_REST_THRESHOLD := 25.0
+const LOW_HEALTH_CAMPFIRE_HINT_THRESHOLD := 50.0
+const HUNGER_WARNING_COOLDOWN_SECONDS := 12.0
+const EXHAUSTION_WARNING_COOLDOWN_SECONDS := 14.0
+const CAMPFIRE_HINT_COOLDOWN_SECONDS := 18.0
+const CAMPFIRE_HINT_RADIUS := 180.0
 
 var player: Node
 var evolution_director: Node
@@ -15,12 +25,21 @@ var map_screen_open := false
 var pause_menu_open := false
 var center_notification_time := 0.0
 var hud_refresh_timer := 0.0
+var hud_snapshot_build_ms: float = 0.0
 var ecosystem_message_cooldowns: Dictionary = {}
+var critical_health_overlay: ColorRect
+var critical_health_pulse_time := 0.0
+var critical_health_warning_timer := 0.0
+var critical_health_active := false
+var hunger_warning_timer := 0.0
+var exhaustion_warning_timer := 0.0
+var campfire_hint_timer := 0.0
 var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 
 @onready var stats_label: Label = $Panel/StatsLabel
 @onready var prompt_label: Label = $Panel/PromptLabel
 @onready var message_label: Label = $Panel/MessageLabel
+@onready var panel: Control = $Panel
 @onready var center_notification_label: Label = $CenterNotificationLabel
 @onready var skill_icon_bar: Control = $SkillIconBar
 @onready var minimap: Control = $Minimap
@@ -35,6 +54,7 @@ var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	center_notification_label.visible = false
+	_ensure_critical_health_overlay()
 	get_node("/root/EventBus").message_posted.connect(_on_message)
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	pause_menu.resume_requested.connect(_on_pause_menu_resume)
@@ -46,6 +66,7 @@ func _ready() -> void:
 	game_over_screen.load_save_requested.connect(_on_game_over_load_save)
 	game_over_screen.main_menu_requested.connect(_on_game_over_main_menu)
 	game_over_screen.exit_requested.connect(_on_game_over_quit)
+	_fix_low_resolution_layout()
 
 
 func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null) -> void:
@@ -57,7 +78,9 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	var world := get_tree().current_scene.get_node_or_null("World")
 	snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 	snapshot_service.bind(player, evolution_director, day_night_system, ecosystem_director, world)
+	var bind_snapshot_start_ms: int = Time.get_ticks_msec()
 	var snapshot := snapshot_service.refresh(true)
+	hud_snapshot_build_ms = float(Time.get_ticks_msec() - bind_snapshot_start_ms)
 	var world_snapshot := Dictionary(snapshot.get("world", {}))
 	var world_rect: Rect2 = Rect2(world_snapshot.get("world_rect", WORLD_CONFIG.WORLD_RECT))
 	var biome_zones: Array[Dictionary] = Array(world_snapshot.get("biome_zones", WORLD_CONFIG.get_biome_zones()))
@@ -66,11 +89,19 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones, landmarks, snapshot_service)
 	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director, snapshot_service)
 	_apply_snapshot(snapshot)
+	_fix_low_resolution_layout()
 
 
 func _process(delta: float) -> void:
 	if not player or not evolution_director or not day_night_system:
 		return
+	_update_critical_health_warning(delta)
+	_update_survival_warning_messages(delta)
+	_log_hitch(delta, "HUD", {
+		"map_screen_open": map_screen_open,
+		"pause_menu_open": pause_menu_open,
+		"refresh_timer": hud_refresh_timer
+	})
 	if center_notification_time > 0.0:
 		center_notification_time = max(center_notification_time - delta, 0.0)
 		center_notification_label.visible = center_notification_time > 0.0
@@ -84,7 +115,16 @@ func _process(delta: float) -> void:
 func _refresh_hud_text() -> void:
 	if not player or not evolution_director or not day_night_system:
 		return
-	_apply_snapshot(snapshot_service.refresh())
+	var snapshot_start_ms: int = Time.get_ticks_msec()
+	var snapshot: Dictionary
+	if snapshot_service != null and snapshot_service.has_method("refresh_hud"):
+		snapshot = snapshot_service.refresh_hud()
+	elif snapshot_service != null and snapshot_service.has_method("refresh"):
+		snapshot = snapshot_service.refresh()
+	else:
+		snapshot = {}
+	hud_snapshot_build_ms = float(Time.get_ticks_msec() - snapshot_start_ms)
+	_apply_snapshot(snapshot)
 
 
 func _apply_snapshot(snapshot: Dictionary) -> void:
@@ -138,6 +178,206 @@ func _on_message(new_message: String) -> void:
 	message_history.append(new_message)
 	if message_history.size() > 4:
 		message_history.pop_front()
+
+
+func _ensure_critical_health_overlay() -> void:
+	if critical_health_overlay != null:
+		return
+	critical_health_overlay = ColorRect.new()
+	critical_health_overlay.name = "CriticalHealthOverlay"
+	critical_health_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	critical_health_overlay.color = Color(1.0, 0.0, 0.0, 0.0)
+	critical_health_overlay.visible = false
+	critical_health_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	critical_health_overlay.offset_left = 0
+	critical_health_overlay.offset_top = 0
+	critical_health_overlay.offset_right = 0
+	critical_health_overlay.offset_bottom = 0
+	add_child(critical_health_overlay)
+	critical_health_overlay.move_to_front()
+
+
+func _update_critical_health_warning(delta: float) -> void:
+	_ensure_critical_health_overlay()
+	if game_over_screen != null and game_over_screen.visible:
+		_set_critical_health_active(false)
+		critical_health_pulse_time = 0.0
+		critical_health_warning_timer = 0.0
+		return
+	var player_node := _get_player_for_hud()
+	if player_node == null:
+		_set_critical_health_active(false)
+		return
+	var health := _get_player_health_value(player_node)
+	var max_health := _get_player_max_health_value(player_node)
+	if max_health <= 0.0:
+		_set_critical_health_active(false)
+		return
+	var health_ratio := health / max_health
+	var should_be_active := health_ratio <= CRITICAL_HEALTH_THRESHOLD
+	_set_critical_health_active(should_be_active)
+	if not should_be_active:
+		critical_health_pulse_time = 0.0
+		critical_health_warning_timer = 0.0
+		return
+	critical_health_pulse_time += delta
+	critical_health_warning_timer -= delta
+	var pulse := 0.5 + sin(critical_health_pulse_time * 4.5) * 0.5
+	var alpha := lerpf(0.06, 0.18, pulse)
+	critical_health_overlay.color = Color(1.0, 0.0, 0.0, alpha)
+	if critical_health_warning_timer <= 0.0:
+		critical_health_warning_timer = CRITICAL_HEALTH_WARNING_INTERVAL_SECONDS
+		_show_critical_health_message()
+
+
+func _set_critical_health_active(active: bool) -> void:
+	critical_health_active = active
+	if critical_health_overlay == null:
+		return
+	critical_health_overlay.visible = active
+	if not active:
+		critical_health_overlay.color = Color(1.0, 0.0, 0.0, 0.0)
+
+
+func _get_player_for_hud() -> Node:
+	if player != null:
+		return player
+	var player_node := get_tree().get_first_node_in_group("player")
+	if player_node != null:
+		return player_node
+	var main := get_tree().current_scene
+	if main != null:
+		return main.get_node_or_null("Player")
+	return null
+
+
+func _get_player_health_value(player_node: Node) -> float:
+	if player_node.has_method("get_health"):
+		return float(player_node.get_health())
+	var stats: Variant = player_node.get("stats")
+	if stats != null and stats.has_method("get") and stats.get("health") != null:
+		return float(stats.get("health"))
+	var value: Variant = player_node.get("health")
+	if value != null:
+		return float(value)
+	value = player_node.get("current_health")
+	if value != null:
+		return float(value)
+	return 0.0
+
+
+func _get_player_max_health_value(player_node: Node) -> float:
+	if player_node.has_method("get_max_health"):
+		return float(player_node.get_max_health())
+	var stats: Variant = player_node.get("stats")
+	if stats != null and stats.has_method("get") and stats.get("MAX_HEALTH") != null:
+		return float(stats.get("MAX_HEALTH"))
+	var value: Variant = player_node.get("max_health")
+	if value != null:
+		return float(value)
+	return 100.0
+
+
+func _show_critical_health_message() -> void:
+	var message_text := "You are badly wounded. Heal yourself."
+	get_node("/root/EventBus").post_message(message_text)
+
+
+func _update_survival_warning_messages(delta: float) -> void:
+	hunger_warning_timer = maxf(0.0, hunger_warning_timer - delta)
+	exhaustion_warning_timer = maxf(0.0, exhaustion_warning_timer - delta)
+	campfire_hint_timer = maxf(0.0, campfire_hint_timer - delta)
+	if _is_game_over_active():
+		return
+	var player_node := _get_player_for_hud()
+	if player_node == null:
+		return
+	var hunger := _get_player_stat_value(player_node, "hunger", 100.0)
+	var stamina := _get_player_stat_value(player_node, "stamina", 100.0)
+	var rest := _get_player_stat_value(player_node, "rest", 100.0)
+	var health := _get_player_stat_value(player_node, "health", 100.0)
+	if hunger <= LOW_HUNGER_THRESHOLD and hunger_warning_timer <= 0.0:
+		_push_survival_message("You are hungry. Find food soon.")
+		hunger_warning_timer = HUNGER_WARNING_COOLDOWN_SECONDS
+	if (stamina <= LOW_STAMINA_THRESHOLD or rest <= LOW_REST_THRESHOLD) and exhaustion_warning_timer <= 0.0:
+		_push_survival_message("You are exhausted. Rest near a campfire to recover faster.")
+		exhaustion_warning_timer = EXHAUSTION_WARNING_COOLDOWN_SECONDS
+	if health <= LOW_HEALTH_CAMPFIRE_HINT_THRESHOLD and _is_player_near_campfire(player_node) and campfire_hint_timer <= 0.0:
+		_push_survival_message("Campfire speeds up rest and health regeneration.")
+		campfire_hint_timer = CAMPFIRE_HINT_COOLDOWN_SECONDS
+
+
+func _push_survival_message(message_text: String) -> void:
+	get_node("/root/EventBus").post_message(message_text)
+
+
+func _is_game_over_active() -> bool:
+	if game_over_screen != null and game_over_screen.visible:
+		return true
+	if has_node("GameOverOverlay"):
+		var overlay := get_node("GameOverOverlay") as CanvasItem
+		if overlay != null:
+			return overlay.visible
+	if has_node("GameOverPanel"):
+		var panel_overlay := get_node("GameOverPanel") as CanvasItem
+		if panel_overlay != null:
+			return panel_overlay.visible
+	return false
+
+
+func _get_player_stat_value(player_node: Node, stat_name: String, default_value: float) -> float:
+	var value: Variant = player_node.get(stat_name)
+	if value != null:
+		return float(value)
+	var getter_name := "get_%s" % stat_name
+	if player_node.has_method(getter_name):
+		return float(player_node.call(getter_name))
+	var stats: Variant = player_node.get("stats")
+	if stats != null and stats.has_method("get"):
+		var stats_value: Variant = stats.get(stat_name)
+		if stats_value != null:
+			return float(stats_value)
+		var uppercase_name := stat_name.to_upper()
+		stats_value = stats.get(uppercase_name)
+		if stats_value != null:
+			return float(stats_value)
+	return default_value
+
+
+func _is_player_near_campfire(player_node: Node) -> bool:
+	if player_node.has_method("is_near_campfire"):
+		return bool(player_node.call("is_near_campfire"))
+	var player_2d := player_node as Node2D
+	if player_2d == null:
+		return false
+	var campfires := get_tree().get_nodes_in_group("campfires")
+	for campfire in campfires:
+		if not is_instance_valid(campfire):
+			continue
+		var campfire_2d := campfire as Node2D
+		if campfire_2d == null:
+			continue
+		if player_2d.global_position.distance_to(campfire_2d.global_position) <= CAMPFIRE_HINT_RADIUS:
+			return true
+	return false
+
+
+func get_survival_warning_debug() -> Dictionary:
+	return {
+		"hunger_warning_timer": hunger_warning_timer,
+		"exhaustion_warning_timer": exhaustion_warning_timer,
+		"campfire_hint_timer": campfire_hint_timer
+	}
+
+
+func get_critical_health_debug() -> Dictionary:
+	return {
+		"active": critical_health_active,
+		"threshold": CRITICAL_HEALTH_THRESHOLD,
+		"warning_timer": critical_health_warning_timer,
+		"overlay_visible": critical_health_overlay != null and critical_health_overlay.visible,
+		"overlay_alpha": critical_health_overlay.color.a if critical_health_overlay != null else 0.0
+	}
 
 
 func _get_campfire_regen_status_text() -> String:
@@ -218,6 +458,90 @@ func _get_torch_status_text_from_snapshot(player_snapshot: Dictionary) -> String
 	return "active %ds" % int(ceil(float(player_snapshot.get("torch_remaining_seconds", 0.0))))
 
 
+func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
+	if delta <= 0.1:
+		return
+	var flag_text := ""
+	for key in flags.keys():
+		if not flag_text.is_empty():
+			flag_text += " "
+		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
+	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
+
+
+func _fix_low_resolution_layout() -> void:
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+	var low_resolution: bool = viewport_size.x <= 1366.0 or viewport_size.y <= 768.0
+	var compact_resolution: bool = viewport_size.x <= 1280.0 or viewport_size.y <= 720.0
+	if panel:
+		panel.offset_left = 8.0
+		panel.offset_top = 8.0
+		panel.offset_right = 720.0 if not low_resolution else 640.0
+		panel.offset_bottom = 170.0 if not low_resolution else 162.0
+		panel.custom_minimum_size = Vector2(0.0, 170.0 if not low_resolution else 162.0)
+	if stats_label:
+		stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		stats_label.custom_minimum_size = Vector2(520.0 if not low_resolution else 500.0, 0.0)
+		stats_label.offset_right = 612.0 if not low_resolution else 540.0
+		stats_label.offset_bottom = 54.0 if not low_resolution else 50.0
+		stats_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
+	if prompt_label:
+		prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		prompt_label.custom_minimum_size = Vector2(520.0 if not low_resolution else 500.0, 0.0)
+		prompt_label.offset_top = 64.0 if not low_resolution else 60.0
+		prompt_label.offset_bottom = 92.0 if not low_resolution else 88.0
+		prompt_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
+	if message_label:
+		message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		message_label.custom_minimum_size = Vector2(420.0 if not low_resolution else 360.0, 0.0)
+		message_label.offset_top = 96.0 if not low_resolution else 92.0
+		message_label.offset_bottom = 156.0 if not low_resolution else 150.0
+		message_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 13)
+	if skill_icon_bar:
+		skill_icon_bar.anchor_left = 0.5
+		skill_icon_bar.anchor_right = 0.5
+		skill_icon_bar.anchor_top = 1.0
+		skill_icon_bar.anchor_bottom = 1.0
+		skill_icon_bar.offset_left = -507.0
+		skill_icon_bar.offset_top = -92.0 if low_resolution else -104.0
+		skill_icon_bar.offset_right = 507.0
+		skill_icon_bar.offset_bottom = -32.0
+	if minimap:
+		minimap.anchor_left = 1.0
+		minimap.anchor_right = 1.0
+		minimap.offset_left = -436.0 if low_resolution else -476.0
+		minimap.offset_top = 12.0
+		minimap.offset_right = -16.0
+		minimap.offset_bottom = 232.0 if low_resolution else 280.0
+	if clock_label:
+		clock_label.anchor_left = 1.0
+		clock_label.anchor_right = 1.0
+		clock_label.offset_left = -436.0 if low_resolution else -476.0
+		clock_label.offset_top = 238.0 if low_resolution else 300.0
+		clock_label.offset_right = -16.0
+		clock_label.offset_bottom = 294.0 if low_resolution else 356.0
+		clock_label.add_theme_font_size_override("font_size", 18 if low_resolution else 20)
+	if message_label:
+		message_label.visible = message_history.size() > 0
+	if center_notification_label:
+		center_notification_label.offset_left = -230.0 if compact_resolution else -260.0
+		center_notification_label.offset_right = 230.0 if compact_resolution else 260.0
+	if debug_panel:
+		debug_panel.visible = debug_panel.visible and not low_resolution
+		debug_panel.offset_left = -560.0 if not low_resolution else -520.0
+		debug_panel.offset_right = -8.0
+		debug_panel.offset_top = 12.0
+		debug_panel.offset_bottom = -12.0
+	if fps_label:
+		fps_label.anchor_left = 1.0
+		fps_label.anchor_right = 1.0
+		fps_label.offset_left = -126.0 if low_resolution else -92.0
+		fps_label.offset_top = 12.0
+		fps_label.offset_right = -16.0
+		fps_label.offset_bottom = 40.0
+		fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+
+
 func show_game_over(day_survived: int, reason: String) -> void:
 	_set_pause_menu_open(false)
 	_set_map_screen_open(false)
@@ -250,7 +574,8 @@ func _set_map_screen_open(open: bool) -> void:
 	map_screen_open = open
 	map_screen.visible = open
 	_update_tree_paused()
-	map_screen.queue_redraw()
+	if open and map_screen.has_method("mark_map_cache_dirty"):
+		map_screen.mark_map_cache_dirty()
 
 
 func _set_pause_menu_open(open: bool) -> void:

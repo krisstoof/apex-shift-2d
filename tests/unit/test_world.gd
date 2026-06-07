@@ -6,6 +6,162 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
+class CountingWorld:
+	extends WORLD_SCRIPT
+
+	var sync_calls := 0
+
+	func _sync_biome_blend_background() -> void:
+		sync_calls += 1
+
+
+class FixedRenderControllerStub:
+	extends RefCounted
+
+	var should_redraw := false
+	var biome_surface_color_getter: Callable = Callable()
+	var biome_blend_texture: ImageTexture
+	var biome_blend_colors_key := ""
+	var biome_blend_texture_rebuild_count: int = 0
+	var biome_blend_texture_last_build_ms: float = 0.0
+	var biome_blend_texture_rebuild_blocked_count: int = 0
+	var biome_blend_texture_dirty_key := ""
+	var freeze_blend_texture_after_first_build := true
+
+	func bind_world(
+		_world_rect: Rect2,
+		_biome_zones_getter: Callable,
+		_biome_colors_key_getter: Callable,
+		assigned_biome_surface_color_getter: Callable,
+		_biome_texture_size: Vector2i = Vector2i(384, 236),
+		_world_redraw_interval := 0.20,
+		_night_redraw_min_delta := 0.03
+	) -> void:
+		biome_surface_color_getter = assigned_biome_surface_color_getter
+
+	func ensure_biome_blend_texture() -> ImageTexture:
+		if biome_blend_texture == null:
+			biome_blend_texture = ImageTexture.create_from_image(Image.create(2, 2, false, Image.FORMAT_RGBA8))
+		biome_blend_texture_rebuild_count += 1
+		return biome_blend_texture
+
+	func get_biome_texture_cache_status() -> Dictionary:
+		return {
+			"has_texture": biome_blend_texture != null,
+			"colors_key": biome_blend_colors_key,
+			"rebuild_count": biome_blend_texture_rebuild_count,
+			"last_build_ms": biome_blend_texture_last_build_ms,
+			"rebuild_blocked_count": biome_blend_texture_rebuild_blocked_count,
+			"dirty_key_pending": not biome_blend_texture_dirty_key.is_empty(),
+			"freeze_after_first_build": freeze_blend_texture_after_first_build
+		}
+
+	func process(_delta: float, _current_night_amount: float) -> bool:
+		return should_redraw
+
+
+class MockSmallPreyEcosystemDirector:
+	extends Node
+
+	func get_biome_state(_biome_id: String) -> Dictionary:
+		return {
+			"small_prey_population": 4.0,
+			"plant_biomass_percent": 100.0
+		}
+
+
+class SmallPreySyncWorld:
+	extends WORLD_SCRIPT
+
+	var spawn_should_succeed := false
+	var spawn_attempt_calls := 0
+	var player_position := Vector2.ZERO
+
+	func _get_player_position() -> Vector2:
+		return player_position
+
+	func _get_biome_for_position(_position: Vector2) -> Dictionary:
+		return {
+			"id": "westwood",
+			"name": "Westwood",
+			"dangerous": false
+		}
+
+	func _get_biome_id(_biome: Dictionary) -> String:
+		return "westwood"
+
+	func _get_desired_small_prey_count(_biome: Dictionary, _biome_state: Dictionary) -> int:
+		return 2
+
+	func _get_visible_small_prey_count(_biome_id: String) -> int:
+		return 0
+
+	func get_registered_creatures_by_type(_creature_type: String) -> Array:
+		return []
+
+	func _get_existing_small_prey_positions() -> Array[Vector2]:
+		return []
+
+	func _try_spawn_small_prey_near_player(_biome: Dictionary, _player_position: Vector2, _used_positions: Array[Vector2], _slot_index: int, _slot_count: int) -> bool:
+		spawn_attempt_calls += 1
+		return spawn_should_succeed
+
+
+class MockVarnakEcosystemDirector:
+	extends Node
+
+	func get_biome_state(_biome_id: String) -> Dictionary:
+		return {}
+
+
+class VarnakSyncWorld:
+	extends WORLD_SCRIPT
+
+	var spawn_should_succeed := false
+	var player_position := Vector2.ZERO
+
+	func _get_player_position() -> Vector2:
+		return player_position
+
+	func _get_current_day() -> int:
+		return 4
+
+	func _get_varnak_spawn_budget(_global_count: int, _day: int) -> int:
+		return 2
+
+	func get_registered_creatures_by_type(_creature_type: String) -> Array:
+		return []
+
+	func _get_existing_varnak_positions() -> Array[Vector2]:
+		return []
+
+	func _try_spawn_varnak_in_dangerous_biome(_player_position: Vector2, _used_positions: Array[Vector2]) -> bool:
+		return spawn_should_succeed
+
+
+class GraphicsSettingsStub:
+	extends Node
+
+	func get_default_biome_textures_enabled() -> bool:
+		return true
+
+	func get_default_landmark_debug_overlay_enabled() -> bool:
+		return false
+
+	func get_default_biome_terrain_accents_enabled() -> bool:
+		return false
+
+	func is_low_end_rendering_enabled() -> bool:
+		return true
+
+
+class VisibilityCullingWorld:
+	extends WORLD_SCRIPT
+
+	func _ready() -> void:
+		pass
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_world_rect_matches_config(failures)
@@ -28,10 +184,18 @@ func run() -> Array[String]:
 	_test_landmark_debug_counts_and_nearest_selection(failures)
 	_test_landmark_debug_toggles_flip_runtime_state(failures)
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
+	_test_world_applies_graphics_settings_render_defaults(failures)
 	_test_world_builds_cached_biome_blend_texture(failures)
+	_test_world_draw_biomes_uses_existing_background_texture(failures)
+	_test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures)
+	_test_small_prey_spawn_sync_uses_cooldown_after_failure(failures)
+	_test_varnak_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
 	_test_world_boot_progress_state_tracks_stage_updates(failures)
 	_test_current_biome_texture_id_uses_player_position_biome(failures)
+	_test_get_camera_visible_world_rect_defaults_to_full_world_without_camera(failures)
+	_test_world_object_visibility_rect_accounts_for_camera_zoom_and_margin(failures)
+	_test_world_object_visibility_culls_and_restores_group_nodes(failures)
 	_test_cached_group_nodes_prune_freed_entries(failures)
 	_test_world_registry_tracks_spawned_nodes_and_prunes_freed_entries(failures)
 	_test_varnak_population_target_scales_with_day_and_caps(failures)
@@ -262,6 +426,7 @@ func _test_biome_terrain_accent_layout_is_dense_and_inside_biome(failures: Array
 
 func _test_biome_terrain_accent_layout_stays_async_when_queue_is_pending(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
+	world.biome_terrain_accents_enabled = true
 	world.call("_queue_biome_terrain_accent_cache_rebuild")
 	var westwood := _get_biome_by_name("Westwood")
 	var pending_layout: Array = world.call("_get_biome_terrain_accent_layout", westwood)
@@ -446,6 +611,20 @@ func _test_biome_texture_cache_status_reports_runtime_flags(failures: Array[Stri
 	TEST_UTILS.expect_equal(int(status.get("pending_biomes", 0)), 1, failures, "Biome texture cache status should report queued biome rebuilds")
 	TEST_UTILS.expect(status.get("build_running", false) == true, failures, "Biome texture cache status should expose whether the cache builder is running")
 	TEST_UTILS.expect(status.get("textures_enabled", true) == false, failures, "Biome texture cache status should expose whether biome textures are enabled")
+	TEST_UTILS.expect_equal(int(status.get("rebuild_blocked_count", 0)), 0, failures, "Biome texture cache status should report blocked rebuild attempts")
+	TEST_UTILS.expect_equal(bool(status.get("dirty_key_pending", false)), false, failures, "Biome texture cache status should report that no dirty key is pending yet")
+	TEST_UTILS.expect_equal(bool(status.get("freeze_after_first_build", false)), true, failures, "Biome texture cache status should report that rebuilds freeze after the first build")
+	world.free()
+
+
+func _test_world_applies_graphics_settings_render_defaults(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.graphics_settings = GraphicsSettingsStub.new()
+	world.call("_apply_graphics_settings_defaults")
+	TEST_UTILS.expect_equal(bool(world.is_low_end_rendering_enabled()), true, failures, "World should expose the low-end rendering flag from graphics settings")
+	TEST_UTILS.expect_equal(bool(world.are_biome_textures_enabled()), true, failures, "World should keep biome textures enabled in the low-end preset")
+	TEST_UTILS.expect_equal(bool(world.is_landmark_debug_overlay_enabled()), false, failures, "World should keep the landmark debug overlay disabled in the low-end preset")
+	TEST_UTILS.expect_equal(bool(world.are_biome_terrain_accents_enabled()), false, failures, "World should disable biome terrain accents in the low-end preset")
 	world.free()
 
 
@@ -458,7 +637,110 @@ func _test_world_builds_cached_biome_blend_texture(failures: Array[String]) -> v
 	var expected_size: Vector2i = world.call("_get_world_biome_blend_texture_size")
 	TEST_UTILS.expect(status.get("has_blend_texture", false) == true, failures, "Biome texture cache status should report the built world blend texture")
 	TEST_UTILS.expect(str(status.get("blend_colors_key", "")) != "", failures, "Biome texture cache status should expose a non-empty blend texture key after building")
+	TEST_UTILS.expect(int(status.get("world_biome_texture_build_count", 0)) >= 1, failures, "Biome texture cache status should expose the world blend texture build counter")
+	TEST_UTILS.expect(float(status.get("world_biome_texture_last_build_ms", 0.0)) >= 0.0, failures, "Biome texture cache status should expose the world blend texture build time")
 	TEST_UTILS.expect_equal(status.get("blend_texture_size", Vector2i.ZERO), expected_size, failures, "World should build the blend texture at the configured cache size")
+	world.free()
+
+
+func _test_world_draw_biomes_uses_existing_background_texture(failures: Array[String]) -> void:
+	var world := CountingWorld.new()
+	world.biome_textures_enabled = true
+	world.biome_blend_background = Sprite2D.new()
+	world.biome_blend_background.visible = true
+	world.biome_blend_background.texture = ImageTexture.create_from_image(Image.create(2, 2, false, Image.FORMAT_RGBA8))
+	var sync_calls_before := world.sync_calls
+	world.call("_draw_biomes")
+	TEST_UTILS.expect_equal(world.sync_calls, sync_calls_before, failures, "World draw path should reuse the cached biome background instead of rebuilding it")
+	world.free()
+
+
+func _test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures: Array[String]) -> void:
+	var world := CountingWorld.new()
+	world.render_controller = FixedRenderControllerStub.new()
+	world.night_overlay_polygon = Polygon2D.new()
+	world.small_prey_spawn_timer = 0.0
+	world.varnak_spawn_timer = 0.0
+	world.small_prey_failed_spawn_retry_timer = 0.0
+	world.varnak_failed_spawn_retry_timer = 0.0
+	var controller: FixedRenderControllerStub = world.render_controller
+	controller.should_redraw = false
+	world._process(0.05)
+	TEST_UTILS.expect_equal(world.sync_calls, 0, failures, "World process should not sync the biome background when the render controller does not request a redraw")
+	controller.should_redraw = true
+	world._process(0.05)
+	TEST_UTILS.expect_equal(world.sync_calls, 1, failures, "World process should sync the biome background only when the render controller requests a redraw")
+	world.free()
+
+
+func _test_small_prey_spawn_sync_uses_cooldown_after_failure(failures: Array[String]) -> void:
+	var world := SmallPreySyncWorld.new()
+	world.ecosystem_director = MockSmallPreyEcosystemDirector.new()
+	world.spawn_should_succeed = false
+	world.call("_sync_visible_small_prey")
+	var failed_debug: Dictionary = world.get_small_prey_spawn_sync_debug()
+	TEST_UTILS.expect_equal(int(failed_debug.get("attempt_count", 0)), 1, failures, "SmallPrey sync should count the first spawn attempt")
+	TEST_UTILS.expect_equal(int(failed_debug.get("failed_count", 0)), 1, failures, "SmallPrey sync should count the failed spawn pass")
+	TEST_UTILS.expect_equal(int(failed_debug.get("skipped_by_cooldown_count", 0)), 0, failures, "SmallPrey sync should not skip the first attempt")
+	TEST_UTILS.expect_equal(int(failed_debug.get("last_requested", 0)), 2, failures, "SmallPrey sync should record the requested spawn count")
+	TEST_UTILS.expect_equal(int(failed_debug.get("last_failed", 0)), 2, failures, "SmallPrey sync should record all failed spawn slots")
+	TEST_UTILS.expect_equal(int(failed_debug.get("last_success", 0)), 0, failures, "SmallPrey sync should record zero successful spawns on failure")
+	TEST_UTILS.expect_equal(float(failed_debug.get("retry_timer", 0.0)), 5.0, failures, "SmallPrey sync should start the cooldown after a failed spawn pass")
+	TEST_UTILS.expect_equal(bool(failed_debug.get("warning_printed", false)), true, failures, "SmallPrey sync should mark the warning as printed after the first failure")
+	world.call("_sync_visible_small_prey")
+	var skipped_debug: Dictionary = world.get_small_prey_spawn_sync_debug()
+	TEST_UTILS.expect_equal(int(skipped_debug.get("attempt_count", 0)), 1, failures, "SmallPrey sync should not retry during cooldown")
+	TEST_UTILS.expect_equal(int(skipped_debug.get("skipped_by_cooldown_count", 0)), 1, failures, "SmallPrey sync should count cooldown skips")
+	TEST_UTILS.expect_equal(int(skipped_debug.get("failed_count", 0)), 1, failures, "SmallPrey sync should not add new failures while cooled down")
+	world._process(1.5)
+	var cooled_debug: Dictionary = world.get_small_prey_spawn_sync_debug()
+	TEST_UTILS.expect_close(float(cooled_debug.get("retry_timer", 0.0)), 3.5, failures, "World process should reduce the failed-spawn cooldown")
+	world.small_prey_failed_spawn_retry_timer = 0.0
+	world.spawn_should_succeed = true
+	world.call("_sync_visible_small_prey")
+	var success_debug: Dictionary = world.get_small_prey_spawn_sync_debug()
+	TEST_UTILS.expect_equal(int(success_debug.get("attempt_count", 0)), 2, failures, "SmallPrey sync should try again after the cooldown expires")
+	TEST_UTILS.expect_equal(int(success_debug.get("failed_count", 0)), 1, failures, "SmallPrey sync should keep the historical failed-pass count")
+	TEST_UTILS.expect_equal(int(success_debug.get("last_requested", 0)), 2, failures, "SmallPrey sync should continue to request the same number of prey")
+	TEST_UTILS.expect_equal(int(success_debug.get("last_failed", 0)), 0, failures, "SmallPrey sync should clear the last failure count after a successful retry")
+	TEST_UTILS.expect_equal(int(success_debug.get("last_success", 0)), 2, failures, "SmallPrey sync should record a full success after the retry")
+	TEST_UTILS.expect_equal(float(success_debug.get("retry_timer", 0.0)), 0.0, failures, "SmallPrey sync should clear the cooldown after a successful spawn pass")
+	TEST_UTILS.expect_equal(bool(success_debug.get("warning_printed", true)), false, failures, "SmallPrey sync should clear the warning state after success")
+	world.free()
+
+
+func _test_varnak_spawn_sync_uses_cooldown_after_failure(failures: Array[String]) -> void:
+	var world := VarnakSyncWorld.new()
+	world.ecosystem_director = MockVarnakEcosystemDirector.new()
+	world.spawn_should_succeed = false
+	world.call("_sync_visible_varnaks", true)
+	var failed_debug: Dictionary = world.get_varnak_spawn_sync_debug()
+	TEST_UTILS.expect_equal(int(failed_debug.get("attempt_count", 0)), 1, failures, "Varnak sync should count the first spawn attempt")
+	TEST_UTILS.expect_equal(int(failed_debug.get("failed_count", 0)), 1, failures, "Varnak sync should count the failed spawn pass")
+	TEST_UTILS.expect_equal(int(failed_debug.get("skipped_by_cooldown_count", 0)), 0, failures, "Varnak sync should not skip the first attempt")
+	TEST_UTILS.expect_equal(int(failed_debug.get("last_requested", 0)), 2, failures, "Varnak sync should record the requested spawn count")
+	TEST_UTILS.expect_equal(int(failed_debug.get("last_failed", 0)), 2, failures, "Varnak sync should record all failed spawn slots")
+	TEST_UTILS.expect_equal(int(failed_debug.get("last_success", 0)), 0, failures, "Varnak sync should record zero successful spawns on failure")
+	TEST_UTILS.expect_equal(float(failed_debug.get("retry_timer", 0.0)), 5.0, failures, "Varnak sync should start the cooldown after a failed spawn pass")
+	TEST_UTILS.expect_equal(bool(failed_debug.get("warning_printed", false)), true, failures, "Varnak sync should mark the warning as printed after the first failure")
+	world.call("_sync_visible_varnaks")
+	var skipped_debug: Dictionary = world.get_varnak_spawn_sync_debug()
+	TEST_UTILS.expect_equal(int(skipped_debug.get("attempt_count", 0)), 1, failures, "Varnak sync should not retry during cooldown")
+	TEST_UTILS.expect_equal(int(skipped_debug.get("skipped_by_cooldown_count", 0)), 1, failures, "Varnak sync should count cooldown skips")
+	world._process(1.5)
+	var cooled_debug: Dictionary = world.get_varnak_spawn_sync_debug()
+	TEST_UTILS.expect_close(float(cooled_debug.get("retry_timer", 0.0)), 3.5, failures, "World process should reduce the failed-spawn cooldown for Varnaks")
+	world.varnak_failed_spawn_retry_timer = 0.0
+	world.spawn_should_succeed = true
+	world.call("_sync_visible_varnaks", true)
+	var success_debug: Dictionary = world.get_varnak_spawn_sync_debug()
+	TEST_UTILS.expect_equal(int(success_debug.get("attempt_count", 0)), 2, failures, "Varnak sync should try again after the cooldown expires")
+	TEST_UTILS.expect_equal(int(success_debug.get("failed_count", 0)), 1, failures, "Varnak sync should keep the historical failed-pass count")
+	TEST_UTILS.expect_equal(int(success_debug.get("last_requested", 0)), 2, failures, "Varnak sync should continue to request the same number of Varnaks")
+	TEST_UTILS.expect_equal(int(success_debug.get("last_failed", 0)), 0, failures, "Varnak sync should clear the last failure count after a successful retry")
+	TEST_UTILS.expect_equal(int(success_debug.get("last_success", 0)), 2, failures, "Varnak sync should record a full success after the retry")
+	TEST_UTILS.expect_equal(float(success_debug.get("retry_timer", 0.0)), 0.0, failures, "Varnak sync should clear the cooldown after a successful spawn pass")
+	TEST_UTILS.expect_equal(bool(success_debug.get("warning_printed", true)), false, failures, "Varnak sync should clear the warning state after success")
 	world.free()
 
 
@@ -485,6 +767,19 @@ func _test_world_boot_progress_state_tracks_stage_updates(failures: Array[String
 	world.free()
 
 
+func _test_get_camera_visible_world_rect_defaults_to_full_world_without_camera(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	TEST_UTILS.expect(tree != null and tree.current_scene != null, failures, "Test runner should provide a current scene for camera visibility tests")
+	if tree == null or tree.current_scene == null:
+		return
+	var world := VisibilityCullingWorld.new()
+	tree.current_scene.add_child(world)
+	var visible_rect: Rect2 = world.call("get_camera_visible_world_rect")
+	var expected_rect := WORLD_CONFIG.WORLD_RECT.grow(384.0)
+	TEST_UTILS.expect_equal(visible_rect, expected_rect, failures, "World should expose the full world rect when no camera is available")
+	world.free()
+
+
 func _test_current_biome_texture_id_uses_player_position_biome(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
 	var westwood := _get_biome_by_name("Westwood")
@@ -495,6 +790,80 @@ func _test_current_biome_texture_id_uses_player_position_biome(failures: Array[S
 		return
 	var texture_id := world.get_current_biome_texture_id(sample_point)
 	TEST_UTILS.expect(texture_id.contains("westwood_sample"), failures, "Current biome texture id should resolve from the biome containing the sampled world position")
+	world.free()
+
+
+func _test_world_object_visibility_rect_accounts_for_camera_zoom_and_margin(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var viewport_size := Vector2(1152.0, 648.0)
+	var camera_position := Vector2(320.0, -180.0)
+	var camera_zoom := Vector2(1.1, 1.4)
+	var visible_rect: Rect2 = world.call("_get_world_object_visibility_rect", viewport_size, camera_position, camera_zoom)
+	var safe_zoom := Vector2(maxf(absf(camera_zoom.x), 0.01), maxf(absf(camera_zoom.y), 0.01))
+	var visible_world_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y)
+	var expected_position := camera_position - visible_world_size * 0.5 - Vector2.ONE * 384.0
+	var expected_size := visible_world_size + Vector2.ONE * 768.0
+	TEST_UTILS.expect_close(float(visible_rect.position.x), expected_position.x, failures, "World visibility culling should offset the rect from the camera center")
+	TEST_UTILS.expect_close(float(visible_rect.position.y), expected_position.y, failures, "World visibility culling should offset the rect from the camera center on Y")
+	TEST_UTILS.expect_close(float(visible_rect.size.x), expected_size.x, failures, "World visibility culling should expand the rect by the configured margin on X")
+	TEST_UTILS.expect_close(float(visible_rect.size.y), expected_size.y, failures, "World visibility culling should expand the rect by the configured margin on Y")
+	TEST_UTILS.expect(visible_rect.has_point(camera_position), failures, "World visibility culling should keep the camera center inside the visible rect")
+	world.free()
+
+
+func _test_world_object_visibility_culls_and_restores_group_nodes(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	TEST_UTILS.expect(tree != null and tree.current_scene != null, failures, "Test runner should provide a current scene for visibility culling tests")
+	if tree == null or tree.current_scene == null:
+		return
+	var world := VisibilityCullingWorld.new()
+	tree.current_scene.add_child(world)
+	var groups := ["resources", "small_prey", "grazer", "varnak"]
+	var inside_nodes: Array[Node2D] = []
+	var outside_nodes: Array[Node2D] = []
+	for group_name in groups:
+		var inside := Node2D.new()
+		inside.position = Vector2.ZERO
+		inside.add_to_group(group_name)
+		tree.current_scene.add_child(inside)
+		inside_nodes.append(inside)
+		var outside := Node2D.new()
+		outside.position = Vector2(1000.0, 0.0)
+		outside.add_to_group(group_name)
+		tree.current_scene.add_child(outside)
+		outside_nodes.append(outside)
+	var shared_creature := Node2D.new()
+	shared_creature.position = Vector2.ZERO
+	shared_creature.add_to_group("small_prey")
+	shared_creature.add_to_group("grazer")
+	tree.current_scene.add_child(shared_creature)
+	var left_rect := Rect2(Vector2(-128.0, -128.0), Vector2(256.0, 256.0))
+	world.call("_set_world_object_visibility_by_rect", left_rect)
+	for inside in inside_nodes:
+		TEST_UTILS.expect_equal(inside.visible, true, failures, "World visibility culling should keep on-screen nodes visible")
+	for outside in outside_nodes:
+		TEST_UTILS.expect_equal(outside.visible, false, failures, "World visibility culling should hide off-screen nodes")
+	TEST_UTILS.expect_equal(shared_creature.visible, true, failures, "World visibility culling should keep shared nodes visible when they are inside the visible rect")
+	var left_debug: Dictionary = Dictionary(world.call("get_visibility_culling_debug"))
+	TEST_UTILS.expect_equal(int(left_debug.get("visible_resources", -1)), 1, failures, "World visibility culling should count visible resources once")
+	TEST_UTILS.expect_equal(int(left_debug.get("hidden_resources", -1)), 1, failures, "World visibility culling should count hidden resources once")
+	TEST_UTILS.expect_equal(int(left_debug.get("visible_creatures", -1)), 4, failures, "World visibility culling should deduplicate shared creature group membership")
+	TEST_UTILS.expect_equal(int(left_debug.get("hidden_creatures", -1)), 3, failures, "World visibility culling should count hidden creatures once")
+	var right_rect := Rect2(Vector2(872.0, -128.0), Vector2(256.0, 256.0))
+	world.call("_set_world_object_visibility_by_rect", right_rect)
+	for inside in inside_nodes:
+		TEST_UTILS.expect_equal(inside.visible, false, failures, "World visibility culling should hide nodes that moved outside the camera rect")
+	for outside in outside_nodes:
+		TEST_UTILS.expect_equal(outside.visible, true, failures, "World visibility culling should restore nodes when they re-enter the camera rect")
+	TEST_UTILS.expect_equal(shared_creature.visible, false, failures, "World visibility culling should hide shared nodes when they move outside the visible rect")
+	var right_debug: Dictionary = Dictionary(world.call("get_visibility_culling_debug"))
+	TEST_UTILS.expect_equal(int(right_debug.get("visible_creatures", -1)), 3, failures, "World visibility culling should keep deduplicated creature counts stable when nodes move outside")
+	TEST_UTILS.expect_equal(int(right_debug.get("hidden_creatures", -1)), 4, failures, "World visibility culling should update hidden creature counts when shared nodes move outside")
+	for node in inside_nodes:
+		node.free()
+	for node in outside_nodes:
+		node.free()
+	shared_creature.free()
 	world.free()
 
 

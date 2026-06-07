@@ -17,19 +17,35 @@ var display_mode_index := 0
 var _apply_serial := 0
 
 var low_end_rendering: bool = true
+var biome_textures_enabled: bool = true
+var landmark_debug_overlay_enabled: bool = false
+var biome_terrain_accents_enabled: bool = false
 
 func is_low_end_rendering_enabled() -> bool:
 	return low_end_rendering
 
 func get_default_biome_textures_enabled() -> bool:
-	return not low_end_rendering
+	return biome_textures_enabled
 
 func get_default_landmark_debug_overlay_enabled() -> bool:
-	return false
+	return landmark_debug_overlay_enabled
+
+
+func get_default_biome_terrain_accents_enabled() -> bool:
+	return biome_terrain_accents_enabled
+
+
+func apply_low_end_rendering_defaults() -> void:
+	low_end_rendering = true
+	biome_textures_enabled = true
+	landmark_debug_overlay_enabled = false
+	biome_terrain_accents_enabled = false
 
 
 func _ready() -> void:
 	load_settings()
+	_apply_resolution_override_from_args()
+	_apply_display_override_from_args()
 	apply_settings()
 
 
@@ -60,11 +76,14 @@ func load_settings() -> void:
 	var config := ConfigFile.new()
 	resolution_index = 0
 	display_mode_index = DISPLAY_MODE_WINDOWED
-	low_end_rendering = true
+	apply_low_end_rendering_defaults()
 	if config.load(SETTINGS_PATH) == OK:
 		resolution_index = int(clamp(int(config.get_value("graphics", "resolution_index", resolution_index)), 0, RESOLUTIONS.size() - 1))
 		display_mode_index = int(clamp(int(config.get_value("graphics", "display_mode_index", display_mode_index)), 0, 2))
 		low_end_rendering = bool(config.get_value("graphics", "low_end_rendering", low_end_rendering))
+		biome_textures_enabled = bool(config.get_value("graphics", "biome_textures_enabled", biome_textures_enabled))
+		landmark_debug_overlay_enabled = bool(config.get_value("graphics", "landmark_debug_overlay_enabled", landmark_debug_overlay_enabled))
+		biome_terrain_accents_enabled = bool(config.get_value("graphics", "biome_terrain_accents_enabled", biome_terrain_accents_enabled))
 
 
 func save_settings() -> void:
@@ -72,7 +91,58 @@ func save_settings() -> void:
 	config.set_value("graphics", "resolution_index", resolution_index)
 	config.set_value("graphics", "display_mode_index", display_mode_index)
 	config.set_value("graphics", "low_end_rendering", low_end_rendering)
+	config.set_value("graphics", "biome_textures_enabled", biome_textures_enabled)
+	config.set_value("graphics", "landmark_debug_overlay_enabled", landmark_debug_overlay_enabled)
+	config.set_value("graphics", "biome_terrain_accents_enabled", biome_terrain_accents_enabled)
 	config.save(SETTINGS_PATH)
+
+
+func _apply_resolution_override_from_args() -> void:
+	var args := OS.get_cmdline_args()
+	for arg in args:
+		if not arg.begins_with("--resolution="):
+			continue
+
+		var value := arg.replace("--resolution=", "")
+		var parts := value.split("x")
+		if parts.size() != 2:
+			push_warning("Invalid --resolution argument: %s" % value)
+			return
+
+		var width := int(parts[0])
+		var height := int(parts[1])
+		var requested := Vector2i(width, height)
+
+		for i in RESOLUTIONS.size():
+			if RESOLUTIONS[i] == requested:
+				resolution_index = i
+				print("[GRAPHICS_SETTINGS] resolution override applied: %s" % requested)
+				return
+
+		push_warning("Unsupported --resolution argument: %s" % value)
+		return
+
+
+func _apply_display_override_from_args() -> void:
+	var args := OS.get_cmdline_args()
+	for arg in args:
+		if not arg.begins_with("--display="):
+			continue
+
+		var value := arg.replace("--display=", "").to_lower()
+		match value:
+			"windowed":
+				display_mode_index = 0
+				print("[GRAPHICS_SETTINGS] display override applied: windowed")
+			"fullscreen":
+				display_mode_index = 1
+				print("[GRAPHICS_SETTINGS] display override applied: fullscreen")
+			"borderless":
+				display_mode_index = 2
+				print("[GRAPHICS_SETTINGS] display override applied: borderless")
+			_:
+				push_warning("Unsupported --display argument: %s" % value)
+		return
 
 
 func set_from_indices(new_resolution_index: int, new_display_mode_index: int) -> void:
@@ -97,21 +167,18 @@ func get_effective_resolution() -> Vector2i:
 func apply_settings() -> void:
 	var resolution := get_effective_resolution()
 	_apply_content_resolution(resolution)
+	_apply_display_mode()
+	_apply_window_resolution(resolution)
 	if is_embedded_window():
 		return
 	_apply_serial += 1
 	var apply_serial := _apply_serial
 	match display_mode_index:
 		DISPLAY_MODE_FULLSCREEN:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			_apply_windowed_border(false)
-			DisplayServer.window_set_size(resolution)
 			call_deferred("_finish_exclusive_fullscreen", apply_serial, resolution)
 		DISPLAY_MODE_BORDERLESS_FULLSCREEN:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+			pass
 		_:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			_apply_windowed_border(false)
 			call_deferred("_finish_windowed_mode", apply_serial, resolution)
 
 
@@ -124,11 +191,36 @@ func _apply_windowed_border(borderless: bool) -> void:
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, borderless)
 
 
-func _apply_content_resolution(resolution: Vector2i) -> void:
+func _apply_display_mode() -> void:
+	match display_mode_index:
+		DISPLAY_MODE_FULLSCREEN:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			_apply_windowed_border(false)
+		DISPLAY_MODE_BORDERLESS_FULLSCREEN:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		_:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			_apply_windowed_border(false)
+
+
+func _apply_window_resolution(resolution: Vector2i) -> void:
+	if display_mode_index != DISPLAY_MODE_WINDOWED:
+		return
+	DisplayServer.window_set_size(resolution)
+	var current_screen := DisplayServer.window_get_current_screen()
+	var screen_position := DisplayServer.screen_get_position(current_screen)
+	var screen_size := DisplayServer.screen_get_size(current_screen)
+	DisplayServer.window_set_position(screen_position + (screen_size - resolution) / 2)
+	print("[GRAPHICS_SETTINGS] windowed size applied: %s" % resolution)
+
+
+func _apply_content_resolution(_resolution: Vector2i) -> void:
+	# Keep gameplay world pixel scale independent from selected window resolution.
+	# Window size may change, but CanvasItems must not be globally scaled.
 	var root_window := get_tree().root
-	root_window.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
-	root_window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
-	root_window.content_scale_size = resolution
+	root_window.content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
+	root_window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_IGNORE
+	root_window.content_scale_size = Vector2i.ZERO
 
 
 func _finish_exclusive_fullscreen(apply_serial: int, resolution: Vector2i) -> void:

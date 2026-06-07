@@ -4,6 +4,15 @@ const MAP_SCREEN_SCRIPT := preload("res://scripts/ui/map_screen.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
+class CountingMapScreen:
+	extends MAP_SCREEN_SCRIPT
+
+	var ensure_calls := 0
+
+	func _ensure_biome_texture() -> void:
+		ensure_calls += 1
+
+
 class MockStats:
 	extends RefCounted
 	var health := 86
@@ -114,7 +123,9 @@ func run() -> Array[String]:
 	_test_map_redraw_state_reacts_to_player_position_changes(failures)
 	_test_landmark_signature_changes_only_when_landmarks_change(failures)
 	_test_map_redraw_state_reacts_to_resource_signature_changes(failures)
+	_test_map_screen_skips_updates_while_hidden(failures)
 	_test_map_screen_reads_registry_resources_and_varnaks(failures)
+	_test_map_screen_builds_texture_outside_draw_path(failures)
 	return failures
 
 
@@ -201,6 +212,17 @@ func _test_map_redraw_state_reacts_to_resource_signature_changes(failures: Array
 	map_screen.free()
 
 
+func _test_map_screen_skips_updates_while_hidden(failures: Array[String]) -> void:
+	var map_screen := _make_bound_map_screen()
+	var skipped_before := int(map_screen.get("map_screen_skipped_update_hidden_count"))
+	map_screen.call("_process", 0.5)
+	TEST_UTILS.expect_equal(int(map_screen.get("map_screen_skipped_update_hidden_count")), skipped_before + 1, failures, "Map screen should skip hidden cache work instead of rebuilding while it is not visible")
+	TEST_UTILS.expect_equal(int(map_screen.get("map_screen_redraw_count")), 0, failures, "Hidden map screen should not redraw")
+	var player: Node2D = map_screen.get("player")
+	player.free()
+	map_screen.free()
+
+
 func _test_map_screen_reads_registry_resources_and_varnaks(failures: Array[String]) -> void:
 	var map_screen: Control = _make_bound_map_screen()
 	var snapshot_service := MockSnapshotService.new()
@@ -241,6 +263,44 @@ func _test_map_screen_reads_registry_resources_and_varnaks(failures: Array[Strin
 	TEST_UTILS.expect_equal(Array(map_screen.get("cached_resources")).size(), 1, failures, "Map screen should cache resource markers from the snapshot service")
 	TEST_UTILS.expect(lines.has("Live Varnaks: 1"), failures, "Map screen info panel should count varnaks from the snapshot service instead of direct group scans")
 	map_screen.free()
+
+
+func _test_map_screen_builds_texture_outside_draw_path(failures: Array[String]) -> void:
+	var map_screen := _make_map_screen()
+	var biome_zones_config: Array[Dictionary] = [{
+		"name": "Test Biome",
+		"points": PackedVector2Array([
+			Vector2(-240.0, -160.0),
+			Vector2(240.0, -160.0),
+			Vector2(240.0, 160.0),
+			Vector2(-240.0, 160.0)
+		]),
+		"color": Color(0.2, 0.4, 0.2)
+	}]
+	var landmarks: Array[Dictionary] = []
+	map_screen.bind(
+		MockPlayer.new(),
+		MockEvolutionDirector.new(),
+		MockDayNightSystem.new(),
+		Rect2(Vector2(-240.0, -160.0), Vector2(480.0, 320.0)),
+		biome_zones_config,
+		landmarks,
+		MockSnapshotService.new()
+	)
+	TEST_UTILS.expect_equal(map_screen.get("map_screen_texture_build_count"), 1, failures, "Map screen should build its biome texture outside _draw()")
+	TEST_UTILS.expect(float(map_screen.get("map_screen_texture_last_build_ms")) >= 0.0, failures, "Map screen should track the last biome texture build time")
+	var biome_zones: Array[Dictionary] = map_screen.biome_zones.duplicate(true)
+	map_screen.free()
+
+	var draw_spy := CountingMapScreen.new()
+	draw_spy.world_rect = Rect2(Vector2(-240.0, -160.0), Vector2(480.0, 320.0))
+	draw_spy.set("biome_zones", biome_zones)
+	draw_spy.set("biome_blend_texture", ImageTexture.create_from_image(Image.create(2, 2, false, Image.FORMAT_RGBA8)))
+	draw_spy.set("biome_blend_colors_key", "test")
+	var ensure_calls_before := draw_spy.ensure_calls
+	draw_spy.call("_draw_biomes", Rect2(Vector2.ZERO, Vector2(300.0, 180.0)))
+	TEST_UTILS.expect_equal(draw_spy.ensure_calls, ensure_calls_before, failures, "Map screen draw path should reuse the cached biome texture instead of rebuilding it")
+	draw_spy.free()
 
 
 func _make_map_screen() -> Object:

@@ -40,7 +40,7 @@ func run() -> Array[String]:
 	TEST_UTILS.expect(hill_count > 0, failures, "Minimap test needs at least one hill landmark")
 	TEST_UTILS.expect_equal((minimap.get("landmarks") as Array).size(), landmarks.size(), failures, "Minimap should receive the full landmark list from the HUD")
 
-	minimap.call("_draw")
+	minimap.queue_redraw()
 	await tree.process_frame
 	TEST_UTILS.expect(minimap.get("biome_blend_texture") != null, failures, "Minimap should build a biome blend texture when drawn")
 	if minimap.get("biome_blend_texture") != null:

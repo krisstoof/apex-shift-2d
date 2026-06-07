@@ -941,11 +941,12 @@ func _apply_plant_biomass_loss(biome_id: String, biomass_loss: float, payload: D
 
 func _get_biomass_status(plant_biomass: float, max_plant_biomass: float) -> String:
 	var percent := 0.0 if max_plant_biomass <= 0.0 else plant_biomass / max_plant_biomass * 100.0
+	var healthy_threshold := minf(_ecosystem_value("stressed_threshold"), 60.0)
 	if percent < _ecosystem_value("collapsing_threshold"):
 		return "collapsing"
 	if percent < _ecosystem_value("depleted_threshold"):
 		return "depleted"
-	if percent < _ecosystem_value("stressed_threshold"):
+	if percent < healthy_threshold:
 		return "stressed"
 	return "healthy"
 
@@ -962,4 +963,6 @@ func _get_biome_id_for_position(position: Vector2) -> String:
 
 
 func _get_event_bus() -> Node:
+	if not is_inside_tree():
+		return null
 	return get_node_or_null("/root/EventBus")

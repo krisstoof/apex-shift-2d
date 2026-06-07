@@ -8,6 +8,7 @@ const BIOME_BLEND_TEXTURE_SIZE := Vector2i(160, 98)
 const POND_MARKER_Y_SCALE := 0.62
 const HILL_MARKER_Y_SCALE := 0.58
 const MAP_STATE_REFRESH_INTERVAL := 0.25
+const MAP_REDRAW_POSITION_THRESHOLD := 16.0
 
 var player: Node2D
 var world: Node
@@ -19,6 +20,12 @@ var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
+var map_screen_redraw_count: int = 0
+var map_screen_cache_rebuild_count: int = 0
+var map_screen_skipped_update_hidden_count: int = 0
+var map_screen_texture_build_count: int = 0
+var map_screen_texture_last_build_ms: float = 0.0
+var _is_drawing_biomes := false
 var cached_resources: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
 var resources_cache_timer := 0.0
@@ -26,14 +33,19 @@ var map_state_refresh_timer := 0.0
 var cached_resources_signature := ""
 var cached_varnaks_signature := ""
 var landmarks_signature := ""
+var last_map_player_position := Vector2.INF
+var last_map_zoom := -1.0
+var map_cache_dirty := true
+var last_visible_render_state_key := ""
 var last_render_state_key := ""
-const RESOURCES_CACHE_INTERVAL := 0.5
+const RESOURCES_CACHE_INTERVAL := 1.0
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	visible = false
+	mark_map_cache_dirty()
 	_update_marker_cache()
 
 
@@ -46,31 +58,46 @@ func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
-	_update_marker_cache()
+	_sync_biome_texture()
+	if _update_marker_cache():
+		map_screen_cache_rebuild_count += 1
 	_update_landmarks_signature()
-	_request_map_redraw(true)
+	mark_map_cache_dirty()
 
 
 func _process(_delta: float) -> void:
-	if not visible:
+	if not is_visible_in_tree():
+		map_screen_skipped_update_hidden_count += 1
 		return
+	_log_hitch(_delta, "MapScreen", {
+		"texture_cached": biome_blend_texture != null,
+		"build_count": map_screen_texture_build_count
+	})
+	_sync_biome_texture()
 	var cache_changed := false
 	resources_cache_timer += _delta
 	if resources_cache_timer >= RESOURCES_CACHE_INTERVAL:
 		resources_cache_timer = 0.0
-		cache_changed = _update_marker_cache() or cache_changed
-		cache_changed = _refresh_landmarks_from_world() or cache_changed
-	map_state_refresh_timer += _delta
-	if cache_changed:
-		_request_map_redraw(true)
-	elif map_state_refresh_timer >= MAP_STATE_REFRESH_INTERVAL:
-		map_state_refresh_timer = 0.0
-		_request_map_redraw()
+		if _update_marker_cache():
+			map_screen_cache_rebuild_count += 1
+			cache_changed = true
+		if _refresh_landmarks_from_world():
+			map_screen_cache_rebuild_count += 1
+			cache_changed = true
+		if cache_changed:
+			mark_map_cache_dirty()
+	var current_player_position := _get_current_player_map_position()
+	var current_map_zoom := _get_current_map_zoom()
+	if _should_redraw_map(current_player_position, current_map_zoom):
+		last_map_player_position = current_player_position
+		last_map_zoom = current_map_zoom
+		last_visible_render_state_key = _build_visible_render_state_key(current_player_position, current_map_zoom)
+		map_cache_dirty = false
+		queue_redraw()
 
 
 func _draw() -> void:
-	if not visible:
-		return
+	map_screen_redraw_count += 1
 	var screen_rect := Rect2(Vector2.ZERO, size)
 	var inner_rect := screen_rect.grow(-PADDING)
 	var info_width: float = min(360.0, inner_rect.size.x * 0.32)
@@ -87,7 +114,9 @@ func _draw_map_panel(rect: Rect2) -> void:
 	draw_rect(rect, Color(0.70, 0.74, 0.66, 0.78), false, 1.0)
 	var map_rect := _fit_world_rect(rect.grow(-16.0))
 	draw_rect(map_rect, Color(0.10, 0.14, 0.10), true)
+	_is_drawing_biomes = true
 	_draw_biomes(map_rect)
+	_is_drawing_biomes = false
 	_draw_grid(map_rect)
 	_draw_landmarks(map_rect)
 	_draw_resources(map_rect)
@@ -211,7 +240,8 @@ func _fit_world_rect(bounds: Rect2) -> Rect2:
 func _draw_biomes(map_rect: Rect2) -> void:
 	if biome_zones.is_empty():
 		return
-	_ensure_biome_texture()
+	if not _is_drawing_biomes:
+		return
 	if biome_blend_texture:
 		draw_texture_rect(biome_blend_texture, map_rect, false)
 
@@ -247,14 +277,31 @@ func _draw_landmarks(map_rect: Rect2) -> void:
 func _refresh_landmarks_from_world() -> bool:
 	var snapshot := _get_snapshot()
 	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	var changed := false
 	if not world_snapshot.is_empty():
 		landmarks = Array(world_snapshot.get("landmarks", landmarks))
-		return _update_landmarks_signature()
+		changed = true
 	var active_world := _get_world()
-	if active_world and active_world.has_method("get_landmarks"):
+	if not changed and active_world and active_world.has_method("get_landmarks"):
 		landmarks = active_world.get_landmarks()
-		return _update_landmarks_signature()
-	return false
+		changed = true
+	if changed:
+		var signature := _build_landmarks_signature()
+		changed = signature != landmarks_signature
+		landmarks_signature = signature
+	return changed
+
+
+func mark_map_cache_dirty() -> void:
+	map_cache_dirty = true
+	last_visible_render_state_key = ""
+	if is_visible_in_tree():
+		queue_redraw()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED and visible:
+		mark_map_cache_dirty()
 
 
 func _draw_pond_marker(center: Vector2, radius: float, landmark: Dictionary) -> void:
@@ -415,12 +462,21 @@ func _draw_player(map_rect: Rect2) -> void:
 	draw_circle(pos, 3.0, Color.WHITE)
 
 
+func _sync_biome_texture() -> void:
+	if biome_zones.is_empty():
+		biome_blend_texture = null
+		biome_blend_colors_key = ""
+		return
+	_ensure_biome_texture()
+
+
 func _ensure_biome_texture() -> void:
 	if biome_zones.is_empty():
 		return
 	var current_key := _get_biome_colors_key()
 	if biome_blend_texture and biome_blend_colors_key == current_key:
 		return
+	var build_start_ms: int = Time.get_ticks_msec()
 	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
 	var colors: Array[Color] = []
 	for biome in biome_zones:
@@ -435,6 +491,8 @@ func _ensure_biome_texture() -> void:
 			image.set_pixel(x, y, _get_direct_biome_color_at(world_position, biome_zones, colors))
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
+	map_screen_texture_build_count += 1
+	map_screen_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 
 
 func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
@@ -475,6 +533,17 @@ func _get_biome_colors_key() -> String:
 		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
 	return "|".join(parts)
+
+
+func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
+	if delta <= 0.1:
+		return
+	var flag_text := ""
+	for key in flags.keys():
+		if not flag_text.is_empty():
+			flag_text += " "
+		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
+	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _world_to_map(world_position: Vector2, map_rect: Rect2) -> Vector2:
@@ -563,6 +632,72 @@ func _update_resources_cache() -> bool:
 	return _update_marker_cache()
 
 
+func _should_redraw_map(current_player_position: Vector2, current_zoom: float) -> bool:
+	if map_cache_dirty:
+		return true
+	if last_visible_render_state_key.is_empty():
+		return true
+	if last_map_player_position == Vector2.INF:
+		return true
+	if not is_equal_approx(current_zoom, last_map_zoom):
+		return true
+	if current_player_position.distance_to(last_map_player_position) >= MAP_REDRAW_POSITION_THRESHOLD:
+		return true
+	var current_key := _build_visible_render_state_key(current_player_position, current_zoom)
+	return current_key != last_visible_render_state_key
+
+
+func _build_visible_render_state_key(current_player_position: Vector2, current_zoom: float) -> String:
+	var quantized_player_position := Vector2(
+		int(round(current_player_position.x / MAP_REDRAW_POSITION_THRESHOLD)),
+		int(round(current_player_position.y / MAP_REDRAW_POSITION_THRESHOLD))
+	)
+	var profile: Dictionary = evolution_director.get_profile() if evolution_director and evolution_director.has_method("get_profile") else {}
+	var live_varnaks := _get_registered_varnaks().size()
+	var player_stats: Variant = _get_player_stats()
+	var player_inventory: Variant = _get_player_inventory()
+	var player_position_text := "%d:%d" % [int(quantized_player_position.x), int(quantized_player_position.y)]
+	if not is_instance_valid(player):
+		player_position_text = "none"
+	return "|".join([
+		"%d:%d" % [int(round(size.x)), int(round(size.y))],
+		player_position_text,
+		"%.2f" % current_zoom,
+		"%d" % _read_int_property(player_stats, "health"),
+		"%d" % _read_int_property(player_stats, "hunger"),
+		"%d" % _read_int_property(player_stats, "stamina"),
+		"%d" % _read_int_property(player_stats, "rest"),
+		"%d" % _read_inventory_amount(player_inventory, "wood"),
+		"%d" % _read_inventory_amount(player_inventory, "stone"),
+		"%d" % _read_inventory_amount(player_inventory, "fiber"),
+		"%d" % _read_inventory_amount(player_inventory, "meat"),
+		"%d" % _read_inventory_amount(player_inventory, "hide"),
+		"%d" % _read_inventory_amount(player_inventory, "bone"),
+		_get_clock_time(),
+		_get_time_label(),
+		"%d" % (day_night_system.get_day() if day_night_system and day_night_system.has_method("get_day") else 1),
+		"%d" % live_varnaks,
+		"%d" % int(profile.get("generation", 1)),
+		"%.2f" % float(profile.get("aggression", 0.0)),
+		"%.2f" % float(profile.get("fire_fear", 0.0)),
+		"%.2f" % float(profile.get("trap_awareness", 0.0)),
+		"%.2f" % float(profile.get("pack_coordination", 0.0)),
+		cached_resources_signature,
+		cached_varnaks_signature,
+		landmarks_signature
+	])
+
+
+func _get_current_player_map_position() -> Vector2:
+	if is_instance_valid(player):
+		return player.global_position
+	return Vector2.ZERO
+
+
+func _get_current_map_zoom() -> float:
+	return 1.0
+
+
 func _request_map_redraw(force := false) -> bool:
 	var current_key := _build_render_state_key()
 	if not force and current_key == last_render_state_key:
@@ -647,6 +782,29 @@ func _update_landmarks_signature() -> bool:
 	var changed := signature != landmarks_signature
 	landmarks_signature = signature
 	return changed
+
+
+func _build_landmarks_signature() -> String:
+	var parts: Array[String] = []
+	for landmark in landmarks:
+		parts.append("%s:%s:%d:%d:%d" % [
+			str(landmark.get("id", "")),
+			str(landmark.get("type", "")),
+			int(round(Vector2(landmark.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(landmark.get("position", Vector2.ZERO)).y)),
+			int(round(float(landmark.get("radius", 0.0))))
+		])
+	return "|".join(parts)
+
+
+func get_map_screen_performance_debug() -> Dictionary:
+	return {
+		"redraw_count": map_screen_redraw_count,
+		"cache_rebuild_count": map_screen_cache_rebuild_count,
+		"skipped_update_hidden_count": map_screen_skipped_update_hidden_count,
+		"texture_build_count": map_screen_texture_build_count,
+		"texture_last_build_ms": map_screen_texture_last_build_ms
+	}
 
 
 func _get_safe_tree() -> SceneTree:

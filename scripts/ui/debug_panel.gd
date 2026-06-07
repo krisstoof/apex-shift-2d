@@ -33,6 +33,9 @@ var last_state_text := ""
 var state_label_min_height := STATE_LABEL_MIN_SIZE.y
 var last_nearest_creature_text: Dictionary = {}
 var selected_debug_creatures: Dictionary = {}
+var debug_panel_refresh_count: int = 0
+var debug_panel_overlay_refresh_count: int = 0
+var debug_panel_hidden_skip_count: int = 0
 var benchmark_runner: Node
 var benchmark_button: Button
 var god_mode_button: Button
@@ -97,11 +100,15 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 
 
 func _process(_delta: float) -> void:
+	if not visible:
+		debug_panel_hidden_skip_count += 1
+		return
 	state_refresh_timer += _delta
 	if state_refresh_timer < DEBUG_STATE_REFRESH_INTERVAL:
 		return
 	state_refresh_timer = 0.0
 	_set_state_text(_build_state_text())
+	debug_panel_refresh_count += 1
 	_refresh_creature_debug_overlays()
 
 
@@ -115,15 +122,22 @@ func set_open(open: bool) -> void:
 	visible = open
 	set_process(open)
 	state_refresh_timer = 0.0
+	if state_label == null or state_scroll == null:
+		return
 	if visible:
 		_update_active_tab_view()
 		_set_state_text(_build_state_text(), true)
+		_refresh_creature_debug_overlays()
 	else:
 		last_state_text = ""
-	_refresh_creature_debug_overlays()
 
 
 func _refresh_creature_debug_overlays() -> void:
+	if not is_inside_tree():
+		return
+	if not visible:
+		return
+	debug_panel_overlay_refresh_count += 1
 	for group_name in ["small_prey", "grazer", "varnak"]:
 		for creature in _get_cached_group_nodes(group_name):
 			if is_instance_valid(creature) and creature is CanvasItem:
@@ -132,6 +146,8 @@ func _refresh_creature_debug_overlays() -> void:
 
 func _set_state_text(text: String, force_update := false) -> void:
 	if not force_update and text == last_state_text:
+		return
+	if state_label == null:
 		return
 	last_state_text = text
 	state_label.text = text
@@ -236,6 +252,8 @@ func _on_debug_tab_changed(tab: int) -> void:
 
 
 func _update_active_tab_view() -> void:
+	if state_scroll == null:
+		return
 	var has_tab_buttons := _update_tool_buttons_for_active_tab()
 	_refresh_world_debug_buttons()
 	state_scroll.visible = true
@@ -245,6 +263,8 @@ func _update_active_tab_view() -> void:
 
 
 func _update_tool_buttons_for_active_tab() -> bool:
+	if tool_buttons.is_empty():
+		return false
 	var visible_count := 0
 	for button in tool_buttons:
 		var is_tab_button := str(button.get_meta("debug_tab", "")) == active_tab
@@ -952,6 +972,14 @@ func _get_population_recovery_debug_lines(state: Dictionary) -> Array[String]:
 	]
 
 
+func get_debug_panel_performance_debug() -> Dictionary:
+	return {
+		"refresh_count": debug_panel_refresh_count,
+		"overlay_refresh_count": debug_panel_overlay_refresh_count,
+		"hidden_skip_count": debug_panel_hidden_skip_count
+	}
+
+
 func _get_snapshot() -> Dictionary:
 	if snapshot_service != null and snapshot_service.has_method("get_snapshot"):
 		var snapshot: Dictionary = snapshot_service.get_snapshot()
@@ -1555,16 +1583,26 @@ func _call_optional_world_debug_method(method_name: String, missing_message: Str
 
 
 func _get_world_node() -> Node:
-	if not get_tree() or not get_tree().current_scene:
+	if not is_inside_tree():
 		return null
-	return get_tree().current_scene.get_node_or_null("World")
+	var tree := get_tree()
+	if tree == null:
+		return null
+	if tree.current_scene != null:
+		var current_world := tree.current_scene.get_node_or_null("World")
+		if current_world != null:
+			return current_world
+	return tree.root.find_child("World", true, false)
 
 
 func _get_cached_group_nodes(group_name: String) -> Array:
 	var world := _get_world_node()
 	if world and world.has_method("get_cached_group_nodes"):
 		return world.get_cached_group_nodes(group_name)
-	return get_tree().get_nodes_in_group(group_name)
+	var tree := get_tree()
+	if tree == null:
+		return []
+	return tree.get_nodes_in_group(group_name)
 
 
 func _post_debug_message(message: String) -> void:

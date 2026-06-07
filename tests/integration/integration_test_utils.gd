@@ -12,12 +12,14 @@ static func boot_main() -> Dictionary:
 	if tree == null:
 		return {}
 	var main := MAIN_SCENE.instantiate()
+	var world := main.get_node_or_null("World")
+	if world != null and world.has_method("enable_integration_test_mode"):
+		world.call("enable_integration_test_mode")
 	var original_scene := tree.current_scene
 	tree.root.call_deferred("add_child", main)
 	tree.call_deferred("set_current_scene", main)
 	await main.ready
-	await tree.process_frame
-	await tree.process_frame
+	await _wait_for_world_boot(main)
 	await tree.process_frame
 	return {
 		"tree": tree,
@@ -32,11 +34,28 @@ static func shutdown_main(context: Dictionary) -> void:
 	var original_scene := context.get("original_scene") as Node
 	if tree == null:
 		return
+	if is_instance_valid(original_scene):
+		tree.current_scene = original_scene
 	if is_instance_valid(main):
 		main.queue_free()
 		await tree.process_frame
+		await tree.process_frame
+		await tree.process_frame
+		await tree.process_frame
 	if is_instance_valid(original_scene):
 		tree.current_scene = original_scene
+
+
+static func _wait_for_world_boot(main: Node) -> void:
+	if main == null:
+		return
+	var world := main.get_node_or_null("World")
+	if world == null or not world.has_method("is_boot_ready"):
+		return
+	if bool(world.call("is_boot_ready")):
+		return
+	if world.has_signal("world_initialized"):
+		await world.world_initialized
 
 
 static func refresh_world_cache(world: Node) -> void:
@@ -125,10 +144,7 @@ static func _find_point_in_polygon(world: Node, biome: Dictionary, prefer_land: 
 static func spawn_resource(world: Node, resource_kind: String, position: Vector2) -> Node:
 	if world == null:
 		return null
-	var resource := RESOURCE_SCENE.instantiate()
-	world.add_child(resource)
-	resource.global_position = position
-	resource.call("setup", resource_kind)
+	var resource := world.call("spawn_resource_for_tests", resource_kind, position) as Node
 	refresh_world_cache(world)
 	return resource
 
@@ -136,10 +152,7 @@ static func spawn_resource(world: Node, resource_kind: String, position: Vector2
 static func spawn_small_prey(world: Node, biome_id: String, position: Vector2) -> Node:
 	if world == null:
 		return null
-	var prey := SMALL_PREY_SCENE.instantiate()
-	world.add_child(prey)
-	prey.global_position = position
-	prey.call("setup", biome_id)
+	var prey := world.call("spawn_small_prey_for_tests", position, biome_id) as Node
 	refresh_world_cache(world)
 	return prey
 
@@ -147,10 +160,7 @@ static func spawn_small_prey(world: Node, biome_id: String, position: Vector2) -
 static func spawn_grazer(world: Node, biome_id: String, position: Vector2) -> Node:
 	if world == null:
 		return null
-	var grazer := GRAZER_SCENE.instantiate()
-	world.add_child(grazer)
-	grazer.global_position = position
-	grazer.call("setup", biome_id)
+	var grazer := world.call("spawn_grazer_for_tests", position, biome_id) as Node
 	refresh_world_cache(world)
 	return grazer
 
@@ -158,13 +168,7 @@ static func spawn_grazer(world: Node, biome_id: String, position: Vector2) -> No
 static func spawn_varnak(world: Node, position: Vector2) -> Node:
 	if world == null:
 		return null
-	var varnak := VARNAK_SCENE.instantiate()
-	world.add_child(varnak)
-	varnak.global_position = position
-	if varnak.has_method("apply_profile"):
-		var evolution := world.get_parent().get_node_or_null("EvolutionDirector")
-		if evolution and evolution.has_method("get_profile"):
-			varnak.apply_profile(evolution.call("get_profile"))
+	var varnak := world.call("spawn_varnak_for_tests", position) as Node
 	refresh_world_cache(world)
 	return varnak
 
