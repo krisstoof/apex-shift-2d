@@ -325,8 +325,10 @@ func _capture_world_render_flags() -> Dictionary:
 	if not is_instance_valid(world):
 		return {}
 	return {
+		"low_end_rendering": world.is_low_end_rendering_enabled() if world.has_method("is_low_end_rendering_enabled") else false,
 		"biome_textures_enabled": world.are_biome_textures_enabled() if world.has_method("are_biome_textures_enabled") else true,
-		"landmark_debug_overlay_enabled": world.is_landmark_debug_overlay_enabled() if world.has_method("is_landmark_debug_overlay_enabled") else false
+		"landmark_debug_overlay_enabled": world.is_landmark_debug_overlay_enabled() if world.has_method("is_landmark_debug_overlay_enabled") else false,
+		"biome_terrain_accents_enabled": world.are_biome_terrain_accents_enabled() if world.has_method("are_biome_terrain_accents_enabled") else false
 	}
 
 
@@ -680,9 +682,11 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			int(registry_stats.get("registered_buildings", 0))
 		])
 	if not render_flags.is_empty():
-		diagnostics.append("flags biome_textures=%s landmark_overlay=%s" % [
+		diagnostics.append("flags low_end=%s biome_textures=%s landmark_overlay=%s biome_terrain_accents=%s" % [
+			"true" if bool(render_flags.get("low_end_rendering", false)) else "false",
 			"true" if bool(render_flags.get("biome_textures_enabled", true)) else "false",
-			"true" if bool(render_flags.get("landmark_debug_overlay_enabled", false)) else "false"
+			"true" if bool(render_flags.get("landmark_debug_overlay_enabled", false)) else "false",
+			"true" if bool(render_flags.get("biome_terrain_accents_enabled", false)) else "false"
 		])
 	return "  diagnostics %s" % " | ".join(diagnostics)
 

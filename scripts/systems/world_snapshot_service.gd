@@ -149,6 +149,8 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 	var varnak_population: Dictionary = {}
 	var landmark_overlay_enabled := false
 	var biome_textures_enabled := true
+	var biome_terrain_accents_enabled := false
+	var low_end_rendering := false
 	if active_world:
 		if active_world.has_method("get_world_rect"):
 			world_rect = active_world.get_world_rect()
@@ -178,6 +180,10 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 			landmark_overlay_enabled = active_world.is_landmark_debug_overlay_enabled()
 		if active_world.has_method("are_biome_textures_enabled"):
 			biome_textures_enabled = active_world.are_biome_textures_enabled()
+		if active_world.has_method("are_biome_terrain_accents_enabled"):
+			biome_terrain_accents_enabled = active_world.are_biome_terrain_accents_enabled()
+		if active_world.has_method("is_low_end_rendering_enabled"):
+			low_end_rendering = active_world.is_low_end_rendering_enabled()
 		resource_counts["trees"] = _get_world_group_count(active_world, "trees")
 		resource_counts["bushes"] = _get_world_group_count(active_world, "bushes")
 		resource_counts["grass"] = _get_world_group_count(active_world, "grass")
@@ -205,7 +211,9 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 		"varnak_spawn_sync": varnak_spawn_sync,
 		"varnak_population": varnak_population,
 		"landmark_overlay_enabled": landmark_overlay_enabled,
-		"biome_textures_enabled": biome_textures_enabled
+		"biome_textures_enabled": biome_textures_enabled,
+		"biome_terrain_accents_enabled": biome_terrain_accents_enabled,
+		"low_end_rendering": low_end_rendering
 	}
 
 

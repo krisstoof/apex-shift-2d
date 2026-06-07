@@ -197,6 +197,12 @@ class MockWorld:
 	func are_biome_textures_enabled() -> bool:
 		return true
 
+	func are_biome_terrain_accents_enabled() -> bool:
+		return false
+
+	func is_low_end_rendering_enabled() -> bool:
+		return true
+
 	func get_registered_resources() -> Array:
 		resource_reads += 1
 		return resources
@@ -281,6 +287,8 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	TEST_UTILS.expect_equal(int(varnak_sync.get("attempt_count", 0)), 1, failures, "Snapshot service should expose Varnak spawn sync diagnostics")
 	TEST_UTILS.expect(str(ecosystem_snapshot.get("warnings_text", "")).contains("Redfang Wilds:stressed"), failures, "Snapshot service should expose ecosystem warnings text")
 	TEST_UTILS.expect_equal(int(debug_snapshot.get("live_varnaks", 0)), 1, failures, "Snapshot service should expose debug summary creature counts")
+	TEST_UTILS.expect_equal(bool(world_snapshot.get("biome_terrain_accents_enabled", true)), false, failures, "Snapshot service should expose the biome terrain accent flag")
+	TEST_UTILS.expect_equal(bool(world_snapshot.get("low_end_rendering", false)), true, failures, "Snapshot service should expose the low-end rendering flag")
 	TEST_UTILS.expect_equal(world.resource_reads, 1, failures, "Snapshot service should build resource markers only once per refresh")
 	TEST_UTILS.expect_equal(world.creature_reads, 3, failures, "Snapshot service should build each creature marker list only once per refresh")
 

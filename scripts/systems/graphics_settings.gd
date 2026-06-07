@@ -16,16 +16,30 @@ var resolution_index := 0
 var display_mode_index := 0
 var _apply_serial := 0
 
-var low_end_rendering: bool = false
+var low_end_rendering: bool = true
+var biome_textures_enabled: bool = true
+var landmark_debug_overlay_enabled: bool = false
+var biome_terrain_accents_enabled: bool = false
 
 func is_low_end_rendering_enabled() -> bool:
 	return low_end_rendering
 
 func get_default_biome_textures_enabled() -> bool:
-	return not low_end_rendering
+	return biome_textures_enabled
 
 func get_default_landmark_debug_overlay_enabled() -> bool:
-	return false
+	return landmark_debug_overlay_enabled
+
+
+func get_default_biome_terrain_accents_enabled() -> bool:
+	return biome_terrain_accents_enabled
+
+
+func apply_low_end_rendering_defaults() -> void:
+	low_end_rendering = true
+	biome_textures_enabled = true
+	landmark_debug_overlay_enabled = false
+	biome_terrain_accents_enabled = false
 
 
 func _ready() -> void:
@@ -60,11 +74,14 @@ func load_settings() -> void:
 	var config := ConfigFile.new()
 	resolution_index = 0
 	display_mode_index = DISPLAY_MODE_WINDOWED
-	low_end_rendering = false
+	apply_low_end_rendering_defaults()
 	if config.load(SETTINGS_PATH) == OK:
 		resolution_index = int(clamp(int(config.get_value("graphics", "resolution_index", resolution_index)), 0, RESOLUTIONS.size() - 1))
 		display_mode_index = int(clamp(int(config.get_value("graphics", "display_mode_index", display_mode_index)), 0, 2))
 		low_end_rendering = bool(config.get_value("graphics", "low_end_rendering", low_end_rendering))
+		biome_textures_enabled = bool(config.get_value("graphics", "biome_textures_enabled", biome_textures_enabled))
+		landmark_debug_overlay_enabled = bool(config.get_value("graphics", "landmark_debug_overlay_enabled", landmark_debug_overlay_enabled))
+		biome_terrain_accents_enabled = bool(config.get_value("graphics", "biome_terrain_accents_enabled", biome_terrain_accents_enabled))
 
 
 func save_settings() -> void:
@@ -72,6 +89,9 @@ func save_settings() -> void:
 	config.set_value("graphics", "resolution_index", resolution_index)
 	config.set_value("graphics", "display_mode_index", display_mode_index)
 	config.set_value("graphics", "low_end_rendering", low_end_rendering)
+	config.set_value("graphics", "biome_textures_enabled", biome_textures_enabled)
+	config.set_value("graphics", "landmark_debug_overlay_enabled", landmark_debug_overlay_enabled)
+	config.set_value("graphics", "biome_terrain_accents_enabled", biome_terrain_accents_enabled)
 	config.save(SETTINGS_PATH)
 
 

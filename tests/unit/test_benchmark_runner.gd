@@ -92,6 +92,12 @@ class FakeWorld extends Node:
 	func is_landmark_debug_overlay_enabled() -> bool:
 		return false
 
+	func are_biome_terrain_accents_enabled() -> bool:
+		return false
+
+	func is_low_end_rendering_enabled() -> bool:
+		return true
+
 	func get_cached_group_nodes(group_name: String) -> Array:
 		match group_name:
 			"small_prey":
@@ -151,6 +157,8 @@ func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) 
 	TEST_UTILS.expect_equal(int(varnak_sync.get("attempt_count", 0)), 1, failures, "Benchmark runner should capture Varnak spawn sync diagnostics")
 	TEST_UTILS.expect_equal(int(registry.get("registered_resources", 0)), 3, failures, "Benchmark runner should capture registered resource totals")
 	TEST_UTILS.expect(render_flags.get("biome_textures_enabled", false) == true, failures, "Benchmark runner should capture whether biome textures are enabled")
+	TEST_UTILS.expect(render_flags.get("low_end_rendering", false) == true, failures, "Benchmark runner should capture whether low-end rendering is enabled")
+	TEST_UTILS.expect(render_flags.get("biome_terrain_accents_enabled", true) == false, failures, "Benchmark runner should capture whether biome terrain accents are enabled")
 
 
 func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[String]) -> void:
@@ -197,8 +205,10 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 				"registered_buildings": 1
 			},
 			"render_flags": {
+				"low_end_rendering": true,
 				"biome_textures_enabled": true,
-				"landmark_debug_overlay_enabled": false
+				"landmark_debug_overlay_enabled": false,
+				"biome_terrain_accents_enabled": false
 			}
 		}
 	}
@@ -206,6 +216,7 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 	var sample_line := str(runner.call("_format_sample_line", sample))
 	TEST_UTILS.expect(line.contains("boot=loading 94%"), failures, "Benchmark runner diagnostics should include boot progress")
 	TEST_UTILS.expect(line.contains("textures=on blend=yes"), failures, "Benchmark runner diagnostics should include biome texture cache state")
+	TEST_UTILS.expect(line.contains("flags low_end=true biome_textures=true landmark_overlay=false biome_terrain_accents=false"), failures, "Benchmark runner diagnostics should include low-end render flags")
 	TEST_UTILS.expect(line.contains("registry resources=3 buildings=1"), failures, "Benchmark runner diagnostics should include registry totals")
 	TEST_UTILS.expect(sample_line.contains("focused=true"), failures, "Benchmark runner sample lines should report whether the game window had focus")
 
