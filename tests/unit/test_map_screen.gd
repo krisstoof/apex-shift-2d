@@ -123,6 +123,7 @@ func run() -> Array[String]:
 	_test_map_redraw_state_reacts_to_player_position_changes(failures)
 	_test_landmark_signature_changes_only_when_landmarks_change(failures)
 	_test_map_redraw_state_reacts_to_resource_signature_changes(failures)
+	_test_map_screen_skips_updates_while_hidden(failures)
 	_test_map_screen_reads_registry_resources_and_varnaks(failures)
 	_test_map_screen_builds_texture_outside_draw_path(failures)
 	return failures
@@ -206,6 +207,17 @@ func _test_map_redraw_state_reacts_to_resource_signature_changes(failures: Array
 	map_screen.set("cached_resources_signature", "resource-b")
 	var changed: bool = map_screen.call("_request_map_redraw")
 	TEST_UTILS.expect(changed, failures, "Map screen should request redraw when the cached resource signature changes")
+	var player: Node2D = map_screen.get("player")
+	player.free()
+	map_screen.free()
+
+
+func _test_map_screen_skips_updates_while_hidden(failures: Array[String]) -> void:
+	var map_screen := _make_bound_map_screen()
+	var skipped_before := int(map_screen.get("map_screen_skipped_update_hidden_count"))
+	map_screen.call("_process", 0.5)
+	TEST_UTILS.expect_equal(int(map_screen.get("map_screen_skipped_update_hidden_count")), skipped_before + 1, failures, "Map screen should skip hidden cache work instead of rebuilding while it is not visible")
+	TEST_UTILS.expect_equal(int(map_screen.get("map_screen_redraw_count")), 0, failures, "Hidden map screen should not redraw")
 	var player: Node2D = map_screen.get("player")
 	player.free()
 	map_screen.free()
