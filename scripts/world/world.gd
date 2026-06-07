@@ -15,6 +15,7 @@ const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settin
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
+const SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS := 5.0
 const SMALL_PREY_MAX_VISIBLE_COUNT := 12
 const SMALL_PREY_MAX_VISIBLE_PER_BIOME := 5
 const SMALL_PREY_VISIBLE_SPAWN_RADIUS := 850.0
@@ -105,6 +106,14 @@ var varnak_rng := RandomNumberGenerator.new()
 var small_prey_rng := RandomNumberGenerator.new()
 var grazer_rng := RandomNumberGenerator.new()
 var small_prey_spawn_timer := 0.0
+var small_prey_failed_spawn_retry_timer := 0.0
+var small_prey_failed_spawn_warning_printed := false
+var small_prey_spawn_sync_attempt_count := 0
+var small_prey_spawn_sync_failed_count := 0
+var small_prey_spawn_sync_skipped_by_cooldown_count := 0
+var small_prey_spawn_sync_last_requested := 0
+var small_prey_spawn_sync_last_failed := 0
+var small_prey_spawn_sync_last_success := 0
 var varnak_spawn_timer := 0.0
 var world_seed := 0
 var landmarks: Array[Dictionary] = []
@@ -198,6 +207,8 @@ func _process(delta: float) -> void:
 		"biome_textures_enabled": biome_textures_enabled,
 		"background_visible": is_instance_valid(biome_blend_background) and biome_blend_background.visible
 	})
+	if small_prey_failed_spawn_retry_timer > 0.0:
+		small_prey_failed_spawn_retry_timer = maxf(0.0, small_prey_failed_spawn_retry_timer - delta)
 	small_prey_spawn_timer += delta
 	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
 		small_prey_spawn_timer = 0.0
@@ -1290,6 +1301,10 @@ func _get_nearest_pond_landmark(position: Vector2) -> Dictionary:
 func _sync_visible_small_prey() -> void:
 	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
 		return
+	if small_prey_failed_spawn_retry_timer > 0.0:
+		small_prey_spawn_sync_skipped_by_cooldown_count += 1
+		return
+	small_prey_spawn_sync_attempt_count += 1
 	var player_position := _get_player_position()
 	var player_biome := _get_biome_for_position(player_position)
 	if player_biome.is_empty():
@@ -1301,26 +1316,37 @@ func _sync_visible_small_prey() -> void:
 	var desired_count := _get_desired_small_prey_count(player_biome, biome_state)
 	var current_biome_count := _get_visible_small_prey_count(biome_id)
 	var global_count := get_registered_creatures_by_type("small_prey").size()
-	var spawn_budget: int = min(desired_count - current_biome_count, SMALL_PREY_MAX_VISIBLE_COUNT - global_count)
-	if spawn_budget <= 0:
+	var requested_count: int = min(desired_count - current_biome_count, SMALL_PREY_MAX_VISIBLE_COUNT - global_count)
+	small_prey_spawn_sync_last_requested = requested_count
+	if requested_count <= 0:
 		return
 	var spawned := 0
 	var used_positions := _get_existing_small_prey_positions()
-	for slot_index in spawn_budget:
-		if _try_spawn_small_prey_near_player(player_biome, player_position, used_positions, slot_index, spawn_budget):
+	for slot_index in requested_count:
+		if _try_spawn_small_prey_near_player(player_biome, player_position, used_positions, slot_index, requested_count):
 			spawned += 1
 	if spawned > 0:
 		var event_bus := _get_event_bus()
 		if event_bus:
 			event_bus.post_message("%d SmallPrey entered the ecosystem" % spawned)
-	elif spawned < spawn_budget:
-		push_warning("Failed to spawn %d out of %d SmallPrey" % [spawn_budget - spawned, spawn_budget])
-	elif spawned < spawn_budget:
-		push_warning("Failed to spawn %d out of %d SmallPrey" % [spawn_budget - spawned, spawn_budget])
-	elif spawned < spawn_budget:
-		push_warning("Failed to spawn %d out of %d SmallPrey" % [spawn_budget - spawned, spawn_budget])
-	elif spawned < spawn_budget:
-		push_warning("Failed to spawn %d out of %d SmallPrey" % [spawn_budget - spawned, spawn_budget])
+	var failed_count: int = requested_count - spawned
+	if failed_count <= 0:
+		small_prey_failed_spawn_retry_timer = 0.0
+		small_prey_failed_spawn_warning_printed = false
+		small_prey_spawn_sync_last_failed = 0
+		small_prey_spawn_sync_last_success = requested_count
+		return
+	small_prey_failed_spawn_retry_timer = SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS
+	small_prey_spawn_sync_failed_count += 1
+	small_prey_spawn_sync_last_failed = failed_count
+	small_prey_spawn_sync_last_success = spawned
+	if not small_prey_failed_spawn_warning_printed:
+		push_warning("Failed to spawn %d out of %d SmallPrey. Retrying in %.1f seconds." % [
+			failed_count,
+			requested_count,
+			SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS
+		])
+		small_prey_failed_spawn_warning_printed = true
 
 
 func _get_desired_small_prey_count(biome: Dictionary, biome_state: Dictionary) -> int:
@@ -1957,6 +1983,19 @@ func get_varnak_save_data() -> Array[Dictionary]:
 
 func get_small_prey_save_data() -> Array[Dictionary]:
 	return _get_creature_save_data("small_prey")
+
+
+func get_small_prey_spawn_sync_debug() -> Dictionary:
+	return {
+		"retry_timer": small_prey_failed_spawn_retry_timer,
+		"warning_printed": small_prey_failed_spawn_warning_printed,
+		"attempt_count": small_prey_spawn_sync_attempt_count,
+		"failed_count": small_prey_spawn_sync_failed_count,
+		"skipped_by_cooldown_count": small_prey_spawn_sync_skipped_by_cooldown_count,
+		"last_requested": small_prey_spawn_sync_last_requested,
+		"last_failed": small_prey_spawn_sync_last_failed,
+		"last_success": small_prey_spawn_sync_last_success
+	}
 
 
 func get_grazer_save_data() -> Array[Dictionary]:

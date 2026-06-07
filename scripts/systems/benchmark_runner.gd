@@ -170,6 +170,7 @@ func _capture_world_stats() -> Dictionary:
 	stats["hill_count"] = _count_landmarks_by_type(landmarks, "hill")
 	stats["boot"] = _capture_world_boot_stats()
 	stats["biome_texture_cache"] = _capture_world_biome_texture_cache_stats()
+	stats["small_prey_spawn_sync"] = _capture_world_small_prey_spawn_sync_stats()
 	stats["landmark_debug"] = _capture_world_landmark_debug_stats()
 	stats["registry"] = _capture_world_registry_stats()
 	stats["render_flags"] = _capture_world_render_flags()
@@ -220,6 +221,12 @@ func _capture_world_biome_texture_cache_stats() -> Dictionary:
 		"build_running": bool(cache_status.get("build_running", false)),
 		"blend_colors_key_length": str(cache_status.get("blend_colors_key", "")).length()
 	}
+
+
+func _capture_world_small_prey_spawn_sync_stats() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_small_prey_spawn_sync_debug"):
+		return {}
+	return Dictionary(world.get_small_prey_spawn_sync_debug())
 
 
 func _capture_world_landmark_debug_stats() -> Dictionary:
