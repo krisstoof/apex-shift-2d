@@ -34,6 +34,9 @@ const DEBUG_SMALL_PREY_VISIBLE_COUNT := 3
 const DEBUG_GRAZER_VISIBLE_COUNT := 2
 const DEBUG_SMALL_PREY_SPAWN_RADIUS := 180.0
 const DEBUG_GRAZER_SPAWN_RADIUS := 240.0
+const VISIBILITY_CULL_INTERVAL_SECONDS := 0.25
+const VISIBILITY_CULL_MARGIN := 256.0
+const VISIBILITY_CULL_GROUPS := ["resources", "small_prey", "grazer", "varnak"]
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
 const BIOME_TERRAIN_ACCENT_COUNTS := {
 	"westwood": 26,
@@ -135,6 +138,7 @@ var pending_biome_terrain_accent_biomes: Array[Dictionary] = []
 var biome_terrain_accent_cache_build_running := false
 var debug_landmark_overlay_enabled: bool = false
 var biome_textures_enabled: bool = true
+var biome_terrain_accents_enabled: bool = false
 var graphics_settings: Node = GRAPHICS_SETTINGS_SCRIPT.new()
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
@@ -146,6 +150,7 @@ var boot_status_progress := 0.0
 var biome_blend_background: Sprite2D
 var world_biome_texture_build_count: int = 0
 var world_biome_texture_last_build_ms: float = 0.0
+var visibility_cull_timer := 0.0
 var night_overlay_polygon: Polygon2D
 var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
@@ -158,11 +163,10 @@ signal world_initialized
 signal world_boot_stage_changed(stage_message: String, progress: float)
 
 func _ready() -> void:
-	biome_textures_enabled = true
 	var graphics_settings_node := get_node_or_null("/root/GraphicsSettings")
 	if graphics_settings_node != null:
 		graphics_settings = graphics_settings_node
-	debug_landmark_overlay_enabled = graphics_settings.has_method("get_default_landmark_debug_overlay_enabled") and graphics_settings.get_default_landmark_debug_overlay_enabled()
+	_apply_graphics_settings_defaults()
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_ensure_biome_blend_background()
 	_ensure_night_overlay_polygon()
@@ -235,11 +239,58 @@ func _process(delta: float) -> void:
 	if should_redraw_background:
 		_sync_biome_blend_background()
 		queue_redraw()
+	visibility_cull_timer -= delta
+	if visibility_cull_timer <= 0.0:
+		visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
+		_update_world_object_visibility()
 	_update_night_overlay(current_night_amount)
+
+
+func _apply_graphics_settings_defaults() -> void:
+	biome_textures_enabled = graphics_settings.get_default_biome_textures_enabled() if graphics_settings.has_method("get_default_biome_textures_enabled") else true
+	debug_landmark_overlay_enabled = graphics_settings.get_default_landmark_debug_overlay_enabled() if graphics_settings.has_method("get_default_landmark_debug_overlay_enabled") else false
+	biome_terrain_accents_enabled = graphics_settings.get_default_biome_terrain_accents_enabled() if graphics_settings.has_method("get_default_biome_terrain_accents_enabled") else false
 
 
 func get_world_rect() -> Rect2:
 	return WORLD_CONFIG.WORLD_RECT
+
+
+func _update_world_object_visibility() -> void:
+	var viewport := get_viewport()
+	if viewport == null:
+		return
+	var camera := viewport.get_camera_2d()
+	if camera == null:
+		return
+	var visible_rect := _get_world_object_visibility_rect(get_viewport_rect().size, camera.global_position, camera.zoom)
+	_set_world_object_visibility_by_rect(visible_rect)
+
+
+func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2) -> Rect2:
+	var safe_zoom := Vector2(maxf(absf(camera_zoom.x), 0.01), maxf(absf(camera_zoom.y), 0.01))
+	var visible_world_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y)
+	var margin := Vector2.ONE * VISIBILITY_CULL_MARGIN
+	return Rect2(
+		camera_position - visible_world_size * 0.5 - margin,
+		visible_world_size + margin * 2.0
+	)
+
+
+func _set_world_object_visibility_by_rect(visible_rect: Rect2) -> void:
+	for group_name in VISIBILITY_CULL_GROUPS:
+		_set_group_visibility_by_rect(group_name, visible_rect)
+
+
+func _set_group_visibility_by_rect(group_name: String, visible_rect: Rect2) -> void:
+	var scene_tree := get_tree()
+	if scene_tree == null:
+		return
+	for node in scene_tree.get_nodes_in_group(group_name):
+		var node_2d := node as Node2D
+		if node_2d == null or not is_instance_valid(node_2d):
+			continue
+		node_2d.visible = visible_rect.has_point(node_2d.global_position)
 
 
 func get_biome_zones() -> Array[Dictionary]:
@@ -326,6 +377,14 @@ func is_landmark_debug_overlay_enabled() -> bool:
 
 func are_biome_textures_enabled() -> bool:
 	return biome_textures_enabled
+
+
+func are_biome_terrain_accents_enabled() -> bool:
+	return biome_terrain_accents_enabled
+
+
+func is_low_end_rendering_enabled() -> bool:
+	return graphics_settings.has_method("is_low_end_rendering_enabled") and graphics_settings.is_low_end_rendering_enabled()
 
 
 func get_landmark_save_data() -> Array[Dictionary]:
@@ -676,6 +735,18 @@ func debug_toggle_biome_textures() -> bool:
 		_sync_biome_blend_background()
 	queue_redraw()
 	return biome_textures_enabled
+
+
+func debug_toggle_biome_terrain_accents() -> bool:
+	biome_terrain_accents_enabled = not biome_terrain_accents_enabled
+	if biome_terrain_accents_enabled:
+		_queue_biome_terrain_accent_cache_rebuild()
+	else:
+		biome_terrain_accent_cache.clear()
+		pending_biome_terrain_accent_biomes.clear()
+		biome_terrain_accent_cache_build_running = false
+	queue_redraw()
+	return biome_terrain_accents_enabled
 
 
 func debug_rebuild_biome_texture_cache() -> void:
@@ -2350,7 +2421,7 @@ func _draw_biomes() -> void:
 		var points := PackedVector2Array(biome["points"])
 		var base_color := _get_biome_visual_color(biome)
 		draw_colored_polygon(points, base_color)
-		if biome_textures_enabled:
+		if biome_terrain_accents_enabled:
 			_draw_biome_terrain_accents(biome, base_color)
 
 
@@ -2425,6 +2496,9 @@ func _rebuild_biome_terrain_accent_cache() -> void:
 func _queue_biome_terrain_accent_cache_rebuild() -> void:
 	biome_terrain_accent_cache.clear()
 	pending_biome_terrain_accent_biomes.clear()
+	if not biome_terrain_accents_enabled:
+		biome_terrain_accent_cache_build_running = false
+		return
 	for biome_value in WORLD_CONFIG.get_biome_zones():
 		pending_biome_terrain_accent_biomes.append(Dictionary(biome_value))
 	if biome_terrain_accent_cache_build_running:
@@ -2434,6 +2508,10 @@ func _queue_biome_terrain_accent_cache_rebuild() -> void:
 
 
 func _build_pending_biome_terrain_accent_cache() -> void:
+	if not biome_terrain_accents_enabled:
+		pending_biome_terrain_accent_biomes.clear()
+		biome_terrain_accent_cache_build_running = false
+		return
 	var built_since_yield := 0
 	while not pending_biome_terrain_accent_biomes.is_empty():
 		var biome := Dictionary(pending_biome_terrain_accent_biomes.pop_front())

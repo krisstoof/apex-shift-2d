@@ -103,6 +103,29 @@ class VarnakSyncWorld:
 		return spawn_should_succeed
 
 
+class GraphicsSettingsStub:
+	extends Node
+
+	func get_default_biome_textures_enabled() -> bool:
+		return true
+
+	func get_default_landmark_debug_overlay_enabled() -> bool:
+		return false
+
+	func get_default_biome_terrain_accents_enabled() -> bool:
+		return false
+
+	func is_low_end_rendering_enabled() -> bool:
+		return true
+
+
+class VisibilityCullingWorld:
+	extends WORLD_SCRIPT
+
+	func _ready() -> void:
+		pass
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_world_rect_matches_config(failures)
@@ -125,6 +148,7 @@ func run() -> Array[String]:
 	_test_landmark_debug_counts_and_nearest_selection(failures)
 	_test_landmark_debug_toggles_flip_runtime_state(failures)
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
+	_test_world_applies_graphics_settings_render_defaults(failures)
 	_test_world_builds_cached_biome_blend_texture(failures)
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
 	_test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures)
@@ -133,6 +157,8 @@ func run() -> Array[String]:
 	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
 	_test_world_boot_progress_state_tracks_stage_updates(failures)
 	_test_current_biome_texture_id_uses_player_position_biome(failures)
+	_test_world_object_visibility_rect_accounts_for_camera_zoom_and_margin(failures)
+	_test_world_object_visibility_culls_and_restores_group_nodes(failures)
 	_test_cached_group_nodes_prune_freed_entries(failures)
 	_test_world_registry_tracks_spawned_nodes_and_prunes_freed_entries(failures)
 	_test_varnak_population_target_scales_with_day_and_caps(failures)
@@ -363,6 +389,7 @@ func _test_biome_terrain_accent_layout_is_dense_and_inside_biome(failures: Array
 
 func _test_biome_terrain_accent_layout_stays_async_when_queue_is_pending(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
+	world.biome_terrain_accents_enabled = true
 	world.call("_queue_biome_terrain_accent_cache_rebuild")
 	var westwood := _get_biome_by_name("Westwood")
 	var pending_layout: Array = world.call("_get_biome_terrain_accent_layout", westwood)
@@ -553,6 +580,17 @@ func _test_biome_texture_cache_status_reports_runtime_flags(failures: Array[Stri
 	world.free()
 
 
+func _test_world_applies_graphics_settings_render_defaults(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.graphics_settings = GraphicsSettingsStub.new()
+	world.call("_apply_graphics_settings_defaults")
+	TEST_UTILS.expect_equal(bool(world.is_low_end_rendering_enabled()), true, failures, "World should expose the low-end rendering flag from graphics settings")
+	TEST_UTILS.expect_equal(bool(world.are_biome_textures_enabled()), true, failures, "World should keep biome textures enabled in the low-end preset")
+	TEST_UTILS.expect_equal(bool(world.is_landmark_debug_overlay_enabled()), false, failures, "World should keep the landmark debug overlay disabled in the low-end preset")
+	TEST_UTILS.expect_equal(bool(world.are_biome_terrain_accents_enabled()), false, failures, "World should disable biome terrain accents in the low-end preset")
+	world.free()
+
+
 func _test_world_builds_cached_biome_blend_texture(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
 	var controller: Object = world.call("_ensure_render_controller")
@@ -702,6 +740,64 @@ func _test_current_biome_texture_id_uses_player_position_biome(failures: Array[S
 		return
 	var texture_id := world.get_current_biome_texture_id(sample_point)
 	TEST_UTILS.expect(texture_id.contains("westwood_sample"), failures, "Current biome texture id should resolve from the biome containing the sampled world position")
+	world.free()
+
+
+func _test_world_object_visibility_rect_accounts_for_camera_zoom_and_margin(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var viewport_size := Vector2(1152.0, 648.0)
+	var camera_position := Vector2(320.0, -180.0)
+	var camera_zoom := Vector2(1.1, 1.4)
+	var visible_rect: Rect2 = world.call("_get_world_object_visibility_rect", viewport_size, camera_position, camera_zoom)
+	var safe_zoom := Vector2(maxf(absf(camera_zoom.x), 0.01), maxf(absf(camera_zoom.y), 0.01))
+	var visible_world_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y)
+	var expected_position := camera_position - visible_world_size * 0.5 - Vector2.ONE * 256.0
+	var expected_size := visible_world_size + Vector2.ONE * 512.0
+	TEST_UTILS.expect_close(float(visible_rect.position.x), expected_position.x, failures, "World visibility culling should offset the rect from the camera center")
+	TEST_UTILS.expect_close(float(visible_rect.position.y), expected_position.y, failures, "World visibility culling should offset the rect from the camera center on Y")
+	TEST_UTILS.expect_close(float(visible_rect.size.x), expected_size.x, failures, "World visibility culling should expand the rect by the configured margin on X")
+	TEST_UTILS.expect_close(float(visible_rect.size.y), expected_size.y, failures, "World visibility culling should expand the rect by the configured margin on Y")
+	TEST_UTILS.expect(visible_rect.has_point(camera_position), failures, "World visibility culling should keep the camera center inside the visible rect")
+	world.free()
+
+
+func _test_world_object_visibility_culls_and_restores_group_nodes(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	TEST_UTILS.expect(tree != null and tree.current_scene != null, failures, "Test runner should provide a current scene for visibility culling tests")
+	if tree == null or tree.current_scene == null:
+		return
+	var world := VisibilityCullingWorld.new()
+	tree.current_scene.add_child(world)
+	var groups := ["resources", "small_prey", "grazer", "varnak"]
+	var inside_nodes: Array[Node2D] = []
+	var outside_nodes: Array[Node2D] = []
+	for group_name in groups:
+		var inside := Node2D.new()
+		inside.position = Vector2.ZERO
+		inside.add_to_group(group_name)
+		tree.current_scene.add_child(inside)
+		inside_nodes.append(inside)
+		var outside := Node2D.new()
+		outside.position = Vector2(1000.0, 0.0)
+		outside.add_to_group(group_name)
+		tree.current_scene.add_child(outside)
+		outside_nodes.append(outside)
+	var left_rect := Rect2(Vector2(-128.0, -128.0), Vector2(256.0, 256.0))
+	world.call("_set_world_object_visibility_by_rect", left_rect)
+	for inside in inside_nodes:
+		TEST_UTILS.expect_equal(inside.visible, true, failures, "World visibility culling should keep on-screen nodes visible")
+	for outside in outside_nodes:
+		TEST_UTILS.expect_equal(outside.visible, false, failures, "World visibility culling should hide off-screen nodes")
+	var right_rect := Rect2(Vector2(872.0, -128.0), Vector2(256.0, 256.0))
+	world.call("_set_world_object_visibility_by_rect", right_rect)
+	for inside in inside_nodes:
+		TEST_UTILS.expect_equal(inside.visible, false, failures, "World visibility culling should hide nodes that moved outside the camera rect")
+	for outside in outside_nodes:
+		TEST_UTILS.expect_equal(outside.visible, true, failures, "World visibility culling should restore nodes when they re-enter the camera rect")
+	for node in inside_nodes:
+		node.free()
+	for node in outside_nodes:
+		node.free()
 	world.free()
 
 
