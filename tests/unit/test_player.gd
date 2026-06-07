@@ -3,6 +3,7 @@ extends RefCounted
 const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
 const PLAYER_STATS := preload("res://scripts/player/player_stats.gd")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 class TestCampfire:
@@ -57,6 +58,7 @@ func run() -> Array[String]:
 	_test_player_god_mode_syncs_to_stats_and_blocks_damage(failures)
 	_test_player_torch_activation_and_deactivation(failures)
 	_test_player_creates_torch_light_and_enables_it_when_active(failures)
+	_test_player_starvation_damage_is_slow_enough(failures)
 	_test_player_debug_item_helpers(failures)
 	_test_player_visual_layout_looks_human_like(failures)
 	_test_player_campfire_regen_uses_low_frequency_cached_refresh(failures)
@@ -221,6 +223,10 @@ func _test_player_creates_torch_light_and_enables_it_when_active(failures: Array
 		TEST_UTILS.expect_equal(torch_light.enabled, true, failures, "Torch light should enable when the torch is active")
 		TEST_UTILS.expect_equal(torch_light.visible, true, failures, "Torch light should become visible when the torch is active")
 	player.queue_free()
+
+
+func _test_player_starvation_damage_is_slow_enough(failures: Array[String]) -> void:
+	TEST_UTILS.expect_close(GAME_BALANCE.PLAYER_STARVATION_DAMAGE_PER_SECOND, 1.0, failures, "Starvation damage should be slowed down to give the player reaction time")
 
 
 func _test_player_debug_item_helpers(failures: Array[String]) -> void:

@@ -4,6 +4,8 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const WORLD_SNAPSHOT_SERVICE := preload("res://scripts/systems/world_snapshot_service.gd")
 const ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS := 30.0
 const HUD_REFRESH_INTERVAL := 0.10
+const CRITICAL_HEALTH_THRESHOLD := 0.20
+const CRITICAL_HEALTH_WARNING_INTERVAL_SECONDS := 8.0
 
 var player: Node
 var evolution_director: Node
@@ -17,6 +19,10 @@ var center_notification_time := 0.0
 var hud_refresh_timer := 0.0
 var hud_snapshot_build_ms: float = 0.0
 var ecosystem_message_cooldowns: Dictionary = {}
+var critical_health_overlay: ColorRect
+var critical_health_pulse_time := 0.0
+var critical_health_warning_timer := 0.0
+var critical_health_active := false
 var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 
 @onready var stats_label: Label = $Panel/StatsLabel
@@ -37,6 +43,7 @@ var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	center_notification_label.visible = false
+	_ensure_critical_health_overlay()
 	get_node("/root/EventBus").message_posted.connect(_on_message)
 	get_node("/root/EventBus").game_event.connect(_on_game_event)
 	pause_menu.resume_requested.connect(_on_pause_menu_resume)
@@ -77,6 +84,7 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 func _process(delta: float) -> void:
 	if not player or not evolution_director or not day_night_system:
 		return
+	_update_critical_health_warning(delta)
 	_log_hitch(delta, "HUD", {
 		"map_screen_open": map_screen_open,
 		"pause_menu_open": pause_menu_open,
@@ -158,6 +166,119 @@ func _on_message(new_message: String) -> void:
 	message_history.append(new_message)
 	if message_history.size() > 4:
 		message_history.pop_front()
+
+
+func _ensure_critical_health_overlay() -> void:
+	if critical_health_overlay != null:
+		return
+	critical_health_overlay = ColorRect.new()
+	critical_health_overlay.name = "CriticalHealthOverlay"
+	critical_health_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	critical_health_overlay.color = Color(1.0, 0.0, 0.0, 0.0)
+	critical_health_overlay.visible = false
+	critical_health_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	critical_health_overlay.offset_left = 0
+	critical_health_overlay.offset_top = 0
+	critical_health_overlay.offset_right = 0
+	critical_health_overlay.offset_bottom = 0
+	add_child(critical_health_overlay)
+	critical_health_overlay.move_to_front()
+
+
+func _update_critical_health_warning(delta: float) -> void:
+	_ensure_critical_health_overlay()
+	if game_over_screen != null and game_over_screen.visible:
+		_set_critical_health_active(false)
+		critical_health_pulse_time = 0.0
+		critical_health_warning_timer = 0.0
+		return
+	var player_node := _get_player_for_hud()
+	if player_node == null:
+		_set_critical_health_active(false)
+		return
+	var health := _get_player_health_value(player_node)
+	var max_health := _get_player_max_health_value(player_node)
+	if max_health <= 0.0:
+		_set_critical_health_active(false)
+		return
+	var health_ratio := health / max_health
+	var should_be_active := health_ratio <= CRITICAL_HEALTH_THRESHOLD
+	_set_critical_health_active(should_be_active)
+	if not should_be_active:
+		critical_health_pulse_time = 0.0
+		critical_health_warning_timer = 0.0
+		return
+	critical_health_pulse_time += delta
+	critical_health_warning_timer -= delta
+	var pulse := 0.5 + sin(critical_health_pulse_time * 4.5) * 0.5
+	var alpha := lerpf(0.06, 0.18, pulse)
+	critical_health_overlay.color = Color(1.0, 0.0, 0.0, alpha)
+	if critical_health_warning_timer <= 0.0:
+		critical_health_warning_timer = CRITICAL_HEALTH_WARNING_INTERVAL_SECONDS
+		_show_critical_health_message()
+
+
+func _set_critical_health_active(active: bool) -> void:
+	critical_health_active = active
+	if critical_health_overlay == null:
+		return
+	critical_health_overlay.visible = active
+	if not active:
+		critical_health_overlay.color = Color(1.0, 0.0, 0.0, 0.0)
+
+
+func _get_player_for_hud() -> Node:
+	if player != null:
+		return player
+	var player_node := get_tree().get_first_node_in_group("player")
+	if player_node != null:
+		return player_node
+	var main := get_tree().current_scene
+	if main != null:
+		return main.get_node_or_null("Player")
+	return null
+
+
+func _get_player_health_value(player_node: Node) -> float:
+	if player_node.has_method("get_health"):
+		return float(player_node.get_health())
+	var stats: Variant = player_node.get("stats")
+	if stats != null and stats.has_method("get") and stats.get("health") != null:
+		return float(stats.get("health"))
+	var value: Variant = player_node.get("health")
+	if value != null:
+		return float(value)
+	value = player_node.get("current_health")
+	if value != null:
+		return float(value)
+	return 0.0
+
+
+func _get_player_max_health_value(player_node: Node) -> float:
+	if player_node.has_method("get_max_health"):
+		return float(player_node.get_max_health())
+	var stats: Variant = player_node.get("stats")
+	if stats != null and stats.has_method("get") and stats.get("MAX_HEALTH") != null:
+		return float(stats.get("MAX_HEALTH"))
+	var value: Variant = player_node.get("max_health")
+	if value != null:
+		return float(value)
+	return 100.0
+
+
+func _show_critical_health_message() -> void:
+	var message_text := "You are badly wounded. Heal yourself."
+	get_node("/root/EventBus").post_message(message_text)
+
+
+func get_critical_health_debug() -> Dictionary:
+	return {
+		"active": critical_health_active,
+		"threshold": CRITICAL_HEALTH_THRESHOLD,
+		"warning_timer": critical_health_warning_timer,
+		"overlay_visible": critical_health_overlay != null and critical_health_overlay.visible,
+		"overlay_alpha": critical_health_overlay.color.a if critical_health_overlay != null else 0.0
+	}
 
 
 func _get_campfire_regen_status_text() -> String:
