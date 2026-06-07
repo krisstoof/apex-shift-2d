@@ -8,6 +8,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_debug_panel_starts_closed_without_processing(failures)
 	_test_debug_panel_open_and_close_toggle_processing(failures)
+	_test_debug_panel_skips_heavy_refresh_when_hidden(failures)
 	_test_population_recovery_debug_lines_explain_population_changes(failures)
 	return failures
 
@@ -37,6 +38,21 @@ func _test_debug_panel_open_and_close_toggle_processing(failures: Array[String])
 	TEST_UTILS.expect(not debug_panel.visible, failures, "Debug panel should become hidden after closing")
 	TEST_UTILS.expect(not debug_panel.is_processing(), failures, "Closed debug panel should disable its process loop again")
 	TEST_UTILS.expect_close(float(debug_panel.get("state_refresh_timer")), 0.0, failures, "Closing the debug panel should reset its refresh timer")
+	hud.queue_free()
+
+
+func _test_debug_panel_skips_heavy_refresh_when_hidden(failures: Array[String]) -> void:
+	var hud: CanvasLayer = _instantiate_hud()
+	if hud == null:
+		failures.append("HUD scene should instantiate for hidden debug panel tests")
+		return
+	var debug_panel: Control = hud.get_node("DebugPanel")
+	var stats_before: Dictionary = Dictionary(debug_panel.call("get_debug_panel_performance_debug"))
+	debug_panel.call("_process", 0.6)
+	var stats_after: Dictionary = Dictionary(debug_panel.call("get_debug_panel_performance_debug"))
+	TEST_UTILS.expect_equal(int(stats_after.get("hidden_skip_count", 0)), int(stats_before.get("hidden_skip_count", 0)) + 1, failures, "Hidden debug panel should skip expensive refresh work instead of rebuilding its state")
+	TEST_UTILS.expect_equal(int(stats_after.get("refresh_count", 0)), int(stats_before.get("refresh_count", 0)), failures, "Hidden debug panel should not rebuild its visible state text")
+	TEST_UTILS.expect_equal(int(stats_after.get("overlay_refresh_count", 0)), int(stats_before.get("overlay_refresh_count", 0)), failures, "Hidden debug panel should not redraw creature overlays")
 	hud.queue_free()
 
 

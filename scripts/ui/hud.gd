@@ -278,7 +278,8 @@ func _set_map_screen_open(open: bool) -> void:
 	map_screen_open = open
 	map_screen.visible = open
 	_update_tree_paused()
-	map_screen.queue_redraw()
+	if open and map_screen.has_method("mark_map_cache_dirty"):
+		map_screen.mark_map_cache_dirty()
 
 
 func _set_pause_menu_open(open: bool) -> void:
