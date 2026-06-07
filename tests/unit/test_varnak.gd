@@ -56,6 +56,15 @@ class TestTarget:
 		health = max(health - amount, 0.0)
 
 
+class TestEcosystemDirector:
+	extends Node
+
+	var state: Dictionary = {}
+
+	func get_biome_state(_biome_id: String) -> Dictionary:
+		return state.duplicate(true)
+
+
 class TestPlayer:
 	extends Node2D
 
@@ -83,6 +92,7 @@ func run() -> Array[String]:
 	_test_varnak_searches_prey_when_hungry(failures)
 	_test_varnak_does_not_hunt_when_not_hungry(failures)
 	_test_varnak_prefers_nearest_valid_prey(failures)
+	_test_varnak_protects_critical_prey_populations(failures)
 	_test_varnak_detects_nearby_small_prey(failures)
 	_test_varnak_detects_nearby_grazer(failures)
 	_test_varnak_detects_player_when_hungry(failures)
@@ -461,6 +471,41 @@ func _test_varnak_removed_from_ecosystem_after_death(failures: Array[String]) ->
 	varnak.take_damage(999.0, "player")
 	TEST_UTILS.expect(varnak.is_queued_for_deletion(), failures, "Dead varnak should be queued for removal")
 	varnak.queue_free()
+
+
+func _test_varnak_protects_critical_prey_populations(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var current_scene := tree.current_scene
+	var existing_director := current_scene.get_node_or_null("EcosystemDirector")
+	if existing_director:
+		existing_director.name = "LiveEcosystemDirector"
+	var director := TestEcosystemDirector.new()
+	director.name = "EcosystemDirector"
+	director.state = {
+		"small_prey_population": 5.0,
+		"grazer_population": 14.0
+	}
+	current_scene.add_child(director)
+	var varnak := _make_varnak()
+	var world := _ensure_world()
+	varnak.global_position = Vector2.ZERO
+	var small_prey := _spawn_target(world, "small_prey", Vector2(30.0, 0.0))
+	var grazer := _spawn_target(world, "grazer", Vector2(60.0, 0.0))
+	var target := varnak.call("_find_ecosystem_target") as Node2D
+	TEST_UTILS.expect(target == grazer, failures, "Varnak should skip SmallPrey below the configured minimum")
+	varnak.ecosystem_target = small_prey
+	varnak.ecosystem_target_kind = "small_prey"
+	varnak.state = varnak.State.HUNT_ECOSYSTEM
+	varnak.call("_hunt_ecosystem_target")
+	TEST_UTILS.expect(varnak.ecosystem_target == null, failures, "Varnak should release a locked target when its population becomes critical")
+	TEST_UTILS.expect_equal(varnak.decision_reason, "critical_prey_population_protected", failures, "Released critical prey should expose the protection reason")
+	director.state["small_prey_population"] = 12.0
+	target = varnak.call("_find_ecosystem_target") as Node2D
+	TEST_UTILS.expect(target == small_prey, failures, "Varnak should hunt SmallPrey again after recovery reaches the minimum")
+	varnak.queue_free()
+	director.queue_free()
+	if existing_director:
+		existing_director.name = "EcosystemDirector"
 
 
 func _make_varnak() -> Node:

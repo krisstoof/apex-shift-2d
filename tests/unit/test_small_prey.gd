@@ -228,6 +228,15 @@ func _test_small_prey_takes_damage_and_flees(failures: Array[String]) -> void:
 	prey.take_damage(5.0, "player")
 	TEST_UTILS.expect(prey.health < before_health, failures, "Damage should reduce small prey health")
 	TEST_UTILS.expect_equal(prey.state, prey.State.FLEE, failures, "Surviving damage should make small prey flee")
+	TEST_UTILS.expect_close(prey.state_time, 3.0, failures, "Small prey should keep fleeing for the configured duration")
+	_neutralize_threats(prey)
+	prey.state_time = 1.0
+	prey.call("_update_state")
+	TEST_UTILS.expect_equal(prey.state, prey.State.FLEE, failures, "Small prey should continue fleeing briefly after losing the threat")
+	TEST_UTILS.expect_equal(prey.decision_reason, "threat_lost_keep_fleeing", failures, "Small prey should explain that it remembers the lost threat")
+	prey.state_time = 0.0
+	prey.call("_update_state")
+	TEST_UTILS.expect_equal(prey.state, prey.State.WANDER, failures, "Small prey should return to wandering after the flee timer expires")
 	prey.queue_free()
 
 

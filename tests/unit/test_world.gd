@@ -2,6 +2,7 @@ extends RefCounted
 
 const WORLD_SCRIPT := preload("res://scripts/world/world.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -20,7 +21,9 @@ func run() -> Array[String]:
 	_test_biome_terrain_accent_layout_stays_async_when_queue_is_pending(failures)
 	_test_biome_sample_texture_paths_match_biome_identity(failures)
 	_test_biome_surface_color_uses_the_containing_biome_without_blending(failures)
-	_test_biome_sample_texture_varies_with_position(failures)
+	_test_biome_surface_stays_crisp_and_uses_accents_for_detail(failures)
+	_test_biome_detail_density_uses_game_balance_and_limit(failures)
+	_test_biome_texture_variation_is_continuous_without_tiling(failures)
 	_test_redfang_wilds_sample_texture_has_drawn_cracks(failures)
 	_test_landmark_debug_counts_and_nearest_selection(failures)
 	_test_landmark_debug_toggles_flip_runtime_state(failures)
@@ -34,6 +37,8 @@ func run() -> Array[String]:
 	_test_varnak_population_target_scales_with_day_and_caps(failures)
 	_test_varnak_spawn_chance_scales_with_day_and_caps(failures)
 	_test_varnak_spawn_budget_is_batched_and_stops_at_target(failures)
+	_test_grazer_visible_target_tracks_model_population_and_biomass(failures)
+	_test_creature_spawn_horizon_stays_outside_camera_view(failures)
 	return failures
 
 
@@ -68,6 +73,44 @@ func _test_varnak_spawn_budget_is_batched_and_stops_at_target(failures: Array[St
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 0, 99)), 2, failures, "Missing Varnaks should be restored in small batches")
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 11, 99)), 1, failures, "The final recovery batch should not exceed the hard target")
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 12, 99)), 0, failures, "No Varnaks should spawn after reaching the hard target")
+	world.free()
+
+
+func _test_grazer_visible_target_tracks_model_population_and_biomass(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	TEST_UTILS.expect_equal(
+		int(world.call("_get_desired_grazer_count", {"grazer_population": 14.0, "plant_biomass_percent": 100.0})),
+		3,
+		failures,
+		"A healthy target Grazer population should expose the full per-biome visible count"
+	)
+	TEST_UTILS.expect_equal(
+		int(world.call("_get_desired_grazer_count", {"grazer_population": 1.0, "plant_biomass_percent": 80.0})),
+		1,
+		failures,
+		"A surviving Grazer population should keep one visible animal while biomass supports it"
+	)
+	TEST_UTILS.expect_equal(
+		int(world.call("_get_desired_grazer_count", {"grazer_population": 8.0, "plant_biomass_percent": 0.0})),
+		0,
+		failures,
+		"Completely depleted biomass should not spawn visible Grazers"
+	)
+	world.free()
+
+
+func _test_creature_spawn_horizon_stays_outside_camera_view(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var viewport_size := Vector2(1152.0, 648.0)
+	var camera_zoom := Vector2(1.1, 1.1)
+	var visible_half_diagonal := Vector2(viewport_size.x / camera_zoom.x, viewport_size.y / camera_zoom.y).length() * 0.5
+	var horizon_distance := float(world.call("_calculate_creature_horizon_distance", viewport_size, camera_zoom))
+	TEST_UTILS.expect(horizon_distance > visible_half_diagonal, failures, "Runtime creatures should spawn beyond the farthest visible camera corner")
+	TEST_UTILS.expect(horizon_distance - visible_half_diagonal >= 139.0, failures, "Runtime creature spawns should keep the configured horizon margin")
+	var wide_viewport := Vector2(3840.0, 2160.0)
+	var wide_half_diagonal := Vector2(wide_viewport.x / camera_zoom.x, wide_viewport.y / camera_zoom.y).length() * 0.5
+	var wide_horizon_distance := float(world.call("_calculate_creature_horizon_distance", wide_viewport, camera_zoom))
+	TEST_UTILS.expect(wide_horizon_distance > wide_half_diagonal, failures, "Large viewports should push the spawn horizon farther out instead of capping it inside the view")
 	world.free()
 
 
@@ -194,11 +237,12 @@ func _test_biome_terrain_accent_layout_is_dense_and_inside_biome(failures: Array
 		var accents: Array = world.call("_get_biome_terrain_accent_layout", biome)
 		var target_count := int(world.call("_get_biome_terrain_accent_target_count", biome))
 		var minimum_expected := int(max(target_count - 2, 12))
+		var configured_limit := int(GAME_BALANCE.BIOME_TEXTURES.get("max_detail_per_chunk", 120))
 		var points := PackedVector2Array(biome["points"])
 		TEST_UTILS.expect(not accents.is_empty(), failures, "%s should generate at least one terrain accent" % str(biome.get("name", "biome")))
 		TEST_UTILS.expect(target_count >= 14, failures, "%s should target a denser accent budget than the previous sparse pass" % str(biome.get("name", "biome")))
 		TEST_UTILS.expect(accents.size() >= minimum_expected, failures, "%s should fill most of its terrain accent budget" % str(biome.get("name", "biome")))
-		TEST_UTILS.expect(accents.size() <= 36, failures, "%s should keep terrain accents under the performance ceiling" % str(biome.get("name", "biome")))
+		TEST_UTILS.expect(accents.size() <= configured_limit, failures, "%s should keep terrain accents under the configured performance ceiling" % str(biome.get("name", "biome")))
 		for accent_value in accents:
 			var accent := Dictionary(accent_value)
 			var position := Vector2(accent.get("position", Vector2.ZERO))
@@ -254,39 +298,57 @@ func _test_biome_surface_color_uses_the_containing_biome_without_blending(failur
 	if sample_point == Vector2.INF:
 		world.free()
 		return
-	var expected_color: Color = world.call("_get_biome_visual_color", westwood)
+	var visual_color: Color = world.call("_get_biome_visual_color", westwood)
+	var expected_color: Color = world.call("_get_biome_terrain_color", westwood, sample_point, visual_color)
 	var surface_color: Color = world.call("_get_biome_surface_color_at", sample_point, biome_zones)
-	TEST_UTILS.expect_close(surface_color.r, expected_color.r, failures, "Biome blend cache should use the containing biome visual red channel without blending")
-	TEST_UTILS.expect_close(surface_color.g, expected_color.g, failures, "Biome blend cache should use the containing biome visual green channel without blending")
-	TEST_UTILS.expect_close(surface_color.b, expected_color.b, failures, "Biome blend cache should use the containing biome visual blue channel without blending")
+	TEST_UTILS.expect_close(surface_color.r, expected_color.r, failures, "Biome blend cache should texture the containing biome red channel without crossing the boundary")
+	TEST_UTILS.expect_close(surface_color.g, expected_color.g, failures, "Biome blend cache should texture the containing biome green channel without crossing the boundary")
+	TEST_UTILS.expect_close(surface_color.b, expected_color.b, failures, "Biome blend cache should texture the containing biome blue channel without crossing the boundary")
 	world.free()
 
 
-func _test_biome_sample_texture_varies_with_position(failures: Array[String]) -> void:
+func _test_biome_surface_stays_crisp_and_uses_accents_for_detail(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
 	var biome := _get_biome_by_name("Hearth Meadow")
 	var base_color := Color(biome["color"])
-	var sample_positions: Array[Vector2] = []
-	for y in [-520.0, -240.0, 0.0, 260.0, 520.0]:
-		for x in [-900.0, -420.0, 0.0, 420.0, 900.0]:
-			sample_positions.append(Vector2(float(x), float(y)))
-	var sample_a: Vector2 = sample_positions[0]
-	var color_low: Color = Color.WHITE
-	var color_high: Color = Color.BLACK
-	var unique_colors: Dictionary = {}
-	for sample_position in sample_positions:
-		var sample_color: Color = world.call("_get_biome_terrain_color", biome, sample_position, base_color)
-		var color_key := "%d:%d:%d" % [int(round(sample_color.r * 31.0)), int(round(sample_color.g * 31.0)), int(round(sample_color.b * 31.0))]
-		unique_colors[color_key] = true
-		if sample_color.get_luminance() < color_low.get_luminance():
-			color_low = sample_color
-		if sample_color.get_luminance() > color_high.get_luminance():
-			color_high = sample_color
-	var color_a: Color = world.call("_get_biome_terrain_color", biome, sample_a, base_color)
-	var color_difference: float = abs(color_low.r - color_high.r) + abs(color_low.g - color_high.g) + abs(color_low.b - color_high.b)
-	TEST_UTILS.expect(unique_colors.size() >= 4, failures, "Terrain sample texture should resolve into multiple visible colors instead of one blotch")
-	TEST_UTILS.expect(color_difference > 0.08, failures, "Terrain texture should produce visible color changes across different positions")
-	TEST_UTILS.expect(color_a != base_color, failures, "Terrain texture should modify the base biome color")
+	var surface_color: Color = world.call("_get_biome_terrain_color", biome, Vector2(100.0, 150.0), base_color)
+	var accents: Array = world.call("_build_biome_terrain_accent_layout", biome)
+	TEST_UTILS.expect_equal(surface_color, base_color, failures, "Biome surface should keep a crisp flat color instead of applying a blurred full-screen texture")
+	TEST_UTILS.expect(not accents.is_empty(), failures, "Biome variation should remain visible through crisp cached terrain accents")
+	world.free()
+
+
+func _test_biome_detail_density_uses_game_balance_and_limit(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var biome := _get_biome_by_name("Hearth Meadow")
+	var target_count: int = world.call("_get_biome_terrain_accent_target_count", biome)
+	var configured_limit := int(GAME_BALANCE.BIOME_TEXTURES.get("max_detail_per_chunk", 120))
+	TEST_UTILS.expect(target_count > 30, failures, "Biome detail density multiplier should increase Hearth Meadow beyond its base accent count")
+	TEST_UTILS.expect(target_count <= configured_limit, failures, "Biome detail count should respect the configured cache limit")
+	var accents: Array = world.call("_build_biome_terrain_accent_layout", biome)
+	var has_secondary := false
+	for accent_value in accents:
+		var accent := Dictionary(accent_value)
+		if accent.get("secondary", false) == true:
+			has_secondary = true
+			break
+	TEST_UTILS.expect(has_secondary, failures, "Biome detail layouts should include subtle secondary variants")
+	world.free()
+
+
+func _test_biome_texture_variation_is_continuous_without_tiling(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var biome := _get_biome_by_name("Hearth Meadow")
+	var base_color := Color(biome["color"])
+	var color_a: Color = world.call("_get_biome_terrain_color", biome, Vector2(100.0, 150.0), base_color)
+	var color_near: Color = world.call("_get_biome_terrain_color", biome, Vector2(101.0, 151.0), base_color)
+	var color_far: Color = world.call("_get_biome_terrain_color", biome, Vector2(900.0, 650.0), base_color)
+	var near_difference: float = abs(color_a.r - color_near.r) + abs(color_a.g - color_near.g) + abs(color_a.b - color_near.b)
+	var far_difference: float = abs(color_a.r - color_far.r) + abs(color_a.g - color_far.g) + abs(color_a.b - color_far.b)
+	TEST_UTILS.expect_close(near_difference, 0.0, failures, "Biome surface should not introduce blurred gradients between nearby points")
+	TEST_UTILS.expect_close(far_difference, 0.0, failures, "Biome surface should not introduce full-screen noise at distant points")
+	var cache_size: Vector2i = world.call("_get_world_biome_blend_texture_size")
+	TEST_UTILS.expect(cache_size.x > 384 and cache_size.y > 236, failures, "Biome blend cache should use enough resolution to avoid enlarged blurry blocks")
 	world.free()
 
 

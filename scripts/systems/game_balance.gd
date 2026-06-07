@@ -157,12 +157,19 @@ const ANIMAL_AI := {
 	"grazer_predation_min_aggression": 0.22
 }
 
+const CREATURE_SPAWN := {
+	"horizon_margin": 140.0,
+	"horizon_fallback_distance": 720.0,
+	"horizon_ring_width": 180.0
+}
+
 # SmallPrey behavior constants for movement, fleeing, and feeding.
 const SMALL_PREY_AI := {
 	"wander_radius": 140.0,
 	"wander_reached_distance": 18.0,
 	"player_flee_range": 130.0,
 	"varnak_flee_range": 180.0,
+	"flee_duration_seconds": 3.0,
 	"eat_interval_seconds": 6.0,
 	"eat_duration_seconds": 1.1,
 	"eat_visual_duration": 0.48,
@@ -181,6 +188,7 @@ const GRAZER_AI := {
 	"wander_reached_distance": 22.0,
 	"player_flee_range": 105.0,
 	"varnak_flee_range": 220.0,
+	"flee_duration_seconds": 4.0,
 	"eat_duration_seconds": 1.4,
 	"eat_visual_duration": 0.55,
 	"idle_duration_seconds": 0.9,
@@ -308,13 +316,36 @@ const BIOME_VISUALS := {
 	"biomass_visual_bucket_percent": 5.0
 }
 
+const BIOME_TEXTURES := {
+	"detail_density_multiplier": 1.35,
+	"detail_alpha": 0.30,
+	"secondary_detail_alpha": 0.18,
+	"variation_noise_strength": 0.22,
+	"blend_cache_scale": 2.0,
+	"max_detail_per_chunk": 120
+}
+
+const POPULATION_RECOVERY := {
+	"small_prey_min_population": 12.0,
+	"small_prey_target_population": 25.0,
+	"small_prey_max_population": 40.0,
+	"small_prey_recovery_per_day": 4.0,
+	"grazer_min_population": 6.0,
+	"grazer_target_population": 14.0,
+	"grazer_max_population": 25.0,
+	"grazer_recovery_per_day": 2.0,
+	"critical_population_predation_multiplier": 0.35,
+	"healthy_biomass_recovery_multiplier": 1.25,
+	"depleted_biomass_recovery_multiplier": 0.45
+}
+
 const ECOSYSTEM := {
 	"simulation_tick_seconds": 5.0,
 	"default_plant_biomass": 100.0,
 	"max_plant_biomass": 100.0,
 	"plant_regrowth_rate": 1.5,
 	"initial_small_prey_population": 12.0,
-	"initial_grazer_population": 4.0,
+	"initial_grazer_population": 6.0,
 	"small_prey_plant_consumption": 0.08,
 	"grazer_plant_consumption": 0.35,
 	"overgrazing_pressure_scale": 10.0,
@@ -325,8 +356,8 @@ const ECOSYSTEM := {
 	"grazer_growth_rate": 0.32,
 	"grazer_starvation_rate": 0.70,
 	"grazer_predation_rate": 0.65,
-	"max_small_prey_population": 30.0,
-	"max_grazer_population": 14.0,
+	"max_small_prey_population": POPULATION_RECOVERY["small_prey_max_population"],
+	"max_grazer_population": POPULATION_RECOVERY["grazer_max_population"],
 	"stressed_threshold": 70.0,
 	"depleted_threshold": 30.0,
 	"collapsing_threshold": 10.0,

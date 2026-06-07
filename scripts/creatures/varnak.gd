@@ -391,6 +391,13 @@ func _hunt_ecosystem_target() -> void:
 		state = State.WANDER
 		_pick_wander_target()
 		return
+	if _is_species_population_critical(ecosystem_target_kind):
+		ecosystem_target = null
+		ecosystem_target_kind = ""
+		decision_reason = "critical_prey_population_protected"
+		state = State.WANDER
+		_pick_wander_target()
+		return
 	var distance := global_position.distance_to(ecosystem_target.global_position)
 	if distance <= ATTACK_RANGE and attack_cooldown <= 0.0 and ecosystem_target.has_method("take_damage"):
 		var hunted_kind := ecosystem_target_kind
@@ -502,6 +509,8 @@ func _find_ecosystem_target() -> Node2D:
 	var best_score := INF
 	var detect_range := _get_prey_detect_radius()
 	for group_name in ["small_prey", "grazer"]:
+		if _is_species_population_critical(group_name):
+			continue
 		for creature in _get_cached_group_nodes(group_name):
 			if not is_instance_valid(creature):
 				continue
@@ -516,6 +525,17 @@ func _find_ecosystem_target() -> Node2D:
 				best_score = score
 				best_target = creature
 	return best_target
+
+
+func _is_species_population_critical(group_name: String) -> bool:
+	var state_data := _get_current_ecosystem_state()
+	if state_data.is_empty():
+		return false
+	var population_key := "%s_population" % group_name
+	var minimum_key := "%s_min_population" % group_name
+	var population := float(state_data.get(population_key, 0.0))
+	var minimum_population := float(GAME_BALANCE.POPULATION_RECOVERY[minimum_key])
+	return population < minimum_population
 
 
 func _get_prey_priority(group_name: String) -> float:
@@ -621,14 +641,21 @@ func _get_current_biome_id() -> String:
 
 
 func _get_biome_prey_pressure() -> float:
-	var ecosystem := get_tree().current_scene.get_node_or_null("EcosystemDirector")
-	if not ecosystem or not ecosystem.has_method("get_biome_state"):
-		return 0.0
-	var biome_id := _get_biome_id_for_position(global_position)
-	var state_data: Dictionary = ecosystem.get_biome_state(biome_id)
+	var state_data := _get_current_ecosystem_state()
 	var small_prey_population := float(state_data.get("small_prey_population", 0.0))
 	var grazer_population := float(state_data.get("grazer_population", 0.0))
 	return clamp((small_prey_population + grazer_population * 1.5) / 18.0, 0.0, 1.0)
+
+
+func _get_current_ecosystem_state() -> Dictionary:
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return {}
+	var ecosystem := tree.current_scene.get_node_or_null("EcosystemDirector")
+	if not ecosystem or not ecosystem.has_method("get_biome_state"):
+		return {}
+	var biome_id := _get_biome_id_for_position(global_position)
+	return ecosystem.get_biome_state(biome_id)
 
 
 func _get_biome_id_for_position(position: Vector2) -> String:

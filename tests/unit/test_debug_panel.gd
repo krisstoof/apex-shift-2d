@@ -8,6 +8,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_debug_panel_starts_closed_without_processing(failures)
 	_test_debug_panel_open_and_close_toggle_processing(failures)
+	_test_population_recovery_debug_lines_explain_population_changes(failures)
 	return failures
 
 
@@ -36,6 +37,29 @@ func _test_debug_panel_open_and_close_toggle_processing(failures: Array[String])
 	TEST_UTILS.expect(not debug_panel.visible, failures, "Debug panel should become hidden after closing")
 	TEST_UTILS.expect(not debug_panel.is_processing(), failures, "Closed debug panel should disable its process loop again")
 	TEST_UTILS.expect_close(float(debug_panel.get("state_refresh_timer")), 0.0, failures, "Closing the debug panel should reset its refresh timer")
+	hud.queue_free()
+
+
+func _test_population_recovery_debug_lines_explain_population_changes(failures: Array[String]) -> void:
+	var hud: CanvasLayer = _instantiate_hud()
+	if hud == null:
+		failures.append("HUD scene should instantiate for population recovery debug tests")
+		return
+	var debug_panel: Control = hud.get_node("DebugPanel")
+	var lines: Array[String] = debug_panel.call("_get_population_recovery_debug_lines", {
+		"small_prey_daily_recovery": 5.0,
+		"grazer_daily_recovery": 2.5,
+		"small_prey_predation_pressure": 0.35,
+		"grazer_predation_pressure": 0.20,
+		"grazer_starvation_pressure": 0.15,
+		"small_prey_population_trend": "growing",
+		"grazer_population_trend": "stable"
+	})
+	TEST_UTILS.expect(lines[0].contains("12/25/40"), failures, "SmallPrey debug line should show min, target, and max populations")
+	TEST_UTILS.expect(lines[0].contains("daily +5.00"), failures, "SmallPrey debug line should show daily recovery")
+	TEST_UTILS.expect(lines[0].contains("growing"), failures, "SmallPrey debug line should show the population trend")
+	TEST_UTILS.expect(lines[1].contains("6/14/25"), failures, "Grazer debug line should show min, target, and max populations")
+	TEST_UTILS.expect(lines[1].contains("starve 0.15"), failures, "Grazer debug line should show starvation pressure")
 	hud.queue_free()
 
 

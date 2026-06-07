@@ -13,6 +13,7 @@ const DISPLAY_MODE_BORDERLESS_FULLSCREEN := 2
 
 var resolution_index := 0
 var display_mode_index := 0
+var _apply_serial := 0
 
 
 func _ready() -> void:
@@ -69,22 +70,34 @@ func get_current_resolution() -> Vector2i:
 	return RESOLUTIONS[safe_index]
 
 
+func get_effective_resolution() -> Vector2i:
+	var requested_resolution := get_current_resolution()
+	if display_mode_index == DISPLAY_MODE_BORDERLESS_FULLSCREEN:
+		return _get_screen_size()
+	if display_mode_index == DISPLAY_MODE_FULLSCREEN:
+		return _get_fullscreen_size_for_screen(requested_resolution, _get_screen_size())
+	return _get_windowed_size_for_screen(requested_resolution)
+
+
 func apply_settings() -> void:
+	var resolution := get_effective_resolution()
+	_apply_content_resolution(resolution)
 	if is_embedded_window():
 		return
-	var resolution: Vector2i = get_current_resolution()
+	_apply_serial += 1
+	var apply_serial := _apply_serial
 	match display_mode_index:
 		DISPLAY_MODE_FULLSCREEN:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			_apply_windowed_border(false)
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
+			DisplayServer.window_set_size(resolution)
+			call_deferred("_finish_exclusive_fullscreen", apply_serial, resolution)
 		DISPLAY_MODE_BORDERLESS_FULLSCREEN:
-			_apply_windowed_border(false)
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 		_:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			_apply_windowed_border(false)
-			DisplayServer.window_set_size(resolution)
-			_center_window(resolution)
+			call_deferred("_finish_windowed_mode", apply_serial, resolution)
 
 
 func apply_and_save() -> void:
@@ -96,10 +109,64 @@ func _apply_windowed_border(borderless: bool) -> void:
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, borderless)
 
 
+func _apply_content_resolution(resolution: Vector2i) -> void:
+	var root_window := get_tree().root
+	root_window.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	root_window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+	root_window.content_scale_size = resolution
+
+
+func _finish_exclusive_fullscreen(apply_serial: int, resolution: Vector2i) -> void:
+	if apply_serial != _apply_serial:
+		return
+	DisplayServer.window_set_size(resolution)
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
+
+
+func _finish_windowed_mode(apply_serial: int, resolution: Vector2i) -> void:
+	if apply_serial != _apply_serial:
+		return
+	DisplayServer.window_set_size(resolution)
+	_center_window(resolution)
+
+
 func _center_window(resolution: Vector2i) -> void:
-	var screen_size: Vector2i = DisplayServer.screen_get_size()
-	var position: Vector2i = Vector2i(max((screen_size.x - resolution.x) / 2, 0), max((screen_size.y - resolution.y) / 2, 0))
+	var screen := DisplayServer.window_get_current_screen()
+	var usable_rect := DisplayServer.screen_get_usable_rect(screen)
+	var position := usable_rect.position + Vector2i(
+		maxi((usable_rect.size.x - resolution.x) / 2, 0),
+		maxi((usable_rect.size.y - resolution.y) / 2, 0)
+	)
 	DisplayServer.window_set_position(position)
+
+
+func _get_windowed_size_for_screen(resolution: Vector2i) -> Vector2i:
+	var screen := DisplayServer.window_get_current_screen()
+	var usable_size := DisplayServer.screen_get_usable_rect(screen).size
+	if usable_size.x <= 0 or usable_size.y <= 0:
+		return resolution
+	return Vector2i(mini(resolution.x, usable_size.x), mini(resolution.y, usable_size.y))
+
+
+func _get_fullscreen_size_for_screen(resolution: Vector2i, screen_size: Vector2i) -> Vector2i:
+	if screen_size.x <= 0 or screen_size.y <= 0:
+		return resolution
+	if resolution.x <= screen_size.x and resolution.y <= screen_size.y:
+		return resolution
+	for index in range(RESOLUTIONS.size() - 1, -1, -1):
+		var candidate: Vector2i = RESOLUTIONS[index]
+		if candidate.x <= screen_size.x and candidate.y <= screen_size.y:
+			return candidate
+	return Vector2i(mini(resolution.x, screen_size.x), mini(resolution.y, screen_size.y))
+
+
+func _get_screen_size() -> Vector2i:
+	var screen := DisplayServer.window_get_current_screen()
+	return DisplayServer.screen_get_size(screen)
+
+
+func is_resolution_selectable(display_mode: int = display_mode_index) -> bool:
+	return display_mode != DISPLAY_MODE_BORDERLESS_FULLSCREEN
 
 
 func can_apply_window_settings() -> bool:
@@ -107,4 +174,4 @@ func can_apply_window_settings() -> bool:
 
 
 func is_embedded_window() -> bool:
-	return ProjectSettings.get_setting("display/window/subwindows/embed_subwindows", false) == true
+	return Engine.is_embedded_in_editor()
