@@ -57,7 +57,12 @@ class FakeWorld extends Node:
 			"accent_cache_count": 5,
 			"pending_biomes": 0,
 			"build_running": false,
-			"blend_colors_key": "abc123"
+			"blend_colors_key": "abc123",
+			"rebuild_count": 7,
+			"last_build_ms": 12.5,
+			"rebuild_blocked_count": 3,
+			"dirty_key_pending": true,
+			"freeze_after_first_build": true
 		}
 
 	func get_varnak_spawn_sync_debug() -> Dictionary:
@@ -116,6 +121,7 @@ func run() -> Array[String]:
 	_test_benchmark_runner_formats_diagnostics_into_text_log(failures)
 	_test_benchmark_runner_records_at_most_one_sample_per_frame(failures)
 	_test_benchmark_runner_captures_realtime_hitch_summary(failures)
+	_test_benchmark_runner_defaults_realtime_hitch_count_to_zero(failures)
 	return failures
 
 
@@ -134,6 +140,13 @@ func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) 
 	TEST_UTILS.expect_equal(str(boot.get("stage_message", "")), "Rendering world...", failures, "Benchmark runner should capture the current world boot stage")
 	TEST_UTILS.expect_close(float(boot.get("progress", 0.0)), 0.94, failures, "Benchmark runner should capture the current world boot progress")
 	TEST_UTILS.expect(texture_cache.get("has_blend_texture", false) == true, failures, "Benchmark runner should capture whether the world blend texture cache exists")
+	TEST_UTILS.expect_equal(int(texture_cache.get("world_biome_texture_build_count", 0)), 7, failures, "Benchmark runner should capture the world biome texture build count")
+	TEST_UTILS.expect_equal(int(texture_cache.get("rebuild_count", 0)), 7, failures, "Benchmark runner should preserve the raw biome texture rebuild count")
+	TEST_UTILS.expect_close(float(texture_cache.get("world_biome_texture_last_build_ms", 0.0)), 12.5, failures, "Benchmark runner should capture the world biome texture build time")
+	TEST_UTILS.expect_close(float(texture_cache.get("last_build_ms", 0.0)), 12.5, failures, "Benchmark runner should preserve the raw biome texture build time")
+	TEST_UTILS.expect_equal(int(texture_cache.get("rebuild_blocked_count", 0)), 3, failures, "Benchmark runner should capture blocked biome texture rebuild attempts")
+	TEST_UTILS.expect_equal(bool(texture_cache.get("dirty_key_pending", false)), true, failures, "Benchmark runner should capture whether a dirty biome texture key is pending")
+	TEST_UTILS.expect_equal(bool(texture_cache.get("freeze_after_first_build", false)), true, failures, "Benchmark runner should capture whether biome texture rebuilds freeze after the first build")
 	TEST_UTILS.expect_equal(int(texture_cache.get("accent_cache_count", 0)), 5, failures, "Benchmark runner should capture biome accent cache size")
 	TEST_UTILS.expect_equal(int(varnak_sync.get("attempt_count", 0)), 1, failures, "Benchmark runner should capture Varnak spawn sync diagnostics")
 	TEST_UTILS.expect_equal(int(registry.get("registered_resources", 0)), 3, failures, "Benchmark runner should capture registered resource totals")
@@ -244,3 +257,9 @@ func _test_benchmark_runner_captures_realtime_hitch_summary(failures: Array[Stri
 	TEST_UTILS.expect_equal(int(report.get("realtime_hitch_count", 0)), 2, failures, "Benchmark report should include the realtime hitch count")
 	TEST_UTILS.expect_equal(int(report.get("max_realtime_delta_ms", 0)), 612, failures, "Benchmark report should include the max realtime hitch delta")
 	TEST_UTILS.expect_equal(Array(report.get("realtime_hitches", [])).size(), 1, failures, "Benchmark report should include realtime hitch samples")
+
+
+func _test_benchmark_runner_defaults_realtime_hitch_count_to_zero(failures: Array[String]) -> void:
+	var runner := BENCHMARK_RUNNER.new()
+	var report: Dictionary = runner.call("_build_report")
+	TEST_UTILS.expect_equal(int(report.get("realtime_hitch_count", -1)), 0, failures, "Benchmark report should default realtime hitch count to zero")

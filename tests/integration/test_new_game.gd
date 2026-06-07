@@ -17,8 +17,10 @@ func run() -> Array[String]:
 	tree.call_deferred("set_current_scene", main)
 	await main.ready
 
-	await tree.process_frame
-	await tree.process_frame
+	var world_boot := main.get_node_or_null("World")
+	if world_boot != null and world_boot.has_method("is_boot_ready") and not bool(world_boot.call("is_boot_ready")):
+		if world_boot.has_signal("world_initialized"):
+			await world_boot.world_initialized
 	await tree.process_frame
 
 	var world := main.get_node_or_null("World")
