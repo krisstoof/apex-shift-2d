@@ -56,6 +56,7 @@ func run() -> Array[String]:
 	_test_player_receive_damage_reduces_health(failures)
 	_test_player_god_mode_syncs_to_stats_and_blocks_damage(failures)
 	_test_player_torch_activation_and_deactivation(failures)
+	_test_player_creates_torch_light_and_enables_it_when_active(failures)
 	_test_player_debug_item_helpers(failures)
 	_test_player_visual_layout_looks_human_like(failures)
 	_test_player_campfire_regen_uses_low_frequency_cached_refresh(failures)
@@ -202,6 +203,23 @@ func _test_player_torch_activation_and_deactivation(failures: Array[String]) -> 
 	TEST_UTILS.expect(player.get_torch_remaining_seconds() > 0.0, failures, "Active torch should report remaining time")
 	player.deactivate_torch("manual")
 	TEST_UTILS.expect(not player.is_torch_active(), failures, "Torch should deactivate cleanly")
+	player.queue_free()
+
+
+func _test_player_creates_torch_light_and_enables_it_when_active(failures: Array[String]) -> void:
+	var player := _make_player()
+	var torch_light := player.get_node_or_null("TorchLight") as PointLight2D
+	TEST_UTILS.expect(torch_light != null, failures, "Player should create a TorchLight node during setup")
+	if torch_light != null:
+		TEST_UTILS.expect_equal(torch_light.shadow_enabled, false, failures, "Torch light should not use shadows")
+		TEST_UTILS.expect_equal(torch_light.enabled, false, failures, "Torch light should start disabled")
+		TEST_UTILS.expect_equal(torch_light.visible, false, failures, "Torch light should start hidden")
+	player.inventory.add_item("torch", 1)
+	player.activate_torch()
+	player.call("_update_torch_light", 0.016)
+	if torch_light != null:
+		TEST_UTILS.expect_equal(torch_light.enabled, true, failures, "Torch light should enable when the torch is active")
+		TEST_UTILS.expect_equal(torch_light.visible, true, failures, "Torch light should become visible when the torch is active")
 	player.queue_free()
 
 
