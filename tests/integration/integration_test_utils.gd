@@ -16,8 +16,7 @@ static func boot_main() -> Dictionary:
 	tree.root.call_deferred("add_child", main)
 	tree.call_deferred("set_current_scene", main)
 	await main.ready
-	await tree.process_frame
-	await tree.process_frame
+	await _wait_for_world_boot(main)
 	await tree.process_frame
 	return {
 		"tree": tree,
@@ -32,11 +31,28 @@ static func shutdown_main(context: Dictionary) -> void:
 	var original_scene := context.get("original_scene") as Node
 	if tree == null:
 		return
+	if is_instance_valid(original_scene):
+		tree.current_scene = original_scene
 	if is_instance_valid(main):
 		main.queue_free()
 		await tree.process_frame
+		await tree.process_frame
+		await tree.process_frame
+		await tree.process_frame
 	if is_instance_valid(original_scene):
 		tree.current_scene = original_scene
+
+
+static func _wait_for_world_boot(main: Node) -> void:
+	if main == null:
+		return
+	var world := main.get_node_or_null("World")
+	if world == null or not world.has_method("is_boot_ready"):
+		return
+	if bool(world.call("is_boot_ready")):
+		return
+	if world.has_signal("world_initialized"):
+		await world.world_initialized
 
 
 static func refresh_world_cache(world: Node) -> void:

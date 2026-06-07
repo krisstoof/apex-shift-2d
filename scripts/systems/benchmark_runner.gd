@@ -247,6 +247,8 @@ func _capture_world_biome_texture_cache_stats() -> Dictionary:
 	if not is_instance_valid(world) or not world.has_method("get_biome_texture_cache_status"):
 		return {}
 	var cache_status := Dictionary(world.get_biome_texture_cache_status())
+	var world_build_count := int(cache_status.get("world_biome_texture_build_count", cache_status.get("rebuild_count", 0)))
+	var world_last_build_ms := float(cache_status.get("world_biome_texture_last_build_ms", cache_status.get("last_build_ms", 0.0)))
 	return {
 		"textures_enabled": bool(cache_status.get("textures_enabled", true)),
 		"has_blend_texture": bool(cache_status.get("has_blend_texture", false)),
@@ -255,7 +257,14 @@ func _capture_world_biome_texture_cache_stats() -> Dictionary:
 		"accent_cache_count": int(cache_status.get("accent_cache_count", 0)),
 		"pending_biomes": int(cache_status.get("pending_biomes", 0)),
 		"build_running": bool(cache_status.get("build_running", false)),
-		"blend_colors_key_length": str(cache_status.get("blend_colors_key", "")).length()
+		"blend_colors_key_length": str(cache_status.get("blend_colors_key", "")).length(),
+		"world_biome_texture_build_count": world_build_count,
+		"rebuild_count": int(cache_status.get("rebuild_count", world_build_count)),
+		"world_biome_texture_last_build_ms": world_last_build_ms,
+		"last_build_ms": float(cache_status.get("last_build_ms", world_last_build_ms)),
+		"rebuild_blocked_count": int(cache_status.get("rebuild_blocked_count", 0)),
+		"dirty_key_pending": bool(cache_status.get("dirty_key_pending", false)),
+		"freeze_after_first_build": bool(cache_status.get("freeze_after_first_build", false))
 	}
 
 
