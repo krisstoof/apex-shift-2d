@@ -191,6 +191,17 @@ class MockWorld:
 			"last_success": 2
 		}
 
+	func get_visibility_culling_debug() -> Dictionary:
+		return {
+			"enabled": true,
+			"interval_seconds": 0.35,
+			"margin": 384.0,
+			"visible_resources": 2,
+			"hidden_resources": 5,
+			"visible_creatures": 3,
+			"hidden_creatures": 4
+		}
+
 	func is_landmark_debug_overlay_enabled() -> bool:
 		return true
 
@@ -273,6 +284,7 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	var ecosystem_snapshot := Dictionary(snapshot.get("ecosystem", {}))
 	var debug_snapshot := Dictionary(snapshot.get("debug", {}))
 	var varnak_sync := Dictionary(world_snapshot.get("varnak_spawn_sync", {}))
+	var visibility_culling := Dictionary(world_snapshot.get("visibility_culling", {}))
 	TEST_UTILS.expect_equal(int(player_snapshot.get("health", 0)), 91, failures, "Snapshot service should capture player health")
 	TEST_UTILS.expect_equal(str(player_snapshot.get("condition_text", "")), "steady", failures, "Snapshot service should capture player condition text")
 	TEST_UTILS.expect_equal(int(Dictionary(player_snapshot.get("inventory", {})).get("torch", 0)), 2, failures, "Snapshot service should capture inventory amounts")
@@ -285,6 +297,10 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	TEST_UTILS.expect_equal(Array(markers.get("varnaks", [])).size(), 1, failures, "Snapshot service should expose varnak markers")
 	TEST_UTILS.expect_equal(int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("small_prey_population", 0)), 5, failures, "Snapshot service should aggregate ecosystem population totals")
 	TEST_UTILS.expect_equal(int(varnak_sync.get("attempt_count", 0)), 1, failures, "Snapshot service should expose Varnak spawn sync diagnostics")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("visible_resources", 0)), 2, failures, "Snapshot service should expose visible resource counts")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_resources", 0)), 5, failures, "Snapshot service should expose hidden resource counts")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("visible_creatures", 0)), 3, failures, "Snapshot service should expose visible creature counts")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_creatures", 0)), 4, failures, "Snapshot service should expose hidden creature counts")
 	TEST_UTILS.expect(str(ecosystem_snapshot.get("warnings_text", "")).contains("Redfang Wilds:stressed"), failures, "Snapshot service should expose ecosystem warnings text")
 	TEST_UTILS.expect_equal(int(debug_snapshot.get("live_varnaks", 0)), 1, failures, "Snapshot service should expose debug summary creature counts")
 	TEST_UTILS.expect_equal(bool(world_snapshot.get("biome_terrain_accents_enabled", true)), false, failures, "Snapshot service should expose the biome terrain accent flag")

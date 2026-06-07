@@ -210,6 +210,7 @@ func _capture_world_stats() -> Dictionary:
 	stats["landmark_debug"] = _capture_world_landmark_debug_stats()
 	stats["registry"] = _capture_world_registry_stats()
 	stats["render_flags"] = _capture_world_render_flags()
+	stats["visibility_culling"] = _capture_world_visibility_culling_stats()
 	stats["creature_counts"] = _capture_group_counts(["small_prey", "grazer", "varnak"])
 	stats["resource_counts"] = _capture_group_counts([
 		"trees",
@@ -296,6 +297,8 @@ func _capture_lightweight_world_debug() -> Dictionary:
 		result["varnak_spawn_sync"] = active_world.get_varnak_spawn_sync_debug()
 	if active_world.has_method("get_biome_texture_cache_debug"):
 		result["biome_texture_cache"] = active_world.get_biome_texture_cache_debug()
+	if active_world.has_method("get_visibility_culling_debug"):
+		result["visibility_culling"] = active_world.get_visibility_culling_debug()
 	return result
 
 
@@ -330,6 +333,12 @@ func _capture_world_render_flags() -> Dictionary:
 		"landmark_debug_overlay_enabled": world.is_landmark_debug_overlay_enabled() if world.has_method("is_landmark_debug_overlay_enabled") else false,
 		"biome_terrain_accents_enabled": world.are_biome_terrain_accents_enabled() if world.has_method("are_biome_terrain_accents_enabled") else false
 	}
+
+
+func _capture_world_visibility_culling_stats() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_visibility_culling_debug"):
+		return {}
+	return Dictionary(world.get_visibility_culling_debug())
 
 
 func _capture_player_stats() -> Dictionary:
@@ -652,6 +661,7 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 	var landmark_debug: Dictionary = Dictionary(world_stats.get("landmark_debug", {}))
 	var registry_stats: Dictionary = Dictionary(world_stats.get("registry", {}))
 	var render_flags: Dictionary = Dictionary(world_stats.get("render_flags", {}))
+	var visibility_culling: Dictionary = Dictionary(world_stats.get("visibility_culling", {}))
 	var diagnostics: Array[String] = []
 	if not boot_stats.is_empty():
 		diagnostics.append("boot=%s %.0f%% \"%s\"" % [
@@ -687,6 +697,14 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			"true" if bool(render_flags.get("biome_textures_enabled", true)) else "false",
 			"true" if bool(render_flags.get("landmark_debug_overlay_enabled", false)) else "false",
 			"true" if bool(render_flags.get("biome_terrain_accents_enabled", false)) else "false"
+		])
+	if not visibility_culling.is_empty():
+		diagnostics.append("culling enabled=%s visible_resources=%d hidden_resources=%d visible_creatures=%d hidden_creatures=%d" % [
+			"true" if bool(visibility_culling.get("enabled", false)) else "false",
+			int(visibility_culling.get("visible_resources", 0)),
+			int(visibility_culling.get("hidden_resources", 0)),
+			int(visibility_culling.get("visible_creatures", 0)),
+			int(visibility_culling.get("hidden_creatures", 0))
 		])
 	return "  diagnostics %s" % " | ".join(diagnostics)
 
