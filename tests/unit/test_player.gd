@@ -59,6 +59,7 @@ func run() -> Array[String]:
 	_test_player_torch_activation_and_deactivation(failures)
 	_test_player_creates_torch_light_and_enables_it_when_active(failures)
 	_test_player_starvation_damage_is_slow_enough(failures)
+	_test_player_campfire_regen_speeds_up_health_recovery(failures)
 	_test_player_debug_item_helpers(failures)
 	_test_player_visual_layout_looks_human_like(failures)
 	_test_player_campfire_regen_uses_low_frequency_cached_refresh(failures)
@@ -227,6 +228,20 @@ func _test_player_creates_torch_light_and_enables_it_when_active(failures: Array
 
 func _test_player_starvation_damage_is_slow_enough(failures: Array[String]) -> void:
 	TEST_UTILS.expect_close(GAME_BALANCE.PLAYER_STARVATION_DAMAGE_PER_SECOND, 1.0, failures, "Starvation damage should be slowed down to give the player reaction time")
+
+
+func _test_player_campfire_regen_speeds_up_health_recovery(failures: Array[String]) -> void:
+	var stats := PLAYER_STATS.new()
+	stats.health = 50.0
+	stats.hunger = 80.0
+	stats.rest = 80.0
+	stats.campfire_regen_active = false
+	stats.tick(1.0, false)
+	var without_campfire_health := stats.health
+	stats.health = 50.0
+	stats.campfire_regen_active = true
+	stats.tick(1.0, false)
+	TEST_UTILS.expect(stats.health > without_campfire_health, failures, "Campfire regen should increase health recovery when the player is resting near a campfire")
 
 
 func _test_player_debug_item_helpers(failures: Array[String]) -> void:

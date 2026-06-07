@@ -19,6 +19,7 @@ func run() -> Array[String]:
 	_test_hud_creates_critical_health_overlay(failures)
 	_test_hud_activates_warning_when_health_is_low(failures)
 	_test_game_over_scene_is_root_full_rect(failures)
+	_test_hud_survival_warning_debug_exists(failures)
 	return failures
 
 
@@ -94,6 +95,15 @@ func _test_game_over_scene_is_root_full_rect(failures: Array[String]) -> void:
 	var scene_text := FileAccess.get_file_as_string("res://scenes/ui/game_over_screen.tscn")
 	TEST_UTILS.expect(scene_text.contains("anchors_preset = 15"), failures, "Game Over root should fill the full screen so the internal center container can center the panel")
 	TEST_UTILS.expect(scene_text.contains("GameOverScreen"), failures, "Game Over scene should still define the expected root node")
+
+
+func _test_hud_survival_warning_debug_exists(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	var debug_state: Dictionary = hud.call("get_survival_warning_debug")
+	TEST_UTILS.expect(debug_state.has("hunger_warning_timer"), failures, "HUD should expose survival warning debug timers")
+	TEST_UTILS.expect(debug_state.has("exhaustion_warning_timer"), failures, "HUD should expose exhaustion warning debug timers")
+	TEST_UTILS.expect(debug_state.has("campfire_hint_timer"), failures, "HUD should expose campfire hint debug timers")
+	hud.queue_free()
 
 
 func _make_hud() -> Node:
