@@ -31,6 +31,9 @@ var death_reason := "unknown"
 var god_mode := false
 var campfire_regen_refresh_timer := 0.0
 var debug_world_query_override: Variant = null
+var torch_light: PointLight2D
+var torch_light_flicker_time := 0.0
+static var cached_light_texture: Texture2D
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -76,6 +79,7 @@ func _ready() -> void:
 		world.scale if world and world is Node2D else Vector2.ONE,
 		hud.scale if hud and hud is CanvasLayer else Vector2.ONE
 	])
+	_ensure_torch_light()
 	_update_campfire_regen_state()
 	queue_redraw()
 
@@ -84,6 +88,7 @@ func _process(delta: float) -> void:
 	if is_dead:
 		return
 	_tick_torch(delta)
+	_update_torch_light(delta)
 	_face_mouse()
 	bow_cooldown = max(bow_cooldown - delta, 0.0)
 	if is_swimming:
@@ -567,6 +572,58 @@ func _tick_torch(delta: float) -> void:
 	if torch_remaining_seconds > 0.0:
 		return
 	deactivate_torch("expired")
+
+
+func _ensure_torch_light() -> void:
+	if torch_light != null:
+		return
+	torch_light = PointLight2D.new()
+	torch_light.name = "TorchLight"
+	torch_light.texture = _get_radial_light_texture()
+	torch_light.energy = 1.35
+	torch_light.texture_scale = 4.2
+	torch_light.color = Color(1.0, 0.76, 0.40)
+	torch_light.shadow_enabled = false
+	torch_light.enabled = false
+	torch_light.visible = false
+	add_child(torch_light)
+	print("[LIGHTING] Torch light created")
+
+
+func _update_torch_light(delta: float) -> void:
+	_ensure_torch_light()
+	var active := is_torch_active()
+	torch_light.visible = active
+	torch_light.enabled = active
+	if not active:
+		return
+	torch_light.global_position = global_position
+	torch_light_flicker_time += delta
+	var flicker := 0.92 + sin(torch_light_flicker_time * 9.0) * 0.05 + sin(torch_light_flicker_time * 17.0) * 0.03
+	torch_light.energy = 1.35 * flicker * _get_light_visibility_multiplier()
+
+
+func _get_light_visibility_multiplier() -> float:
+	var night_amount := _get_night_amount()
+	return lerpf(0.35, 1.0, clampf(night_amount, 0.0, 1.0))
+
+
+static func _get_radial_light_texture() -> Texture2D:
+	if cached_light_texture != null:
+		return cached_light_texture
+	var size := 128
+	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var center := Vector2(size * 0.5, size * 0.5)
+	var radius := float(size) * 0.5
+	for y in range(size):
+		for x in range(size):
+			var p := Vector2(x, y)
+			var distance := p.distance_to(center)
+			var t := clampf(1.0 - distance / radius, 0.0, 1.0)
+			t *= t
+			image.set_pixel(x, y, Color(1.0, 0.82, 0.45, t))
+	cached_light_texture = ImageTexture.create_from_image(image)
+	return cached_light_texture
 
 
 func _get_missing_ingredients(recipe: Dictionary) -> Array[String]:
