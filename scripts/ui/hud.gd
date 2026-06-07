@@ -6,6 +6,14 @@ const ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS := 30.0
 const HUD_REFRESH_INTERVAL := 0.10
 const CRITICAL_HEALTH_THRESHOLD := 0.20
 const CRITICAL_HEALTH_WARNING_INTERVAL_SECONDS := 8.0
+const LOW_HUNGER_THRESHOLD := 25.0
+const LOW_STAMINA_THRESHOLD := 20.0
+const LOW_REST_THRESHOLD := 25.0
+const LOW_HEALTH_CAMPFIRE_HINT_THRESHOLD := 50.0
+const HUNGER_WARNING_COOLDOWN_SECONDS := 12.0
+const EXHAUSTION_WARNING_COOLDOWN_SECONDS := 14.0
+const CAMPFIRE_HINT_COOLDOWN_SECONDS := 18.0
+const CAMPFIRE_HINT_RADIUS := 180.0
 
 var player: Node
 var evolution_director: Node
@@ -23,6 +31,9 @@ var critical_health_overlay: ColorRect
 var critical_health_pulse_time := 0.0
 var critical_health_warning_timer := 0.0
 var critical_health_active := false
+var hunger_warning_timer := 0.0
+var exhaustion_warning_timer := 0.0
+var campfire_hint_timer := 0.0
 var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 
 @onready var stats_label: Label = $Panel/StatsLabel
@@ -85,6 +96,7 @@ func _process(delta: float) -> void:
 	if not player or not evolution_director or not day_night_system:
 		return
 	_update_critical_health_warning(delta)
+	_update_survival_warning_messages(delta)
 	_log_hitch(delta, "HUD", {
 		"map_screen_open": map_screen_open,
 		"pause_menu_open": pause_menu_open,
@@ -269,6 +281,93 @@ func _get_player_max_health_value(player_node: Node) -> float:
 func _show_critical_health_message() -> void:
 	var message_text := "You are badly wounded. Heal yourself."
 	get_node("/root/EventBus").post_message(message_text)
+
+
+func _update_survival_warning_messages(delta: float) -> void:
+	hunger_warning_timer = maxf(0.0, hunger_warning_timer - delta)
+	exhaustion_warning_timer = maxf(0.0, exhaustion_warning_timer - delta)
+	campfire_hint_timer = maxf(0.0, campfire_hint_timer - delta)
+	if _is_game_over_active():
+		return
+	var player_node := _get_player_for_hud()
+	if player_node == null:
+		return
+	var hunger := _get_player_stat_value(player_node, "hunger", 100.0)
+	var stamina := _get_player_stat_value(player_node, "stamina", 100.0)
+	var rest := _get_player_stat_value(player_node, "rest", 100.0)
+	var health := _get_player_stat_value(player_node, "health", 100.0)
+	if hunger <= LOW_HUNGER_THRESHOLD and hunger_warning_timer <= 0.0:
+		_push_survival_message("You are hungry. Find food soon.")
+		hunger_warning_timer = HUNGER_WARNING_COOLDOWN_SECONDS
+	if (stamina <= LOW_STAMINA_THRESHOLD or rest <= LOW_REST_THRESHOLD) and exhaustion_warning_timer <= 0.0:
+		_push_survival_message("You are exhausted. Rest near a campfire to recover faster.")
+		exhaustion_warning_timer = EXHAUSTION_WARNING_COOLDOWN_SECONDS
+	if health <= LOW_HEALTH_CAMPFIRE_HINT_THRESHOLD and _is_player_near_campfire(player_node) and campfire_hint_timer <= 0.0:
+		_push_survival_message("Campfire speeds up rest and health regeneration.")
+		campfire_hint_timer = CAMPFIRE_HINT_COOLDOWN_SECONDS
+
+
+func _push_survival_message(message_text: String) -> void:
+	get_node("/root/EventBus").post_message(message_text)
+
+
+func _is_game_over_active() -> bool:
+	if game_over_screen != null and game_over_screen.visible:
+		return true
+	if has_node("GameOverOverlay"):
+		var overlay := get_node("GameOverOverlay") as CanvasItem
+		if overlay != null:
+			return overlay.visible
+	if has_node("GameOverPanel"):
+		var panel_overlay := get_node("GameOverPanel") as CanvasItem
+		if panel_overlay != null:
+			return panel_overlay.visible
+	return false
+
+
+func _get_player_stat_value(player_node: Node, stat_name: String, default_value: float) -> float:
+	var value: Variant = player_node.get(stat_name)
+	if value != null:
+		return float(value)
+	var getter_name := "get_%s" % stat_name
+	if player_node.has_method(getter_name):
+		return float(player_node.call(getter_name))
+	var stats: Variant = player_node.get("stats")
+	if stats != null and stats.has_method("get"):
+		var stats_value: Variant = stats.get(stat_name)
+		if stats_value != null:
+			return float(stats_value)
+		var uppercase_name := stat_name.to_upper()
+		stats_value = stats.get(uppercase_name)
+		if stats_value != null:
+			return float(stats_value)
+	return default_value
+
+
+func _is_player_near_campfire(player_node: Node) -> bool:
+	if player_node.has_method("is_near_campfire"):
+		return bool(player_node.call("is_near_campfire"))
+	var player_2d := player_node as Node2D
+	if player_2d == null:
+		return false
+	var campfires := get_tree().get_nodes_in_group("campfires")
+	for campfire in campfires:
+		if not is_instance_valid(campfire):
+			continue
+		var campfire_2d := campfire as Node2D
+		if campfire_2d == null:
+			continue
+		if player_2d.global_position.distance_to(campfire_2d.global_position) <= CAMPFIRE_HINT_RADIUS:
+			return true
+	return false
+
+
+func get_survival_warning_debug() -> Dictionary:
+	return {
+		"hunger_warning_timer": hunger_warning_timer,
+		"exhaustion_warning_timer": exhaustion_warning_timer,
+		"campfire_hint_timer": campfire_hint_timer
+	}
 
 
 func get_critical_health_debug() -> Dictionary:

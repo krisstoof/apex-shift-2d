@@ -32,9 +32,15 @@ func tick(delta: float, running: bool) -> void:
 		if hunger <= 0.0:
 			health = max(health - GAME_BALANCE.PLAYER_STARVATION_DAMAGE_PER_SECOND * delta, 0.0)
 		elif hunger >= LOW_HUNGER and rest >= EXHAUSTED_REST:
-			health = min(health + GAME_BALANCE.PLAYER_HEALTH_REGEN_RATE * delta, MAX_HEALTH)
+			var health_regen := GAME_BALANCE.PLAYER_HEALTH_REGEN_RATE
+			if campfire_regen_active:
+				health_regen *= GAME_BALANCE.PLAYER_CAMPFIRE_HEALTH_REGEN_MULTIPLIER
+			health = min(health + health_regen * delta, MAX_HEALTH)
 	elif hunger >= LOW_HUNGER and rest >= EXHAUSTED_REST:
-		health = min(health + GAME_BALANCE.PLAYER_HEALTH_REGEN_RATE * delta, MAX_HEALTH)
+		var health_regen := GAME_BALANCE.PLAYER_HEALTH_REGEN_RATE
+		if campfire_regen_active:
+			health_regen *= GAME_BALANCE.PLAYER_CAMPFIRE_HEALTH_REGEN_MULTIPLIER
+		health = min(health + health_regen * delta, MAX_HEALTH)
 
 
 func spend_stamina(amount: float) -> bool:
