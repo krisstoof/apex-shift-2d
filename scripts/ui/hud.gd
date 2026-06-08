@@ -63,6 +63,7 @@ var hitch_log_cooldowns: Dictionary = {}
 @onready var pause_menu: Control = $PauseMenu
 @onready var game_over_screen: Control = $GameOverScreen
 @onready var debug_panel: Control = $DebugPanel
+@onready var inventory_screen: Control = $InventoryScreen
 @onready var game_session: Node = get_node("/root/GameSession")
 
 
@@ -119,6 +120,8 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	minimap.bind(player, world_rect, biome_zones, landmarks, snapshot_service)
 	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones, landmarks, snapshot_service)
 	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director, snapshot_service)
+	if inventory_screen.has_method("setup"):
+		inventory_screen.setup(_get_player_inventory())
 	_connect_inventory_changed()
 	_apply_snapshot(snapshot)
 	_refresh_resource_panel()
@@ -248,10 +251,14 @@ func _connect_inventory_changed() -> void:
 		var changed_callable: Callable = Callable(self, "_on_inventory_changed")
 		if not inventory.inventory_changed.is_connected(changed_callable):
 			inventory.inventory_changed.connect(changed_callable)
+	if inventory_screen != null and inventory_screen.has_method("refresh_from_inventory"):
+		inventory_screen.refresh_from_inventory(inventory)
 
 
 func _on_inventory_changed() -> void:
 	_refresh_resource_panel()
+	if inventory_screen != null and inventory_screen.visible and inventory_screen.has_method("refresh_from_inventory"):
+		inventory_screen.refresh()
 
 
 func _refresh_resource_panel() -> void:
@@ -281,7 +288,13 @@ func _refresh_resource_panel() -> void:
 func _get_player_inventory() -> Variant:
 	if player == null:
 		return null
-	return player.get("inventory")
+	var direct_inventory: Variant = player.inventory
+	if direct_inventory != null:
+		return direct_inventory
+	var fallback_inventory: Variant = player.get("inventory")
+	if fallback_inventory != null:
+		return fallback_inventory
+	return null
 
 
 func _get_inventory_count(inventory: Variant, item_id: String) -> int:
@@ -794,14 +807,25 @@ func _close_game_over_screen() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if game_over_screen.visible:
 		return
+	if event.is_action_pressed("toggle_inventory"):
+		_set_inventory_screen_open(not inventory_screen.visible)
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F3:
 		debug_panel.toggle()
 		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_M:
+		_set_inventory_screen_open(false)
 		_set_pause_menu_open(false)
 		_set_map_screen_open(not map_screen_open)
 		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		if inventory_screen.visible:
+			_set_inventory_screen_open(false)
+			get_viewport().set_input_as_handled()
+			return
 		_set_map_screen_open(false)
 		_set_pause_menu_open(not pause_menu_open)
 		get_viewport().set_input_as_handled()
@@ -821,8 +845,25 @@ func _set_pause_menu_open(open: bool) -> void:
 	_update_tree_paused()
 
 
+func _set_inventory_screen_open(open: bool) -> void:
+	if inventory_screen == null:
+		return
+	if inventory_screen.has_method("open_inventory") and open:
+		inventory_screen.open_inventory()
+	elif inventory_screen.has_method("close_inventory") and not open:
+		inventory_screen.close_inventory()
+	else:
+		inventory_screen.visible = open
+	if open:
+		_set_map_screen_open(false)
+		_set_pause_menu_open(false)
+		if inventory_screen.has_method("refresh_from_inventory"):
+			inventory_screen.refresh()
+	_update_tree_paused()
+
+
 func _update_tree_paused() -> void:
-	get_tree().paused = map_screen_open or pause_menu_open
+	get_tree().paused = map_screen_open or pause_menu_open or (inventory_screen != null and inventory_screen.visible)
 
 
 func _on_pause_menu_resume() -> void:
