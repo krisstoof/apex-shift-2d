@@ -167,6 +167,15 @@ class VarnakSyncWorld:
 		return Node.new()
 
 
+class FirstWeekWorld:
+	extends WORLD_SCRIPT
+
+	func _get_current_day() -> int:
+		return current_day
+
+	var current_day := 1
+
+
 class GraphicsSettingsStub:
 	extends Node
 
@@ -202,6 +211,7 @@ func run() -> Array[String]:
 	_test_terrain_speed_multiplier_changes_in_water(failures)
 	_test_landmark_save_data_round_trip_vectors(failures)
 	_test_world_save_data_includes_seed_and_landmark_fields(failures)
+	_test_varnak_first_week_curve_limits_population_and_spawn(failures)
 	_test_biomes_have_sample_texture_assets(failures)
 	_test_biome_terrain_accent_layout_is_dense_and_inside_biome(failures)
 	_test_biome_terrain_accent_layout_stays_async_when_queue_is_pending(failures)
@@ -477,6 +487,20 @@ func _test_world_save_data_includes_seed_and_landmark_fields(failures: Array[Str
 		TEST_UTILS.expect_close(float(exported.get("radius", 0.0)), 180.0, failures, "World save data should preserve landmark radii")
 		var gameplay_tags: Array = Array(exported.get("gameplay_tags", []))
 		TEST_UTILS.expect_equal(gameplay_tags.size(), 2, failures, "World save data should preserve gameplay tags for restored landmarks")
+	world.free()
+
+
+func _test_varnak_first_week_curve_limits_population_and_spawn(failures: Array[String]) -> void:
+	var world := FirstWeekWorld.new()
+	world.current_day = 1
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 1)), 1, failures, "Day 1 should keep Varnak population very low")
+	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 1)), 0.08, failures, "Day 1 should use the onboarding spawn chance")
+	world.current_day = 3
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 3)), 3, failures, "Day 3 should raise the Varnak cap")
+	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 3)), 0.25, failures, "Day 3 should increase the spawn chance")
+	world.current_day = 9
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 9)), 10, failures, "Days after the first week should fall back to standard scaling")
+	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 9)), 0.56, failures, "Days after the first week should fall back to standard spawn scaling")
 	world.free()
 
 

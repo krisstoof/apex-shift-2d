@@ -2705,6 +2705,11 @@ func _get_current_day() -> int:
 
 
 func _get_varnak_target_count(day: int) -> int:
+	if day <= 7:
+		var difficulty := GameBalance.get_first_week_difficulty(day)
+		var difficulty_max := int(difficulty.get("varnak_max_population", -1))
+		if difficulty_max > 0:
+			return difficulty_max
 	var scaling := GameBalance.VARNAK_DAY_SCALING
 	var normalized_day := maxi(day, 1)
 	if normalized_day <= 1:
@@ -2720,6 +2725,10 @@ func _get_varnak_target_count(day: int) -> int:
 
 
 func _get_varnak_spawn_chance(day: int) -> float:
+	if day <= 7:
+		var difficulty := GameBalance.get_first_week_difficulty(day)
+		if difficulty.has("varnak_spawn_chance"):
+			return clampf(float(difficulty.get("varnak_spawn_chance", 0.0)), 0.0, 1.0)
 	if day < 2:
 		return 0.0
 		
