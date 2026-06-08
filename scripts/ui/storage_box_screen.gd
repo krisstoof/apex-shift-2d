@@ -28,7 +28,6 @@ func _ready() -> void:
 	offset_bottom = 0
 	visible = false
 	_build_ui()
-	print("[STORAGE_UI_DEBUG] ready child_count=", get_child_count())
 
 
 func setup(p_player_inventory: Variant, p_storage_inventory: Variant, p_storage_box: Node = null) -> void:
@@ -40,7 +39,6 @@ func setup(p_player_inventory: Variant, p_storage_inventory: Variant, p_storage_
 
 
 func open_storage_box() -> void:
-	print("[STORAGE_UI_DEBUG] open_storage_box called")
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	offset_left = 0
 	offset_top = 0
@@ -64,8 +62,6 @@ func open_storage_box() -> void:
 		panel.show()
 		panel.move_to_front()
 	refresh()
-	print("[STORAGE_UI_DEBUG] visible=", visible)
-	print("[STORAGE_UI_DEBUG] child_count=", get_child_count())
 
 
 func close_storage_box() -> void:
@@ -166,7 +162,7 @@ func _build_ui() -> void:
 func _build_inventory_column(title_text: String, columns: int, slot_count: int) -> Dictionary:
 	var container := VBoxContainer.new()
 	container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	container.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	container.add_theme_constant_override("separation", 8)
 
 	var title := Label.new()
@@ -177,7 +173,7 @@ func _build_inventory_column(title_text: String, columns: int, slot_count: int) 
 	var grid := GridContainer.new()
 	grid.columns = columns
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
 	container.add_child(grid)
@@ -197,6 +193,7 @@ func _build_inventory_column(title_text: String, columns: int, slot_count: int) 
 
 func _create_slot() -> PanelContainer:
 	var slot := PanelContainer.new()
+	slot.mouse_filter = Control.MOUSE_FILTER_STOP
 	slot.custom_minimum_size = Vector2(72, 72)
 	var slot_style := StyleBoxFlat.new()
 	slot_style.bg_color = Color(0.06, 0.07, 0.08, 0.92)
@@ -217,11 +214,13 @@ func _create_slot() -> PanelContainer:
 
 	var container := Control.new()
 	container.name = "Content"
+	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	slot.add_child(container)
 
 	var icon := TextureRect.new()
 	icon.name = "Icon"
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	icon.custom_minimum_size = Vector2(40, 40)
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -232,6 +231,7 @@ func _create_slot() -> PanelContainer:
 
 	var count_label := Label.new()
 	count_label.name = "CountLabel"
+	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	count_label.text = ""
 	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	count_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
@@ -266,40 +266,42 @@ func _on_slot_gui_input(event: InputEvent, slot: Control) -> void:
 	var mouse_event := event as InputEventMouseButton
 	if not mouse_event.pressed or mouse_event.button_index != MOUSE_BUTTON_LEFT:
 		return
-	var slot_index: int = int(slot.get_meta("slot_index", -1))
-	if slot_index < 0:
-		return
-	if slot.get_parent() == player_grid:
-		_transfer_slot(player_inventory, storage_inventory, slot_index)
-	else:
-		_transfer_slot(storage_inventory, player_inventory, slot_index)
-
-
-func _transfer_slot(source_inventory: Variant, destination_inventory: Variant, slot_index: int) -> void:
-	if source_inventory == null or destination_inventory == null:
-		return
-	if not source_inventory.has_method("get_slots"):
-		return
-	var slots: Variant = source_inventory.call("get_slots")
-	if not (slots is Array):
-		return
-	var slot_data_array: Array = Array(slots)
-	if slot_index < 0 or slot_index >= slot_data_array.size():
-		return
-	var slot_data: Variant = slot_data_array[slot_index]
-	if not (slot_data is Dictionary):
-		return
-	var slot_dict := Dictionary(slot_data)
-	var item_id := str(slot_dict.get("item_id", ""))
-	var amount := int(slot_dict.get("amount", 0))
+	var item_id := str(slot.get_meta("item_id", ""))
+	var amount := int(slot.get_meta("amount", 0))
 	if item_id.is_empty() or amount <= 0:
 		return
-	var leftover := int(destination_inventory.call("add_item", item_id, amount))
-	var moved := amount - leftover
+	if slot.get_parent() == player_grid:
+		_transfer_item(player_inventory, storage_inventory, item_id, amount, "Storage Box full")
+	else:
+		_transfer_item(storage_inventory, player_inventory, item_id, amount, "Inventory full")
+
+
+func _transfer_item(source_inventory: Variant, destination_inventory: Variant, item_id: String, amount: int, full_message: String) -> void:
+	if source_inventory == null or destination_inventory == null:
+		return
+	if item_id.is_empty() or amount <= 0:
+		return
+	if not source_inventory.has_method("get_amount"):
+		return
+	if not source_inventory.has_method("remove_item"):
+		return
+	if not destination_inventory.has_method("add_item"):
+		return
+	var available := int(source_inventory.call("get_amount", item_id))
+	var requested := mini(amount, available)
+	if requested <= 0:
+		refresh()
+		return
+	var leftover := int(destination_inventory.call("add_item", item_id, requested))
+	var moved := requested - leftover
 	if moved > 0:
 		source_inventory.call("remove_item", item_id, moved)
-	if leftover > 0:
-		_show_info("Inventory full")
+		_show_info("Moved %s x%d" % [item_id, moved])
+		if leftover > 0:
+			_show_info("Moved %d/%d %s. %s" % [moved, requested, item_id, full_message])
+	else:
+		_show_info(full_message)
+	refresh()
 
 
 func _refresh_panel() -> void:
@@ -363,6 +365,8 @@ func _clear_slots(slot_nodes: Array[Control]) -> void:
 func _set_slot_item(slot: Control, item_id: String, count: int) -> void:
 	if slot == null:
 		return
+	slot.set_meta("item_id", item_id)
+	slot.set_meta("amount", count)
 	var icon: TextureRect = slot.get_node_or_null("Content/Icon")
 	var count_label: Label = slot.get_node_or_null("Content/CountLabel")
 	if icon != null:
@@ -377,6 +381,8 @@ func _set_slot_item(slot: Control, item_id: String, count: int) -> void:
 func _clear_slot(slot: Control) -> void:
 	if slot == null:
 		return
+	slot.set_meta("item_id", "")
+	slot.set_meta("amount", 0)
 	var icon: TextureRect = slot.get_node_or_null("Content/Icon")
 	var count_label: Label = slot.get_node_or_null("Content/CountLabel")
 	if icon != null:

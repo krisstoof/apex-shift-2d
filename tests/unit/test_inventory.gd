@@ -2,6 +2,7 @@ extends RefCounted
 
 const INVENTORY := preload("res://scripts/player/inventory.gd")
 const STORAGE_BOX := preload("res://scripts/buildings/storage_box.gd")
+const STORAGE_BOX_SCREEN := preload("res://scripts/ui/storage_box_screen.gd")
 const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
@@ -24,6 +25,7 @@ func run() -> Array[String]:
 	_test_storage_box_prompt_mentions_open(failures)
 	_test_storage_boxes_keep_independent_inventories(failures)
 	_test_storage_box_exposes_interaction_methods(failures)
+	_test_storage_box_screen_transfers_items_between_inventories(failures)
 	_test_save_load_restores_slots(failures)
 	_test_save_load_ignores_invalid_items(failures)
 	return failures
@@ -155,6 +157,21 @@ func _test_storage_box_exposes_interaction_methods(failures: Array[String]) -> v
 	var storage_box := STORAGE_BOX.new()
 	TEST_UTILS.expect(storage_box.has_method("interact"), failures, "Storage box should expose an interact method")
 	TEST_UTILS.expect(storage_box.has_method("get_prompt"), failures, "Storage box should expose a prompt method")
+
+
+func _test_storage_box_screen_transfers_items_between_inventories(failures: Array[String]) -> void:
+	var screen := STORAGE_BOX_SCREEN.new()
+	screen.call("_ready")
+	var player_inventory := INVENTORY.new()
+	var storage_inventory := INVENTORY.new(12)
+	player_inventory.add_item("wood", 5)
+	screen.call("setup", player_inventory, storage_inventory, null)
+	screen.call("_transfer_item", player_inventory, storage_inventory, "wood", 5, "Storage Box full")
+	TEST_UTILS.expect_equal(player_inventory.get_amount("wood"), 0, failures, "Player inventory should lose transferred wood")
+	TEST_UTILS.expect_equal(storage_inventory.get_amount("wood"), 5, failures, "Storage inventory should gain transferred wood")
+	screen.call("_transfer_item", storage_inventory, player_inventory, "wood", 5, "Inventory full")
+	TEST_UTILS.expect_equal(player_inventory.get_amount("wood"), 5, failures, "Player inventory should get wood back from storage")
+	TEST_UTILS.expect_equal(storage_inventory.get_amount("wood"), 0, failures, "Storage inventory should lose transferred wood")
 
 
 func _test_save_load_restores_slots(failures: Array[String]) -> void:

@@ -16,15 +16,11 @@ func _post_event_message(message: String) -> void:
 
 func _ready() -> void:
 	add_to_group("storage_boxes")
-	print("[STORAGE_BOX_DEBUG] ready: ", name, " layer=", collision_layer, " mask=", collision_mask, " global_position=", global_position)
 	queue_redraw()
 
 
 func interact(player: Node) -> void:
 	var hud := _get_hud()
-	print("[STORAGE_BOX_DEBUG] interact called")
-	print("[STORAGE_BOX_DEBUG] hud=", hud)
-	print("[STORAGE_BOX_DEBUG] hud has open_storage_box=", hud != null and hud.has_method("open_storage_box"))
 	if hud == null or not hud.has_method("open_storage_box"):
 		_post_event_message("Storage Box UI not implemented yet")
 		return

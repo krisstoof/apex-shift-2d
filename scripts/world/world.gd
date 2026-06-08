@@ -1616,8 +1616,19 @@ func restore_resources(resources: Array) -> void:
 	)
 
 
-func _get_safe_restored_resource_position(resource_kind: String, requested_position: Vector2) -> Vector2:
-	var position := _clamp_position_to_world(requested_position)
+func _get_safe_restored_resource_position(resource_kind: String, requested_position: Variant) -> Vector2:
+	var requested_vector := Vector2.ZERO
+	if typeof(requested_position) == TYPE_VECTOR2:
+		requested_vector = requested_position
+	elif typeof(requested_position) == TYPE_DICTIONARY:
+		var requested_data := Dictionary(requested_position)
+		requested_vector = Vector2(
+			float(requested_data.get("x", 0.0)),
+			float(requested_data.get("y", 0.0))
+		)
+	else:
+		requested_vector = Vector2.ZERO
+	var position := _clamp_position_to_world(requested_vector)
 	if not is_resource_position_blocked_by_water(resource_kind, position) and not _is_resource_blocked_by_hill(resource_kind, position):
 		return position
 	var pond := _get_nearest_pond_landmark(position)
@@ -1661,8 +1672,12 @@ func _apply_restored_resource_data(resource_node: Variant, resource_data: Dictio
 	return _ensure_resource_service().apply_restore_data(resource_node, data)
 
 
-func _spawn_restored_resource_at(resource_kind: String, position_data: Dictionary) -> Node:
-	return _spawn_resource_at(resource_kind, _data_to_vector(position_data))
+func _spawn_restored_resource_at(resource_kind: String, position_data: Variant) -> Node:
+	if typeof(position_data) == TYPE_VECTOR2:
+		return _spawn_resource_at(resource_kind, position_data)
+	if typeof(position_data) == TYPE_DICTIONARY:
+		return _spawn_resource_at(resource_kind, _data_to_vector(Dictionary(position_data)))
+	return _spawn_resource_at(resource_kind, Vector2.ZERO)
 
 
 func _get_nearest_pond_landmark(position: Vector2) -> Dictionary:
