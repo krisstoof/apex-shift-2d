@@ -148,7 +148,7 @@ func _refresh_hud_text() -> void:
 func _apply_snapshot(snapshot: Dictionary) -> void:
 	clock_label.text = _build_clock_text_from_snapshot(snapshot)
 	fps_label.text = "FPS: %d" % Engine.get_frames_per_second()
-	stats_label.text = _build_stats_text_from_snapshot(snapshot)
+	stats_label.text = _build_player_stats_text_from_snapshot(snapshot)
 	prompt_label.text = _get_prompt_text_from_snapshot(snapshot)
 	message_label.text = "\n".join(message_history)
 
@@ -161,29 +161,55 @@ func _build_clock_text_from_snapshot(snapshot: Dictionary) -> String:
 	]
 
 
-func _build_stats_text_from_snapshot(snapshot: Dictionary) -> String:
+func _build_player_stats_text_from_snapshot(snapshot: Dictionary) -> String:
 	var player_snapshot := Dictionary(snapshot.get("player", {}))
+	var time_snapshot := Dictionary(snapshot.get("time", {}))
 	var inventory := Dictionary(player_snapshot.get("inventory", {}))
+	var health := float(player_snapshot.get("health", 0.0))
+	var max_health := float(_get_player_max_health_value_from_snapshot(player_snapshot))
+	var hunger := float(_get_snapshot_stat_percent(player_snapshot, "hunger", 100.0))
+	var stamina := float(_get_snapshot_stat_percent(player_snapshot, "stamina", 100.0))
+	var rest := float(_get_snapshot_stat_percent(player_snapshot, "rest", 100.0))
+	var day := int(time_snapshot.get("day", 1))
+	var time_label := str(time_snapshot.get("time_label", ""))
+	var rest_label := "Rest" if player_snapshot.has("rest") else "Fatigue"
 	return "\n".join([
-		"Health: %3d  Hunger: %3d  Stamina: %3d  Rest: %3d  %s%s" % [
-			int(player_snapshot.get("health", 0)),
-			int(player_snapshot.get("hunger", 0)),
-			int(player_snapshot.get("stamina", 0)),
-			int(player_snapshot.get("rest", 0)),
-			str(player_snapshot.get("condition_text", "unknown")),
-			" campfire_regen_active" if player_snapshot.get("campfire_regen_active", false) == true else ""
+		"HP: %d / %d  Hunger: %d%%  Stamina: %d%%" % [
+			int(round(health)),
+			int(round(max_health)),
+			int(round(hunger)),
+			int(round(stamina))
 		],
-		"Wood: %d  Stone: %d  Fiber: %d  Meat: %d  Torch: %d %s  Spear: %s  Bow: %s" % [
+		"%s: %d%%  Day: %d  Time: %s" % [
+			rest_label,
+			int(round(rest)),
+			day,
+			time_label if not time_label.is_empty() else "--"
+		],
+		"Torch: %s  Bow: %s  Spear: %s  Wood: %d  Stone: %d  Fiber: %d  Meat: %d" % [
+			_get_torch_status_text_from_snapshot(player_snapshot),
+			"Yes" if player_snapshot.get("has_bow", false) == true else "No",
+			"Yes" if player_snapshot.get("has_spear", false) == true else "No",
 			int(inventory.get("wood", 0)),
 			int(inventory.get("stone", 0)),
 			int(inventory.get("fiber", 0)),
-			int(inventory.get("meat", 0)),
-			int(inventory.get("torch", 0)),
-			_get_torch_status_text_from_snapshot(player_snapshot),
-			"yes" if player_snapshot.get("has_spear", false) == true else "no",
-			"yes" if player_snapshot.get("has_bow", false) == true else "no"
+			int(inventory.get("meat", 0))
 		]
 	])
+
+
+func _get_player_max_health_value_from_snapshot(player_snapshot: Dictionary) -> float:
+	var value := float(player_snapshot.get("max_health", 0.0))
+	if value > 0.0:
+		return value
+	return float(PlayerStats.MAX_HEALTH)
+
+
+func _get_snapshot_stat_percent(player_snapshot: Dictionary, stat_name: String, max_value: float) -> float:
+	var value := float(player_snapshot.get(stat_name, 0.0))
+	if max_value <= 0.0:
+		return 0.0
+	return clampf(value / max_value * 100.0, 0.0, 100.0)
 
 
 func _get_prompt_text_from_snapshot(snapshot: Dictionary) -> String:
@@ -194,6 +220,10 @@ func _get_prompt_text_from_snapshot(snapshot: Dictionary) -> String:
 
 
 func _on_message(new_message: String) -> void:
+	if new_message.is_empty():
+		return
+	if _is_world_or_ecosystem_message(new_message):
+		return
 	message = new_message
 	message_history.append(new_message)
 	if message_history.size() > 4:
@@ -414,7 +444,7 @@ func _on_game_event(event_name: String, payload: Dictionary) -> void:
 	if event_name == "center_notification":
 		_show_center_notification(str(payload.get("text", "")))
 		return
-	_show_ecosystem_message(event_name, payload)
+	return
 
 
 func _show_center_notification(text: String) -> void:
@@ -471,6 +501,29 @@ func _get_ecosystem_biome_name(payload: Dictionary) -> String:
 	return biome_id.capitalize() if not biome_id.is_empty() else "the wilds"
 
 
+func _is_world_or_ecosystem_message(message_text: String) -> bool:
+	var blocked_fragments := [
+		"Apex Shift 2D prototype ready",
+		"entered the ecosystem",
+		"dispersed into the ecosystem",
+		"population in",
+		"population declining",
+		"is declining",
+		"Vegetation in",
+		"Animals in",
+		"has less food",
+		"close to collapse",
+		"are starting to hunt",
+		"biome",
+		"ecosystem"
+	]
+
+	for fragment in blocked_fragments:
+		if message_text.findn(fragment) >= 0:
+			return true
+	return false
+
+
 func _get_torch_status_text() -> String:
 	if not player.has_method("is_torch_active") or not player.is_torch_active():
 		return "inactive"
@@ -508,25 +561,25 @@ func _fix_low_resolution_layout() -> void:
 		panel.offset_left = 8.0
 		panel.offset_top = 8.0
 		panel.offset_right = 720.0 if not low_resolution else 640.0
-		panel.offset_bottom = 170.0 if not low_resolution else 162.0
-		panel.custom_minimum_size = Vector2(0.0, 170.0 if not low_resolution else 162.0)
+		panel.offset_bottom = 236.0 if not low_resolution else 220.0
+		panel.custom_minimum_size = Vector2(0.0, 236.0 if not low_resolution else 220.0)
 	if stats_label:
 		stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		stats_label.custom_minimum_size = Vector2(520.0 if not low_resolution else 500.0, 0.0)
 		stats_label.offset_right = 612.0 if not low_resolution else 540.0
-		stats_label.offset_bottom = 54.0 if not low_resolution else 50.0
+		stats_label.offset_bottom = 90.0 if not low_resolution else 84.0
 		stats_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
 	if prompt_label:
 		prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		prompt_label.custom_minimum_size = Vector2(520.0 if not low_resolution else 500.0, 0.0)
-		prompt_label.offset_top = 64.0 if not low_resolution else 60.0
-		prompt_label.offset_bottom = 92.0 if not low_resolution else 88.0
+		prompt_label.offset_top = 98.0 if not low_resolution else 92.0
+		prompt_label.offset_bottom = 124.0 if not low_resolution else 118.0
 		prompt_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
 	if message_label:
 		message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		message_label.custom_minimum_size = Vector2(420.0 if not low_resolution else 360.0, 0.0)
-		message_label.offset_top = 96.0 if not low_resolution else 92.0
-		message_label.offset_bottom = 156.0 if not low_resolution else 150.0
+		message_label.offset_top = 128.0 if not low_resolution else 122.0
+		message_label.offset_bottom = 224.0 if not low_resolution else 210.0
 		message_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 13)
 	if skill_icon_bar:
 		skill_icon_bar.anchor_left = 0.5

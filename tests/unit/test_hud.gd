@@ -15,7 +15,8 @@ class TestPlayer:
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
-	_test_hud_formats_clock_and_stats_from_snapshot(failures)
+	_test_hud_builds_compact_player_stats_from_snapshot(failures)
+	_test_hud_filters_world_messages_from_message_history(failures)
 	_test_hud_creates_critical_health_overlay(failures)
 	_test_hud_activates_warning_when_health_is_low(failures)
 	_test_game_over_scene_is_root_full_rect(failures)
@@ -23,25 +24,27 @@ func run() -> Array[String]:
 	return failures
 
 
-func _test_hud_formats_clock_and_stats_from_snapshot(failures: Array[String]) -> void:
+func _test_hud_builds_compact_player_stats_from_snapshot(failures: Array[String]) -> void:
 	var hud := HUD_SCRIPT.new()
 	var snapshot := {
 		"time": {
 			"clock_time": "13:48",
+			"day": 3,
 			"time_label": "Day"
 		},
 		"player": {
 			"health": 91,
+			"max_health": 100,
 			"hunger": 62,
 			"stamina": 48,
 			"rest": 77,
+			"prompt_text": "E: interact",
 			"condition_text": "steady",
 			"campfire_regen_active": true,
 			"torch_active": true,
 			"torch_remaining_seconds": 17.2,
 			"has_spear": true,
-			"has_bow": false,
-			"prompt_text": "E: interact",
+			"has_bow": true,
 			"inventory": {
 				"wood": 4,
 				"stone": 3,
@@ -51,14 +54,35 @@ func _test_hud_formats_clock_and_stats_from_snapshot(failures: Array[String]) ->
 			}
 		}
 	}
-	var clock_text: String = hud.call("_build_clock_text_from_snapshot", snapshot)
-	var stats_text: String = hud.call("_build_stats_text_from_snapshot", snapshot)
-	var prompt_text: String = hud.call("_get_prompt_text_from_snapshot", snapshot)
-	TEST_UTILS.expect_equal(clock_text, "13:48\nDay", failures, "HUD should format the clock text from snapshot data")
-	TEST_UTILS.expect(stats_text.contains("Health:  91  Hunger:  62  Stamina:  48  Rest:  77  steady campfire_regen_active"), failures, "HUD should build the player stats line from snapshot data")
-	TEST_UTILS.expect(stats_text.contains("Wood: 4  Stone: 3  Fiber: 2  Meat: 1  Torch: 2 active 18s  Spear: yes  Bow: no"), failures, "HUD should build the inventory/tools line from snapshot data")
-	TEST_UTILS.expect_equal(prompt_text, "E: interact", failures, "HUD should read the interaction prompt from snapshot data")
+	var player_stats_text: String = hud.call("_build_player_stats_text_from_snapshot", snapshot)
+	TEST_UTILS.expect(player_stats_text.contains("HP: 91 / 100"), failures, "HUD should show player health in the compact stats section")
+	TEST_UTILS.expect(player_stats_text.contains("Hunger: 62%"), failures, "HUD should show player hunger in the compact stats section")
+	TEST_UTILS.expect(player_stats_text.contains("Stamina: 48%"), failures, "HUD should show player stamina in the compact stats section")
+	TEST_UTILS.expect(player_stats_text.contains("Rest: 77%"), failures, "HUD should show player rest in the compact stats section")
+	TEST_UTILS.expect(player_stats_text.contains("Day: 3"), failures, "HUD should show the current day in the compact stats section")
+	TEST_UTILS.expect(player_stats_text.contains("Time: Day"), failures, "HUD should show the time label in the compact stats section")
+	TEST_UTILS.expect(player_stats_text.contains("Torch: active 18s"), failures, "HUD should show the torch status in the compact stats section")
+	TEST_UTILS.expect(player_stats_text.contains("Bow: Yes"), failures, "HUD should show bow ownership in the compact stats section")
+	TEST_UTILS.expect(player_stats_text.contains("Spear: Yes"), failures, "HUD should keep spear ownership visible in the compact stats section")
+	TEST_UTILS.expect(player_stats_text.contains("Wood: 4"), failures, "HUD should keep the basic inventory snapshot visible in the compact stats section")
+	TEST_UTILS.expect_equal(hud.call("_get_prompt_text_from_snapshot", snapshot), "E: interact", failures, "HUD should still read the interaction prompt from snapshot data")
 	hud.free()
+
+
+func _test_hud_filters_world_messages_from_message_history(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	hud.call("_on_message", "Apex Shift 2D prototype ready")
+	hud.call("_on_message", "SmallPrey entered the ecosystem")
+	hud.call("_on_message", "Crafted torch")
+	hud.call("_on_message", "Collected wood x1")
+	hud.call("_on_message", "Ate meat")
+	hud.call("_on_game_event", "ecosystem_biome_stressed", {"biome_id": "westwood"})
+	var message_history: Array[String] = Array(hud.get("message_history"))
+	TEST_UTILS.expect_equal(message_history.size(), 3, failures, "HUD should keep only player-relevant messages in the history")
+	TEST_UTILS.expect_equal(message_history[0], "Crafted torch", failures, "HUD should preserve player action messages")
+	TEST_UTILS.expect_equal(message_history[1], "Collected wood x1", failures, "HUD should preserve collection messages")
+	TEST_UTILS.expect_equal(message_history[2], "Ate meat", failures, "HUD should preserve eating messages")
+	hud.queue_free()
 
 
 func _test_hud_creates_critical_health_overlay(failures: Array[String]) -> void:
