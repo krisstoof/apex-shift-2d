@@ -6,16 +6,16 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_SCALE := 3.0
 const BASE_WORLD_RECT := Rect2(-1440, -880, 2880, 1760)
 const WORLD_RECT := Rect2(BASE_WORLD_RECT.position * WORLD_SCALE, BASE_WORLD_RECT.size * WORLD_SCALE)
-const ISLAND_RADIUS_RATIO := 0.44
+const ISLAND_RADIUS_RATIO := 0.84
 const ISLAND_NOISE_SCALE := 0.0018
-const ISLAND_NOISE_STRENGTH := 0.22
-const DEEP_OCEAN_THRESHOLD := 0.14
-const SHALLOW_WATER_THRESHOLD := 0.26
-const SHORE_THRESHOLD := 0.36
+const ISLAND_NOISE_STRENGTH := 0.16
+const DEEP_OCEAN_THRESHOLD := 0.04
+const SHALLOW_WATER_THRESHOLD := 0.10
+const SHORE_THRESHOLD := 0.20
 const HIGHLAND_THRESHOLD := 0.72
 const INNER_POND_CHANCE_MULTIPLIER := 0.35
 const PLAYER_EDGE_PADDING := 40.0
-const PLAYER_START_POSITION := Vector2(-2450.0, 1450.0)
+const PLAYER_START_POSITION := Vector2(-260.0, 40.0)
 
 const TREE_COUNT := 48
 const ROCK_COUNT := 24
@@ -320,9 +320,9 @@ static func get_terrain_height(position: Vector2) -> float:
 	if island_radius <= 0.0:
 		return 0.0
 	var normalized_distance := position.distance_to(center) / island_radius
-	var falloff := clampf(normalized_distance, 0.0, 2.0)
+	var falloff := pow(clampf(normalized_distance, 0.0, 1.6), 1.45)
 	var noise_value := _get_island_noise().get_noise_2d(position.x * ISLAND_NOISE_SCALE, position.y * ISLAND_NOISE_SCALE)
-	return 1.0 - falloff + noise_value * ISLAND_NOISE_STRENGTH
+	return 1.04 - falloff + noise_value * ISLAND_NOISE_STRENGTH
 
 
 static func get_terrain_zone(position: Vector2) -> String:
@@ -655,8 +655,8 @@ static func _build_world_boundary_points() -> PackedVector2Array:
 static func _get_island_noise() -> FastNoiseLite:
 	if cached_island_noise == null:
 		cached_island_noise = FastNoiseLite.new()
-		cached_island_noise.seed = 224466
-		cached_island_noise.frequency = 0.6
+	cached_island_noise.seed = 224466
+	cached_island_noise.frequency = 0.6
 	return cached_island_noise
 
 
