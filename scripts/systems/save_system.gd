@@ -150,6 +150,7 @@ func _restore_player_data(player: Node, data: Dictionary) -> void:
 		player.inventory.add_item("stone", int(data.get("stone", 0)))
 		player.inventory.add_item("fiber", int(data.get("fiber", 0)))
 		player.inventory.add_item("meat", int(data.get("meat", 0)))
+		player.inventory.add_item("bone", int(data.get("bone", 0)))
 	player.has_spear = data.get("has_spear", player.has_spear) == true
 	player.has_bow = data.get("has_bow", player.has_bow) == true
 	player.torch_active = data.get("torch_active", player.torch_active) == true

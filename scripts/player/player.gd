@@ -556,7 +556,11 @@ func _craft(item_name: String) -> void:
 		get_node("/root/EventBus").post_message("Missing resources")
 		return
 	if item_name == "torch":
-		inventory.add_item("torch", 1)
+		var torch_leftover := inventory.add_item("torch", 1)
+		if torch_leftover > 0:
+			_refund_recipe_cost(recipe)
+			get_node("/root/EventBus").post_message("Inventory full")
+			return
 		get_node("/root/EventBus").emit_game_event("player_crafted_torch", {"count": inventory.get_amount("torch")})
 		get_node("/root/EventBus").post_message("Crafted torch")
 		return
@@ -689,6 +693,13 @@ func _pay_recipe_cost(costs: Dictionary) -> bool:
 		if not inventory.remove_item(str(item_id), amount):
 			return false
 	return true
+
+
+func _refund_recipe_cost(costs: Dictionary) -> void:
+	for item_id in costs.keys():
+		var amount := int(costs[item_id])
+		if amount > 0:
+			inventory.add_item(str(item_id), amount)
 
 
 func _on_interactable_entered(node: Node) -> void:

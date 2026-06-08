@@ -119,6 +119,7 @@ class VarnakSyncWorld:
 
 	var spawn_should_succeed := false
 	var player_position := Vector2.ZERO
+	var water_blocked := false
 
 	func _get_player_position() -> Vector2:
 		return player_position
@@ -135,8 +136,30 @@ class VarnakSyncWorld:
 	func _get_existing_varnak_positions() -> Array[Vector2]:
 		return []
 
-	func _try_spawn_varnak_in_dangerous_biome(_player_position: Vector2, _used_positions: Array[Vector2]) -> bool:
-		return spawn_should_succeed
+	func is_creature_spawn_blocked_by_water(_position: Vector2) -> bool:
+		return water_blocked
+
+	func _get_creature_horizon_spawn_ring() -> Vector2:
+		return Vector2(520.0, 640.0)
+
+	func _get_biome_for_position(_position: Vector2) -> Dictionary:
+		return {
+			"name": "Westwood",
+			"dangerous": false
+		}
+
+	func _get_scaled_biome_bounds(_biome: Dictionary) -> Rect2:
+		return Rect2(Vector2(-100.0, -100.0), Vector2(200.0, 200.0))
+
+	func _is_point_in_biome(_point: Vector2, _biome: Dictionary) -> bool:
+		return true
+
+	func _is_position_inside_camera_view(_position: Vector2, _margin: float = 0.0) -> bool:
+		return false
+
+	func _spawn_varnak_at(_pos: Vector2) -> Node:
+		spawn_should_succeed = true
+		return Node.new()
 
 
 class GraphicsSettingsStub:
@@ -203,6 +226,11 @@ func run() -> Array[String]:
 	_test_varnak_population_target_scales_with_day_and_caps(failures)
 	_test_varnak_spawn_chance_scales_with_day_and_caps(failures)
 	_test_varnak_spawn_budget_is_batched_and_stops_at_target(failures)
+	_test_varnak_can_spawn_in_non_dangerous_biome(failures)
+	_test_varnak_spawn_rejects_water(failures)
+	_test_varnak_spawn_respects_player_safe_distance(failures)
+	_test_varnak_dangerous_biome_has_higher_weight(failures)
+	_test_varnak_spawn_does_not_fail_when_player_far_from_redfang(failures)
 	_test_grazer_visible_target_tracks_model_population_and_biomass(failures)
 	_test_creature_spawn_horizon_stays_outside_camera_view(failures)
 	return failures
@@ -269,6 +297,41 @@ func _test_varnak_spawn_budget_is_batched_and_stops_at_target(failures: Array[St
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 0, 99)), 2, failures, "Missing Varnaks should be restored in small batches")
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 11, 99)), 1, failures, "The final recovery batch should not exceed the hard target")
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 12, 99)), 0, failures, "No Varnaks should spawn after reaching the hard target")
+	world.free()
+
+
+func _test_varnak_can_spawn_in_non_dangerous_biome(failures: Array[String]) -> void:
+	var world := VarnakSyncWorld.new()
+	world.player_position = Vector2(0.0, 0.0)
+	TEST_UTILS.expect(world.call("_try_spawn_varnak_in_world", world.player_position, []) == true, failures, "Varnaks should spawn in non-dangerous land biomes")
+	world.free()
+
+
+func _test_varnak_spawn_rejects_water(failures: Array[String]) -> void:
+	var world := VarnakSyncWorld.new()
+	world.water_blocked = true
+	TEST_UTILS.expect(not bool(world.call("_is_valid_varnak_spawn_position", Vector2.ZERO, Vector2.ZERO, [], WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE)), failures, "Varnak spawn should reject water and blocked terrain")
+	world.free()
+
+
+func _test_varnak_spawn_respects_player_safe_distance(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	TEST_UTILS.expect(not bool(world.call("_is_valid_varnak_spawn_position", Vector2(10.0, 0.0), Vector2.ZERO, [], WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE)), failures, "Varnak spawn should keep a safe distance from the player")
+	world.free()
+
+
+func _test_varnak_dangerous_biome_has_higher_weight(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var dangerous_weight := float(world.call("_get_varnak_biome_spawn_weight", {"name": "Redfang Wilds", "dangerous": true}))
+	var safe_weight := float(world.call("_get_varnak_biome_spawn_weight", {"name": "Westwood", "dangerous": false}))
+	TEST_UTILS.expect(dangerous_weight > safe_weight, failures, "Dangerous biomes should have a higher Varnak spawn weight")
+	world.free()
+
+
+func _test_varnak_spawn_does_not_fail_when_player_far_from_redfang(failures: Array[String]) -> void:
+	var world := VarnakSyncWorld.new()
+	world.player_position = Vector2(-1000.0, -700.0)
+	TEST_UTILS.expect(world.call("_try_spawn_varnak_in_world", world.player_position, []) == true, failures, "Varnak spawn should still succeed when the player is far from Redfang Wilds")
 	world.free()
 
 

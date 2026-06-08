@@ -153,7 +153,8 @@ func interact(player: Node) -> void:
 		return
 	get_node("/root/EventBus").post_message("Collected %s x%d" % [item_name, added_amount])
 	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
-		get_node("/root/EventBus").emit_game_event("meat_collected", {
+		var event_name := "bone_collected" if resource_kind == "bone_drop" else "meat_collected"
+		get_node("/root/EventBus").emit_game_event(event_name, {
 			"amount": added_amount,
 			"position": global_position
 		})

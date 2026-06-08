@@ -24,7 +24,7 @@ const ITEMS := {
 	},
 	"bone": {
 		"display_name": "Bone",
-		"icon": "",
+		"icon": "res://assets/icons/items/bone.png",
 		"max_stack": 20
 	},
 	"torch": {

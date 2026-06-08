@@ -139,6 +139,13 @@ const VARNAK_DAY_SCALING := {
 	"other_creature_min_distance": 140.0
 }
 
+const VARNAK_SPAWN := {
+	"default_biome_weight": 1.0,
+	"dangerous_biome_weight_multiplier": 3.0,
+	"fallback_attempt_multiplier": 3,
+	"avoid_camera_margin": 160.0
+}
+
 # Food values and decision thresholds for living creatures. Future creature AI
 # should read these instead of baking hunger and food-search numbers locally.
 const ANIMAL_AI := {

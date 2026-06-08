@@ -2157,21 +2157,95 @@ func _get_game_session() -> Node:
 	return get_node_or_null("/root/GameSession")
 
 
-func _try_spawn_varnak_in_dangerous_biome(player_position: Vector2, used_positions: Array[Vector2]) -> bool:
+func _try_spawn_varnak_in_world(player_position: Vector2, used_positions: Array[Vector2]) -> bool:
 	var spawn_ring := _get_creature_horizon_spawn_ring()
 	for _attempt in WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS:
 		var angle := varnak_rng.randf_range(0.0, TAU)
 		var distance := varnak_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + Vector2.RIGHT.rotated(angle) * distance
-		if not _is_point_in_dangerous_biome(candidate):
+		if _get_biome_for_position(candidate).is_empty():
 			continue
 		if not _is_valid_varnak_spawn_position(candidate, player_position, used_positions, spawn_ring.x):
+			continue
+		if _is_position_inside_camera_view(candidate, float(GAME_BALANCE.VARNAK_SPAWN.get("avoid_camera_margin", 160.0))):
 			continue
 		used_positions.append(candidate)
 		var varnak := _spawn_varnak_at(candidate)
 		varnak.set("hunger", varnak_rng.randf_range(0.12, 0.42))
 		varnak.set("energy", varnak_rng.randf_range(0.72, 0.96))
 		varnak.set("decision_reason", "entered_visible_area")
+		return true
+	return _try_spawn_varnak_in_weighted_biome(player_position, used_positions, spawn_ring)
+
+
+func _get_varnak_spawn_biomes() -> Array[Dictionary]:
+	var spawn_biomes: Array[Dictionary] = []
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		spawn_biomes.append(biome)
+	return spawn_biomes
+
+
+func _get_varnak_biome_spawn_weight(biome: Dictionary) -> float:
+	var base_weight := float(GAME_BALANCE.VARNAK_SPAWN.get("default_biome_weight", 1.0))
+	if biome.get("dangerous", false) == true:
+		base_weight *= float(GAME_BALANCE.VARNAK_SPAWN.get("dangerous_biome_weight_multiplier", 3.0))
+	var biome_id := _get_biome_id(biome)
+	match biome_id:
+		"redfang_wilds":
+			base_weight *= 1.25
+		"hearth_meadow":
+			base_weight *= 0.75
+		"westwood":
+			base_weight *= 0.90
+		"stoneback_ridge":
+			base_weight *= 1.00
+		"south_thicket":
+			base_weight *= 1.10
+	return maxf(base_weight, 0.0)
+
+
+func _pick_varnak_spawn_biome() -> Dictionary:
+	var biomes := _get_varnak_spawn_biomes()
+	if biomes.is_empty():
+		return {}
+	var total_weight := 0.0
+	for biome_value in biomes:
+		total_weight += _get_varnak_biome_spawn_weight(Dictionary(biome_value))
+	if total_weight <= 0.0:
+		return Dictionary(biomes[varnak_rng.randi_range(0, biomes.size() - 1)])
+	var roll := varnak_rng.randf() * total_weight
+	var cumulative := 0.0
+	for biome_value in biomes:
+		var biome := Dictionary(biome_value)
+		cumulative += _get_varnak_biome_spawn_weight(biome)
+		if roll <= cumulative:
+			return biome
+	return Dictionary(biomes.back())
+
+
+func _try_spawn_varnak_in_weighted_biome(player_position: Vector2, used_positions: Array[Vector2], spawn_ring: Vector2) -> bool:
+	var attempt_multiplier := int(GAME_BALANCE.VARNAK_SPAWN.get("fallback_attempt_multiplier", 3))
+	for _attempt in WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS * max(attempt_multiplier, 1):
+		var biome := _pick_varnak_spawn_biome()
+		if biome.is_empty():
+			return false
+		var bounds := _get_scaled_biome_bounds(biome)
+		var candidate := Vector2(
+			varnak_rng.randf_range(bounds.position.x, bounds.end.x),
+			varnak_rng.randf_range(bounds.position.y, bounds.end.y)
+		)
+		if not _is_point_in_biome(candidate, biome):
+			continue
+		if not _is_valid_varnak_spawn_position(candidate, player_position, used_positions, maxf(spawn_ring.x, WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE)):
+			continue
+		if _is_position_inside_camera_view(candidate, float(GAME_BALANCE.VARNAK_SPAWN.get("avoid_camera_margin", 160.0))):
+			continue
+		used_positions.append(candidate)
+		var varnak := _spawn_varnak_at(candidate)
+		varnak.set("hunger", varnak_rng.randf_range(0.12, 0.42))
+		varnak.set("energy", varnak_rng.randf_range(0.72, 0.96))
+		varnak.set("decision_reason", "weighted_biome_spawn")
 		return true
 	return false
 
@@ -2202,7 +2276,7 @@ func _sync_visible_varnaks(force_spawn_check := false) -> void:
 	var spawned := 0
 	var used_positions := _get_existing_varnak_positions()
 	for _i in spawn_budget:
-		if _try_spawn_varnak_in_dangerous_biome(player_position, used_positions):
+		if _try_spawn_varnak_in_world(player_position, used_positions):
 			spawned += 1
 	if spawned > 0:
 		var event_bus := _get_event_bus()
@@ -2549,6 +2623,21 @@ func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2, u
 			if creature and is_instance_valid(creature) and creature.global_position.distance_to(point) < other_creature_min_distance:
 				return false
 	return true
+
+
+func _is_position_inside_camera_view(position: Vector2, margin: float = 0.0) -> bool:
+	var player := get_tree().get_first_node_in_group("player") as Node2D
+	if player == null:
+		return false
+	var camera := player.get_node_or_null("Camera2D") as Camera2D
+	if camera == null:
+		return false
+	var viewport_size := get_viewport_rect().size
+	var zoom := camera.zoom
+	var safe_zoom := Vector2(maxf(absf(zoom.x), 0.01), maxf(absf(zoom.y), 0.01))
+	var visible_world_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y)
+	var rect := Rect2(camera.global_position - visible_world_size * 0.5, visible_world_size).grow(margin)
+	return rect.has_point(position)
 
 
 func _get_current_day() -> int:
