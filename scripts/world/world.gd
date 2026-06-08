@@ -98,9 +98,10 @@ const INITIAL_SPAWN_BATCH_SIZE := 4
 const INITIAL_BOOT_STEP_FRAME_BREAKS := 1
 const BIOME_TERRAIN_ACCENT_BUILD_BATCH_SIZE := 1
 const WATER_ZONE_LAND := "land"
+const WATER_ZONE_HIGHLAND := "highland"
 const WATER_ZONE_SHORE := "shore"
 const WATER_ZONE_SHALLOW := "shallow_water"
-const WATER_ZONE_DEEP := "deep_water"
+const WATER_ZONE_DEEP := "deep_ocean"
 
 var evolution_director: Node
 var day_night_system: Node
@@ -740,6 +741,7 @@ func _ensure_query_service():
 		HILL_VISUAL_Y_SCALE,
 		POND_VISUAL_Y_SCALE,
 		WATER_ZONE_LAND,
+		WATER_ZONE_HIGHLAND,
 		WATER_ZONE_SHORE,
 		WATER_ZONE_SHALLOW,
 		WATER_ZONE_DEEP
@@ -2576,12 +2578,19 @@ func _data_to_vector(data: Variant) -> Vector2:
 
 
 func _draw() -> void:
-	draw_rect(WORLD_CONFIG.WORLD_RECT, WORLD_CONFIG.OCEAN_COLOR, true)
+	var has_biome_blend_background := (
+		biome_textures_enabled
+		and is_instance_valid(biome_blend_background)
+		and biome_blend_background.visible
+		and biome_blend_background.texture != null
+	)
+	if not has_biome_blend_background:
+		draw_rect(WORLD_CONFIG.WORLD_RECT, WORLD_CONFIG.OCEAN_COLOR, true)
 	_draw_biomes()
 	_draw_landmarks()
 	if debug_landmark_overlay_enabled:
 		_draw_landmark_debug_overlay()
-	_draw_world_boundary()
+		_draw_world_boundary()
 
 
 func _get_night_amount() -> float:
