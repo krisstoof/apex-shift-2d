@@ -2648,11 +2648,17 @@ func _get_current_day() -> int:
 
 func _get_varnak_target_count(day: int) -> int:
 	var scaling := GameBalance.VARNAK_DAY_SCALING
-	var base_target := int(scaling.get("day_1_target", 2))
+	var normalized_day := maxi(day, 1)
+	if normalized_day <= 1:
+		return clampi(int(scaling.get("day_1_min", 0)), 0, int(scaling.get("day_1_max", 0)))
+	if normalized_day == 2:
+		return clampi(int(scaling.get("day_2_min", 1)), int(scaling.get("day_2_min", 1)), int(scaling.get("day_2_max", 2)))
+	if normalized_day == 3:
+		return clampi(int(scaling.get("day_3_min", 2)), int(scaling.get("day_3_min", 2)), int(scaling.get("day_3_max", 4)))
 	var daily_growth := int(scaling.get("daily_growth", 1))
 	var max_varnaks := int(scaling.get("max_varnaks", 12))
-	var normalized_day := maxi(day, 1)
-	return clampi(base_target + ((normalized_day - 1) * daily_growth), base_target, max_varnaks)
+	var day_three_cap := int(scaling.get("day_3_max", 4))
+	return clampi(day_three_cap + ((normalized_day - 3) * daily_growth), day_three_cap, max_varnaks)
 
 
 func _get_varnak_spawn_chance(day: int) -> float:
