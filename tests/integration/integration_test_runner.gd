@@ -10,6 +10,7 @@ const VARNAK_HUNTS_PREY_WHEN_HUNGRY_TESTS := preload("res://tests/integration/te
 const ANIMAL_DEATH_CREATES_MEAT_DROP_TESTS := preload("res://tests/integration/test_animal_death_creates_meat_drop.gd")
 const RESOURCE_REGROWTH_ADVANCES_AFTER_DAY_PROGRESSION_TESTS := preload("res://tests/integration/test_resource_regrowth_advances_after_day_progression.gd")
 const SAVE_LOAD_RESTORES_ECOSYSTEM_STATE_TESTS := preload("res://tests/integration/test_save_load_restores_ecosystem_state.gd")
+const SAVE_LOAD_ECOSYSTEM_AFTER_DAYS_TESTS := preload("res://tests/integration/test_save_load_ecosystem_after_days.gd")
 const MINIMAP_RENDERS_WITH_LANDMARKS_TESTS := preload("res://tests/integration/test_minimap_renders_with_landmarks.gd")
 
 
@@ -29,6 +30,7 @@ func _run_tests() -> void:
 	await _run_suite("AnimalDeathCreatesMeatDrop", ANIMAL_DEATH_CREATES_MEAT_DROP_TESTS, failures)
 	await _run_suite("ResourceRegrowthAdvancesAfterDayProgression", RESOURCE_REGROWTH_ADVANCES_AFTER_DAY_PROGRESSION_TESTS, failures)
 	await _run_suite("SaveLoadRestoresEcosystemState", SAVE_LOAD_RESTORES_ECOSYSTEM_STATE_TESTS, failures)
+	await _run_suite("SaveLoadEcosystemAfterDays", SAVE_LOAD_ECOSYSTEM_AFTER_DAYS_TESTS, failures)
 	await _run_suite("MinimapRendersWithLandmarks", MINIMAP_RENDERS_WITH_LANDMARKS_TESTS, failures)
 	if failures.is_empty():
 		_cleanup_autoloads()
