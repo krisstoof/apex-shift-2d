@@ -66,6 +66,25 @@ var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
 
 
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
+
+
 func _ready() -> void:
 	add_to_group("small_prey")
 	rng.randomize()
@@ -402,7 +421,7 @@ func _consume_plants() -> void:
 	last_food_source = "plants"
 	eat_cooldown = eat_interval_seconds
 	var current_biome_id := _get_current_biome_id()
-	get_node("/root/EventBus").emit_game_event("small_prey_consumed_plants", {
+	_emit_game_event("small_prey_consumed_plants", {
 		"biome_id": current_biome_id,
 		"position": global_position,
 		"plant_consumption_rate": plant_consumption_rate,
@@ -627,7 +646,7 @@ func _die(source: String) -> void:
 		event_name = "small_prey_killed_by_varnak"
 	elif source == "grazer":
 		event_name = "small_prey_killed_by_grazer"
-	get_node("/root/EventBus").emit_game_event(event_name, {
+	_emit_game_event(event_name, {
 		"biome_id": _get_current_biome_id(),
 		"species_id": species_id,
 		"generation": generation,
@@ -635,7 +654,7 @@ func _die(source: String) -> void:
 		"position": global_position,
 		"source": source
 	})
-	get_node("/root/EventBus").post_message("Small prey killed")
+	_post_event_message("Small prey killed")
 	queue_free()
 
 

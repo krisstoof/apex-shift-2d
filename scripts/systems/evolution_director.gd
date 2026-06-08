@@ -13,11 +13,32 @@ var days_since_generation := 0
 var days_until_next_generation := 0
 var rng := RandomNumberGenerator.new()
 
+
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
+
 func _ready() -> void:
 	rng.randomize()
 	days_until_next_generation = _roll_generation_interval()
 	species_profile = _load_default_profile()
-	get_node("/root/EventBus").game_event.connect(_on_game_event)
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_signal("game_event"):
+		event_bus.game_event.connect(_on_game_event)
 
 
 func get_profile() -> Dictionary:
@@ -56,8 +77,8 @@ func force_generation_change() -> void:
 func debug_increase_adaptation() -> void:
 	for key in ["aggression", "trap_awareness", "pack_coordination", "night_activity", "base_curiosity", "stalk_tendency"]:
 		species_profile[key] = _clamp_profile(key, GAME_BALANCE.ADAPTATION_DEBUG_GROWTH)
-	get_node("/root/EventBus").emit_game_event("debug_adaptation_increased", {"profile": get_profile()})
-	get_node("/root/EventBus").post_message("Debug adaptation increased")
+	_emit_game_event("debug_adaptation_increased", {"profile": get_profile()})
+	_post_event_message("Debug adaptation increased")
 	profile_changed.emit(get_profile())
 
 
@@ -98,15 +119,15 @@ func _change_generation(reason: String) -> void:
 	wall_attacks = 0
 	days_since_generation = 0
 	days_until_next_generation = _roll_generation_interval()
-	get_node("/root/EventBus").emit_game_event("generation_changed", {"profile": get_profile(), "reason": reason})
-	get_node("/root/EventBus").emit_game_event("center_notification", {"text": "Generation %d evolved" % int(species_profile.get("generation", 1))})
-	get_node("/root/EventBus").post_message("Generation changed")
+	_emit_game_event("generation_changed", {"profile": get_profile(), "reason": reason})
+	_emit_game_event("center_notification", {"text": "Generation %d evolved" % int(species_profile.get("generation", 1))})
+	_post_event_message("Generation changed")
 	if adapted_to_traps:
-		get_node("/root/EventBus").post_message("Varnaks adapted to traps")
+		_post_event_message("Varnaks adapted to traps")
 	if adapted_to_fire:
-		get_node("/root/EventBus").post_message("Varnaks are less afraid of fire")
+		_post_event_message("Varnaks are less afraid of fire")
 	if adapted_to_player:
-		get_node("/root/EventBus").post_message("Varnaks became more aggressive")
+		_post_event_message("Varnaks became more aggressive")
 	profile_changed.emit(get_profile())
 
 

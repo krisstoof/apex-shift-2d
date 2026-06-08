@@ -17,26 +17,35 @@ const BUILDING_GROUPS := {
 }
 
 
+func _post_event_message(message: String) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var event_bus := tree.root.get_node_or_null("EventBus")
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
 func save_game() -> void:
 	var data := _collect_save_data()
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if not file:
-		get_node("/root/EventBus").post_message("Could not save game")
+		_post_event_message("Could not save game")
 		return
 	file.store_string(JSON.stringify(data, "\t"))
-	get_node("/root/EventBus").post_message("Game saved")
+	_post_event_message("Game saved")
 
 
 func load_game() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
-		get_node("/root/EventBus").post_message("No save file found")
+		_post_event_message("No save file found")
 		return
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
 	if typeof(parsed) != TYPE_DICTIONARY:
-		get_node("/root/EventBus").post_message("Save file is invalid")
+		_post_event_message("Save file is invalid")
 		return
 	await _restore_save_data(Dictionary(parsed))
-	get_node("/root/EventBus").post_message("Game loaded")
+	_post_event_message("Game loaded")
 
 
 func _collect_save_data() -> Dictionary:

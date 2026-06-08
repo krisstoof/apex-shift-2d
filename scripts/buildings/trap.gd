@@ -2,6 +2,15 @@ extends Area2D
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
+
+func _post_event_message(message: String) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var event_bus := tree.root.get_node_or_null("EventBus")
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
 @export var damage := GAME_BALANCE.TRAP_DAMAGE
 var armed := true
 
@@ -17,7 +26,7 @@ func _on_body_entered(body: Node) -> void:
 	if body.is_in_group("varnak") and body.has_method("take_damage"):
 		armed = false
 		body.take_damage(damage, "trap")
-		get_node("/root/EventBus").post_message("Trap triggered")
+		_post_event_message("Trap triggered")
 		queue_free()
 
 

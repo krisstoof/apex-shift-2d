@@ -64,6 +64,25 @@ var is_dead := false
 var meat_diet := 1.0
 var scavenger_diet := 0.45
 
+
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
+
 func _ready() -> void:
 	add_to_group("varnak")
 	player = get_tree().get_first_node_in_group("player")
@@ -260,8 +279,8 @@ func _update_state() -> void:
 		decision_reason = "active_campfire_fear"
 		state = State.FLEE
 		if randf() < 0.012:
-			get_node("/root/EventBus").emit_game_event("varnak_scared_by_fire", {"position": global_position})
-			get_node("/root/EventBus").post_message("Varnak scared by fire")
+			_emit_game_event("varnak_scared_by_fire", {"position": global_position})
+			_post_event_message("Varnak scared by fire")
 		return
 	if state == State.FLEE:
 		decision_reason = "threat_lost_return_wander"
@@ -350,7 +369,7 @@ func _act(delta: float) -> void:
 			_face_target(player.global_position)
 			if attack_cooldown <= 0.0 and player.has_method("receive_damage") and _is_player_in_attack_arc():
 				player.receive_damage(10.0 + aggression * 8.0, "varnak")
-				get_node("/root/EventBus").emit_game_event("varnak_attacked_player", {"damage": 10.0 + aggression * 8.0})
+				_emit_game_event("varnak_attacked_player", {"damage": 10.0 + aggression * 8.0})
 				attack_visual_time = ATTACK_VISUAL_DURATION
 				queue_redraw()
 				attack_cooldown = 1.2 * (GAME_BALANCE.TORCH_ATTACK_COOLDOWN_MULTIPLIER if _is_torch_protecting_player(global_position.distance_to(player.global_position)) else 1.0)
@@ -421,8 +440,8 @@ func _hunt_ecosystem_target() -> void:
 		eat_visual_time = EAT_VISUAL_DURATION
 		last_food_source = "%s_meat" % hunted_kind
 		var event_name := "varnak_hunted_grazer" if hunted_kind == "grazer" else "varnak_hunted_small_prey"
-		get_node("/root/EventBus").emit_game_event(event_name, {"position": global_position})
-		get_node("/root/EventBus").post_message("Varnak hunted %s" % ("Grazer" if hunted_kind == "grazer" else "SmallPrey"))
+		_emit_game_event(event_name, {"position": global_position})
+		_post_event_message("Varnak hunted %s" % ("Grazer" if hunted_kind == "grazer" else "SmallPrey"))
 		attack_visual_time = ATTACK_VISUAL_DURATION
 		attack_cooldown = 1.0
 		ecosystem_target = null
@@ -506,11 +525,11 @@ func _consume_meat_target() -> void:
 	energy = clamp(energy + eaten_food * 0.34, 0.0, 1.0)
 	eat_visual_time = EAT_VISUAL_DURATION
 	last_food_source = "meat_drop"
-	get_node("/root/EventBus").emit_game_event("varnak_scavenged_meat", {
+	_emit_game_event("varnak_scavenged_meat", {
 		"position": global_position,
 		"nutrition": eaten_food
 	})
-	get_node("/root/EventBus").post_message("Varnak ate meat")
+	_post_event_message("Varnak ate meat")
 	meat_target = null
 
 
@@ -947,14 +966,14 @@ func _die(source: String) -> void:
 	_drop_meat_once()
 	_drop_bone_once()
 	var event_name := "varnak_killed_by_trap" if source == "trap" else "varnak_killed_by_player"
-	get_node("/root/EventBus").emit_game_event(event_name, {
+	_emit_game_event(event_name, {
 		"position": global_position,
 		"biome_id": _get_current_biome_id(),
 		"species_id": species_id,
 		"generation": generation,
 		"fitness_score": _get_fitness_score()
 	})
-	get_node("/root/EventBus").post_message("Varnak killed by %s" % source)
+	_post_event_message("Varnak killed by %s" % source)
 	if is_instance_valid(player) and global_position.distance_to(player.global_position) < 90.0:
 		player.inventory.add_item("hide", 1)
 	queue_free()

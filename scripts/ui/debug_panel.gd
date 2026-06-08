@@ -387,11 +387,12 @@ func _build_player_text() -> String:
 		("%.0fpx" % float(player_snapshot.get("campfire_regen_distance", -1.0))) if float(player_snapshot.get("campfire_regen_distance", -1.0)) >= 0.0 else _get_campfire_regen_distance_text()
 	])
 	lines.append("Inventory")
-	lines.append("Wood %d | Stone %d | Fiber %d | Meat %d" % [
+	lines.append("Wood %d | Stone %d | Fiber %d | Meat %d | Bone %d" % [
 		int(inventory_snapshot.get("wood", _get_item_count("wood"))),
 		int(inventory_snapshot.get("stone", _get_item_count("stone"))),
 		int(inventory_snapshot.get("fiber", _get_item_count("fiber"))),
-		int(inventory_snapshot.get("meat", _get_item_count("meat")))
+		int(inventory_snapshot.get("meat", _get_item_count("meat"))),
+		int(inventory_snapshot.get("bone", _get_item_count("bone")))
 	])
 	lines.append("Torch %d | %s" % [
 		int(inventory_snapshot.get("torch", _get_item_count("torch"))),

@@ -75,6 +75,25 @@ var ai_decision_count := 0
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
 
+
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
+
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
 
 
@@ -425,7 +444,7 @@ func _hunt_small_prey() -> void:
 		_sync_hunger_fields()
 		eat_visual_time = eat_visual_duration
 		last_food_source = "small_prey_meat"
-		get_node("/root/EventBus").emit_game_event("grazer_hunted_small_prey", {
+		_emit_game_event("grazer_hunted_small_prey", {
 			"biome_id": _get_current_biome_id(),
 			"position": global_position
 		})
@@ -499,7 +518,7 @@ func _consume_plants() -> void:
 	_sync_hunger_fields()
 	eat_visual_time = eat_visual_duration
 	last_food_source = "plants"
-	get_node("/root/EventBus").emit_game_event("grazer_consumed_plants", {
+	_emit_game_event("grazer_consumed_plants", {
 		"biome_id": _get_current_biome_id(),
 		"position": global_position,
 		"plant_consumption_rate": plant_consumption_rate,
@@ -715,7 +734,7 @@ func _consume_meat_target() -> void:
 	_sync_hunger_fields()
 	eat_visual_time = eat_visual_duration
 	last_food_source = "meat_drop"
-	get_node("/root/EventBus").emit_game_event("grazer_scavenged", {
+	_emit_game_event("grazer_scavenged", {
 		"biome_id": _get_current_biome_id(),
 		"position": global_position,
 		"food_source": "meat_drop",
@@ -889,7 +908,7 @@ func _die(source: String) -> void:
 	state = State.DEAD
 	_drop_meat_once()
 	var event_name := "grazer_killed_by_varnak" if source == "varnak" else "grazer_killed_by_player"
-	get_node("/root/EventBus").emit_game_event(event_name, {
+	_emit_game_event(event_name, {
 		"biome_id": _get_current_biome_id(),
 		"species_id": species_id,
 		"generation": generation,
@@ -897,7 +916,7 @@ func _die(source: String) -> void:
 		"position": global_position,
 		"source": source
 	})
-	get_node("/root/EventBus").post_message("Grazer killed")
+	_post_event_message("Grazer killed")
 	queue_free()
 
 
