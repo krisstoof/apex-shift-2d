@@ -4,11 +4,11 @@ class_name WorldConfig
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
 const WORLD_SCALE := 3.0
-const BASE_WORLD_RECT := Rect2(-1440, -880, 2880, 1760)
+const BASE_WORLD_RECT := Rect2(-1680, -1040, 3360, 2080)
 const WORLD_RECT := Rect2(BASE_WORLD_RECT.position * WORLD_SCALE, BASE_WORLD_RECT.size * WORLD_SCALE)
-const ISLAND_RADIUS_RATIO := 0.84
-const ISLAND_NOISE_SCALE := 0.0018
-const ISLAND_NOISE_STRENGTH := 0.16
+const ISLAND_RADIUS_RATIO := 0.76
+const ISLAND_NOISE_SCALE := 0.0024
+const ISLAND_NOISE_STRENGTH := 0.24
 const DEEP_OCEAN_THRESHOLD := 0.04
 const SHALLOW_WATER_THRESHOLD := 0.10
 const SHORE_THRESHOLD := 0.20
@@ -298,9 +298,9 @@ const BIOME_ZONES := [
 	}
 ]
 
-const BIOME_EDGE_SUBDIVISIONS := 8
-const BIOME_EDGE_JITTER := 60.0
-const BIOME_EDGE_NOISE_SCALE := 0.021
+const BIOME_EDGE_SUBDIVISIONS := 10
+const BIOME_EDGE_JITTER := 90.0
+const BIOME_EDGE_NOISE_SCALE := 0.028
 const OCEAN_COLOR := Color(0.08, 0.22, 0.40)
 
 static var cached_organic_biome_zones: Array[Dictionary] = []
@@ -321,8 +321,11 @@ static func get_terrain_height(position: Vector2) -> float:
 		return 0.0
 	var normalized_distance := position.distance_to(center) / island_radius
 	var falloff := pow(clampf(normalized_distance, 0.0, 1.6), 1.45)
-	var noise_value := _get_island_noise().get_noise_2d(position.x * ISLAND_NOISE_SCALE, position.y * ISLAND_NOISE_SCALE)
-	return 1.04 - falloff + noise_value * ISLAND_NOISE_STRENGTH
+	var island_noise := _get_island_noise()
+	var base_noise := island_noise.get_noise_2d(position.x * ISLAND_NOISE_SCALE, position.y * ISLAND_NOISE_SCALE)
+	var detail_noise := island_noise.get_noise_2d(position.x * ISLAND_NOISE_SCALE * 2.8, position.y * ISLAND_NOISE_SCALE * 2.8)
+	var combined_noise := base_noise * 0.75 + detail_noise * 0.25
+	return 1.04 - falloff + combined_noise * ISLAND_NOISE_STRENGTH
 
 
 static func get_terrain_zone(position: Vector2) -> String:
