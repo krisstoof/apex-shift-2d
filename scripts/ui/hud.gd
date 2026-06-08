@@ -904,6 +904,7 @@ func open_storage_box(p_player_inventory: Variant, p_storage_inventory: Variant,
 		storage_box_screen.open_storage_box()
 	else:
 		storage_box_screen.visible = true
+		storage_box_screen.show()
 	storage_box_screen.move_to_front()
 	print("[HUD_STORAGE_DEBUG] storage_box_screen.visible=", storage_box_screen.visible)
 	_set_inventory_screen_open(false)

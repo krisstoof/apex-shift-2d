@@ -21,8 +21,14 @@ var storage_slots: Array[Control] = []
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+	offset_left = 0
+	offset_top = 0
+	offset_right = 0
+	offset_bottom = 0
 	visible = false
 	_build_ui()
+	print("[STORAGE_UI_DEBUG] ready child_count=", get_child_count())
 
 
 func setup(p_player_inventory: Variant, p_storage_inventory: Variant, p_storage_box: Node = null) -> void:
@@ -34,12 +40,37 @@ func setup(p_player_inventory: Variant, p_storage_inventory: Variant, p_storage_
 
 
 func open_storage_box() -> void:
+	print("[STORAGE_UI_DEBUG] open_storage_box called")
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+	offset_left = 0
+	offset_top = 0
+	offset_right = 0
+	offset_bottom = 0
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = true
+	show()
+	move_to_front()
+	if backdrop != null:
+		backdrop.visible = true
+		backdrop.show()
+		backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+		backdrop.offset_left = 0
+		backdrop.offset_top = 0
+		backdrop.offset_right = 0
+		backdrop.offset_bottom = 0
+	if panel != null:
+		panel.visible = true
+		panel.show()
+		panel.move_to_front()
 	refresh()
+	print("[STORAGE_UI_DEBUG] visible=", visible)
+	print("[STORAGE_UI_DEBUG] child_count=", get_child_count())
 
 
 func close_storage_box() -> void:
 	visible = false
+	hide()
 
 
 func refresh() -> void:
