@@ -30,6 +30,7 @@ func run() -> Array[String]:
 	_test_resource_service_builds_save_data_from_valid_resources(failures)
 	_test_resource_service_normalizes_restore_data(failures)
 	_test_resource_service_builds_restore_plan_with_position_callback(failures)
+	_test_resource_service_builds_restore_plan_with_single_argument_callback(failures)
 	_test_resource_service_applies_restore_data_to_valid_resource_nodes(failures)
 	_test_resource_service_applies_restore_plan_via_callbacks(failures)
 	_test_resource_service_restores_resources_from_raw_data_end_to_end(failures)
@@ -147,6 +148,23 @@ func _test_resource_service_builds_restore_plan_with_position_callback(failures:
 		TEST_UTILS.expect_equal(str(second.get("resource_kind", "")), "bush", failures, "ResourceService should preserve resource kind for later restore entries")
 		TEST_UTILS.expect_close(float(second_position.get("x", 0.0)), 45.0, failures, "ResourceService should normalize second restore position X through the callback")
 		TEST_UTILS.expect_close(float(second_position.get("y", 0.0)), 12.0, failures, "ResourceService should normalize second restore position Y through the callback")
+
+
+func _test_resource_service_builds_restore_plan_with_single_argument_callback(failures: Array[String]) -> void:
+	var service := RESOURCE_SERVICE.new()
+	var restore_plan := service.build_restore_plan(
+		[
+			{
+				"kind": "grass_patch",
+				"position": {"x": 12.0, "y": -8.0},
+				"harvested": false
+			}
+		],
+		func(resource_kind: String) -> Dictionary:
+			TEST_UTILS.expect_equal(resource_kind, "grass_patch", failures, "ResourceService should support single-argument position callbacks in tests")
+			return {"x": 13.0, "y": -9.0}
+	)
+	TEST_UTILS.expect_equal(restore_plan.size(), 1, failures, "ResourceService should still build restore plans with a one-argument normalizer")
 
 
 func _test_resource_service_applies_restore_data_to_valid_resource_nodes(failures: Array[String]) -> void:

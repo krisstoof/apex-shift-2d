@@ -291,9 +291,7 @@ func _apply_growth_stage() -> void:
 	color = mature_color.darkened(0.45 if growth_stage <= 0 else 0.0).lerp(mature_color, _get_growth_ratio())
 	radius = max(mature_radius * _get_visual_scale(), 5.0)
 	_sync_collision_shape_radius()
-	var shape := _get_collision_shape()
-	if shape:
-		shape.disabled = render_only or not player_harvestable or not can_be_harvested
+	_sync_collision_state(true)
 	_sync_resource_groups()
 	_sync_visual_sprite()
 	queue_redraw()
@@ -451,6 +449,11 @@ func is_render_only_resource() -> bool:
 	return render_only
 
 
+func set_visibility_culled(is_visible: bool) -> void:
+	visible = is_visible
+	_sync_collision_state(is_visible)
+
+
 func _is_render_only_kind() -> bool:
 	return resource_kind in ["grass_patch", "dense_grass"]
 
@@ -549,6 +552,13 @@ func _get_collision_shape() -> CollisionShape2D:
 		return collision_shape
 	collision_shape = get_node_or_null("CollisionShape2D") as CollisionShape2D
 	return collision_shape
+
+
+func _sync_collision_state(is_visible: bool) -> void:
+	var shape := _get_collision_shape()
+	if shape == null:
+		return
+	shape.disabled = (not is_visible) or render_only or not player_harvestable or not can_be_harvested
 
 
 func _get_biome_id_for_position(position: Vector2) -> String:

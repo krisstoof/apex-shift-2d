@@ -217,6 +217,10 @@ func force_ai_decision_for_tests() -> void:
 	_update_state()
 
 
+func _should_update_ai_decision(delta: float) -> bool:
+	return ai_decision_timer - delta <= 0.0
+
+
 func get_ai_performance_debug() -> Dictionary:
 	return {
 		"decision_interval": ai_decision_interval,

@@ -332,8 +332,11 @@ func _update_group_visibility_by_rect(group_name: String, visible_rect: Rect2, i
 		var node_2d := node as Node2D
 		if node_2d == null:
 			continue
-		var should_be_visible := visible_rect.has_point(node_2d.global_position)
-		node_2d.visible = should_be_visible
+		var should_be_visible := visible_rect.grow(128.0).has_point(node_2d.global_position)
+		if is_resource_group and node.has_method("set_visibility_culled"):
+			node.call("set_visibility_culled", should_be_visible)
+		else:
+			node_2d.visible = should_be_visible
 		if is_resource_group:
 			if should_be_visible:
 				visibility_cull_last_visible_resources += 1
@@ -2939,23 +2942,16 @@ func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color
 			return Color(0.11, 0.30, 0.50)
 		"shore":
 			return Color(0.64, 0.60, 0.38)
-	var nearest_index := -1
-	var nearest_distance := INF
 	for i in biome_zones.size():
 		var biome: Dictionary = biome_zones[i]
+		var bounds := Rect2(biome.get("bounds", Rect2()))
+		if not bounds.has_point(position):
+			continue
 		var points := PackedVector2Array(biome["points"])
 		if Geometry2D.is_point_in_polygon(position, points):
 			var visual_color := _get_biome_visual_color(biome)
 			return _get_biome_terrain_color(biome, position, visual_color)
-		var edge_distance := _get_point_polygon_edge_distance(position, points)
-		if edge_distance < nearest_distance:
-			nearest_distance = edge_distance
-			nearest_index = i
-	if nearest_index >= 0:
-		var nearest_biome: Dictionary = biome_zones[nearest_index]
-		var visual_color := _get_biome_visual_color(nearest_biome)
-		return _get_biome_terrain_color(nearest_biome, position, visual_color)
-	return Color.BLACK
+	return Color(0.18, 0.28, 0.13)
 
 
 func _get_point_polygon_edge_distance(point: Vector2, points: PackedVector2Array) -> float:
@@ -2979,7 +2975,7 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 func _get_biome_colors_key() -> String:
 	var parts: Array[String] = []
 	for biome in WORLD_CONFIG.get_biome_zones():
-		var color := _get_biome_visual_color(biome)
+		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f:%s" % [color.r, color.g, color.b, _get_biome_terrain_texture_key(biome)])
 	parts.append("texture_balance:%.2f:%.2f:%.2f:%.2f:%d" % [
 		float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)),
