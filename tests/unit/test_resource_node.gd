@@ -10,13 +10,14 @@ class TestEventBus:
 
 	var last_event_name := ""
 	var last_event_payload: Dictionary = {}
+	var last_message := ""
 
 	func emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
 		last_event_name = event_name
 		last_event_payload = payload.duplicate(true)
 
 	func post_message(_message: String) -> void:
-		pass
+		last_message = _message
 
 
 class TestPlayer:
@@ -34,6 +35,7 @@ func run() -> Array[String]:
 	_test_resource_node_syncs_collision_radius_with_growth(failures)
 	_test_resource_node_uses_shared_atlas_and_depleted_region(failures)
 	_test_resource_node_emits_bone_collected_for_bone_drop(failures)
+	_test_resource_node_reports_inventory_full_when_pickup_does_not_fit(failures)
 	return failures
 
 
@@ -197,6 +199,33 @@ func _test_resource_node_emits_bone_collected_for_bone_drop(failures: Array[Stri
 	resource.call("interact", player)
 	TEST_UTILS.expect_equal(event_bus.last_event_name, "bone_collected", failures, "Bone drops should emit a bone_collected event")
 	TEST_UTILS.expect_equal(int(player.inventory.get_amount("bone")), 1, failures, "Bone pickup should add bone to inventory")
+	resource.queue_free()
+	player.queue_free()
+	event_bus.queue_free()
+	if previous_event_bus != null:
+		previous_event_bus.name = "EventBus"
+
+
+func _test_resource_node_reports_inventory_full_when_pickup_does_not_fit(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var previous_event_bus := tree.root.get_node_or_null("EventBus")
+	if previous_event_bus != null:
+		previous_event_bus.name = "LiveEventBus"
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	tree.root.add_child(event_bus)
+	var player := TestPlayer.new()
+	tree.current_scene.add_child(player)
+	for i in range(9):
+		player.inventory.add_item("wood", 20)
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	tree.current_scene.add_child(resource)
+	resource.call("setup", "bone_drop")
+	resource.set("amount", 1)
+	resource.call("interact", player)
+	TEST_UTILS.expect_equal(event_bus.last_message, "Inventory full", failures, "Full inventory should report an inventory full message")
+	TEST_UTILS.expect_equal(int(player.inventory.get_amount("bone")), 0, failures, "Full inventory should not add a pickup when no space exists")
+	TEST_UTILS.expect(resource.is_inside_tree(), failures, "Pickup should remain in the world when nothing was added")
 	resource.queue_free()
 	player.queue_free()
 	event_bus.queue_free()

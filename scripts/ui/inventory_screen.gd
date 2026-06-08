@@ -166,6 +166,7 @@ func _create_slot() -> PanelContainer:
 	slot.add_theme_stylebox_override("panel", slot_style)
 
 	var container := Control.new()
+	container.name = "Content"
 	container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	slot.add_child(container)
 
@@ -242,8 +243,8 @@ func _clear_slots() -> void:
 func _set_slot_item(slot: Control, item_id: String, count: int) -> void:
 	if slot == null:
 		return
-	var icon: TextureRect = slot.get_node_or_null("Icon")
-	var count_label: Label = slot.get_node_or_null("CountLabel")
+	var icon: TextureRect = slot.get_node_or_null("Content/Icon")
+	var count_label: Label = slot.get_node_or_null("Content/CountLabel")
 	if icon != null:
 		var icon_path := ITEM_DATABASE.get_icon_path(item_id)
 		icon.texture = load(icon_path) if not icon_path.is_empty() else null
@@ -256,8 +257,8 @@ func _set_slot_item(slot: Control, item_id: String, count: int) -> void:
 func _clear_slot(slot: Control) -> void:
 	if slot == null:
 		return
-	var icon: TextureRect = slot.get_node_or_null("Icon")
-	var count_label: Label = slot.get_node_or_null("CountLabel")
+	var icon: TextureRect = slot.get_node_or_null("Content/Icon")
+	var count_label: Label = slot.get_node_or_null("Content/CountLabel")
 	if icon != null:
 		icon.texture = null
 		icon.visible = false

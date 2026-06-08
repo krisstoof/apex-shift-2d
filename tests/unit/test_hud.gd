@@ -205,6 +205,8 @@ func _test_hud_inventory_screen_lists_inventory_items(failures: Array[String]) -
 		TEST_UTILS.expect_equal((slot6.get_node("CountLabel") as Label).text, "", failures, "Bone x3 should fit into a single slot without stack label")
 		TEST_UTILS.expect_equal((slot7.get_node("CountLabel") as Label).text, "", failures, "Torch x1 should fit into a single slot without stack label")
 		TEST_UTILS.expect_equal((slot8.get_node("CountLabel") as Label).text, "", failures, "The last slot should remain empty")
+		TEST_UTILS.expect(slot0.get_node_or_null("Content/Icon") != null, failures, "Inventory slot should expose Content/Icon")
+		TEST_UTILS.expect(slot0.get_node_or_null("Content/CountLabel") != null, failures, "Inventory slot should expose Content/CountLabel")
 	TEST_UTILS.expect_equal(info_label.visible, false, failures, "Inventory screen should hide the overflow label when everything fits in 9 slots")
 	player.inventory.add_item("wood", 200)
 	inventory_screen.call("refresh")

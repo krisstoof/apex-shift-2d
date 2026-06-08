@@ -366,9 +366,15 @@ func debug_add_item(item_name: String, amount := 1) -> void:
 		debug_add_bow()
 		return
 	else:
-		inventory.add_item(item_name, amount)
+		var remaining := inventory.add_item(item_name, amount)
+		var added := amount - remaining
+		if added > 0:
+			_post_event_message("Debug added %s x%d" % [item_name, added])
+		if remaining > 0:
+			_post_event_message("Inventory full")
 	_emit_game_event("debug_item_added", {"item": item_name, "amount": amount})
-	_post_event_message("Debug added %s" % item_name)
+	if item_name == "spear":
+		_post_event_message("Debug added %s" % item_name)
 
 
 func debug_add_bow() -> void:

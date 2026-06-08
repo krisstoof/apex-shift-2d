@@ -257,7 +257,7 @@ func _connect_inventory_changed() -> void:
 
 func _on_inventory_changed() -> void:
 	_refresh_resource_panel()
-	if inventory_screen != null and inventory_screen.visible and inventory_screen.has_method("refresh_from_inventory"):
+	if inventory_screen != null and inventory_screen.visible and inventory_screen.has_method("refresh"):
 		inventory_screen.refresh()
 
 
@@ -857,7 +857,7 @@ func _set_inventory_screen_open(open: bool) -> void:
 	if open:
 		_set_map_screen_open(false)
 		_set_pause_menu_open(false)
-		if inventory_screen.has_method("refresh_from_inventory"):
+		if inventory_screen.has_method("refresh"):
 			inventory_screen.refresh()
 	_update_tree_paused()
 
