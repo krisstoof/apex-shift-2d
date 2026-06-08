@@ -46,6 +46,15 @@ class TestWorld:
 		return query_service
 
 
+class TestEventBus:
+	extends Node
+
+	var last_message := ""
+
+	func post_message(message: String) -> void:
+		last_message = message
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_player_stats_initial_state(failures)
@@ -62,6 +71,7 @@ func run() -> Array[String]:
 	_test_player_starvation_damage_is_slow_enough(failures)
 	_test_player_campfire_regen_speeds_up_health_recovery(failures)
 	_test_player_debug_item_helpers(failures)
+	_test_player_debug_add_item_reports_full_inventory(failures)
 	_test_player_visual_layout_looks_human_like(failures)
 	_test_player_campfire_regen_uses_low_frequency_cached_refresh(failures)
 	_test_player_prefers_world_query_service_for_terrain_reads(failures)
@@ -270,6 +280,26 @@ func _test_player_debug_item_helpers(failures: Array[String]) -> void:
 	player.debug_add_item("bow")
 	TEST_UTILS.expect(player.has_bow, failures, "Debug item helper should equip a bow")
 	player.queue_free()
+
+
+func _test_player_debug_add_item_reports_full_inventory(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var previous_event_bus := tree.root.get_node_or_null("EventBus")
+	if previous_event_bus != null:
+		previous_event_bus.name = "LiveEventBus"
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	tree.root.add_child(event_bus)
+	var player := _make_player()
+	for i in range(9):
+		player.inventory.add_item("wood", 20)
+	player.debug_add_item("wood", 1)
+	TEST_UTILS.expect_equal(event_bus.last_message, "Inventory full", failures, "Debug add item should report full inventory when nothing fits")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("wood"), 180, failures, "Debug add item should not change a full inventory")
+	player.queue_free()
+	event_bus.queue_free()
+	if previous_event_bus != null:
+		previous_event_bus.name = "EventBus"
 
 
 func _test_player_visual_layout_looks_human_like(failures: Array[String]) -> void:

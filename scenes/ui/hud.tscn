@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/ui/debug_panel.gd" id="6"]
 [ext_resource type="PackedScene" path="res://scenes/ui/game_over_screen.tscn" id="7"]
 [ext_resource type="Script" path="res://scripts/ui/inventory_screen.gd" id="8"]
+[ext_resource type="Script" path="res://scripts/ui/storage_box_screen.gd" id="9"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1")
@@ -329,6 +330,16 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 0
 script = ExtResource("8")
+
+[node name="StorageBoxScreen" type="Control" parent="."]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+script = ExtResource("9")
 
 [node name="IncreaseAdaptationButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 408.0
