@@ -34,12 +34,32 @@ func get_prompt() -> String:
 
 func get_save_data() -> Dictionary:
 	return {
+		"position": _vector_to_data(global_position),
 		"inventory": inventory.to_save_data()
 	}
 
 
 func restore_from_data(data: Dictionary) -> void:
-	inventory.load_from_save_data(Dictionary(data.get("inventory", {})))
+	if data.has("position"):
+		global_position = _data_to_vector(Dictionary(data.get("position", {})), global_position)
+	if data.has("inventory") and inventory != null:
+		inventory.load_from_save_data(Dictionary(data.get("inventory", {})))
+
+
+func _vector_to_data(value: Vector2) -> Dictionary:
+	return {
+		"x": value.x,
+		"y": value.y
+	}
+
+
+func _data_to_vector(data: Dictionary, fallback: Vector2 = Vector2.ZERO) -> Vector2:
+	if data.is_empty():
+		return fallback
+	return Vector2(
+		float(data.get("x", fallback.x)),
+		float(data.get("y", fallback.y))
+	)
 
 
 func _get_hud() -> Node:

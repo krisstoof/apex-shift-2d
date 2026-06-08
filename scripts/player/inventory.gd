@@ -130,12 +130,18 @@ func to_save_data() -> Dictionary:
 
 func load_from_save_data(data: Dictionary) -> void:
 	clear()
-	if data.is_empty() or not data.has("slots"):
+	if data.is_empty():
+		return
+	var saved_slots: Array = []
+	if data.has("slots") and data["slots"] is Array:
+		saved_slots = Array(data.get("slots", []))
+	elif data.has("items") and data["items"] is Array:
+		saved_slots = Array(data.get("items", []))
+	else:
 		_migrate_legacy_inventory_data(data)
 		return
-	var slot_data: Array = Array(data.get("slots", []))
 	var slot_index := 0
-	for entry in slot_data:
+	for entry in saved_slots:
 		if slot_index >= slot_count:
 			break
 		if typeof(entry) != TYPE_DICTIONARY:
