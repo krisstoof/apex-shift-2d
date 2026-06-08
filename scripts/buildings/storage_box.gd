@@ -22,7 +22,7 @@ func _ready() -> void:
 func interact(player: Node) -> void:
 	var hud := _get_hud()
 	if hud == null or not hud.has_method("open_storage_box"):
-		_post_event_message("Storage box is unavailable")
+		_post_event_message("Storage Box UI not implemented yet")
 		return
 	hud.open_storage_box(player.inventory, inventory, self)
 
