@@ -1,5 +1,14 @@
 extends Area2D
 
+
+func _post_event_message(message: String) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var event_bus := tree.root.get_node_or_null("EventBus")
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
 func _ready() -> void:
 	add_to_group("tents")
 	queue_redraw()
@@ -8,11 +17,11 @@ func _ready() -> void:
 func interact(player: Node) -> void:
 	var day_night_system := get_tree().current_scene.get_node_or_null("DayNightSystem")
 	if not day_night_system or not day_night_system.has_method("sleep_until_morning"):
-		get_node("/root/EventBus").post_message("No safe place to sleep")
+		_post_event_message("No safe place to sleep")
 		return
 	if day_night_system.sleep_until_morning() and player and player.has_method("recover_from_sleep"):
 		player.recover_from_sleep()
-		get_node("/root/EventBus").post_message("Rested and recovered")
+		_post_event_message("Rested and recovered")
 
 
 func get_prompt() -> String:

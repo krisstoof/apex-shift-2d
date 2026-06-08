@@ -33,6 +33,7 @@ const ERROR_DRAIN_STABLE_FRAMES := 2
 
 var _unit_test_error_logger: UnitTestErrorLogger
 var _unit_test_error_cursor := 0
+var _mock_event_bus: Node
 
 
 class UnitTestErrorLogger:
@@ -71,6 +72,29 @@ class UnitTestErrorLogger:
 		return collected
 
 
+class MockEventBus:
+	extends Node
+
+	var messages: Array[String] = []
+	var events: Array[Dictionary] = []
+
+	func _init() -> void:
+		name = "EventBus"
+
+	func post_message(message: String) -> void:
+		messages.append(message)
+
+	func emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+		events.append({
+			"name": event_name,
+			"payload": payload.duplicate(true)
+		})
+
+	func clear() -> void:
+		messages.clear()
+		events.clear()
+
+
 func _enter_tree() -> void:
 	_unit_test_error_logger = UnitTestErrorLogger.new()
 	OS.add_logger(_unit_test_error_logger)
@@ -81,6 +105,7 @@ func _exit_tree() -> void:
 
 
 func _ready() -> void:
+	_ensure_mock_event_bus()
 	call_deferred("_run_tests")
 
 
@@ -126,10 +151,24 @@ func _run_tests() -> void:
 	get_tree().quit(1)
 
 
+func _ensure_mock_event_bus() -> Node:
+	var root := get_tree().root
+	var existing := root.get_node_or_null("EventBus")
+	if existing:
+		_mock_event_bus = existing
+		return existing
+
+	_mock_event_bus = MockEventBus.new()
+	root.add_child(_mock_event_bus)
+	return _mock_event_bus
+
+
 func _run_suite(name: String, suite: Object, failures: Array[String]) -> void:
 	if not suite.has_method("run"):
 		failures.append("%s suite does not implement run()" % name)
 		return
+	if _mock_event_bus and _mock_event_bus.has_method("clear"):
+		_mock_event_bus.clear()
 	var error_start_index := _unit_test_error_cursor
 	var suite_result: Variant = await suite.call("run")
 	await _drain_runtime_errors()

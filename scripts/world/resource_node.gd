@@ -44,6 +44,25 @@ var food_bonus_multiplier := 1.0
 var pond_visual_multiplier := 1.0
 var biome_id := ""
 
+
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
+
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
 @onready var visual_sprite: Sprite2D = $VisualSprite
 
@@ -143,18 +162,18 @@ func interact(player: Node) -> void:
 	if not player_harvestable:
 		return
 	if not can_be_harvested:
-		get_node("/root/EventBus").post_message("%s is still regrowing" % _get_resource_label())
+		_post_event_message("%s is still regrowing" % _get_resource_label())
 		return
 	var collected_amount := amount
 	var leftover: int = player.inventory.add_item(item_name, collected_amount)
 	var added_amount: int = collected_amount - leftover
 	if added_amount <= 0:
-		get_node("/root/EventBus").post_message("Inventory full")
+		_post_event_message("Inventory full")
 		return
-	get_node("/root/EventBus").post_message("Collected %s x%d" % [item_name, added_amount])
+	_post_event_message("Collected %s x%d" % [item_name, added_amount])
 	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
 		var event_name := "bone_collected" if resource_kind == "bone_drop" else "meat_collected"
-		get_node("/root/EventBus").emit_game_event(event_name, {
+		_emit_game_event(event_name, {
 			"amount": added_amount,
 			"position": global_position
 		})
@@ -375,7 +394,7 @@ func _consume_meat_by_creature(consumer: Node) -> float:
 		return 0.0
 	var consumed_value: float = max(food_value, float(GAME_BALANCE.ANIMAL_AI.get("meat_food_value", 0.65)))
 	amount = max(amount - 1, 0)
-	get_node("/root/EventBus").emit_game_event("meat_consumed_by_creature", {
+	_emit_game_event("meat_consumed_by_creature", {
 		"consumer": str(consumer.name) if is_instance_valid(consumer) else "creature",
 		"amount": 1,
 		"remaining": amount,
@@ -509,7 +528,7 @@ func _emit_plant_resource_harvested() -> void:
 	var biome_id := _get_biome_id_for_position(global_position)
 	if biome_id.is_empty():
 		return
-	get_node("/root/EventBus").emit_game_event("plant_resource_harvested", {
+	_emit_game_event("plant_resource_harvested", {
 		"resource_type": resource_kind,
 		"biome_id": biome_id,
 		"position": global_position,

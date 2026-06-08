@@ -71,8 +71,8 @@ func _test_remove_item_removes_across_stacks(failures: Array[String]) -> void:
 	TEST_UTILS.expect(inventory.remove_item("wood", 23), failures, "Inventory should remove across stacks")
 	TEST_UTILS.expect_equal(inventory.get_amount("wood"), 2, failures, "Removal should reduce the total amount")
 	var slots := inventory.get_slots()
-	TEST_UTILS.expect_equal(str(slots[0].get("item_id", "")), "wood", failures, "Remaining item should stay in a slot")
-	TEST_UTILS.expect_equal(int(slots[0].get("amount", 0)), 2, failures, "Slot amount should reflect the remainder")
+	TEST_UTILS.expect_equal(str(slots[1].get("item_id", "")), "wood", failures, "Remaining item should stay in the later slot")
+	TEST_UTILS.expect_equal(int(slots[1].get("amount", 0)), 2, failures, "Remaining stack should reflect the remainder")
 
 
 func _test_remove_item_fails_when_not_enough_items(failures: Array[String]) -> void:

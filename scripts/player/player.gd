@@ -196,10 +196,10 @@ func receive_damage(amount: float, source: String = "unknown") -> bool:
 		return false
 	if god_mode:
 		if source == "debug damage":
-			get_node("/root/EventBus").post_message("God mode blocked damage")
+			_post_event_message("God mode blocked damage")
 		return false
 	stats.damage(amount)
-	get_node("/root/EventBus").post_message("Player hit for %s" % int(amount))
+	_post_event_message("Player hit for %s" % int(amount))
 	if stats.health <= 0.0:
 		_die(source)
 	return true
@@ -219,15 +219,15 @@ func activate_torch() -> bool:
 	if torch_active and torch_remaining_seconds <= 0.0:
 		deactivate_torch("expired")
 	if is_torch_active():
-		get_node("/root/EventBus").post_message("Torch already active")
+		_post_event_message("Torch already active")
 		return false
 	if not inventory.remove_item("torch", 1):
-		get_node("/root/EventBus").post_message("No torch to activate")
+		_post_event_message("No torch to activate")
 		return false
 	torch_active = true
 	torch_remaining_seconds = GAME_BALANCE.TORCH_DURATION_SECONDS
-	get_node("/root/EventBus").emit_game_event("torch_activated", {"active": torch_active, "remaining_seconds": torch_remaining_seconds})
-	get_node("/root/EventBus").post_message("Torch activated")
+	_emit_game_event("torch_activated", {"active": torch_active, "remaining_seconds": torch_remaining_seconds})
+	_post_event_message("Torch activated")
 	queue_redraw()
 	return true
 
@@ -338,6 +338,25 @@ func _get_world_node() -> Node:
 	return null
 
 
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
+
+
 func debug_add_item(item_name: String, amount := 1) -> void:
 	if is_dead:
 		return
@@ -348,45 +367,45 @@ func debug_add_item(item_name: String, amount := 1) -> void:
 		return
 	else:
 		inventory.add_item(item_name, amount)
-	get_node("/root/EventBus").emit_game_event("debug_item_added", {"item": item_name, "amount": amount})
-	get_node("/root/EventBus").post_message("Debug added %s" % item_name)
+	_emit_game_event("debug_item_added", {"item": item_name, "amount": amount})
+	_post_event_message("Debug added %s" % item_name)
 
 
 func debug_add_bow() -> void:
 	if is_dead:
 		return
 	has_bow = true
-	get_node("/root/EventBus").emit_game_event("debug_item_added", {"item": "bow", "amount": 1})
-	get_node("/root/EventBus").post_message("Debug gave bow")
+	_emit_game_event("debug_item_added", {"item": "bow", "amount": 1})
+	_post_event_message("Debug gave bow")
 
 
 func debug_damage_player() -> void:
 	if receive_damage(GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT, "debug damage"):
-		get_node("/root/EventBus").emit_game_event("debug_player_damaged", {"amount": GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT})
+		_emit_game_event("debug_player_damaged", {"amount": GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT})
 
 
 func debug_heal_player() -> void:
 	if is_dead:
 		return
 	stats.heal(GAME_BALANCE.DEBUG_PLAYER_HEAL_AMOUNT)
-	get_node("/root/EventBus").emit_game_event("debug_player_healed", {"amount": GAME_BALANCE.DEBUG_PLAYER_HEAL_AMOUNT})
-	get_node("/root/EventBus").post_message("Debug healed player")
+	_emit_game_event("debug_player_healed", {"amount": GAME_BALANCE.DEBUG_PLAYER_HEAL_AMOUNT})
+	_post_event_message("Debug healed player")
 
 
 func debug_reduce_hunger_energy() -> void:
 	if is_dead:
 		return
 	stats.reduce_hunger_energy(GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT)
-	get_node("/root/EventBus").emit_game_event("debug_player_hunger_energy_reduced", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
-	get_node("/root/EventBus").post_message("Debug reduced hunger/energy")
+	_emit_game_event("debug_player_hunger_energy_reduced", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
+	_post_event_message("Debug reduced hunger/energy")
 
 
 func debug_restore_hunger_energy() -> void:
 	if is_dead:
 		return
 	stats.restore_hunger_energy(GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT)
-	get_node("/root/EventBus").emit_game_event("debug_player_hunger_energy_restored", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
-	get_node("/root/EventBus").post_message("Debug restored hunger/energy")
+	_emit_game_event("debug_player_hunger_energy_restored", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
+	_post_event_message("Debug restored hunger/energy")
 
 
 func set_default_camera_zoom() -> void:
@@ -401,9 +420,9 @@ func deactivate_torch(reason := "manual") -> void:
 	torch_active = false
 	torch_remaining_seconds = 0.0
 	if reason == "expired":
-		get_node("/root/EventBus").emit_game_event("torch_expired", {"active": false, "remaining_seconds": 0.0})
-	get_node("/root/EventBus").emit_game_event("torch_deactivated", {"active": false, "remaining_seconds": 0.0, "reason": reason})
-	get_node("/root/EventBus").post_message("Torch burned out" if reason == "expired" else "Torch deactivated")
+		_emit_game_event("torch_expired", {"active": false, "remaining_seconds": 0.0})
+	_emit_game_event("torch_deactivated", {"active": false, "remaining_seconds": 0.0, "reason": reason})
+	_post_event_message("Torch burned out" if reason == "expired" else "Torch deactivated")
 	queue_redraw()
 
 
@@ -419,7 +438,7 @@ func set_god_mode(enabled: bool) -> void:
 	god_mode = enabled
 	if stats and stats.has_method("set_god_mode"):
 		stats.set_god_mode(enabled)
-	get_node("/root/EventBus").post_message("God mode %s" % ("enabled" if god_mode else "disabled"))
+	_post_event_message("God mode %s" % ("enabled" if god_mode else "disabled"))
 
 
 func toggle_god_mode() -> bool:
@@ -444,7 +463,7 @@ func _interact() -> void:
 		if is_instance_valid(node) and node.has_method("interact"):
 			node.interact(self)
 			return
-	get_node("/root/EventBus").post_message("Nothing to interact with")
+	_post_event_message("Nothing to interact with")
 
 
 func get_interaction_prompt() -> String:
@@ -462,7 +481,7 @@ func _melee_attack() -> void:
 	if is_dead:
 		return
 	if not stats.spend_stamina(12.0):
-		get_node("/root/EventBus").post_message("Too tired to attack")
+		_post_event_message("Too tired to attack")
 		return
 	attack_visual_time = ATTACK_VISUAL_DURATION
 	queue_redraw()
@@ -470,9 +489,9 @@ func _melee_attack() -> void:
 	var target := _get_attack_target()
 	if target:
 		target.take_damage(damage, "player")
-		get_node("/root/EventBus").post_message("Hit %s" % _get_attack_target_label(target))
+		_post_event_message("Hit %s" % _get_attack_target_label(target))
 		return
-	get_node("/root/EventBus").post_message("Attack missed")
+	_post_event_message("Attack missed")
 
 
 func _shoot_bow() -> void:
@@ -482,7 +501,7 @@ func _shoot_bow() -> void:
 		return
 	var stamina_cost := float(GAME_BALANCE.RANGED_COMBAT.get("bow_stamina_cost", 8.0))
 	if not stats.spend_stamina(stamina_cost):
-		get_node("/root/EventBus").post_message("Too tired to shoot")
+		_post_event_message("Too tired to shoot")
 		return
 	var direction := get_global_mouse_position() - global_position
 	if direction.length_squared() <= 0.0:
@@ -495,7 +514,7 @@ func _shoot_bow() -> void:
 	if arrow.has_method("setup"):
 		arrow.setup(direction, self, float(GAME_BALANCE.RANGED_COMBAT.get("bow_damage", 28.0)), "player")
 	bow_cooldown = float(GAME_BALANCE.RANGED_COMBAT.get("bow_cooldown_seconds", 0.75))
-	get_node("/root/EventBus").emit_game_event("arrow_fired", {
+	_emit_game_event("arrow_fired", {
 		"position": global_position,
 		"direction": direction
 	})
@@ -544,34 +563,34 @@ func _craft(item_name: String) -> void:
 		return
 	var recipe: Dictionary = recipes.get(item_name, {})
 	if recipe.is_empty():
-		get_node("/root/EventBus").post_message("Unknown recipe: %s" % item_name)
+		_post_event_message("Unknown recipe: %s" % item_name)
 		return
 	if item_name == "bow" and has_bow:
-		get_node("/root/EventBus").post_message("Bow already crafted")
+		_post_event_message("Bow already crafted")
 		return
 	if not _can_afford_recipe(recipe):
-		get_node("/root/EventBus").post_message("Missing resources")
+		_post_event_message("Missing resources")
 		return
 	if not _pay_recipe_cost(recipe):
-		get_node("/root/EventBus").post_message("Missing resources")
+		_post_event_message("Missing resources")
 		return
 	if item_name == "torch":
 		var torch_leftover := inventory.add_item("torch", 1)
 		if torch_leftover > 0:
 			_refund_recipe_cost(recipe)
-			get_node("/root/EventBus").post_message("Inventory full")
+			_post_event_message("Inventory full")
 			return
-		get_node("/root/EventBus").emit_game_event("player_crafted_torch", {"count": inventory.get_amount("torch")})
-		get_node("/root/EventBus").post_message("Crafted torch")
+		_emit_game_event("player_crafted_torch", {"count": inventory.get_amount("torch")})
+		_post_event_message("Crafted torch")
 		return
 	if item_name == "spear":
 		has_spear = true
-		get_node("/root/EventBus").post_message("Crafted spear")
+		_post_event_message("Crafted spear")
 		return
 	if item_name == "bow":
 		has_bow = true
-		get_node("/root/EventBus").emit_game_event("player_crafted_bow", {"has_bow": has_bow})
-		get_node("/root/EventBus").post_message("Crafted bow")
+		_emit_game_event("player_crafted_bow", {"has_bow": has_bow})
+		_post_event_message("Crafted bow")
 		return
 	var scene: PackedScene = {
 		"campfire": CAMPFIRE_SCENE,
@@ -586,8 +605,8 @@ func _craft(item_name: String) -> void:
 	var world := get_tree().current_scene.get_node_or_null("World")
 	if world and world.has_method("register_building_node"):
 		world.register_building_node(building, item_name)
-	get_node("/root/EventBus").emit_game_event("player_crafted_%s" % item_name, {"position": building.global_position})
-	get_node("/root/EventBus").post_message("Crafted %s" % item_name)
+	_emit_game_event("player_crafted_%s" % item_name, {"position": building.global_position})
+	_post_event_message("Crafted %s" % item_name)
 
 
 func _eat(item_name: String) -> void:
@@ -596,13 +615,13 @@ func _eat(item_name: String) -> void:
 	if item_name != "meat":
 		return
 	if not inventory.has_item("meat", 1):
-		get_node("/root/EventBus").post_message("No meat to eat")
+		_post_event_message("No meat to eat")
 		return
 	if not inventory.remove_item(item_name, 1):
-		get_node("/root/EventBus").post_message("No meat to eat")
+		_post_event_message("No meat to eat")
 		return
 	stats.eat_food(GAME_BALANCE.PLAYER_MEAT_NUTRITION)
-	get_node("/root/EventBus").post_message("Ate meat")
+	_post_event_message("Ate meat")
 
 
 func _activate_torch() -> void:

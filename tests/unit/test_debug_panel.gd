@@ -1,6 +1,7 @@
 extends RefCounted
 
 const HUD_SCENE := preload("res://scenes/ui/hud.tscn")
+const INVENTORY := preload("res://scripts/player/inventory.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -16,6 +17,40 @@ class MockSnapshotService:
 
 	func get_snapshot() -> Dictionary:
 		return snapshot.duplicate(true)
+
+
+class MockPlayer:
+	extends Node2D
+
+	class MockStats:
+		extends RefCounted
+
+		var health := 100
+		var hunger := 10
+		var stamina := 20
+		var rest := 30
+		var campfire_regen_active := false
+		var campfire_regen_distance := -1.0
+
+		func get_stamina_regen_rate() -> float:
+			return 1.0
+
+	var inventory := INVENTORY.new()
+	var has_spear := false
+	var has_bow := false
+	var stats := MockStats.new()
+
+
+class MockDirector:
+	extends Node
+
+	func get_profile() -> Dictionary:
+		return {"generation": 1}
+
+
+class MockDayNight:
+	extends Node
+	pass
 
 
 func run() -> Array[String]:
@@ -78,19 +113,24 @@ func _test_debug_panel_refreshes_snapshot_when_visible(failures: Array[String]) 
 		failures.append("HUD scene should instantiate for visible debug panel snapshot tests")
 		return
 	var debug_panel: Control = hud.get_node("DebugPanel")
+	var mock_player := MockPlayer.new()
+	mock_player.inventory.add_item("bone", 3)
+	var mock_director := MockDirector.new()
+	var mock_day_night := MockDayNight.new()
 	var mock_service := MockSnapshotService.new()
 	mock_service.snapshot = {
-		"player": {"health": 80, "hunger": 70, "stamina": 60, "rest": 50, "inventory": {"bone": 0}},
+		"player": {"health": 80, "hunger": 70, "stamina": 60, "rest": 50, "inventory": {"bone": 0}, "has_spear": false, "has_bow": false},
 		"time": {"day": 1, "phase_label": "day", "night_amount": 0.0},
 		"world": {"varnak_population": {"day": 1, "live": 0, "target": 0, "max": 12}},
 		"debug": {"live_varnaks": 0, "current_biome_name": "start"}
 	}
-	debug_panel.call("bind", null, null, null, null, mock_service)
+	debug_panel.call("bind", mock_player, mock_director, mock_day_night, null, mock_service)
 	debug_panel.call("set_open", true)
+	debug_panel.call("_on_debug_tab_changed", 1)
 	debug_panel.call("_process", 0.6)
 	var first_text := str(debug_panel.get_node("Panel/StateScroll/StateLabel").text)
 	mock_service.snapshot = {
-		"player": {"health": 42, "hunger": 18, "stamina": 12, "rest": 9, "inventory": {"bone": 3}},
+		"player": {"health": 42, "hunger": 18, "stamina": 12, "rest": 9, "inventory": {"bone": 3}, "has_spear": false, "has_bow": false},
 		"time": {"day": 4, "phase_label": "night", "night_amount": 0.85},
 		"world": {"varnak_population": {"day": 4, "live": 5, "target": 6, "max": 12}},
 		"debug": {"live_varnaks": 5, "current_biome_name": "redfang_wilds"}

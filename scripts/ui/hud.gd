@@ -53,12 +53,28 @@ var hitch_log_cooldowns: Dictionary = {}
 @onready var debug_panel: Control = $DebugPanel
 @onready var game_session: Node = get_node("/root/GameSession")
 
+
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _connect_event_bus() -> void:
+	var event_bus := _get_event_bus()
+	if event_bus == null:
+		return
+	if event_bus.has_signal("message_posted"):
+		event_bus.message_posted.connect(_on_message)
+	if event_bus.has_signal("game_event"):
+		event_bus.game_event.connect(_on_game_event)
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	center_notification_label.visible = false
 	_ensure_critical_health_overlay()
-	get_node("/root/EventBus").message_posted.connect(_on_message)
-	get_node("/root/EventBus").game_event.connect(_on_game_event)
+	_connect_event_bus()
 	pause_menu.resume_requested.connect(_on_pause_menu_resume)
 	pause_menu.save_requested.connect(_on_pause_menu_save)
 	pause_menu.load_requested.connect(_on_pause_menu_load)
@@ -284,7 +300,9 @@ func _get_player_max_health_value(player_node: Node) -> float:
 
 func _show_critical_health_message() -> void:
 	var message_text := "You are badly wounded. Heal yourself."
-	get_node("/root/EventBus").post_message(message_text)
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message_text)
 
 
 func _update_survival_warning_messages(delta: float) -> void:
@@ -312,7 +330,9 @@ func _update_survival_warning_messages(delta: float) -> void:
 
 
 func _push_survival_message(message_text: String) -> void:
-	get_node("/root/EventBus").post_message(message_text)
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message_text)
 
 
 func _is_game_over_active() -> bool:
@@ -416,7 +436,9 @@ func _show_ecosystem_message(event_name: String, payload: Dictionary) -> void:
 	if now_seconds < next_allowed:
 		return
 	ecosystem_message_cooldowns[cooldown_key] = now_seconds + ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS
-	get_node("/root/EventBus").post_message(message_text)
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message_text)
 
 
 func _get_ecosystem_message(event_name: String, payload: Dictionary) -> String:

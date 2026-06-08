@@ -1,5 +1,14 @@
 extends StaticBody2D
 
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var event_bus := tree.root.get_node_or_null("EventBus")
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
+
 @export var health := 80.0
 
 func _ready() -> void:
@@ -9,7 +18,7 @@ func _ready() -> void:
 
 func take_damage(amount: float) -> void:
 	health -= amount
-	get_node("/root/EventBus").emit_game_event("varnak_attacked_wall", {"position": global_position, "damage": amount})
+	_emit_game_event("varnak_attacked_wall", {"position": global_position, "damage": amount})
 	if health <= 0.0:
 		queue_free()
 
