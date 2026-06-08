@@ -150,7 +150,7 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 	fps_label.text = "FPS: %d" % Engine.get_frames_per_second()
 	stats_label.text = _build_player_stats_text_from_snapshot(snapshot)
 	prompt_label.text = _get_prompt_text_from_snapshot(snapshot)
-	message_label.text = "\n".join(message_history)
+	_refresh_message_label()
 
 
 func _build_clock_text_from_snapshot(snapshot: Dictionary) -> String:
@@ -217,6 +217,13 @@ func _get_prompt_text_from_snapshot(snapshot: Dictionary) -> String:
 	return str(player_snapshot.get("prompt_text", ""))
 
 
+func _refresh_message_label() -> void:
+	if message_label == null:
+		return
+	message_label.text = "\n".join(message_history)
+	message_label.visible = message_history.size() > 0
+
+
 
 
 func _on_message(new_message: String) -> void:
@@ -228,6 +235,7 @@ func _on_message(new_message: String) -> void:
 	message_history.append(new_message)
 	if message_history.size() > 4:
 		message_history.pop_front()
+	_refresh_message_label()
 
 
 func _ensure_critical_health_overlay() -> void:
@@ -387,14 +395,22 @@ func _get_player_stat_value(player_node: Node, stat_name: String, default_value:
 	if player_node.has_method(getter_name):
 		return float(player_node.call(getter_name))
 	var stats: Variant = player_node.get("stats")
-	if stats != null and stats is Dictionary:
-		var stats_value: Variant = stats.get(stat_name)
-		if stats_value != null:
-			return float(stats_value)
-		var uppercase_name := stat_name.to_upper()
-		stats_value = stats.get(uppercase_name)
-		if stats_value != null:
-			return float(stats_value)
+	if stats != null:
+		if stats is Dictionary:
+			var stats_value: Variant = stats.get(stat_name)
+			if stats_value != null:
+				return float(stats_value)
+			var uppercase_name := stat_name.to_upper()
+			stats_value = stats.get(uppercase_name)
+			if stats_value != null:
+				return float(stats_value)
+		else:
+			var stats_value: Variant = stats.get(stat_name)
+			if stats_value != null:
+				return float(stats_value)
+			var stats_getter_name := "get_%s" % stat_name
+			if stats.has_method(stats_getter_name):
+				return float(stats.call(stats_getter_name))
 	return default_value
 
 
@@ -605,8 +621,7 @@ func _fix_low_resolution_layout() -> void:
 		clock_label.offset_right = -16.0
 		clock_label.offset_bottom = 294.0 if low_resolution else 356.0
 		clock_label.add_theme_font_size_override("font_size", 18 if low_resolution else 20)
-	if message_label:
-		message_label.visible = message_history.size() > 0
+	_refresh_message_label()
 	if center_notification_label:
 		center_notification_label.offset_left = -230.0 if compact_resolution else -260.0
 		center_notification_label.offset_right = 230.0 if compact_resolution else 260.0
