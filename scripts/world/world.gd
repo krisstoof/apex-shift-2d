@@ -1,4 +1,5 @@
 extends Node2D
+class_name World
 
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
@@ -10,15 +11,20 @@ const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
 const WORLD_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_query_service.gd")
 const LANDMARK_SERVICE_SCRIPT := preload("res://scripts/world/landmark_service.gd")
 const RESOURCE_SERVICE_SCRIPT := preload("res://scripts/world/resource_service.gd")
+const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
+const SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS := 5.0
+const VARNAK_FAILED_SPAWN_RETRY_SECONDS := 5.0
 const SMALL_PREY_MAX_VISIBLE_COUNT := 12
 const SMALL_PREY_MAX_VISIBLE_PER_BIOME := 5
 const SMALL_PREY_VISIBLE_SPAWN_RADIUS := 850.0
 const SMALL_PREY_PLAYER_SAFE_DISTANCE := 240.0
 const SMALL_PREY_MIN_DISTANCE := 190.0
 const INITIAL_GRAZER_VISIBLE_COUNT := 3
+const GRAZER_MAX_VISIBLE_COUNT := 6
+const GRAZER_MAX_VISIBLE_PER_BIOME := 3
 const GRAZER_INITIAL_PLAYER_SAFE_DISTANCE := 720.0
 const VARNAK_MIN_DISTANCE := 360.0
 const GRAZER_VISIBLE_SPAWN_RADIUS := 1000.0
@@ -28,6 +34,9 @@ const DEBUG_SMALL_PREY_VISIBLE_COUNT := 3
 const DEBUG_GRAZER_VISIBLE_COUNT := 2
 const DEBUG_SMALL_PREY_SPAWN_RADIUS := 180.0
 const DEBUG_GRAZER_SPAWN_RADIUS := 240.0
+const VISIBILITY_CULL_INTERVAL_SECONDS := 0.35
+const VISIBILITY_CULL_MARGIN := 384.0
+const VISIBILITY_CULL_GROUPS := ["resources", "small_prey", "grazer", "varnak"]
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
 const BIOME_TERRAIN_ACCENT_COUNTS := {
 	"westwood": 26,
@@ -101,7 +110,23 @@ var varnak_rng := RandomNumberGenerator.new()
 var small_prey_rng := RandomNumberGenerator.new()
 var grazer_rng := RandomNumberGenerator.new()
 var small_prey_spawn_timer := 0.0
+var small_prey_failed_spawn_retry_timer := 0.0
+var small_prey_failed_spawn_warning_printed := false
+var small_prey_spawn_sync_attempt_count := 0
+var small_prey_spawn_sync_failed_count := 0
+var small_prey_spawn_sync_skipped_by_cooldown_count := 0
+var small_prey_spawn_sync_last_requested := 0
+var small_prey_spawn_sync_last_failed := 0
+var small_prey_spawn_sync_last_success := 0
 var varnak_spawn_timer := 0.0
+var varnak_failed_spawn_retry_timer := 0.0
+var varnak_failed_spawn_warning_printed := false
+var varnak_spawn_sync_attempt_count := 0
+var varnak_spawn_sync_failed_count := 0
+var varnak_spawn_sync_skipped_by_cooldown_count := 0
+var varnak_spawn_sync_last_requested := 0
+var varnak_spawn_sync_last_failed := 0
+var varnak_spawn_sync_last_success := 0
 var world_seed := 0
 var landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
@@ -111,8 +136,11 @@ var biome_sample_images: Dictionary = {}
 var biome_terrain_accent_cache: Dictionary = {}
 var pending_biome_terrain_accent_biomes: Array[Dictionary] = []
 var biome_terrain_accent_cache_build_running := false
-var debug_landmark_overlay_enabled := false
-var biome_textures_enabled := true
+var debug_landmark_overlay_enabled: bool = false
+var biome_textures_enabled: bool = true
+var biome_terrain_accents_enabled: bool = false
+var visibility_culling_enabled: bool = true
+var graphics_settings: Node = GRAPHICS_SETTINGS_SCRIPT.new()
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
 var pending_biome_vegetation_syncs: Dictionary = {}
@@ -120,7 +148,15 @@ var biome_vegetation_sync_scheduled := false
 var boot_ready := false
 var boot_status_message := "Preparing world..."
 var boot_status_progress := 0.0
+var integration_test_mode := false
 var biome_blend_background: Sprite2D
+var world_biome_texture_build_count: int = 0
+var world_biome_texture_last_build_ms: float = 0.0
+var visibility_cull_timer := 0.0
+var visibility_cull_last_visible_resources: int = 0
+var visibility_cull_last_hidden_resources: int = 0
+var visibility_cull_last_visible_creatures: int = 0
+var visibility_cull_last_hidden_creatures: int = 0
 var night_overlay_polygon: Polygon2D
 var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
@@ -133,6 +169,10 @@ signal world_initialized
 signal world_boot_stage_changed(stage_message: String, progress: float)
 
 func _ready() -> void:
+	var graphics_settings_node := get_node_or_null("/root/GraphicsSettings")
+	if graphics_settings_node != null:
+		graphics_settings = graphics_settings_node
+	_apply_graphics_settings_defaults()
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_ensure_biome_blend_background()
 	_ensure_night_overlay_polygon()
@@ -163,13 +203,22 @@ func _ready() -> void:
 	await _spawn_resources()
 	await _yield_initial_boot_step()
 	_set_boot_progress("Spawning small prey...", 0.58)
-	_sync_visible_small_prey()
+	if integration_test_mode:
+		force_spawn_small_prey_for_tests(SMALL_PREY_MAX_VISIBLE_PER_BIOME)
+	else:
+		_sync_visible_small_prey()
 	await _yield_initial_boot_step()
 	_set_boot_progress("Spawning grazers...", 0.72)
-	_spawn_initial_grazers()
+	if integration_test_mode:
+		force_spawn_grazers_for_tests(INITIAL_GRAZER_VISIBLE_COUNT)
+	else:
+		_spawn_initial_grazers()
 	await _yield_initial_boot_step()
 	_set_boot_progress("Spawning predators...", 0.84)
-	_sync_visible_varnaks(true)
+	if integration_test_mode:
+		force_spawn_varnaks_for_tests(int(GAME_BALANCE.VARNAK_DAY_SCALING.get("spawn_batch_limit", 2)))
+	else:
+		_sync_visible_varnaks(true)
 	await _yield_initial_boot_step()
 	_set_boot_progress("Rendering world...", 0.94)
 	_prepare_boot_render_cache()
@@ -177,26 +226,120 @@ func _ready() -> void:
 	_set_boot_progress("Finalizing world...", 0.98)
 	boot_ready = true
 	_set_boot_progress("World ready", 1.0)
+	_update_world_object_visibility()
+	visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
+	_sync_biome_blend_background()
 	world_initialized.emit()
 	queue_redraw()
 
 
 func _process(delta: float) -> void:
+	_log_hitch(delta, "World", {
+		"biome_textures_enabled": biome_textures_enabled,
+		"background_visible": is_instance_valid(biome_blend_background) and biome_blend_background.visible,
+		"visibility_culling_enabled": visibility_culling_enabled,
+		"visible_resources": visibility_cull_last_visible_resources,
+		"hidden_resources": visibility_cull_last_hidden_resources,
+		"visible_creatures": visibility_cull_last_visible_creatures,
+		"hidden_creatures": visibility_cull_last_hidden_creatures
+	})
+	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
+		small_prey_failed_spawn_retry_timer = maxf(0.0, small_prey_failed_spawn_retry_timer - delta)
+	if varnak_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
+		varnak_failed_spawn_retry_timer = maxf(0.0, varnak_failed_spawn_retry_timer - delta)
 	small_prey_spawn_timer += delta
 	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
 		small_prey_spawn_timer = 0.0
 		_sync_visible_small_prey()
+		_sync_visible_grazers()
 	varnak_spawn_timer += delta
 	if varnak_spawn_timer >= _get_varnak_spawn_check_interval():
 		varnak_spawn_timer = 0.0
 		_sync_visible_varnaks()
 	var current_night_amount := _get_night_amount()
-	_ensure_render_controller().process(delta, current_night_amount)
+	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
+	if should_redraw_background:
+		_sync_biome_blend_background()
+		queue_redraw()
+	if boot_ready and visibility_culling_enabled:
+		visibility_cull_timer -= delta
+		if visibility_cull_timer <= 0.0:
+			visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
+			_update_world_object_visibility()
 	_update_night_overlay(current_night_amount)
+
+
+func _apply_graphics_settings_defaults() -> void:
+	biome_textures_enabled = graphics_settings.get_default_biome_textures_enabled() if graphics_settings.has_method("get_default_biome_textures_enabled") else true
+	debug_landmark_overlay_enabled = graphics_settings.get_default_landmark_debug_overlay_enabled() if graphics_settings.has_method("get_default_landmark_debug_overlay_enabled") else false
+	biome_terrain_accents_enabled = graphics_settings.get_default_biome_terrain_accents_enabled() if graphics_settings.has_method("get_default_biome_terrain_accents_enabled") else false
 
 
 func get_world_rect() -> Rect2:
 	return WORLD_CONFIG.WORLD_RECT
+
+
+func get_camera_visible_world_rect(margin := VISIBILITY_CULL_MARGIN) -> Rect2:
+	var viewport := get_viewport()
+	if viewport == null:
+		return WORLD_CONFIG.WORLD_RECT.grow(margin)
+	var camera := viewport.get_camera_2d()
+	if camera == null:
+		return WORLD_CONFIG.WORLD_RECT.grow(margin)
+	var viewport_size := get_viewport_rect().size
+	return _get_world_object_visibility_rect(viewport_size, camera.global_position, camera.zoom, margin)
+
+
+func _update_world_object_visibility() -> void:
+	if not boot_ready or not visibility_culling_enabled:
+		return
+	_set_world_object_visibility_by_rect(get_camera_visible_world_rect(VISIBILITY_CULL_MARGIN))
+
+
+func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2, margin := VISIBILITY_CULL_MARGIN) -> Rect2:
+	var safe_zoom := Vector2(maxf(absf(camera_zoom.x), 0.01), maxf(absf(camera_zoom.y), 0.01))
+	var visible_world_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y)
+	var margin_vector := Vector2.ONE * margin
+	return Rect2(
+		camera_position - visible_world_size * 0.5 - margin_vector,
+		visible_world_size + margin_vector * 2.0
+	)
+
+
+func _set_world_object_visibility_by_rect(visible_rect: Rect2) -> void:
+	var visited: Dictionary = {}
+	visibility_cull_last_visible_resources = 0
+	visibility_cull_last_hidden_resources = 0
+	visibility_cull_last_visible_creatures = 0
+	visibility_cull_last_hidden_creatures = 0
+	for group_name in VISIBILITY_CULL_GROUPS:
+		var is_resource_group: bool = group_name == "resources"
+		_update_group_visibility_by_rect(group_name, visible_rect, is_resource_group, visited)
+
+
+func _update_group_visibility_by_rect(group_name: String, visible_rect: Rect2, is_resource_group: bool, visited: Dictionary) -> void:
+	var scene_tree := get_tree()
+	if scene_tree == null:
+		return
+	for node in scene_tree.get_nodes_in_group(group_name):
+		if not is_instance_valid(node) or visited.has(node):
+			continue
+		visited[node] = true
+		var node_2d := node as Node2D
+		if node_2d == null:
+			continue
+		var should_be_visible := visible_rect.has_point(node_2d.global_position)
+		node_2d.visible = should_be_visible
+		if is_resource_group:
+			if should_be_visible:
+				visibility_cull_last_visible_resources += 1
+			else:
+				visibility_cull_last_hidden_resources += 1
+		else:
+			if should_be_visible:
+				visibility_cull_last_visible_creatures += 1
+			else:
+				visibility_cull_last_hidden_creatures += 1
 
 
 func get_biome_zones() -> Array[Dictionary]:
@@ -233,6 +376,110 @@ func get_boot_progress_state() -> Dictionary:
 	}
 
 
+func enable_integration_test_mode() -> void:
+	integration_test_mode = true
+	small_prey_failed_spawn_retry_timer = 0.0
+	small_prey_failed_spawn_warning_printed = false
+	small_prey_spawn_sync_attempt_count = 0
+	small_prey_spawn_sync_failed_count = 0
+	small_prey_spawn_sync_skipped_by_cooldown_count = 0
+	small_prey_spawn_sync_last_requested = 0
+	small_prey_spawn_sync_last_failed = 0
+	small_prey_spawn_sync_last_success = 0
+	varnak_failed_spawn_retry_timer = 0.0
+	varnak_failed_spawn_warning_printed = false
+	varnak_spawn_sync_attempt_count = 0
+	varnak_spawn_sync_failed_count = 0
+	varnak_spawn_sync_skipped_by_cooldown_count = 0
+	varnak_spawn_sync_last_requested = 0
+	varnak_spawn_sync_last_failed = 0
+	varnak_spawn_sync_last_success = 0
+
+
+func spawn_resource_for_tests(resource_kind: String, position: Vector2) -> Node:
+	return _spawn_resource_at(resource_kind, position)
+
+
+func spawn_small_prey_for_tests(position: Vector2, biome_id: String) -> Node:
+	return _spawn_small_prey_at(position, biome_id)
+
+
+func spawn_grazer_for_tests(position: Vector2, biome_id: String) -> Node:
+	return _spawn_grazer_at(position, biome_id)
+
+
+func spawn_varnak_for_tests(position: Vector2) -> Node:
+	return _spawn_varnak_at(position)
+
+
+func force_spawn_small_prey_for_tests(count: int, center: Vector2 = Vector2.INF) -> Array[Node]:
+	var spawned: Array[Node] = []
+	if count <= 0:
+		return spawned
+	var player_position := center if center != Vector2.INF else _get_player_position()
+	var biome := _get_biome_for_position(player_position)
+	if biome.is_empty():
+		biome = _get_first_biome_for_tests(false)
+	if biome.is_empty():
+		return spawned
+	var biome_id := _get_biome_id(biome)
+	for i in count:
+		var spawn_position := _get_debug_creature_spawn_position(biome, 220.0, i, count)
+		if spawn_position == Vector2.ZERO:
+			spawn_position = player_position
+		spawned.append(_spawn_small_prey_at(spawn_position, biome_id))
+	return spawned
+
+
+func force_spawn_grazers_for_tests(count: int, center: Vector2 = Vector2.INF) -> Array[Node]:
+	var spawned: Array[Node] = []
+	if count <= 0:
+		return spawned
+	var player_position := center if center != Vector2.INF else _get_player_position()
+	var biome := _get_first_biome_for_tests(false)
+	if biome.is_empty():
+		biome = _get_biome_for_position(player_position)
+	if biome.is_empty():
+		return spawned
+	var biome_id := _get_biome_id(biome)
+	for i in count:
+		var spawn_position := _get_debug_creature_spawn_position(biome, 280.0, i, count)
+		if spawn_position == Vector2.ZERO:
+			spawn_position = player_position
+		spawned.append(_spawn_grazer_at(spawn_position, biome_id))
+	return spawned
+
+
+func force_spawn_varnaks_for_tests(count: int, center: Vector2 = Vector2.INF) -> Array[Node]:
+	var spawned: Array[Node] = []
+	if count <= 0:
+		return spawned
+	var player_position := center if center != Vector2.INF else _get_player_position()
+	var biome := _get_first_biome_for_tests(true)
+	if biome.is_empty():
+		biome = _get_biome_for_position(player_position)
+	if biome.is_empty():
+		return spawned
+	var used_positions: Array[Vector2] = _get_existing_varnak_positions()
+	for i in count:
+		var spawn_position := _get_debug_creature_spawn_position(biome, 320.0, i, count)
+		if spawn_position == Vector2.ZERO:
+			spawn_position = player_position
+		if not _is_valid_varnak_spawn_position(spawn_position, player_position, used_positions):
+			spawn_position = _clamp_position_to_world(spawn_position)
+		used_positions.append(spawn_position)
+		spawned.append(_spawn_varnak_at(spawn_position))
+	return spawned
+
+
+func _get_first_biome_for_tests(dangerous: bool) -> Dictionary:
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		if biome.get("dangerous", false) == dangerous:
+			return biome
+	return {}
+
+
 func get_query_service():
 	return _ensure_query_service()
 
@@ -254,6 +501,8 @@ func get_current_biome_texture_id(position: Vector2) -> String:
 
 func get_biome_texture_cache_status() -> Dictionary:
 	var render_state: Dictionary = _ensure_render_controller().get_biome_texture_cache_status()
+	world_biome_texture_build_count = int(render_state.get("rebuild_count", world_biome_texture_build_count))
+	world_biome_texture_last_build_ms = float(render_state.get("last_build_ms", world_biome_texture_last_build_ms))
 	return {
 		"sample_image_cache_count": biome_sample_images.size(),
 		"accent_cache_count": biome_terrain_accent_cache.size(),
@@ -262,8 +511,17 @@ func get_biome_texture_cache_status() -> Dictionary:
 		"textures_enabled": biome_textures_enabled,
 		"has_blend_texture": bool(render_state.get("has_texture", false)),
 		"blend_colors_key": str(render_state.get("colors_key", "")),
-		"blend_texture_size": render_state.get("size", Vector2i.ZERO)
+		"blend_texture_size": render_state.get("size", Vector2i.ZERO),
+		"rebuild_blocked_count": int(render_state.get("rebuild_blocked_count", 0)),
+		"dirty_key_pending": bool(render_state.get("dirty_key_pending", false)),
+		"freeze_after_first_build": bool(render_state.get("freeze_after_first_build", false)),
+		"world_biome_texture_build_count": world_biome_texture_build_count,
+		"world_biome_texture_last_build_ms": world_biome_texture_last_build_ms
 	}
+
+
+func get_biome_texture_cache_debug() -> Dictionary:
+	return get_biome_texture_cache_status()
 
 
 func is_landmark_debug_overlay_enabled() -> bool:
@@ -272,6 +530,26 @@ func is_landmark_debug_overlay_enabled() -> bool:
 
 func are_biome_textures_enabled() -> bool:
 	return biome_textures_enabled
+
+
+func are_biome_terrain_accents_enabled() -> bool:
+	return biome_terrain_accents_enabled
+
+
+func is_low_end_rendering_enabled() -> bool:
+	return graphics_settings.has_method("is_low_end_rendering_enabled") and graphics_settings.is_low_end_rendering_enabled()
+
+
+func get_visibility_culling_debug() -> Dictionary:
+	return {
+		"enabled": visibility_culling_enabled,
+		"interval_seconds": VISIBILITY_CULL_INTERVAL_SECONDS,
+		"margin": VISIBILITY_CULL_MARGIN,
+		"visible_resources": visibility_cull_last_visible_resources,
+		"hidden_resources": visibility_cull_last_hidden_resources,
+		"visible_creatures": visibility_cull_last_visible_creatures,
+		"hidden_creatures": visibility_cull_last_hidden_creatures
+	}
 
 
 func get_landmark_save_data() -> Array[Dictionary]:
@@ -465,16 +743,17 @@ func _set_boot_progress(stage_message: String, progress: float) -> void:
 
 
 func _prepare_boot_render_cache() -> void:
-	if not biome_textures_enabled:
-		_sync_biome_blend_background()
-		return
-	_ensure_render_controller().ensure_biome_blend_texture()
-	_sync_biome_blend_background()
+	if is_instance_valid(biome_blend_background):
+		biome_blend_background.visible = false
 	queue_redraw()
 
 
 func _get_world_biome_blend_texture_size() -> Vector2i:
-	return BIOME_BLEND_TEXTURE_SIZE
+	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 2.0)), 1.0, 3.0)
+	return Vector2i(
+		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.x) * cache_scale)), BIOME_BLEND_TEXTURE_SIZE.x),
+		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.y) * cache_scale)), BIOME_BLEND_TEXTURE_SIZE.y)
+	)
 
 
 func _sync_biome_blend_background() -> void:
@@ -483,14 +762,18 @@ func _sync_biome_blend_background() -> void:
 		background.visible = false
 		background.texture = null
 		return
-	var blend_texture := _ensure_render_controller().ensure_biome_blend_texture()
+	var controller: Object = _ensure_render_controller()
+	var blend_texture: ImageTexture = controller.ensure_biome_blend_texture()
+	var render_state: Dictionary = controller.get_biome_texture_cache_status()
+	world_biome_texture_build_count = int(render_state.get("rebuild_count", world_biome_texture_build_count))
+	world_biome_texture_last_build_ms = float(render_state.get("last_build_ms", world_biome_texture_last_build_ms))
 	if blend_texture == null:
 		background.visible = false
 		background.texture = null
 		return
 	background.texture = blend_texture
 	background.position = WORLD_CONFIG.WORLD_RECT.position
-	var texture_size := blend_texture.get_size()
+	var texture_size: Vector2i = blend_texture.get_size()
 	if texture_size.x > 0 and texture_size.y > 0:
 		background.scale = Vector2(
 			WORLD_CONFIG.WORLD_RECT.size.x / float(texture_size.x),
@@ -610,16 +893,32 @@ func debug_toggle_landmark_overlay() -> bool:
 
 func debug_toggle_biome_textures() -> bool:
 	biome_textures_enabled = not biome_textures_enabled
-	_sync_biome_blend_background()
+	if is_instance_valid(biome_blend_background):
+		biome_blend_background.visible = false
+		biome_blend_background.texture = null
+	if biome_textures_enabled:
+		_sync_biome_blend_background()
 	queue_redraw()
 	return biome_textures_enabled
 
 
+func debug_toggle_biome_terrain_accents() -> bool:
+	biome_terrain_accents_enabled = not biome_terrain_accents_enabled
+	if biome_terrain_accents_enabled:
+		_queue_biome_terrain_accent_cache_rebuild()
+	else:
+		biome_terrain_accent_cache.clear()
+		pending_biome_terrain_accent_biomes.clear()
+		biome_terrain_accent_cache_build_running = false
+	queue_redraw()
+	return biome_terrain_accents_enabled
+
+
 func debug_rebuild_biome_texture_cache() -> void:
 	biome_sample_images.clear()
-	_ensure_render_controller().invalidate_biome_blend_texture()
-	_queue_biome_terrain_accent_cache_rebuild()
+	_ensure_render_controller().force_rebuild_biome_blend_texture()
 	_sync_biome_blend_background()
+	_queue_biome_terrain_accent_cache_rebuild()
 	queue_redraw()
 
 
@@ -984,10 +1283,15 @@ func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
 
 
 func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
-	var amount := _get_meat_drop_amount(animal_kind)
+	var amount: int = _get_meat_drop_amount(animal_kind)
 	if amount <= 0:
 		return null
-	var node := _spawn_resource_at("meat_drop", _clamp_position_to_world(drop_position))
+	var initial_position: Vector2 = _clamp_position_to_world(drop_position)
+	# Ensure meat drop does not spawn in water or hills
+	var safe_position: Vector2 = _get_safe_restored_resource_position("meat_drop", initial_position)
+	if is_resource_position_blocked_by_water("meat_drop", safe_position):
+		push_warning("Meat drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
+	var node: Node = _spawn_resource_at("meat_drop", safe_position)
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
 	var event_bus := _get_event_bus()
@@ -1253,6 +1557,10 @@ func _get_nearest_pond_landmark(position: Vector2) -> Dictionary:
 func _sync_visible_small_prey() -> void:
 	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
 		return
+	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
+		small_prey_spawn_sync_skipped_by_cooldown_count += 1
+		return
+	small_prey_spawn_sync_attempt_count += 1
 	var player_position := _get_player_position()
 	var player_biome := _get_biome_for_position(player_position)
 	if player_biome.is_empty():
@@ -1264,18 +1572,37 @@ func _sync_visible_small_prey() -> void:
 	var desired_count := _get_desired_small_prey_count(player_biome, biome_state)
 	var current_biome_count := _get_visible_small_prey_count(biome_id)
 	var global_count := get_registered_creatures_by_type("small_prey").size()
-	var spawn_budget: int = min(desired_count - current_biome_count, SMALL_PREY_MAX_VISIBLE_COUNT - global_count)
-	if spawn_budget <= 0:
+	var requested_count: int = min(desired_count - current_biome_count, SMALL_PREY_MAX_VISIBLE_COUNT - global_count)
+	small_prey_spawn_sync_last_requested = requested_count
+	if requested_count <= 0:
 		return
 	var spawned := 0
 	var used_positions := _get_existing_small_prey_positions()
-	for slot_index in spawn_budget:
-		if _try_spawn_small_prey_near_player(player_biome, player_position, used_positions, slot_index, spawn_budget):
+	for slot_index in requested_count:
+		if _try_spawn_small_prey_near_player(player_biome, player_position, used_positions, slot_index, requested_count):
 			spawned += 1
 	if spawned > 0:
 		var event_bus := _get_event_bus()
 		if event_bus:
 			event_bus.post_message("%d SmallPrey entered the ecosystem" % spawned)
+	var failed_count: int = requested_count - spawned
+	if failed_count <= 0:
+		small_prey_failed_spawn_retry_timer = 0.0
+		small_prey_failed_spawn_warning_printed = false
+		small_prey_spawn_sync_last_failed = 0
+		small_prey_spawn_sync_last_success = requested_count
+		return
+	small_prey_failed_spawn_retry_timer = SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS
+	small_prey_spawn_sync_failed_count += 1
+	small_prey_spawn_sync_last_failed = failed_count
+	small_prey_spawn_sync_last_success = spawned
+	if not small_prey_failed_spawn_warning_printed:
+		push_warning("Failed to spawn %d out of %d SmallPrey. Retrying in %.1f seconds." % [
+			failed_count,
+			requested_count,
+			SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS
+		])
+		small_prey_failed_spawn_warning_printed = true
 
 
 func _get_desired_small_prey_count(biome: Dictionary, biome_state: Dictionary) -> int:
@@ -1309,12 +1636,13 @@ func _get_existing_small_prey_positions() -> Array[Vector2]:
 
 
 func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2], slot_index: int, slot_count: int) -> bool:
+	var spawn_ring := _get_creature_horizon_spawn_ring()
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
-		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(SMALL_PREY_PLAYER_SAFE_DISTANCE, SMALL_PREY_VISIBLE_SPAWN_RADIUS)
+		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):
 			continue
-		if not _is_valid_small_prey_position(candidate, used_positions, player_position):
+		if not _is_valid_small_prey_position(candidate, used_positions, player_position, spawn_ring.x):
 			continue
 		used_positions.append(candidate)
 		_spawn_small_prey_at(candidate, _get_biome_id(biome))
@@ -1322,7 +1650,7 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 	var player_limits: Vector2 = WORLD_CONFIG.get_player_limits()
 	for distance_step in 8:
 		var distance_factor: float = float(distance_step) / 7.0
-		var distance: float = lerp(SMALL_PREY_PLAYER_SAFE_DISTANCE, SMALL_PREY_VISIBLE_SPAWN_RADIUS, distance_factor)
+		var distance: float = lerp(spawn_ring.y, spawn_ring.x, distance_factor)
 		for angle_step in 48:
 			var angle: float = TAU * float(angle_step) / 48.0 + float(slot_index) * 0.21
 			var candidate: Vector2 = player_position + Vector2.RIGHT.rotated(angle) * distance
@@ -1330,26 +1658,21 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 			candidate.y = clamp(candidate.y, -player_limits.y, player_limits.y)
 			if not _is_point_in_biome(candidate, biome):
 				continue
-			if not _is_valid_small_prey_position(candidate, used_positions, player_position):
+			if not _is_valid_small_prey_position(candidate, used_positions, player_position, spawn_ring.x):
 				continue
 			used_positions.append(candidate)
 			_spawn_small_prey_at(candidate, _get_biome_id(biome))
 			return true
-	var fallback: Vector2 = _get_fallback_dry_creature_spawn_position(player_position)
-	if _is_point_in_biome(fallback, biome) and _is_valid_small_prey_position(fallback, used_positions, player_position):
-		used_positions.append(fallback)
-		_spawn_small_prey_at(fallback, _get_biome_id(biome))
-		return true
 	return false
 
 
-func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2, player_safe_distance: float = SMALL_PREY_PLAYER_SAFE_DISTANCE) -> bool:
 	return _is_valid_creature_spawn_position(
 		candidate,
 		used_positions,
 		SMALL_PREY_MIN_DISTANCE,
 		player_position,
-		SMALL_PREY_PLAYER_SAFE_DISTANCE
+		player_safe_distance
 	)
 
 
@@ -1542,6 +1865,58 @@ func _spawn_initial_grazers() -> void:
 			event_bus.post_message("%d Grazer%s dispersed into the ecosystem" % [spawned, "" if spawned == 1 else "s"])
 
 
+func _sync_visible_grazers() -> void:
+	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
+		return
+	var player_position := _get_player_position()
+	var player_biome := _get_biome_for_position(player_position)
+	if player_biome.is_empty():
+		return
+	var biome_id := _get_biome_id(player_biome)
+	var biome_state: Dictionary = ecosystem_director.get_biome_state(biome_id)
+	if biome_state.is_empty():
+		return
+	var desired_count := _get_desired_grazer_count(biome_state)
+	var current_biome_count := _get_visible_grazer_count(biome_id)
+	var global_count := get_registered_creatures_by_type("grazer").size()
+	var spawn_budget: int = min(desired_count - current_biome_count, GRAZER_MAX_VISIBLE_COUNT - global_count)
+	if spawn_budget <= 0:
+		return
+	var spawned := 0
+	var used_positions := _get_existing_grazer_positions()
+	for _i in spawn_budget:
+		if _try_spawn_grazer_near_player(player_biome, player_position, used_positions):
+			spawned += 1
+	if spawned > 0:
+		var event_bus := _get_event_bus()
+		if event_bus:
+			event_bus.post_message("%d Grazer%s entered the ecosystem" % [spawned, "" if spawned == 1 else "s"])
+	elif spawned < spawn_budget:
+		push_warning("Failed to spawn %d out of %d Grazers" % [spawn_budget - spawned, spawn_budget])
+
+
+func _get_desired_grazer_count(biome_state: Dictionary) -> int:
+	var population := float(biome_state.get("grazer_population", 0.0))
+	var biomass_percent := float(biome_state.get("plant_biomass_percent", 0.0))
+	var target_population := float(GAME_BALANCE.POPULATION_RECOVERY["grazer_target_population"])
+	var population_factor: float = clamp(population / maxf(target_population, 1.0), 0.0, 1.0)
+	var biomass_factor: float = clamp(biomass_percent / 100.0, 0.0, 1.0)
+	var desired := int(round(float(GRAZER_MAX_VISIBLE_PER_BIOME) * population_factor * biomass_factor))
+	if population > 0.0 and biomass_percent >= 30.0:
+		desired = max(desired, 1)
+	return clampi(desired, 0, GRAZER_MAX_VISIBLE_PER_BIOME)
+
+
+func _get_visible_grazer_count(biome_id: String) -> int:
+	var count := 0
+	for grazer in get_registered_creatures_by_type("grazer"):
+		if not is_instance_valid(grazer):
+			continue
+		if _get_biome_id_for_position(grazer.global_position) == biome_id:
+			count += 1
+	return count
+
+
 func _get_initial_grazer_biomes() -> Array[Dictionary]:
 	var biomes: Array[Dictionary] = []
 	for biome_value in WORLD_CONFIG.get_biome_zones():
@@ -1578,12 +1953,13 @@ func _try_spawn_grazer_in_biome(biome: Dictionary, player_position: Vector2, use
 
 
 func _try_spawn_grazer_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
+	var spawn_ring := _get_creature_horizon_spawn_ring()
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
-		var offset := Vector2.RIGHT.rotated(grazer_rng.randf_range(0.0, TAU)) * grazer_rng.randf_range(GRAZER_PLAYER_SAFE_DISTANCE, GRAZER_VISIBLE_SPAWN_RADIUS)
+		var offset := Vector2.RIGHT.rotated(grazer_rng.randf_range(0.0, TAU)) * grazer_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):
 			continue
-		if not _is_valid_grazer_position(candidate, used_positions, player_position):
+		if not _is_valid_grazer_position(candidate, used_positions, player_position, spawn_ring.x):
 			continue
 		used_positions.append(candidate)
 		_spawn_grazer_at(candidate, _get_biome_id(biome))
@@ -1630,14 +2006,36 @@ func _get_visible_varnak_count(biome_id: String) -> int:
 	return count
 
 
-func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2, player_safe_distance: float = GRAZER_PLAYER_SAFE_DISTANCE) -> bool:
 	return _is_valid_creature_spawn_position(
 		candidate,
 		used_positions,
 		GRAZER_MIN_DISTANCE,
 		player_position,
-		GRAZER_PLAYER_SAFE_DISTANCE
+		player_safe_distance
 	)
+
+
+func _get_creature_horizon_spawn_ring() -> Vector2:
+	var viewport_size := get_viewport_rect().size
+	var camera_zoom := Vector2.ONE
+	var player := get_tree().get_first_node_in_group("player")
+	if player:
+		var camera := player.get_node_or_null("Camera2D") as Camera2D
+		if camera:
+			camera_zoom = camera.zoom
+	var minimum_distance := _calculate_creature_horizon_distance(viewport_size, camera_zoom)
+	var ring_width := float(GAME_BALANCE.CREATURE_SPAWN["horizon_ring_width"])
+	return Vector2(minimum_distance, minimum_distance + ring_width)
+
+
+func _calculate_creature_horizon_distance(viewport_size: Vector2, camera_zoom: Vector2) -> float:
+	var safe_zoom := Vector2(maxf(absf(camera_zoom.x), 0.01), maxf(absf(camera_zoom.y), 0.01))
+	var visible_world_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y)
+	var visible_half_diagonal := visible_world_size.length() * 0.5
+	var horizon_margin := float(GAME_BALANCE.CREATURE_SPAWN["horizon_margin"])
+	var fallback_distance := float(GAME_BALANCE.CREATURE_SPAWN["horizon_fallback_distance"])
+	return maxf(visible_half_diagonal + horizon_margin, fallback_distance)
 
 
 func _is_valid_initial_grazer_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
@@ -1670,7 +2068,9 @@ func _get_sibling_node(node_name: String) -> Node:
 
 
 func _get_event_bus() -> Node:
-	return get_node_or_null("/root/EventBus")
+	if not is_inside_tree():
+		return null
+	return get_tree().root.get_node_or_null("EventBus")
 
 
 func _get_game_session() -> Node:
@@ -1678,24 +2078,14 @@ func _get_game_session() -> Node:
 
 
 func _try_spawn_varnak_in_dangerous_biome(player_position: Vector2, used_positions: Array[Vector2]) -> bool:
-	var dangerous_biomes: Array[Dictionary] = []
-	for biome_value in WORLD_CONFIG.BIOME_ZONES:
-		var biome := Dictionary(biome_value)
-		if biome.get("dangerous", false) == true:
-			dangerous_biomes.append(biome)
-	if dangerous_biomes.is_empty():
-		return false
+	var spawn_ring := _get_creature_horizon_spawn_ring()
 	for _attempt in WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS:
-		var biome_index := varnak_rng.randi_range(0, dangerous_biomes.size() - 1)
-		var biome: Dictionary = dangerous_biomes[biome_index]
-		var spawn_area := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
-		var candidate := Vector2(
-			varnak_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
-			varnak_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
-		)
-		if not _is_point_in_scaled_biome(candidate, biome):
+		var angle := varnak_rng.randf_range(0.0, TAU)
+		var distance := varnak_rng.randf_range(spawn_ring.x, spawn_ring.y)
+		var candidate := player_position + Vector2.RIGHT.rotated(angle) * distance
+		if not _is_point_in_dangerous_biome(candidate):
 			continue
-		if not _is_valid_varnak_spawn_position(candidate, player_position, used_positions):
+		if not _is_valid_varnak_spawn_position(candidate, player_position, used_positions, spawn_ring.x):
 			continue
 		used_positions.append(candidate)
 		var varnak := _spawn_varnak_at(candidate)
@@ -1717,9 +2107,14 @@ func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
 
 
 func _sync_visible_varnaks(force_spawn_check := false) -> void:
+	if varnak_failed_spawn_retry_timer > 0.0 and not force_spawn_check and not integration_test_mode:
+		varnak_spawn_sync_skipped_by_cooldown_count += 1
+		return
+	varnak_spawn_sync_attempt_count += 1
 	var player_position := _get_player_position()
 	var global_count := get_registered_creatures_by_type("varnak").size()
 	var spawn_budget := _get_varnak_spawn_budget(global_count, _get_current_day())
+	varnak_spawn_sync_last_requested = spawn_budget
 	if spawn_budget <= 0:
 		return
 	if not force_spawn_check and varnak_rng.randf() > _get_varnak_spawn_chance(_get_current_day()):
@@ -1733,6 +2128,24 @@ func _sync_visible_varnaks(force_spawn_check := false) -> void:
 		var event_bus := _get_event_bus()
 		if event_bus:
 			event_bus.post_message("Varnak population increased by %d" % spawned)
+	var failed_count: int = spawn_budget - spawned
+	if failed_count <= 0:
+		varnak_failed_spawn_retry_timer = 0.0
+		varnak_failed_spawn_warning_printed = false
+		varnak_spawn_sync_last_failed = 0
+		varnak_spawn_sync_last_success = spawn_budget
+		return
+	varnak_failed_spawn_retry_timer = VARNAK_FAILED_SPAWN_RETRY_SECONDS
+	varnak_spawn_sync_failed_count += 1
+	varnak_spawn_sync_last_failed = failed_count
+	varnak_spawn_sync_last_success = spawned
+	if not varnak_failed_spawn_warning_printed:
+		push_warning("Failed to spawn %d out of %d Varnaks. Retrying in %.1f seconds." % [
+			failed_count,
+			spawn_budget,
+			VARNAK_FAILED_SPAWN_RETRY_SECONDS
+		])
+		varnak_failed_spawn_warning_printed = true
 
 
 func respawn_missing_varnaks() -> void:
@@ -1845,6 +2258,32 @@ func get_varnak_save_data() -> Array[Dictionary]:
 
 func get_small_prey_save_data() -> Array[Dictionary]:
 	return _get_creature_save_data("small_prey")
+
+
+func get_small_prey_spawn_sync_debug() -> Dictionary:
+	return {
+		"retry_timer": small_prey_failed_spawn_retry_timer,
+		"warning_printed": small_prey_failed_spawn_warning_printed,
+		"attempt_count": small_prey_spawn_sync_attempt_count,
+		"failed_count": small_prey_spawn_sync_failed_count,
+		"skipped_by_cooldown_count": small_prey_spawn_sync_skipped_by_cooldown_count,
+		"last_requested": small_prey_spawn_sync_last_requested,
+		"last_failed": small_prey_spawn_sync_last_failed,
+		"last_success": small_prey_spawn_sync_last_success
+	}
+
+
+func get_varnak_spawn_sync_debug() -> Dictionary:
+	return {
+		"retry_timer": varnak_failed_spawn_retry_timer,
+		"warning_printed": varnak_failed_spawn_warning_printed,
+		"attempt_count": varnak_spawn_sync_attempt_count,
+		"failed_count": varnak_spawn_sync_failed_count,
+		"skipped_by_cooldown_count": varnak_spawn_sync_skipped_by_cooldown_count,
+		"last_requested": varnak_spawn_sync_last_requested,
+		"last_failed": varnak_spawn_sync_last_failed,
+		"last_success": varnak_spawn_sync_last_success
+	}
 
 
 func get_grazer_save_data() -> Array[Dictionary]:
@@ -2010,12 +2449,12 @@ func _is_point_in_dangerous_biome(point: Vector2) -> bool:
 	return false
 
 
-func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2, used_positions: Array[Vector2] = []) -> bool:
+func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2, used_positions: Array[Vector2] = [], player_safe_distance: float = WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE) -> bool:
 	if not WORLD_CONFIG.WORLD_RECT.has_point(point):
 		return false
 	if is_creature_spawn_blocked_by_water(point):
 		return false
-	if point.distance_to(player_position) < WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE:
+	if point.distance_to(player_position) < player_safe_distance:
 		return false
 	for used_position in used_positions:
 		if point.distance_to(used_position) < VARNAK_MIN_DISTANCE:
@@ -2039,25 +2478,12 @@ func _get_current_day() -> int:
 
 
 func _get_varnak_target_count(day: int) -> int:
-	if day < 2:
-		return 0
-
 	var scaling := GameBalance.VARNAK_DAY_SCALING
-	if day == 2:
-		return randi_range(
-			int(scaling.get("day_2_min", 1)),
-			int(scaling.get("day_2_max", 2))
-		)
-	if day == 3:
-		return randi_range(
-			int(scaling.get("day_3_min", 2)),
-			int(scaling.get("day_3_max", 3))
-		)
-
-	var day_3_max := int(scaling.get("day_3_max", 3))
+	var base_target := int(scaling.get("day_1_target", 2))
 	var daily_growth := int(scaling.get("daily_growth", 1))
 	var max_varnaks := int(scaling.get("max_varnaks", 12))
-	return clampi(day_3_max + ((day - 3) * daily_growth), 0, max_varnaks)
+	var normalized_day := maxi(day, 1)
+	return clampi(base_target + ((normalized_day - 1) * daily_growth), base_target, max_varnaks)
 
 
 func _get_varnak_spawn_chance(day: int) -> float:
@@ -2084,6 +2510,8 @@ func _get_varnak_spawn_check_interval() -> float:
 func _on_day_changed(_day: int) -> void:
 	varnak_spawn_timer = 0.0
 	call_deferred("_sync_visible_varnaks", true)
+	call_deferred("_sync_visible_small_prey")
+	call_deferred("_sync_visible_grazers")
 
 
 func _on_profile_changed(profile: Dictionary) -> void:
@@ -2150,18 +2578,18 @@ func _get_night_amount() -> float:
 
 func _draw_biomes() -> void:
 	if biome_textures_enabled:
-		_sync_biome_blend_background()
-		for biome_value in WORLD_CONFIG.get_biome_zones():
-			var biome := Dictionary(biome_value)
-			_draw_biome_terrain_accents(biome, _get_biome_visual_color(biome))
-		return
-	if is_instance_valid(biome_blend_background):
+		if is_instance_valid(biome_blend_background) and biome_blend_background.visible and biome_blend_background.texture != null:
+			return
+	elif is_instance_valid(biome_blend_background):
 		biome_blend_background.visible = false
+		biome_blend_background.texture = null
 	for biome_value in WORLD_CONFIG.get_biome_zones():
 		var biome := Dictionary(biome_value)
 		var points := PackedVector2Array(biome["points"])
 		var base_color := _get_biome_visual_color(biome)
 		draw_colored_polygon(points, base_color)
+		if biome_terrain_accents_enabled:
+			_draw_biome_terrain_accents(biome, base_color)
 
 
 func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
@@ -2173,20 +2601,57 @@ func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
 		var rotation := float(accent.get("rotation", 0.0))
 		var scale := float(accent.get("scale", 1.0))
 		var tint := float(accent.get("tint", 0.0))
+		var is_secondary: bool = accent.get("secondary", false) == true
+		var detail_alpha: float = float(GAME_BALANCE.BIOME_TEXTURES.get(
+			"secondary_detail_alpha" if is_secondary else "detail_alpha",
+			0.18 if is_secondary else 0.30
+		))
+		var colors := _get_biome_accent_colors(str(accent.get("kind", "")), base_color, tint, detail_alpha)
+		var light_color := Color(colors.get("light", base_color))
+		var dark_color := Color(colors.get("dark", base_color.darkened(0.18)))
 		match str(accent.get("kind", "")):
 			"grass":
-				_draw_biome_grass_accent(position, rotation, scale, base_color.lightened(0.12 + tint * 0.10), base_color.darkened(0.16))
+				_draw_biome_grass_accent(position, rotation, scale, light_color, dark_color)
 			"leaf":
-				_draw_biome_leaf_accent(position, rotation, scale, base_color.lightened(0.08 + tint * 0.08), base_color.darkened(0.20))
+				_draw_biome_leaf_accent(position, rotation, scale, light_color, dark_color)
 			"plate":
-				_draw_biome_plate_accent(position, rotation, scale, base_color.lightened(0.18 + tint * 0.06), base_color.darkened(0.24))
+				_draw_biome_plate_accent(position, rotation, scale, light_color, dark_color)
 			"thicket":
-				_draw_biome_thicket_accent(position, rotation, scale, base_color.lightened(0.10 + tint * 0.08), base_color.darkened(0.18))
+				_draw_biome_thicket_accent(position, rotation, scale, light_color, dark_color)
 			"crack":
-				_draw_biome_crack_accent(position, rotation, scale, base_color.lightened(0.14), base_color.darkened(0.28))
+				_draw_biome_crack_accent(position, rotation, scale, light_color, dark_color)
 			_:
 				if biome_id == "hearth_meadow":
-					_draw_biome_grass_accent(position, rotation, scale, base_color.lightened(0.12), base_color.darkened(0.16))
+					_draw_biome_grass_accent(position, rotation, scale, light_color, dark_color)
+
+
+func _get_biome_accent_colors(kind: String, base_color: Color, tint: float, alpha: float) -> Dictionary:
+	var light := base_color.lightened(0.08)
+	var dark := base_color.darkened(0.18)
+	match kind:
+		"grass":
+			light = base_color.lerp(Color(0.28, 0.70, 0.22), 0.78).lightened(tint * 0.08)
+			dark = base_color.lerp(Color(0.12, 0.30, 0.09), 0.82)
+		"leaf":
+			light = base_color.lerp(Color(0.36, 0.76, 0.20), 0.70).lightened(tint * 0.06)
+			dark = base_color.lerp(Color(0.11, 0.24, 0.09), 0.80)
+		"plate":
+			light = base_color.lerp(Color(0.55, 0.56, 0.60), 0.72).lightened(tint * 0.05)
+			dark = base_color.lerp(Color(0.22, 0.23, 0.25), 0.82)
+		"thicket":
+			light = base_color.lerp(Color(0.43, 0.86, 0.25), 0.68).lightened(tint * 0.06)
+			dark = base_color.lerp(Color(0.12, 0.26, 0.10), 0.82)
+		"crack":
+			light = base_color.lerp(Color(0.66, 0.49, 0.22), 0.76).lightened(tint * 0.05)
+			dark = base_color.lerp(Color(0.38, 0.27, 0.12), 0.84)
+	return {
+		"light": _color_with_alpha(light, alpha),
+		"dark": _color_with_alpha(dark, minf(alpha * 1.20, 0.42))
+	}
+
+
+func _color_with_alpha(color: Color, alpha: float) -> Color:
+	return Color(color.r, color.g, color.b, clampf(alpha, 0.0, 1.0))
 
 
 func _rebuild_biome_terrain_accent_cache() -> void:
@@ -2198,6 +2663,9 @@ func _rebuild_biome_terrain_accent_cache() -> void:
 func _queue_biome_terrain_accent_cache_rebuild() -> void:
 	biome_terrain_accent_cache.clear()
 	pending_biome_terrain_accent_biomes.clear()
+	if not biome_terrain_accents_enabled:
+		biome_terrain_accent_cache_build_running = false
+		return
 	for biome_value in WORLD_CONFIG.get_biome_zones():
 		pending_biome_terrain_accent_biomes.append(Dictionary(biome_value))
 	if biome_terrain_accent_cache_build_running:
@@ -2207,6 +2675,10 @@ func _queue_biome_terrain_accent_cache_rebuild() -> void:
 
 
 func _build_pending_biome_terrain_accent_cache() -> void:
+	if not biome_terrain_accents_enabled:
+		pending_biome_terrain_accent_biomes.clear()
+		biome_terrain_accent_cache_build_running = false
+		return
 	var built_since_yield := 0
 	while not pending_biome_terrain_accent_biomes.is_empty():
 		var biome := Dictionary(pending_biome_terrain_accent_biomes.pop_front())
@@ -2259,8 +2731,9 @@ func _build_biome_terrain_accent_layout(biome: Dictionary) -> Array:
 			"kind": _pick_biome_accent_kind(biome_id, rng.randf()),
 			"position": candidate,
 			"rotation": rng.randf_range(-0.55, 0.55),
-			"scale": rng.randf_range(0.95, 1.45),
-			"tint": rng.randf_range(-0.10, 0.22)
+			"scale": rng.randf_range(0.62, 1.42),
+			"tint": rng.randf_range(-0.10, 0.22),
+			"secondary": rng.randf() < 0.42
 		})
 	return accents
 
@@ -2270,7 +2743,10 @@ func _get_biome_terrain_accent_target_count(biome: Dictionary) -> int:
 	var points := PackedVector2Array(biome["points"])
 	var area := _get_polygon_area(points)
 	var area_scale := clampf(area / 900000.0, 0.85, 1.45)
-	return clampi(int(round(float(BIOME_TERRAIN_ACCENT_COUNTS.get(biome_id, 20)) * area_scale)), 14, 36)
+	var density_multiplier := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)), 0.1)
+	var max_details := maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("max_detail_per_chunk", 120)), 1)
+	var target := int(round(float(BIOME_TERRAIN_ACCENT_COUNTS.get(biome_id, 20)) * area_scale * density_multiplier))
+	return clampi(target, mini(int(round(14.0 * density_multiplier)), max_details), max_details)
 
 
 func _pick_biome_accent_kind(biome_id: String, roll: float) -> String:
@@ -2289,80 +2765,69 @@ func _pick_biome_accent_kind(biome_id: String, roll: float) -> String:
 
 
 func _draw_biome_grass_accent(position: Vector2, rotation: float, scale: float, light_color: Color, dark_color: Color) -> void:
-	var blades := [
-		[Vector2(-6.0, 8.0), Vector2(-2.0, -8.0)],
-		[Vector2(-1.0, 10.0), Vector2(1.0, -11.0)],
-		[Vector2(5.0, 8.0), Vector2(4.0, -6.0)]
-	]
-	for blade in blades:
-		var start := _transform_biome_accent_point(blade[0], position, rotation, scale)
-		var end := _transform_biome_accent_point(blade[1], position, rotation, scale)
-		draw_line(start, end, light_color, max(1.0, 2.2 * scale))
-	var shadow_start := _transform_biome_accent_point(Vector2(-6.0, 10.0), position, rotation, scale)
-	var shadow_end := _transform_biome_accent_point(Vector2(6.0, 10.0), position, rotation, scale)
-	draw_line(shadow_start, shadow_end, dark_color, max(1.0, 1.2 * scale))
+	for i in 6:
+		var offset := -6.0 + float(i) * 2.4
+		var height := 8.0 + float(i % 3) * 2.0
+		var start := _transform_biome_accent_point(Vector2(offset, 7.0), position, rotation, scale)
+		var end := _transform_biome_accent_point(Vector2(offset + sin(float(i)) * 3.0, 7.0 - height), position, rotation, scale)
+		draw_line(start, end, light_color, max(1.0, 1.6 * scale))
+	draw_circle(position, 8.0 * scale, _color_with_alpha(dark_color, dark_color.a * 0.38))
 
 
 func _draw_biome_leaf_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
-	var leaf := PackedVector2Array([
-		Vector2(-11.0, 1.0),
-		Vector2(-3.0, -7.0),
-		Vector2(7.0, -4.0),
-		Vector2(12.0, 2.0),
-		Vector2(6.0, 8.0),
-		Vector2(-5.0, 7.0)
-	])
-	var transformed := _transform_biome_accent_points(leaf, position, rotation, scale)
-	draw_colored_polygon(transformed, fill_color)
-	draw_polyline(_close_polyline(transformed), outline_color, max(1.0, 1.2 * scale))
-	var vein_start := _transform_biome_accent_point(Vector2(-7.0, 3.0), position, rotation, scale)
-	var vein_end := _transform_biome_accent_point(Vector2(7.0, -2.0), position, rotation, scale)
-	draw_line(vein_start, vein_end, outline_color.darkened(0.06), max(1.0, 1.0 * scale))
+	draw_circle(_transform_biome_accent_point(Vector2(-6.0, 3.0), position, rotation, scale), 8.0 * scale, fill_color.darkened(0.08))
+	draw_circle(_transform_biome_accent_point(Vector2(3.0, -3.0), position, rotation, scale), 9.0 * scale, fill_color)
+	draw_circle(_transform_biome_accent_point(Vector2(8.0, 5.0), position, rotation, scale), 7.0 * scale, fill_color.darkened(0.14))
+	var stem_start := _transform_biome_accent_point(Vector2(-10.0, 7.0), position, rotation, scale)
+	var stem_end := _transform_biome_accent_point(Vector2(10.0, 7.0), position, rotation, scale)
+	draw_line(stem_start, stem_end, outline_color, max(1.0, 1.5 * scale))
 
 
 func _draw_biome_plate_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
 	var plate := PackedVector2Array([
-		Vector2(-14.0, -2.0),
-		Vector2(-6.0, -10.0),
-		Vector2(8.0, -9.0),
-		Vector2(15.0, -1.0),
-		Vector2(11.0, 9.0),
-		Vector2(-8.0, 10.0)
+		Vector2(-17.0, 8.0),
+		Vector2(-9.0, -13.0),
+		Vector2(10.0, -12.0),
+		Vector2(18.0, 5.0),
+		Vector2(3.0, 16.0)
 	])
 	var transformed := _transform_biome_accent_points(plate, position, rotation, scale)
-	draw_colored_polygon(transformed, fill_color)
-	draw_polyline(_close_polyline(transformed), outline_color, max(1.0, 1.6 * scale))
-	var crack_start := _transform_biome_accent_point(Vector2(-5.0, 1.0), position, rotation, scale)
-	var crack_mid := _transform_biome_accent_point(Vector2(1.0, -3.0), position, rotation, scale)
-	var crack_end := _transform_biome_accent_point(Vector2(7.0, 2.0), position, rotation, scale)
-	draw_polyline(PackedVector2Array([crack_start, crack_mid, crack_end]), outline_color.darkened(0.10), max(1.0, 1.2 * scale))
+	draw_colored_polygon(transformed, fill_color.darkened(0.12))
+	var highlight := PackedVector2Array([
+		Vector2(-9.0, -13.0),
+		Vector2(10.0, -12.0),
+		Vector2(3.0, 1.0),
+		Vector2(-14.0, 4.0)
+	])
+	draw_colored_polygon(_transform_biome_accent_points(highlight, position, rotation, scale), fill_color)
+	var crack_start := _transform_biome_accent_point(Vector2(-5.0, -8.0), position, rotation, scale)
+	var crack_end := _transform_biome_accent_point(Vector2(4.0, 10.0), position, rotation, scale)
+	draw_line(crack_start, crack_end, outline_color, max(1.0, 2.0 * scale))
 
 
 func _draw_biome_thicket_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
-	_draw_biome_leaf_accent(position + Vector2(-4.0, 0.0).rotated(rotation) * scale, rotation - 0.20, scale * 0.78, fill_color, outline_color)
-	_draw_biome_leaf_accent(position + Vector2(6.0, 2.0).rotated(rotation) * scale, rotation + 0.18, scale * 0.70, fill_color.lightened(0.04), outline_color)
-	var stem_start := _transform_biome_accent_point(Vector2(-2.0, 9.0), position, rotation, scale)
-	var stem_end := _transform_biome_accent_point(Vector2(-1.0, -6.0), position, rotation, scale)
-	draw_line(stem_start, stem_end, outline_color.darkened(0.05), max(1.0, 1.4 * scale))
+	draw_circle(_transform_biome_accent_point(Vector2(-10.0, 4.0), position, rotation, scale), 12.0 * scale, fill_color.darkened(0.10))
+	draw_circle(_transform_biome_accent_point(Vector2(2.0, -4.0), position, rotation, scale), 14.0 * scale, fill_color)
+	draw_circle(_transform_biome_accent_point(Vector2(13.0, 5.0), position, rotation, scale), 11.0 * scale, fill_color.darkened(0.16))
+	draw_circle(_transform_biome_accent_point(Vector2(2.0, 9.0), position, rotation, scale), 11.0 * scale, fill_color.darkened(0.06))
+	var base_start := _transform_biome_accent_point(Vector2(-16.0, 8.0), position, rotation, scale)
+	var base_end := _transform_biome_accent_point(Vector2(16.0, 8.0), position, rotation, scale)
+	draw_line(base_start, base_end, outline_color, max(1.0, 2.0 * scale))
 
 
 func _draw_biome_crack_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
-	var ridge := PackedVector2Array([
-		Vector2(-12.0, 6.0),
-		Vector2(-4.0, -2.0),
-		Vector2(0.0, 1.0),
-		Vector2(8.0, -6.0),
-		Vector2(13.0, 2.0)
-	])
-	var transformed := _transform_biome_accent_points(ridge, position, rotation, scale)
-	draw_polyline(transformed, outline_color, max(1.0, 1.8 * scale))
-	var chip := PackedVector2Array([
-		Vector2(-3.0, 3.0),
-		Vector2(2.0, -3.0),
-		Vector2(5.0, 2.0),
-		Vector2(1.0, 5.0)
-	])
-	draw_colored_polygon(_transform_biome_accent_points(chip, position, rotation + 0.25, scale * 0.52), fill_color.darkened(0.06))
+	var branches := [
+		[Vector2(0.0, 12.0), Vector2(-18.0, -8.0)],
+		[Vector2(0.0, 12.0), Vector2(18.0, -9.0)],
+		[Vector2(0.0, 12.0), Vector2(0.0, -16.0)],
+		[Vector2(-8.0, 1.0), Vector2(-19.0, 3.0)],
+		[Vector2(7.0, 1.0), Vector2(19.0, 5.0)]
+	]
+	for branch in branches:
+		var start := _transform_biome_accent_point(branch[0], position, rotation, scale)
+		var end := _transform_biome_accent_point(branch[1], position, rotation, scale)
+		draw_line(start, end, fill_color, max(1.0, 2.0 * scale))
+	draw_circle(position, 15.0 * scale, _color_with_alpha(outline_color, outline_color.a * 0.24))
 
 
 func _transform_biome_accent_point(point: Vector2, position: Vector2, rotation: float, scale: float) -> Vector2:
@@ -2415,9 +2880,21 @@ func _get_string_seed(text: String) -> int:
 
 
 func _draw_biome_blend_texture() -> void:
-	var blend_texture := _ensure_render_controller().ensure_biome_blend_texture()
-	if blend_texture:
-		draw_texture_rect(blend_texture, WORLD_CONFIG.WORLD_RECT, false)
+	if not is_instance_valid(biome_blend_background) or not biome_blend_background.visible:
+		return
+	if biome_blend_background.texture:
+		draw_texture_rect(biome_blend_background.texture, WORLD_CONFIG.WORLD_RECT, false)
+
+
+func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
+	if delta <= 0.1:
+		return
+	var flag_text := ""
+	for key in flags.keys():
+		if not flag_text.is_empty():
+			flag_text += " "
+		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
+	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color:
@@ -2427,14 +2904,16 @@ func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color
 		var biome: Dictionary = biome_zones[i]
 		var points := PackedVector2Array(biome["points"])
 		if Geometry2D.is_point_in_polygon(position, points):
-			return _get_biome_visual_color(biome)
+			var visual_color := _get_biome_visual_color(biome)
+			return _get_biome_terrain_color(biome, position, visual_color)
 		var edge_distance := _get_point_polygon_edge_distance(position, points)
 		if edge_distance < nearest_distance:
 			nearest_distance = edge_distance
 			nearest_index = i
 	if nearest_index >= 0:
 		var nearest_biome: Dictionary = biome_zones[nearest_index]
-		return _get_biome_visual_color(nearest_biome)
+		var visual_color := _get_biome_visual_color(nearest_biome)
+		return _get_biome_terrain_color(nearest_biome, position, visual_color)
 	return Color.BLACK
 
 
@@ -2461,6 +2940,14 @@ func _get_biome_colors_key() -> String:
 	for biome in WORLD_CONFIG.get_biome_zones():
 		var color := _get_biome_visual_color(biome)
 		parts.append("%.3f:%.3f:%.3f:%s" % [color.r, color.g, color.b, _get_biome_terrain_texture_key(biome)])
+	parts.append("texture_balance:%.2f:%.2f:%.2f:%.2f:%d" % [
+		float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("detail_alpha", 0.18)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("secondary_detail_alpha", 0.10)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("variation_noise_strength", 0.22)),
+		int(GAME_BALANCE.BIOME_TEXTURES.get("max_detail_per_chunk", 120))
+	])
+	parts.append("texture_scale:%.2f" % float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 2.0)))
 	return "|".join(parts)
 
 
@@ -2482,12 +2969,7 @@ func _get_biome_visual_color(biome: Dictionary) -> Color:
 
 
 func _get_biome_terrain_color(biome: Dictionary, world_position: Vector2, base_color: Color) -> Color:
-	var terrain_pattern: Dictionary = _get_biome_terrain_pattern(biome)
-	if terrain_pattern.is_empty():
-		return base_color
-	var sampled_color: Color = _sample_biome_texture_color(terrain_pattern, world_position)
-	var texture_mix: float = clampf(float(terrain_pattern.get("mix", 0.88)), 0.0, 1.0)
-	return base_color.lerp(sampled_color, texture_mix)
+	return base_color
 
 
 func _sample_biome_terrain_pattern(terrain_pattern: Dictionary, world_position: Vector2) -> float:
@@ -2690,14 +3172,20 @@ func _get_biome_texture_image(terrain_pattern: Dictionary) -> Image:
 
 func _get_biome_texture_position(terrain_pattern: Dictionary, world_position: Vector2, texture_image: Image) -> Vector2i:
 	var seed := float(terrain_pattern.get("seed", 0.0))
+	var density_multiplier := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)), 0.1)
+	density_multiplier *= maxf(float(terrain_pattern.get("density_scale", 1.0)), 0.1)
 	var world_rect := WORLD_CONFIG.WORLD_RECT
 	var world_uv := Vector2(
 		inverse_lerp(world_rect.position.x, world_rect.end.x, world_position.x),
 		inverse_lerp(world_rect.position.y, world_rect.end.y, world_position.y)
 	)
+	var tiled_uv := Vector2(
+		clampf(world_uv.x * density_multiplier + seed * 0.013, 0.0, 1.0),
+		clampf(world_uv.y * density_multiplier + seed * 0.007, 0.0, 1.0)
+	)
 	var sample_position := Vector2(
-		(world_uv.x + seed * 0.137) * float(texture_image.get_width() - 1),
-		(world_uv.y + seed * 0.071) * float(texture_image.get_height() - 1)
+		tiled_uv.x * float(texture_image.get_width() - 1),
+		tiled_uv.y * float(texture_image.get_height() - 1)
 	)
 	return Vector2i(
 		clampi(int(round(sample_position.x)), 0, texture_image.get_width() - 1),

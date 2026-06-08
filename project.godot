@@ -21,6 +21,14 @@ EventBus="*res://scripts/systems/event_bus.gd"
 GameSession="*res://scripts/systems/game_session.gd"
 GraphicsSettings="*res://scripts/systems/graphics_settings.gd"
 
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=0
+window/size/window_height_override=0
+window/stretch/mode="disabled"
+
 [input]
 
 move_up={

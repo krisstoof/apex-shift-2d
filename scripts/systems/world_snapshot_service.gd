@@ -10,8 +10,10 @@ var ecosystem_director: Node
 var world: Node
 
 var snapshot: Dictionary = {}
+var hud_snapshot: Dictionary = {}
 var snapshot_version := 0
 var last_refresh_frame := -1
+var last_hud_refresh_frame := -1
 
 
 func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, p_ecosystem_director: Node = null, p_world: Node = null) -> void:
@@ -31,6 +33,19 @@ func refresh(force := false) -> Dictionary:
 	snapshot_version += 1
 	snapshot["snapshot_version"] = snapshot_version
 	return snapshot
+
+
+func refresh_hud(force := false) -> Dictionary:
+	var current_frame := Engine.get_process_frames()
+	if not force and not hud_snapshot.is_empty() and current_frame == last_hud_refresh_frame:
+		return hud_snapshot
+	last_hud_refresh_frame = current_frame
+	hud_snapshot = {
+		"player": _build_player_snapshot(),
+		"time": _build_time_snapshot(),
+		"snapshot_version": snapshot_version
+	}
+	return hud_snapshot
 
 
 func get_snapshot() -> Dictionary:
@@ -129,9 +144,14 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 		"tents": 0
 	}
 	var biome_texture_cache: Dictionary = {}
+	var small_prey_spawn_sync: Dictionary = {}
+	var varnak_spawn_sync: Dictionary = {}
 	var varnak_population: Dictionary = {}
+	var visibility_culling: Dictionary = {}
 	var landmark_overlay_enabled := false
 	var biome_textures_enabled := true
+	var biome_terrain_accents_enabled := false
+	var low_end_rendering := false
 	if active_world:
 		if active_world.has_method("get_world_rect"):
 			world_rect = active_world.get_world_rect()
@@ -151,12 +171,22 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 			nearest_landmark = Dictionary(active_world.get_nearest_landmark_data(Vector2(player_snapshot.get("position", Vector2.ZERO))))
 		if active_world.has_method("get_biome_texture_cache_status"):
 			biome_texture_cache = Dictionary(active_world.get_biome_texture_cache_status())
+		if active_world.has_method("get_small_prey_spawn_sync_debug"):
+			small_prey_spawn_sync = Dictionary(active_world.get_small_prey_spawn_sync_debug())
+		if active_world.has_method("get_varnak_spawn_sync_debug"):
+			varnak_spawn_sync = Dictionary(active_world.get_varnak_spawn_sync_debug())
 		if active_world.has_method("get_varnak_population_status"):
 			varnak_population = Dictionary(active_world.get_varnak_population_status())
+		if active_world.has_method("get_visibility_culling_debug"):
+			visibility_culling = Dictionary(active_world.get_visibility_culling_debug())
 		if active_world.has_method("is_landmark_debug_overlay_enabled"):
 			landmark_overlay_enabled = active_world.is_landmark_debug_overlay_enabled()
 		if active_world.has_method("are_biome_textures_enabled"):
 			biome_textures_enabled = active_world.are_biome_textures_enabled()
+		if active_world.has_method("are_biome_terrain_accents_enabled"):
+			biome_terrain_accents_enabled = active_world.are_biome_terrain_accents_enabled()
+		if active_world.has_method("is_low_end_rendering_enabled"):
+			low_end_rendering = active_world.is_low_end_rendering_enabled()
 		resource_counts["trees"] = _get_world_group_count(active_world, "trees")
 		resource_counts["bushes"] = _get_world_group_count(active_world, "bushes")
 		resource_counts["grass"] = _get_world_group_count(active_world, "grass")
@@ -180,9 +210,14 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 		"resource_counts": resource_counts,
 		"building_counts": building_counts,
 		"biome_texture_cache": biome_texture_cache,
+		"small_prey_spawn_sync": small_prey_spawn_sync,
+		"varnak_spawn_sync": varnak_spawn_sync,
 		"varnak_population": varnak_population,
+		"visibility_culling": visibility_culling,
 		"landmark_overlay_enabled": landmark_overlay_enabled,
-		"biome_textures_enabled": biome_textures_enabled
+		"biome_textures_enabled": biome_textures_enabled,
+		"biome_terrain_accents_enabled": biome_terrain_accents_enabled,
+		"low_end_rendering": low_end_rendering
 	}
 
 

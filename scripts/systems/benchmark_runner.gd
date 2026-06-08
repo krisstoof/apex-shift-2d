@@ -35,7 +35,15 @@ var sample_timer := 0.0
 var start_ticks_usec := 0
 var start_unix_time := 0.0
 var benchmark_base_name := ""
-var samples: Array[Dictionary] = []
+var samples: Array = []
+var last_process_ticks_msec := 0
+var realtime_hitch_count := 0
+var max_realtime_delta_ms := 0
+var realtime_hitches: Array = []
+
+# HITCH LOGGER COUNTERS
+var benchmark_sample_build_ms: float = 0.0
+var benchmark_file_write_ms: float = 0.0
 var last_reported_second := -1
 
 var scene: Node
@@ -64,6 +72,10 @@ func start() -> bool:
 	start_unix_time = Time.get_unix_time_from_system()
 	benchmark_base_name = "benchmark_%d" % int(start_unix_time)
 	samples.clear()
+	last_process_ticks_msec = 0
+	realtime_hitch_count = 0
+	max_realtime_delta_ms = 0
+	realtime_hitches.clear()
 	last_reported_second = -1
 	benchmark_progress.emit(0.0, BENCHMARK_DURATION_SECONDS)
 	return true
@@ -72,17 +84,47 @@ func start() -> bool:
 func _process(delta: float) -> void:
 	if not running:
 		return
+	var now_ticks := Time.get_ticks_msec()
+	_capture_realtime_hitch(now_ticks, delta)
+	_log_hitch(delta, "BenchmarkRunner", {
+		"running": running,
+		"sample_timer": sample_timer,
+		"samples": samples.size()
+	})
 	elapsed_seconds = float(Time.get_ticks_usec() - start_ticks_usec) / 1000000.0
 	sample_timer += delta
-	while sample_timer >= SAMPLE_INTERVAL_SECONDS and running:
+	if sample_timer >= SAMPLE_INTERVAL_SECONDS and running:
 		sample_timer -= SAMPLE_INTERVAL_SECONDS
 		_record_sample()
 		elapsed_seconds = float(Time.get_ticks_usec() - start_ticks_usec) / 1000000.0
-		if elapsed_seconds >= BENCHMARK_DURATION_SECONDS:
-			break
 	_report_progress()
 	if elapsed_seconds >= BENCHMARK_DURATION_SECONDS:
 		_finish()
+
+
+func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
+	if last_process_ticks_msec > 0:
+		var realtime_delta_ms: int = now_ticks - last_process_ticks_msec
+		if realtime_delta_ms > 250:
+			realtime_hitch_count += 1
+			max_realtime_delta_ms = maxi(max_realtime_delta_ms, realtime_delta_ms)
+			var hitch := {
+				"elapsed_seconds": elapsed_seconds,
+				"realtime_delta_ms": realtime_delta_ms,
+				"engine_delta_ms": delta * 1000.0,
+				"sample_count": samples.size(),
+				"sample_timer": sample_timer,
+				"world_debug": _capture_lightweight_world_debug()
+			}
+			realtime_hitches.append(hitch)
+			if realtime_hitches.size() > 20:
+				realtime_hitches.pop_front()
+			push_warning("[REALTIME_HITCH] %d ms engine_delta=%.1f sample_count=%d" % [
+				realtime_delta_ms,
+				delta * 1000.0,
+				samples.size()
+			])
+	last_process_ticks_msec = now_ticks
 
 
 func _capture_context() -> bool:
@@ -100,7 +142,10 @@ func _capture_context() -> bool:
 func _record_sample() -> void:
 	if not running:
 		return
+	var sample_start_ms: int = Time.get_ticks_msec()
 	var sample: Dictionary = _capture_sample()
+	benchmark_sample_build_ms = float(Time.get_ticks_msec() - sample_start_ms)
+	sample["benchmark_sample_build_ms"] = benchmark_sample_build_ms
 	samples.append(sample)
 
 
@@ -160,9 +205,12 @@ func _capture_world_stats() -> Dictionary:
 	stats["hill_count"] = _count_landmarks_by_type(landmarks, "hill")
 	stats["boot"] = _capture_world_boot_stats()
 	stats["biome_texture_cache"] = _capture_world_biome_texture_cache_stats()
+	stats["small_prey_spawn_sync"] = _capture_world_small_prey_spawn_sync_stats()
+	stats["varnak_spawn_sync"] = _capture_world_varnak_spawn_sync_stats()
 	stats["landmark_debug"] = _capture_world_landmark_debug_stats()
 	stats["registry"] = _capture_world_registry_stats()
 	stats["render_flags"] = _capture_world_render_flags()
+	stats["visibility_culling"] = _capture_world_visibility_culling_stats()
 	stats["creature_counts"] = _capture_group_counts(["small_prey", "grazer", "varnak"])
 	stats["resource_counts"] = _capture_group_counts([
 		"trees",
@@ -180,6 +228,7 @@ func _capture_world_stats() -> Dictionary:
 		"pond_vegetation",
 		"edible_vegetation"
 	])
+	stats["resource_render_mode"] = _capture_world_resource_render_mode_stats()
 	stats["total_creatures"] = _sum_group_counts(stats["creature_counts"])
 	stats["total_resources"] = _sum_group_counts(stats["resource_counts"])
 	return stats
@@ -200,6 +249,8 @@ func _capture_world_biome_texture_cache_stats() -> Dictionary:
 	if not is_instance_valid(world) or not world.has_method("get_biome_texture_cache_status"):
 		return {}
 	var cache_status := Dictionary(world.get_biome_texture_cache_status())
+	var world_build_count := int(cache_status.get("world_biome_texture_build_count", cache_status.get("rebuild_count", 0)))
+	var world_last_build_ms := float(cache_status.get("world_biome_texture_last_build_ms", cache_status.get("last_build_ms", 0.0)))
 	return {
 		"textures_enabled": bool(cache_status.get("textures_enabled", true)),
 		"has_blend_texture": bool(cache_status.get("has_blend_texture", false)),
@@ -208,8 +259,48 @@ func _capture_world_biome_texture_cache_stats() -> Dictionary:
 		"accent_cache_count": int(cache_status.get("accent_cache_count", 0)),
 		"pending_biomes": int(cache_status.get("pending_biomes", 0)),
 		"build_running": bool(cache_status.get("build_running", false)),
-		"blend_colors_key_length": str(cache_status.get("blend_colors_key", "")).length()
+		"blend_colors_key_length": str(cache_status.get("blend_colors_key", "")).length(),
+		"world_biome_texture_build_count": world_build_count,
+		"rebuild_count": int(cache_status.get("rebuild_count", world_build_count)),
+		"world_biome_texture_last_build_ms": world_last_build_ms,
+		"last_build_ms": float(cache_status.get("last_build_ms", world_last_build_ms)),
+		"rebuild_blocked_count": int(cache_status.get("rebuild_blocked_count", 0)),
+		"dirty_key_pending": bool(cache_status.get("dirty_key_pending", false)),
+		"freeze_after_first_build": bool(cache_status.get("freeze_after_first_build", false))
 	}
+
+
+func _capture_world_small_prey_spawn_sync_stats() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_small_prey_spawn_sync_debug"):
+		return {}
+	return Dictionary(world.get_small_prey_spawn_sync_debug())
+
+
+func _capture_world_varnak_spawn_sync_stats() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_varnak_spawn_sync_debug"):
+		return {}
+	return Dictionary(world.get_varnak_spawn_sync_debug())
+
+
+func _capture_lightweight_world_debug() -> Dictionary:
+	var scene_tree := get_tree()
+	if scene_tree == null:
+		return {}
+	var active_world: Node = scene_tree.get_first_node_in_group("world")
+	if active_world == null and scene_tree.current_scene != null:
+		active_world = scene_tree.current_scene.get_node_or_null("World")
+	if active_world == null:
+		return {}
+	var result: Dictionary = {}
+	if active_world.has_method("get_small_prey_spawn_sync_debug"):
+		result["small_prey_spawn_sync"] = active_world.get_small_prey_spawn_sync_debug()
+	if active_world.has_method("get_varnak_spawn_sync_debug"):
+		result["varnak_spawn_sync"] = active_world.get_varnak_spawn_sync_debug()
+	if active_world.has_method("get_biome_texture_cache_debug"):
+		result["biome_texture_cache"] = active_world.get_biome_texture_cache_debug()
+	if active_world.has_method("get_visibility_culling_debug"):
+		result["visibility_culling"] = active_world.get_visibility_culling_debug()
+	return result
 
 
 func _capture_world_landmark_debug_stats() -> Dictionary:
@@ -238,8 +329,51 @@ func _capture_world_render_flags() -> Dictionary:
 	if not is_instance_valid(world):
 		return {}
 	return {
+		"low_end_rendering": world.is_low_end_rendering_enabled() if world.has_method("is_low_end_rendering_enabled") else false,
 		"biome_textures_enabled": world.are_biome_textures_enabled() if world.has_method("are_biome_textures_enabled") else true,
-		"landmark_debug_overlay_enabled": world.is_landmark_debug_overlay_enabled() if world.has_method("is_landmark_debug_overlay_enabled") else false
+		"landmark_debug_overlay_enabled": world.is_landmark_debug_overlay_enabled() if world.has_method("is_landmark_debug_overlay_enabled") else false,
+		"biome_terrain_accents_enabled": world.are_biome_terrain_accents_enabled() if world.has_method("are_biome_terrain_accents_enabled") else false
+	}
+
+
+func _capture_world_visibility_culling_stats() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_visibility_culling_debug"):
+		return {}
+	return Dictionary(world.get_visibility_culling_debug())
+
+
+func _capture_world_resource_render_mode_stats() -> Dictionary:
+	if not is_instance_valid(world):
+		return {}
+	var resources: Array = []
+	if world.has_method("get_cached_group_nodes"):
+		resources = Array(world.call("get_cached_group_nodes", "resources"))
+	else:
+		resources = get_tree().get_nodes_in_group("resources")
+	var render_only_resources := 0
+	var render_only_grass := 0
+	var active_resource_collisions := 0
+	for resource_value in resources:
+		var resource := resource_value as Node
+		if resource == null:
+			continue
+		var is_render_only := false
+		if resource.has_method("is_render_only_resource"):
+			is_render_only = resource.call("is_render_only_resource") == true
+		elif resource.has_method("get"):
+			is_render_only = resource.get("render_only") == true
+		if is_render_only:
+			render_only_resources += 1
+		var resource_kind := str(resource.get("resource_kind")) if resource.has_method("get") else ""
+		if is_render_only and resource_kind in ["grass_patch", "dense_grass"]:
+			render_only_grass += 1
+		var collision_shape := resource.get_node_or_null("CollisionShape2D") as CollisionShape2D
+		if collision_shape != null and collision_shape.disabled == false:
+			active_resource_collisions += 1
+	return {
+		"render_only_resources": render_only_resources,
+		"render_only_grass": render_only_grass,
+		"active_resource_collisions": active_resource_collisions
 	}
 
 
@@ -399,6 +533,8 @@ func _write_logs() -> Dictionary:
 	var text_path := "%s/%s.log" % [absolute_dir, benchmark_base_name]
 	var json_path := "%s/%s.json" % [absolute_dir, benchmark_base_name]
 	var report := _build_report()
+	# Track benchmark file write timing for hitch logging
+	var write_start_ms := Time.get_ticks_msec()
 	var text_file := FileAccess.open(text_path, FileAccess.WRITE)
 	if not text_file:
 		push_error("Could not open benchmark log file for writing: %s (error %d)" % [text_path, FileAccess.get_open_error()])
@@ -411,6 +547,7 @@ func _write_logs() -> Dictionary:
 		return output
 	json_file.store_string(JSON.stringify(report, "\t"))
 	json_file.flush()
+	benchmark_file_write_ms = float(Time.get_ticks_msec() - write_start_ms)
 	output["text"] = text_path
 	output["json"] = json_path
 	return output
@@ -448,6 +585,9 @@ func _build_report() -> Dictionary:
 		"max_fps": max_fps,
 		"max_frame_time_ms": max_frame_time_ms,
 		"max_physics_time_ms": max_physics_time_ms,
+		"realtime_hitch_count": realtime_hitch_count,
+		"max_realtime_delta_ms": max_realtime_delta_ms,
+		"realtime_hitches": realtime_hitches,
 		"heaviest_sample": heaviest_sample,
 		"top_samples": top_samples,
 		"samples": samples
@@ -480,6 +620,8 @@ func _format_report_text(report: Dictionary) -> String:
 	lines.append("Max FPS: %.2f" % float(report.get("max_fps", 0.0)))
 	lines.append("Max frame time: %.2f ms" % float(report.get("max_frame_time_ms", 0.0)))
 	lines.append("Max physics time: %.2f ms" % float(report.get("max_physics_time_ms", 0.0)))
+	lines.append("Realtime hitch count: %d" % int(report.get("realtime_hitch_count", 0)))
+	lines.append("Max realtime delta: %d ms" % int(report.get("max_realtime_delta_ms", 0)))
 	var heaviest_sample: Dictionary = Dictionary(report.get("heaviest_sample", {}))
 	if not heaviest_sample.is_empty():
 		lines.append("")
@@ -555,6 +697,7 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 	var landmark_debug: Dictionary = Dictionary(world_stats.get("landmark_debug", {}))
 	var registry_stats: Dictionary = Dictionary(world_stats.get("registry", {}))
 	var render_flags: Dictionary = Dictionary(world_stats.get("render_flags", {}))
+	var visibility_culling: Dictionary = Dictionary(world_stats.get("visibility_culling", {}))
 	var diagnostics: Array[String] = []
 	if not boot_stats.is_empty():
 		diagnostics.append("boot=%s %.0f%% \"%s\"" % [
@@ -585,9 +728,26 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			int(registry_stats.get("registered_buildings", 0))
 		])
 	if not render_flags.is_empty():
-		diagnostics.append("flags biome_textures=%s landmark_overlay=%s" % [
+		diagnostics.append("flags low_end=%s biome_textures=%s landmark_overlay=%s biome_terrain_accents=%s" % [
+			"true" if bool(render_flags.get("low_end_rendering", false)) else "false",
 			"true" if bool(render_flags.get("biome_textures_enabled", true)) else "false",
-			"true" if bool(render_flags.get("landmark_debug_overlay_enabled", false)) else "false"
+			"true" if bool(render_flags.get("landmark_debug_overlay_enabled", false)) else "false",
+			"true" if bool(render_flags.get("biome_terrain_accents_enabled", false)) else "false"
+		])
+	if not visibility_culling.is_empty():
+		diagnostics.append("culling enabled=%s visible_resources=%d hidden_resources=%d visible_creatures=%d hidden_creatures=%d" % [
+			"true" if bool(visibility_culling.get("enabled", false)) else "false",
+			int(visibility_culling.get("visible_resources", 0)),
+			int(visibility_culling.get("hidden_resources", 0)),
+			int(visibility_culling.get("visible_creatures", 0)),
+			int(visibility_culling.get("hidden_creatures", 0))
+		])
+	var resource_render_mode: Dictionary = Dictionary(world_stats.get("resource_render_mode", {}))
+	if not resource_render_mode.is_empty():
+		diagnostics.append("resource_render_mode render_only_resources=%d render_only_grass=%d active_resource_collisions=%d" % [
+			int(resource_render_mode.get("render_only_resources", 0)),
+			int(resource_render_mode.get("render_only_grass", 0)),
+			int(resource_render_mode.get("active_resource_collisions", 0))
 		])
 	return "  diagnostics %s" % " | ".join(diagnostics)
 
@@ -610,6 +770,17 @@ func _sum_group_counts(counts: Dictionary) -> int:
 	for key in counts.keys():
 		total += int(counts.get(key, 0))
 	return total
+
+
+func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
+	if delta <= 0.1:
+		return
+	var flag_text := ""
+	for key in flags.keys():
+		if not flag_text.is_empty():
+			flag_text += " "
+		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
+	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _count_landmarks_by_type(landmarks: Array[Dictionary], landmark_type: String) -> int:

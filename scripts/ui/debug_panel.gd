@@ -1,6 +1,7 @@
 extends Control
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const BENCHMARK_RUNNER := preload("res://scripts/systems/benchmark_runner.gd")
 const DEBUG_TABS := [
 	"Overview",
@@ -32,6 +33,9 @@ var last_state_text := ""
 var state_label_min_height := STATE_LABEL_MIN_SIZE.y
 var last_nearest_creature_text: Dictionary = {}
 var selected_debug_creatures: Dictionary = {}
+var debug_panel_refresh_count: int = 0
+var debug_panel_overlay_refresh_count: int = 0
+var debug_panel_hidden_skip_count: int = 0
 var benchmark_runner: Node
 var benchmark_button: Button
 var god_mode_button: Button
@@ -96,11 +100,15 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 
 
 func _process(_delta: float) -> void:
+	if not visible:
+		debug_panel_hidden_skip_count += 1
+		return
 	state_refresh_timer += _delta
 	if state_refresh_timer < DEBUG_STATE_REFRESH_INTERVAL:
 		return
 	state_refresh_timer = 0.0
 	_set_state_text(_build_state_text())
+	debug_panel_refresh_count += 1
 	_refresh_creature_debug_overlays()
 
 
@@ -114,15 +122,22 @@ func set_open(open: bool) -> void:
 	visible = open
 	set_process(open)
 	state_refresh_timer = 0.0
+	if state_label == null or state_scroll == null:
+		return
 	if visible:
 		_update_active_tab_view()
 		_set_state_text(_build_state_text(), true)
+		_refresh_creature_debug_overlays()
 	else:
 		last_state_text = ""
-	_refresh_creature_debug_overlays()
 
 
 func _refresh_creature_debug_overlays() -> void:
+	if not is_inside_tree():
+		return
+	if not visible:
+		return
+	debug_panel_overlay_refresh_count += 1
 	for group_name in ["small_prey", "grazer", "varnak"]:
 		for creature in _get_cached_group_nodes(group_name):
 			if is_instance_valid(creature) and creature is CanvasItem:
@@ -131,6 +146,8 @@ func _refresh_creature_debug_overlays() -> void:
 
 func _set_state_text(text: String, force_update := false) -> void:
 	if not force_update and text == last_state_text:
+		return
+	if state_label == null:
 		return
 	last_state_text = text
 	state_label.text = text
@@ -235,6 +252,8 @@ func _on_debug_tab_changed(tab: int) -> void:
 
 
 func _update_active_tab_view() -> void:
+	if state_scroll == null:
+		return
 	var has_tab_buttons := _update_tool_buttons_for_active_tab()
 	_refresh_world_debug_buttons()
 	state_scroll.visible = true
@@ -244,6 +263,8 @@ func _update_active_tab_view() -> void:
 
 
 func _update_tool_buttons_for_active_tab() -> bool:
+	if tool_buttons.is_empty():
+		return false
 	var visible_count := 0
 	for button in tool_buttons:
 		var is_tab_button := str(button.get_meta("debug_tab", "")) == active_tab
@@ -846,6 +867,7 @@ func _get_ecosystem_debug_lines() -> Array[String]:
 			str(state.get("current_niche", "HERBIVORE")).to_lower(),
 			int(state.get("generations_under_food_stress", 0))
 		])
+		lines.append_array(_get_population_recovery_debug_lines(state))
 		lines.append("  aggregate pop %.1f | hunger %d%% | energy %d%% | birth %.2f death %.2f" % [
 			float(state.get("population_count", 0.0)),
 			int(round(float(state.get("average_hunger", 0.0)) * 100.0)),
@@ -916,6 +938,7 @@ func _get_ecosystem_debug_lines_from_snapshot(ecosystem_snapshot: Dictionary) ->
 			str(state.get("current_niche", "HERBIVORE")).to_lower(),
 			int(state.get("generations_under_food_stress", 0))
 		])
+		lines.append_array(_get_population_recovery_debug_lines(state))
 		lines.append("  aggregate pop %.1f | hunger %d%% | energy %d%% | birth %.2f death %.2f" % [
 			float(state.get("population_count", 0.0)),
 			int(round(float(state.get("average_hunger", 0.0)) * 100.0)),
@@ -924,6 +947,37 @@ func _get_ecosystem_debug_lines_from_snapshot(ecosystem_snapshot: Dictionary) ->
 			float(state.get("death_rate", 0.0))
 		])
 	return lines
+
+
+func _get_population_recovery_debug_lines(state: Dictionary) -> Array[String]:
+	var recovery: Dictionary = GAME_BALANCE.POPULATION_RECOVERY
+	return [
+		"  SmallPrey min/target/max %d/%d/%d | daily +%.2f | pred %.2f | %s" % [
+			int(recovery["small_prey_min_population"]),
+			int(recovery["small_prey_target_population"]),
+			int(recovery["small_prey_max_population"]),
+			float(state.get("small_prey_daily_recovery", 0.0)),
+			float(state.get("small_prey_predation_pressure", 0.0)),
+			str(state.get("small_prey_population_trend", "stable"))
+		],
+		"  Grazer min/target/max %d/%d/%d | daily +%.2f | pred %.2f starve %.2f | %s" % [
+			int(recovery["grazer_min_population"]),
+			int(recovery["grazer_target_population"]),
+			int(recovery["grazer_max_population"]),
+			float(state.get("grazer_daily_recovery", 0.0)),
+			float(state.get("grazer_predation_pressure", 0.0)),
+			float(state.get("grazer_starvation_pressure", 0.0)),
+			str(state.get("grazer_population_trend", "stable"))
+		]
+	]
+
+
+func get_debug_panel_performance_debug() -> Dictionary:
+	return {
+		"refresh_count": debug_panel_refresh_count,
+		"overlay_refresh_count": debug_panel_overlay_refresh_count,
+		"hidden_skip_count": debug_panel_hidden_skip_count
+	}
 
 
 func _get_snapshot() -> Dictionary:
@@ -1529,16 +1583,26 @@ func _call_optional_world_debug_method(method_name: String, missing_message: Str
 
 
 func _get_world_node() -> Node:
-	if not get_tree() or not get_tree().current_scene:
+	if not is_inside_tree():
 		return null
-	return get_tree().current_scene.get_node_or_null("World")
+	var tree := get_tree()
+	if tree == null:
+		return null
+	if tree.current_scene != null:
+		var current_world := tree.current_scene.get_node_or_null("World")
+		if current_world != null:
+			return current_world
+	return tree.root.find_child("World", true, false)
 
 
 func _get_cached_group_nodes(group_name: String) -> Array:
 	var world := _get_world_node()
 	if world and world.has_method("get_cached_group_nodes"):
 		return world.get_cached_group_nodes(group_name)
-	return get_tree().get_nodes_in_group(group_name)
+	var tree := get_tree()
+	if tree == null:
+		return []
+	return tree.get_nodes_in_group(group_name)
 
 
 func _post_debug_message(message: String) -> void:

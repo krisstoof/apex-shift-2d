@@ -128,11 +128,16 @@ class MockWorld:
 	var grazers: Array = []
 	var resource_reads := 0
 	var creature_reads := 0
+	var world_rect_reads := 0
+	var biome_zone_reads := 0
+	var landmark_reads := 0
 
 	func get_world_rect() -> Rect2:
+		world_rect_reads += 1
 		return Rect2(Vector2(-1000.0, -800.0), Vector2(2000.0, 1600.0))
 
 	func get_biome_zones() -> Array[Dictionary]:
+		biome_zone_reads += 1
 		return [{
 			"name": "Westwood",
 			"points": PackedVector2Array([
@@ -145,6 +150,7 @@ class MockWorld:
 		}]
 
 	func get_landmarks() -> Array[Dictionary]:
+		landmark_reads += 1
 		return [{
 			"id": "pond_a",
 			"type": "pond",
@@ -173,10 +179,39 @@ class MockWorld:
 	func get_varnak_population_status() -> Dictionary:
 		return {"day": 4, "target": 5, "live": varnaks.size(), "max": 12, "spawn_chance": 0.76}
 
+	func get_varnak_spawn_sync_debug() -> Dictionary:
+		return {
+			"retry_timer": 0.0,
+			"warning_printed": false,
+			"attempt_count": 1,
+			"failed_count": 0,
+			"skipped_by_cooldown_count": 0,
+			"last_requested": 2,
+			"last_failed": 0,
+			"last_success": 2
+		}
+
+	func get_visibility_culling_debug() -> Dictionary:
+		return {
+			"enabled": true,
+			"interval_seconds": 0.35,
+			"margin": 384.0,
+			"visible_resources": 2,
+			"hidden_resources": 5,
+			"visible_creatures": 3,
+			"hidden_creatures": 4
+		}
+
 	func is_landmark_debug_overlay_enabled() -> bool:
 		return true
 
 	func are_biome_textures_enabled() -> bool:
+		return true
+
+	func are_biome_terrain_accents_enabled() -> bool:
+		return false
+
+	func is_low_end_rendering_enabled() -> bool:
 		return true
 
 	func get_registered_resources() -> Array:
@@ -222,6 +257,7 @@ class MockWorld:
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures)
+	_test_snapshot_service_refresh_hud_is_lightweight(failures)
 	return failures
 
 
@@ -247,6 +283,8 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	var markers := Dictionary(snapshot.get("markers", {}))
 	var ecosystem_snapshot := Dictionary(snapshot.get("ecosystem", {}))
 	var debug_snapshot := Dictionary(snapshot.get("debug", {}))
+	var varnak_sync := Dictionary(world_snapshot.get("varnak_spawn_sync", {}))
+	var visibility_culling := Dictionary(world_snapshot.get("visibility_culling", {}))
 	TEST_UTILS.expect_equal(int(player_snapshot.get("health", 0)), 91, failures, "Snapshot service should capture player health")
 	TEST_UTILS.expect_equal(str(player_snapshot.get("condition_text", "")), "steady", failures, "Snapshot service should capture player condition text")
 	TEST_UTILS.expect_equal(int(Dictionary(player_snapshot.get("inventory", {})).get("torch", 0)), 2, failures, "Snapshot service should capture inventory amounts")
@@ -258,10 +296,35 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	TEST_UTILS.expect_equal(Array(markers.get("resources", [])).size(), 2, failures, "Snapshot service should expose only minimap/map resource markers that stay visible to the player")
 	TEST_UTILS.expect_equal(Array(markers.get("varnaks", [])).size(), 1, failures, "Snapshot service should expose varnak markers")
 	TEST_UTILS.expect_equal(int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("small_prey_population", 0)), 5, failures, "Snapshot service should aggregate ecosystem population totals")
+	TEST_UTILS.expect_equal(int(varnak_sync.get("attempt_count", 0)), 1, failures, "Snapshot service should expose Varnak spawn sync diagnostics")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("visible_resources", 0)), 2, failures, "Snapshot service should expose visible resource counts")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_resources", 0)), 5, failures, "Snapshot service should expose hidden resource counts")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("visible_creatures", 0)), 3, failures, "Snapshot service should expose visible creature counts")
+	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_creatures", 0)), 4, failures, "Snapshot service should expose hidden creature counts")
 	TEST_UTILS.expect(str(ecosystem_snapshot.get("warnings_text", "")).contains("Redfang Wilds:stressed"), failures, "Snapshot service should expose ecosystem warnings text")
 	TEST_UTILS.expect_equal(int(debug_snapshot.get("live_varnaks", 0)), 1, failures, "Snapshot service should expose debug summary creature counts")
+	TEST_UTILS.expect_equal(bool(world_snapshot.get("biome_terrain_accents_enabled", true)), false, failures, "Snapshot service should expose the biome terrain accent flag")
+	TEST_UTILS.expect_equal(bool(world_snapshot.get("low_end_rendering", false)), true, failures, "Snapshot service should expose the low-end rendering flag")
 	TEST_UTILS.expect_equal(world.resource_reads, 1, failures, "Snapshot service should build resource markers only once per refresh")
 	TEST_UTILS.expect_equal(world.creature_reads, 3, failures, "Snapshot service should build each creature marker list only once per refresh")
+
+
+func _test_snapshot_service_refresh_hud_is_lightweight(failures: Array[String]) -> void:
+	var service = SNAPSHOT_SERVICE_SCRIPT.new()
+	var player := MockPlayer.new()
+	player.global_position = Vector2(25.0, -10.0)
+	var world := MockWorld.new()
+	service.bind(player, MockEvolutionDirector.new(), MockDayNightSystem.new(), MockEcosystemDirector.new(), world)
+	var full_snapshot: Dictionary = service.refresh(true)
+	var world_reads_before := world.world_rect_reads + world.biome_zone_reads + world.landmark_reads
+	var hud_snapshot: Dictionary = service.refresh_hud()
+	var world_reads_after := world.world_rect_reads + world.biome_zone_reads + world.landmark_reads
+	TEST_UTILS.expect(hud_snapshot.has("player"), failures, "HUD snapshot should include player data")
+	TEST_UTILS.expect(hud_snapshot.has("time"), failures, "HUD snapshot should include time data")
+	TEST_UTILS.expect(not hud_snapshot.has("world"), failures, "HUD snapshot should not rebuild the full world snapshot")
+	TEST_UTILS.expect(not hud_snapshot.has("markers"), failures, "HUD snapshot should not rebuild marker data")
+	TEST_UTILS.expect_equal(world_reads_before, world_reads_after, failures, "HUD snapshot refresh should not reread world geometry or landmarks")
+	TEST_UTILS.expect_equal(str(Dictionary(full_snapshot.get("time", {})).get("clock_time", "")), "13:48", failures, "Full snapshot should still be available for world data consumers")
 
 
 func _make_resource(kind: String, item_name: String, position: Vector2, harvestable: bool) -> MockResource:

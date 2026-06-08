@@ -43,9 +43,18 @@ func build_restore_plan(resource_data: Array, normalize_position: Callable) -> A
 	for data_value in normalized_entries:
 		var resource_data_entry: Dictionary = Dictionary(data_value).duplicate(true)
 		var resource_kind := str(resource_data_entry.get("resource_kind", ""))
-		var position_data: Dictionary = Dictionary(resource_data_entry.get("position", {"x": 0.0, "y": 0.0}))
+		var saved_position := Vector2.ZERO
+		var position_value: Variant = resource_data_entry.get("position", Vector2.ZERO)
+		if typeof(position_value) == TYPE_VECTOR2:
+			saved_position = position_value
+		elif typeof(position_value) == TYPE_DICTIONARY:
+			var position_data := Dictionary(position_value)
+			saved_position = Vector2(
+				float(position_data.get("x", 0.0)),
+				float(position_data.get("y", 0.0))
+			)
 		if normalize_position.is_valid():
-			resource_data_entry["position"] = normalize_position.call(resource_kind, position_data)
+			resource_data_entry["position"] = normalize_position.call(resource_kind, saved_position)
 		restore_plan.append(resource_data_entry)
 	return restore_plan
 
@@ -68,7 +77,7 @@ func apply_restore_plan(restore_plan: Array, spawn_resource: Callable, apply_res
 			continue
 		var restore_data: Dictionary = Dictionary(restore_value).duplicate(true)
 		var resource_kind := str(restore_data.get("resource_kind", ""))
-		var position_data: Dictionary = Dictionary(restore_data.get("position", {"x": 0.0, "y": 0.0}))
+		var position_data: Variant = restore_data.get("position", Vector2.ZERO)
 		var resource_node: Variant = spawn_resource.call(resource_kind, position_data)
 		if resource_node == null:
 			continue

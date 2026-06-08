@@ -6,9 +6,10 @@ const PADDING := 14.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(192, 116)
 const POND_MARKER_Y_SCALE := 0.62
 const HILL_MARKER_Y_SCALE := 0.58
-const MINIMAP_REDRAW_INTERVAL := 0.20
+const MINIMAP_REDRAW_INTERVAL := 0.5
 const MINIMAP_VIEW_MARGIN_FACTOR := 1.22
 const MINIMAP_FALLBACK_VIEW_WORLD_SIZE := Vector2(1280.0, 760.0)
+const MINIMAP_MARKER_CACHE_INTERVAL := 1.0
 
 var player: Node2D
 var world: Node
@@ -18,12 +19,20 @@ var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
+var minimap_redraw_count: int = 0
+var minimap_marker_cache_rebuild_count: int = 0
+var minimap_landmark_cache_rebuild_count: int = 0
+var minimap_texture_build_count: int = 0
+var minimap_texture_last_build_ms: float = 0.0
+var _is_drawing_biomes := false
 var minimap_redraw_timer := 0.0
 var cached_resources: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
+var cached_resources_signature := ""
+var cached_varnaks_signature := ""
 var markers_cache_timer := 0.0
+var landmarks_signature := ""
 var camera_world_size_override := Vector2.ZERO
-const MARKERS_CACHE_INTERVAL := 0.5
 
 
 func _ready() -> void:
@@ -38,25 +47,33 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
-	_update_marker_cache()
+	_sync_biome_texture()
+	if _update_marker_cache():
+		minimap_marker_cache_rebuild_count += 1
+	landmarks_signature = _build_landmarks_signature()
 	queue_redraw()
 
 
 func _process(delta: float) -> void:
-	if not visible:
+	if not is_visible_in_tree():
 		return
+	_log_hitch(delta, "Minimap", {
+		"texture_cached": biome_blend_texture != null,
+		"build_count": minimap_texture_build_count
+	})
+	_sync_biome_texture()
 	minimap_redraw_timer += delta
 	if minimap_redraw_timer >= MINIMAP_REDRAW_INTERVAL:
 		minimap_redraw_timer = 0.0
 		queue_redraw()
 	markers_cache_timer += delta
-	if markers_cache_timer >= MARKERS_CACHE_INTERVAL:
+	if markers_cache_timer >= MINIMAP_MARKER_CACHE_INTERVAL:
 		markers_cache_timer = 0.0
-		_update_marker_cache()
+		_refresh_static_caches()
 
 
 func _draw() -> void:
-	_refresh_landmarks_from_world()
+	minimap_redraw_count += 1
 	var map_rect := Rect2(Vector2.ZERO, size)
 	var content_rect := map_rect.grow(-PADDING)
 	var view_world_rect := _get_minimap_view_world_rect(content_rect)
@@ -65,7 +82,9 @@ func _draw() -> void:
 	draw_rect(map_rect, Color(0.74, 0.78, 0.68, 0.9), false, 1.0)
 	draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
 	draw_rect(content_rect, Color(0.35, 0.43, 0.32, 0.8), false, 1.0)
+	_is_drawing_biomes = true
 	_draw_biomes(content_rect, view_world_rect)
+	_is_drawing_biomes = false
 	_draw_landmarks(content_rect, view_world_rect)
 	_draw_grid(content_rect, view_world_rect)
 	_draw_resources(content_rect, view_world_rect)
@@ -77,7 +96,8 @@ func _draw() -> void:
 func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if biome_zones.is_empty():
 		return
-	_ensure_biome_texture()
+	if not _is_drawing_biomes:
+		return
 	if not biome_blend_texture:
 		return
 	var visible_world_rect := world_rect.intersection(view_world_rect)
@@ -90,12 +110,32 @@ func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	draw_texture_rect_region(biome_blend_texture, destination_rect, source_rect)
 
 
+func _refresh_static_caches() -> void:
+	var landmarks_changed := _refresh_landmarks_from_world()
+	var marker_cache_changed := _update_marker_cache()
+	if landmarks_changed:
+		minimap_landmark_cache_rebuild_count += 1
+	if marker_cache_changed:
+		minimap_marker_cache_rebuild_count += 1
+	if landmarks_changed or marker_cache_changed:
+		queue_redraw()
+
+
+func _sync_biome_texture() -> void:
+	if biome_zones.is_empty():
+		biome_blend_texture = null
+		biome_blend_colors_key = ""
+		return
+	_ensure_biome_texture()
+
+
 func _ensure_biome_texture() -> void:
 	if biome_zones.is_empty():
 		return
 	var current_key := _get_biome_colors_key()
 	if biome_blend_texture and biome_blend_colors_key == current_key:
 		return
+	var build_start_ms: int = Time.get_ticks_msec()
 	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
 	var colors: Array[Color] = []
 	for biome in biome_zones:
@@ -110,6 +150,8 @@ func _ensure_biome_texture() -> void:
 			image.set_pixel(x, y, _get_direct_biome_color_at(world_position, biome_zones, colors))
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
+	minimap_texture_build_count += 1
+	minimap_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 
 
 func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
@@ -152,6 +194,17 @@ func _get_biome_colors_key() -> String:
 	return "|".join(parts)
 
 
+func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
+	if delta <= 0.1:
+		return
+	var flag_text := ""
+	for key in flags.keys():
+		if not flag_text.is_empty():
+			flag_text += " "
+		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
+	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
+
+
 func _draw_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	var grid_color := Color(0.23, 0.31, 0.22, 0.55)
 	var grid_step := 320.0
@@ -187,15 +240,36 @@ func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 				_draw_hill_marker(center, radius, landmark)
 
 
-func _refresh_landmarks_from_world() -> void:
+func _refresh_landmarks_from_world() -> bool:
 	var snapshot := _get_snapshot()
 	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	var changed := false
 	if not world_snapshot.is_empty():
 		landmarks = Array(world_snapshot.get("landmarks", landmarks))
-		return
-	var active_world := _get_world()
-	if active_world and active_world.has_method("get_landmarks"):
-		landmarks = active_world.get_landmarks()
+		changed = true
+	else:
+		var active_world := _get_world()
+		if active_world and active_world.has_method("get_landmarks"):
+			landmarks = active_world.get_landmarks()
+			changed = true
+	if changed:
+		var signature := _build_landmarks_signature()
+		changed = signature != landmarks_signature
+		landmarks_signature = signature
+	return changed
+
+
+func _build_landmarks_signature() -> String:
+	var parts: Array[String] = []
+	for landmark in landmarks:
+		parts.append("%s:%s:%d:%d:%d" % [
+			str(landmark.get("id", "")),
+			str(landmark.get("type", "")),
+			int(round(Vector2(landmark.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(landmark.get("position", Vector2.ZERO)).y)),
+			int(round(float(landmark.get("radius", 0.0))))
+		])
+	return "|".join(parts)
 
 
 func _draw_pond_marker(center: Vector2, radius: float, landmark: Dictionary) -> void:
@@ -494,19 +568,59 @@ func _get_resource_marker_color(resource_marker: Dictionary) -> Color:
 			return Color(0.86, 0.78, 0.45)
 
 
-func _update_marker_cache() -> void:
+func _update_marker_cache() -> bool:
 	var snapshot := _get_snapshot()
 	var markers := Dictionary(snapshot.get("markers", {}))
 	if not markers.is_empty():
 		cached_resources = _to_dictionary_array(Array(markers.get("resources", [])))
 		cached_varnaks = _to_dictionary_array(Array(markers.get("varnaks", [])))
-		return
-	cached_resources = _build_resource_markers_from_world()
-	cached_varnaks = _build_varnak_markers_from_world()
+	else:
+		cached_resources = _build_resource_markers_from_world()
+		cached_varnaks = _build_varnak_markers_from_world()
+	var resource_signature := _build_resources_signature()
+	var varnak_signature := _build_varnaks_signature()
+	var changed := resource_signature != cached_resources_signature or varnak_signature != cached_varnaks_signature
+	cached_resources_signature = resource_signature
+	cached_varnaks_signature = varnak_signature
+	return changed
 
 
 func _update_resources_cache() -> void:
-	_update_marker_cache()
+	if _update_marker_cache():
+		minimap_marker_cache_rebuild_count += 1
+
+
+func get_minimap_performance_debug() -> Dictionary:
+	return {
+		"redraw_count": minimap_redraw_count,
+		"marker_cache_rebuild_count": minimap_marker_cache_rebuild_count,
+		"landmark_cache_rebuild_count": minimap_landmark_cache_rebuild_count
+	}
+
+
+func _build_resources_signature() -> String:
+	var parts: Array[String] = []
+	for resource_value in cached_resources:
+		var resource := Dictionary(resource_value)
+		parts.append("%s:%d:%d:%s:%s" % [
+			str(resource.get("resource_kind", resource.get("item_name", "resource"))),
+			int(round(Vector2(resource.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(resource.get("position", Vector2.ZERO)).y)),
+			str(resource.get("resource_kind")),
+			"1" if resource.get("player_harvestable", true) != false else "0"
+		])
+	return "|".join(parts)
+
+
+func _build_varnaks_signature() -> String:
+	var parts: Array[String] = []
+	for varnak_value in cached_varnaks:
+		var varnak_marker := Dictionary(varnak_value)
+		parts.append("%d:%d" % [
+			int(round(Vector2(varnak_marker.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(varnak_marker.get("position", Vector2.ZERO)).y))
+		])
+	return "|".join(parts)
 
 
 func _get_safe_tree() -> SceneTree:

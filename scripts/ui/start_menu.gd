@@ -2,6 +2,7 @@ extends Control
 
 const GAME_SCENE_PATH := "res://scenes/main.tscn"
 const SETTINGS_SCENE_PATH := "res://scenes/ui/settings_menu.tscn"
+const APP_VERSION := preload("res://scripts/systems/app_version.gd")
 
 const PANEL_SIZE := Vector2(520.0, 360.0)
 const BUTTON_HEIGHT := 42.0
@@ -19,6 +20,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_resume_tree_if_paused()
+	print("[APP] %s" % APP_VERSION.get_display_name())
 	game_session = get_node("/root/GameSession")
 	_build_ui()
 	_refresh_save_state()
@@ -60,7 +62,7 @@ func _build_ui() -> void:
 	main_stack.add_child(title)
 
 	var subtitle := Label.new()
-	subtitle.text = "Prototype build"
+	subtitle.text = APP_VERSION.get_display_name()
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", 15)
 	main_stack.add_child(subtitle)

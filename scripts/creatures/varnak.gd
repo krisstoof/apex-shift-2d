@@ -57,7 +57,9 @@ var meat_target: Node2D
 var dropped_meat := false
 var last_food_source := "none"
 var decision_reason := "spawn"
+var ai_decision_interval := 0.30
 var ai_decision_timer := 0.0
+var ai_decision_count := 0
 var is_dead := false
 var meat_diet := 1.0
 var scavenger_diet := 0.45
@@ -199,7 +201,10 @@ func _physics_process(delta: float) -> void:
 	if eat_visual_time > 0.0:
 		eat_visual_time = max(eat_visual_time - delta, 0.0)
 		queue_redraw()
-	if _should_update_ai_decision(delta):
+	ai_decision_timer -= delta
+	if ai_decision_timer <= 0.0:
+		ai_decision_timer = ai_decision_interval
+		ai_decision_count += 1
 		_update_state()
 	_act(delta)
 	_update_individual_energy(delta, velocity.length() / max(speed, 1.0))
@@ -207,12 +212,17 @@ func _physics_process(delta: float) -> void:
 	_enforce_world_bounds()
 
 
-func _should_update_ai_decision(delta: float) -> bool:
-	ai_decision_timer -= delta
-	if ai_decision_timer > 0.0:
-		return false
-	ai_decision_timer = AI_DECISION_INTERVAL_SECONDS
-	return true
+func force_ai_decision_for_tests() -> void:
+	ai_decision_timer = 0.0
+	_update_state()
+
+
+func get_ai_performance_debug() -> Dictionary:
+	return {
+		"decision_interval": ai_decision_interval,
+		"decision_timer": ai_decision_timer,
+		"decision_count": ai_decision_count
+	}
 
 
 func take_damage(amount: float, source: String) -> void:
@@ -285,7 +295,7 @@ func _update_state() -> void:
 	if state == State.EAT_MEAT and _try_update_meat_target():
 		decision_reason = "locked_meat_target" if is_instance_valid(meat_target) else decision_reason
 		return
-	if state == State.HUNT_ECOSYSTEM and target_lock_time > 0.0 and is_instance_valid(ecosystem_target) and _should_hunt_ecosystem(distance):
+	if state == State.HUNT_ECOSYSTEM and target_lock_time > 0.0 and _has_valid_ecosystem_target(_get_prey_detect_radius()) and _should_hunt_ecosystem(distance):
 		decision_reason = "locked_ecosystem_prey"
 		return
 	if hunger >= _get_hungry_threshold() and _set_nearest_meat_target(_get_meat_search_range()):
@@ -388,6 +398,13 @@ func _should_hunt_ecosystem(player_distance: float) -> bool:
 func _hunt_ecosystem_target() -> void:
 	if not is_instance_valid(ecosystem_target):
 		decision_reason = "ecosystem_target_lost"
+		state = State.WANDER
+		_pick_wander_target()
+		return
+	if _is_species_population_critical(ecosystem_target_kind):
+		ecosystem_target = null
+		ecosystem_target_kind = ""
+		decision_reason = "critical_prey_population_protected"
 		state = State.WANDER
 		_pick_wander_target()
 		return
@@ -502,6 +519,8 @@ func _find_ecosystem_target() -> Node2D:
 	var best_score := INF
 	var detect_range := _get_prey_detect_radius()
 	for group_name in ["small_prey", "grazer"]:
+		if _is_species_population_critical(group_name):
+			continue
 		for creature in _get_cached_group_nodes(group_name):
 			if not is_instance_valid(creature):
 				continue
@@ -516,6 +535,17 @@ func _find_ecosystem_target() -> Node2D:
 				best_score = score
 				best_target = creature
 	return best_target
+
+
+func _is_species_population_critical(group_name: String) -> bool:
+	var state_data := _get_current_ecosystem_state()
+	if state_data.is_empty():
+		return false
+	var population_key := "%s_population" % group_name
+	var minimum_key := "%s_min_population" % group_name
+	var population := float(state_data.get(population_key, 0.0))
+	var minimum_population := float(GAME_BALANCE.POPULATION_RECOVERY[minimum_key])
+	return population < minimum_population
 
 
 func _get_prey_priority(group_name: String) -> float:
@@ -613,6 +643,16 @@ func _get_ecosystem_target_kind(target: Node) -> String:
 	return "small_prey"
 
 
+func _has_valid_ecosystem_target(detect_range: float) -> bool:
+	if not is_instance_valid(ecosystem_target):
+		return false
+	if not (ecosystem_target.is_in_group("small_prey") or ecosystem_target.is_in_group("grazer")):
+		return false
+	if ecosystem_target.global_position.distance_to(global_position) > detect_range * 1.25:
+		return false
+	return true
+
+
 func _get_current_biome_id() -> String:
 	var current_biome_id := _get_biome_id_for_position(global_position)
 	if not current_biome_id.is_empty():
@@ -621,14 +661,21 @@ func _get_current_biome_id() -> String:
 
 
 func _get_biome_prey_pressure() -> float:
-	var ecosystem := get_tree().current_scene.get_node_or_null("EcosystemDirector")
-	if not ecosystem or not ecosystem.has_method("get_biome_state"):
-		return 0.0
-	var biome_id := _get_biome_id_for_position(global_position)
-	var state_data: Dictionary = ecosystem.get_biome_state(biome_id)
+	var state_data := _get_current_ecosystem_state()
 	var small_prey_population := float(state_data.get("small_prey_population", 0.0))
 	var grazer_population := float(state_data.get("grazer_population", 0.0))
 	return clamp((small_prey_population + grazer_population * 1.5) / 18.0, 0.0, 1.0)
+
+
+func _get_current_ecosystem_state() -> Dictionary:
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return {}
+	var ecosystem := tree.current_scene.get_node_or_null("EcosystemDirector")
+	if not ecosystem or not ecosystem.has_method("get_biome_state"):
+		return {}
+	var biome_id := _get_biome_id_for_position(global_position)
+	return ecosystem.get_biome_state(biome_id)
 
 
 func _get_biome_id_for_position(position: Vector2) -> String:

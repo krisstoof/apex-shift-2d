@@ -12,6 +12,7 @@ var wander_radius := 0.0
 var wander_reached_distance := 0.0
 var player_flee_range := 0.0
 var varnak_flee_range := 0.0
+var flee_duration_seconds := 0.0
 var eat_interval_seconds := 0.0
 var eat_duration_seconds := 0.0
 var eat_visual_duration := 0.0
@@ -58,7 +59,9 @@ var plant_target: Node2D
 var dropped_meat := false
 var last_food_source := "none"
 var decision_reason := "spawn"
+var ai_decision_interval := 0.30
 var ai_decision_timer := 0.0
+var ai_decision_count := 0
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
 
@@ -216,32 +219,44 @@ func _physics_process(delta: float) -> void:
 	age_seconds += delta
 	hunger_diet.tick(delta, velocity.length() / max(speed, 1.0))
 	_sync_hunger_fields()
-	if _should_update_ai_decision(delta):
+	ai_decision_timer -= delta
+	if ai_decision_timer <= 0.0:
+		ai_decision_timer = ai_decision_interval
+		ai_decision_count += 1
 		_update_state()
 	_act(delta)
 	move_and_slide()
 	_enforce_world_bounds()
 
 
-func _should_update_ai_decision(delta: float) -> bool:
-	ai_decision_timer -= delta
-	if ai_decision_timer > 0.0:
-		return false
-	ai_decision_timer = AI_DECISION_INTERVAL_SECONDS
-	return true
+func force_ai_decision_for_tests() -> void:
+	ai_decision_timer = 0.0
+	_update_state()
+
+
+func get_ai_performance_debug() -> Dictionary:
+	return {
+		"decision_interval": ai_decision_interval,
+		"decision_timer": ai_decision_timer,
+		"decision_count": ai_decision_count
+	}
 
 
 func _update_state() -> void:
-	flee_origin = _get_flee_origin()
-	if flee_origin != Vector2.INF:
+	var detected_flee_origin := _get_flee_origin()
+	if detected_flee_origin != Vector2.INF:
+		flee_origin = detected_flee_origin
 		decision_reason = "threat_detected"
 		_set_state(State.FLEE)
 		return
 	if state == State.FLEE:
+		if state_time > 0.0:
+			decision_reason = "threat_lost_keep_fleeing"
+			return
 		decision_reason = "threat_lost_return_wander"
 		_set_state(State.WANDER)
 		_pick_wander_target()
-		plant_target = null
+		return
 	_sync_population_traits()
 	if state == State.EAT:
 		decision_reason = "eating_target_plant"
@@ -255,7 +270,8 @@ func _update_state() -> void:
 		decision_reason = "locked_food_target" if is_instance_valid(plant_target) else decision_reason
 		return
 	if eat_cooldown <= 0.0 and hunger_diet.is_hungry():
-		if _set_nearest_plant_target(_get_food_search_range()):
+		var food_search_range := _get_food_search_range()
+		if _has_valid_food_target(food_search_range) or _set_nearest_plant_target(food_search_range):
 			decision_reason = "hungry_seek_plant"
 			_set_state(State.SEEK_FOOD)
 		elif hunger_diet.is_starving():
@@ -406,9 +422,26 @@ func _consume_nearest_vegetation(search_range: float = vegetation_eat_range) -> 
 	return 0.0
 
 
+func _has_valid_food_target(search_range: float) -> bool:
+	if not is_instance_valid(plant_target):
+		return false
+	if not plant_target.is_in_group("edible_vegetation"):
+		return false
+	if plant_target.global_position.distance_to(global_position) > search_range * 1.25:
+		return false
+	return true
+
+
 func _try_update_plant_target() -> bool:
+	var food_search_range := _get_food_search_range()
+	if _has_valid_food_target(food_search_range):
+		wander_target = _clamp_to_world(plant_target.global_position)
+		if global_position.distance_to(plant_target.global_position) <= vegetation_consume_range:
+			_set_state(State.EAT)
+			state_time = eat_duration_seconds
+		return true
 	if not is_instance_valid(plant_target) or not _is_edible_vegetation_target(plant_target):
-		if not _set_nearest_plant_target(_get_food_search_range()):
+		if not _set_nearest_plant_target(food_search_range):
 			_set_state(State.WANDER)
 			_pick_wander_target()
 			return true
@@ -574,6 +607,8 @@ func _get_world_query():
 
 
 func _set_state(next_state: State) -> void:
+	if next_state == State.FLEE:
+		state_time = maxf(state_time, flee_duration_seconds)
 	if state == next_state:
 		return
 	state = next_state
@@ -849,6 +884,7 @@ func _initialize_from_game_balance() -> void:
 	wander_reached_distance = float(ai_config.get("wander_reached_distance", 18.0))
 	player_flee_range = float(ai_config.get("player_flee_range", 130.0))
 	varnak_flee_range = float(ai_config.get("varnak_flee_range", 180.0))
+	flee_duration_seconds = float(ai_config.get("flee_duration_seconds", 3.0))
 	eat_interval_seconds = float(ai_config.get("eat_interval_seconds", 6.0))
 	eat_duration_seconds = float(ai_config.get("eat_duration_seconds", 1.1))
 	eat_visual_duration = float(ai_config.get("eat_visual_duration", 0.48))

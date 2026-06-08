@@ -3,6 +3,7 @@ extends RefCounted
 const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
 const PLAYER_STATS := preload("res://scripts/player/player_stats.gd")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 class TestCampfire:
@@ -56,6 +57,9 @@ func run() -> Array[String]:
 	_test_player_receive_damage_reduces_health(failures)
 	_test_player_god_mode_syncs_to_stats_and_blocks_damage(failures)
 	_test_player_torch_activation_and_deactivation(failures)
+	_test_player_creates_torch_light_and_enables_it_when_active(failures)
+	_test_player_starvation_damage_is_slow_enough(failures)
+	_test_player_campfire_regen_speeds_up_health_recovery(failures)
 	_test_player_debug_item_helpers(failures)
 	_test_player_visual_layout_looks_human_like(failures)
 	_test_player_campfire_regen_uses_low_frequency_cached_refresh(failures)
@@ -205,6 +209,41 @@ func _test_player_torch_activation_and_deactivation(failures: Array[String]) -> 
 	player.queue_free()
 
 
+func _test_player_creates_torch_light_and_enables_it_when_active(failures: Array[String]) -> void:
+	var player := _make_player()
+	var torch_light := player.get_node_or_null("TorchLight") as PointLight2D
+	TEST_UTILS.expect(torch_light != null, failures, "Player should create a TorchLight node during setup")
+	if torch_light != null:
+		TEST_UTILS.expect_equal(torch_light.shadow_enabled, false, failures, "Torch light should not use shadows")
+		TEST_UTILS.expect_equal(torch_light.enabled, false, failures, "Torch light should start disabled")
+		TEST_UTILS.expect_equal(torch_light.visible, false, failures, "Torch light should start hidden")
+	player.inventory.add_item("torch", 1)
+	player.activate_torch()
+	player.call("_update_torch_light", 0.016)
+	if torch_light != null:
+		TEST_UTILS.expect_equal(torch_light.enabled, true, failures, "Torch light should enable when the torch is active")
+		TEST_UTILS.expect_equal(torch_light.visible, true, failures, "Torch light should become visible when the torch is active")
+	player.queue_free()
+
+
+func _test_player_starvation_damage_is_slow_enough(failures: Array[String]) -> void:
+	TEST_UTILS.expect_close(GAME_BALANCE.PLAYER_STARVATION_DAMAGE_PER_SECOND, 1.0, failures, "Starvation damage should be slowed down to give the player reaction time")
+
+
+func _test_player_campfire_regen_speeds_up_health_recovery(failures: Array[String]) -> void:
+	var stats := PLAYER_STATS.new()
+	stats.health = 50.0
+	stats.hunger = 80.0
+	stats.rest = 80.0
+	stats.campfire_regen_active = false
+	stats.tick(1.0, false)
+	var without_campfire_health := stats.health
+	stats.health = 50.0
+	stats.campfire_regen_active = true
+	stats.tick(1.0, false)
+	TEST_UTILS.expect(stats.health > without_campfire_health, failures, "Campfire regen should increase health recovery when the player is resting near a campfire")
+
+
 func _test_player_debug_item_helpers(failures: Array[String]) -> void:
 	var player := _make_player()
 	player.debug_add_item("spear")
@@ -293,6 +332,7 @@ func _test_player_prefers_world_query_service_for_terrain_reads(failures: Array[
 	world.query_service = TestWorldQueryService.new()
 	tree.current_scene.add_child(world)
 	var player := _make_player()
+	player.debug_world_query_override = world.query_service
 	player.global_position = Vector2.ZERO
 	TEST_UTILS.expect_close(float(player.call("_get_terrain_speed_multiplier")), 0.52, failures, "Player should read terrain speed from WorldQueryService when the world exposes one")
 	TEST_UTILS.expect(player.call("_is_in_water"), failures, "Player should read water state from WorldQueryService when the world exposes one")
