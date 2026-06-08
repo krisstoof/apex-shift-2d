@@ -898,6 +898,16 @@ func open_storage_box(p_player_inventory: Variant, p_storage_inventory: Variant,
 	current_storage_box = p_storage_box
 	current_storage_player_inventory = p_player_inventory
 	current_storage_inventory = p_storage_inventory
+
+	if inventory_screen != null and inventory_screen.visible:
+		if inventory_screen.has_method("close_inventory"):
+			inventory_screen.close_inventory()
+		else:
+			inventory_screen.visible = false
+
+	_set_map_screen_open(false)
+	_set_pause_menu_open(false)
+
 	if storage_box_screen.has_method("setup"):
 		storage_box_screen.setup(current_storage_player_inventory, current_storage_inventory, current_storage_box)
 	if storage_box_screen.has_method("open_storage_box"):
@@ -907,9 +917,7 @@ func open_storage_box(p_player_inventory: Variant, p_storage_inventory: Variant,
 		storage_box_screen.show()
 	storage_box_screen.move_to_front()
 	print("[HUD_STORAGE_DEBUG] storage_box_screen.visible=", storage_box_screen.visible)
-	_set_inventory_screen_open(false)
-	_set_map_screen_open(false)
-	_set_pause_menu_open(false)
+
 	_update_tree_paused()
 
 
