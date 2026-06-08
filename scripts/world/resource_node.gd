@@ -139,13 +139,22 @@ func interact(player: Node) -> void:
 	if not can_be_harvested:
 		get_node("/root/EventBus").post_message("%s is still regrowing" % _get_resource_label())
 		return
-	player.inventory.add_item(item_name, amount)
-	get_node("/root/EventBus").post_message("Collected %s x%d" % [item_name, amount])
+	var collected_amount := amount
+	var leftover: int = player.inventory.add_item(item_name, collected_amount)
+	var added_amount: int = collected_amount - leftover
+	if added_amount <= 0:
+		get_node("/root/EventBus").post_message("Inventory full")
+		return
+	get_node("/root/EventBus").post_message("Collected %s x%d" % [item_name, added_amount])
 	if resource_kind == "meat_drop":
 		get_node("/root/EventBus").emit_game_event("meat_collected", {
-			"amount": amount,
+			"amount": added_amount,
 			"position": global_position
 		})
+	if leftover > 0:
+		amount = leftover
+		queue_redraw()
+		return
 	_emit_plant_resource_harvested()
 	if _uses_regrowth():
 		_mark_harvested()

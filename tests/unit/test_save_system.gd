@@ -185,7 +185,12 @@ func _test_get_player_data_contains_expected_fields(failures: Array[String]) -> 
 	TEST_UTILS.expect_close(float(stats.get("hunger", 0.0)), 64.0, failures, "Player save data should capture hunger")
 	TEST_UTILS.expect_close(float(stats.get("stamina", 0.0)), 55.0, failures, "Player save data should capture stamina")
 	TEST_UTILS.expect_close(float(stats.get("rest", 0.0)), 72.0, failures, "Player save data should capture rest")
-	TEST_UTILS.expect_equal(int(inventory.get("wood", 0)), 2, failures, "Player save data should capture inventory items")
+	var slots: Array = Array(inventory.get("slots", []))
+	TEST_UTILS.expect_equal(slots.size(), 1, failures, "Player save data should capture inventory slots")
+	if slots.size() == 1:
+		var slot := Dictionary(slots[0])
+		TEST_UTILS.expect_equal(str(slot.get("item_id", "")), "wood", failures, "Player save data should capture inventory items")
+		TEST_UTILS.expect_equal(int(slot.get("amount", 0)), 2, failures, "Player save data should capture inventory amounts")
 
 
 func _test_collect_save_data_includes_world_layout(failures: Array[String]) -> void:

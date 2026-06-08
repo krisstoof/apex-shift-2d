@@ -2,6 +2,7 @@ extends CharacterBody2D
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const Inventory := preload("res://scripts/player/inventory.gd")
 
 signal died(reason: String)
 
@@ -673,9 +674,9 @@ func _get_missing_ingredients(recipe: Dictionary) -> Array[String]:
 	var missing: Array[String] = []
 	for ingredient in recipe.keys():
 		var required := int(recipe[ingredient])
-		var owned := inventory.get_amount(ingredient)
+		var owned: int = inventory.get_amount(str(ingredient))
 		if owned < required:
-			missing.append("%s %d/%d" % [ingredient, owned, required])
+			missing.append("%s %d/%d" % [str(ingredient), owned, required])
 	return missing
 
 
