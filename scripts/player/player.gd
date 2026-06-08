@@ -119,8 +119,12 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 	var wants_run := Input.is_key_pressed(KEY_SHIFT) and stats.can_run() and input_vector.length() > 0.0 and not is_swimming
 	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier() * terrain_speed
+	var world_query: Variant = _get_world_query()
 	velocity = input_vector * speed
 	move_and_slide()
+	if not WORLD_CONFIG.WORLD_RECT.grow(-32.0).has_point(global_position) or (world_query != null and world_query.is_position_in_deep_water(global_position)):
+		global_position = previous_position
+		velocity = Vector2.ZERO
 	_refresh_campfire_regen_state(delta)
 	var previous_health := stats.health
 	stats.tick(delta, wants_run)

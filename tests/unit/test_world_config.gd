@@ -11,6 +11,7 @@ func run() -> Array[String]:
 	_test_resource_spawn_config_is_valid(failures)
 	_test_biome_config_is_valid(failures)
 	_test_landmark_config_is_valid(failures)
+	_test_generated_landmarks_stay_on_land(failures)
 	_test_biome_landmark_weights_follow_design(failures)
 	_test_randomized_landmarks_are_seeded_and_spaced(failures)
 	_test_weighted_landmark_selection_matches_biome_character(failures)
@@ -122,6 +123,26 @@ func _test_randomized_landmarks_are_seeded_and_spaced(failures: Array[String]) -
 			var minimum_distance: float = maxf(float(GAME_BALANCE.LANDMARKS.get("landmark_min_distance", 420.0)), float(first_landmark.get("radius", 0.0)) + float(other_landmark.get("radius", 0.0)) + 40.0)
 			TEST_UTILS.expect(first_position.distance_to(other_position) >= minimum_distance, failures, "Generated landmarks should not overlap or crowd each other")
 	TEST_UTILS.expect(changed_position, failures, "Different world seeds should produce a different landmark layout")
+
+
+func _test_generated_landmarks_stay_on_land(failures: Array[String]) -> void:
+	for seed in [1, 42, 97]:
+		var layout: Array[Dictionary] = WORLD_CONFIG.generate_landmarks(seed)
+		for landmark_value in layout:
+			var landmark := Dictionary(landmark_value)
+			var position := Vector2(landmark.get("position", Vector2.ZERO))
+			var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+			TEST_UTILS.expect(terrain_zone == "land" or terrain_zone == "highland", failures, "Generated landmarks should stay on land")
+			var radius := float(landmark.get("radius", 0.0))
+			var sample_directions := [
+				Vector2.RIGHT,
+				Vector2.LEFT,
+				Vector2.UP,
+				Vector2.DOWN
+			]
+			for direction in sample_directions:
+				var sample_zone := WORLD_CONFIG.get_terrain_zone(position + direction * radius * 0.9)
+				TEST_UTILS.expect(sample_zone != "deep_ocean" and sample_zone != "shallow_water", failures, "Generated landmark footprint should avoid ocean water")
 
 
 func _test_weighted_landmark_selection_matches_biome_character(failures: Array[String]) -> void:

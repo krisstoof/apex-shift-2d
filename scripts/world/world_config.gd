@@ -544,6 +544,8 @@ static func _generate_landmark_position(landmark: Dictionary, biome: Dictionary,
 			continue
 		if not _is_landmark_inside_world_bounds(candidate, world_margin):
 			continue
+		if not _is_landmark_position_on_valid_terrain(candidate, radius):
+			continue
 		if candidate.distance_to(PLAYER_START_POSITION) < player_safe_distance + radius:
 			continue
 		if _is_landmark_too_close_to_others(candidate, radius, placed_landmarks, min_landmark_distance):
@@ -573,7 +575,7 @@ static func _is_landmark_too_close_to_others(position: Vector2, radius: float, p
 
 
 static func _find_landmark_fallback_position(fallback_position: Vector2, points: PackedVector2Array, radius: float, world_margin: float, placed_landmarks: Array[Dictionary], min_landmark_distance: float) -> Vector2:
-	if Geometry2D.is_point_in_polygon(fallback_position, points) and _is_landmark_inside_world_bounds(fallback_position, world_margin) and not _is_landmark_too_close_to_others(fallback_position, radius, placed_landmarks, min_landmark_distance):
+	if Geometry2D.is_point_in_polygon(fallback_position, points) and _is_landmark_inside_world_bounds(fallback_position, world_margin) and _is_landmark_position_on_valid_terrain(fallback_position, radius) and not _is_landmark_too_close_to_others(fallback_position, radius, placed_landmarks, min_landmark_distance):
 		return fallback_position
 	var bounds := _get_polygon_bounds(points)
 	var center: Vector2 = bounds.get_center()
@@ -586,10 +588,34 @@ static func _find_landmark_fallback_position(fallback_position: Vector2, points:
 				continue
 			if not _is_landmark_inside_world_bounds(candidate, world_margin):
 				continue
+			if not _is_landmark_position_on_valid_terrain(candidate, radius):
+				continue
 			if _is_landmark_too_close_to_others(candidate, radius, placed_landmarks, min_landmark_distance):
 				continue
 			return candidate
 	return fallback_position
+
+
+static func _is_landmark_position_on_valid_terrain(position: Vector2, radius: float) -> bool:
+	var zone := get_terrain_zone(position)
+	if zone != "land" and zone != "highland":
+		return false
+	var sample_directions := [
+		Vector2.RIGHT,
+		Vector2.LEFT,
+		Vector2.UP,
+		Vector2.DOWN,
+		Vector2(1, 1).normalized(),
+		Vector2(-1, 1).normalized(),
+		Vector2(1, -1).normalized(),
+		Vector2(-1, -1).normalized()
+	]
+	for direction in sample_directions:
+		var sample_position: Vector2 = position + direction * radius * 0.9
+		var sample_zone := get_terrain_zone(sample_position)
+		if sample_zone == "deep_ocean" or sample_zone == "shallow_water":
+			return false
+	return true
 
 
 static func _get_landmark_spawn_margin(landmark_type: String) -> float:

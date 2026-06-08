@@ -93,6 +93,13 @@ func is_position_inside_world_boundary(position: Vector2) -> bool:
 	return not _is_outside_world_boundary(position)
 
 
+func is_position_on_playable_land(position: Vector2) -> bool:
+	if not WORLD_CONFIG.WORLD_RECT.grow(-32.0).has_point(position):
+		return false
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+	return terrain_zone == "land" or terrain_zone == "highland"
+
+
 func is_resource_position_blocked_by_water(resource_kind: String, position: Vector2) -> bool:
 	if not _is_plant_resource_kind(resource_kind):
 		return false
