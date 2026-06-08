@@ -54,29 +54,28 @@ func get_terrain_speed_multiplier(position: Vector2) -> float:
 
 func get_water_zone(position: Vector2) -> String:
 	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+	var best_zone := water_zone_highland if terrain_zone == "highland" else water_zone_land
+	var search_radius := _get_pond_water_search_radius()
+	if search_radius > 0.0:
+		for pond_value in _get_pond_landmarks():
+			var pond := Dictionary(pond_value)
+			var pond_pos := Vector2(pond.get("position", Vector2.ZERO))
+			var distance_to_pond := position.distance_to(pond_pos)
+			if distance_to_pond > search_radius:
+				continue
+			var zone := _get_pond_water_zone(position, pond)
+			if zone == water_zone_deep:
+				return water_zone_deep
+			if zone == water_zone_shallow:
+				best_zone = water_zone_shallow
+			elif zone == water_zone_shore and best_zone == water_zone_land:
+				best_zone = water_zone_shore
 	if terrain_zone == "deep_ocean":
 		return water_zone_deep
 	if terrain_zone == "shallow_water":
 		return water_zone_shallow
 	if terrain_zone == "shore":
 		return water_zone_shore
-	var best_zone := water_zone_highland if terrain_zone == "highland" else water_zone_land
-	var search_radius := _get_pond_water_search_radius()
-	if search_radius <= 0.0:
-		return best_zone
-	for pond_value in _get_pond_landmarks():
-		var pond := Dictionary(pond_value)
-		var pond_pos := Vector2(pond.get("position", Vector2.ZERO))
-		var distance_to_pond := position.distance_to(pond_pos)
-		if distance_to_pond > search_radius:
-			continue
-		var zone := _get_pond_water_zone(position, pond)
-		if zone == water_zone_deep:
-			return water_zone_deep
-		if zone == water_zone_shallow:
-			best_zone = water_zone_shallow
-		elif zone == water_zone_shore and best_zone == water_zone_land:
-			best_zone = water_zone_shore
 	return best_zone
 
 
@@ -127,8 +126,8 @@ func is_creature_navigation_blocked(position: Vector2) -> bool:
 
 
 func is_creature_spawn_blocked_by_water(position: Vector2) -> bool:
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
-	return terrain_zone in ["deep_ocean", "shallow_water", "shore"]
+	var zone := get_water_zone(position)
+	return zone in [water_zone_deep, water_zone_shallow, water_zone_shore]
 
 
 func _get_pond_landmarks() -> Array:

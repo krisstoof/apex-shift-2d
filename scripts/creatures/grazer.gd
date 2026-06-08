@@ -250,6 +250,10 @@ func force_ai_decision_for_tests() -> void:
 	_update_state()
 
 
+func _should_update_ai_decision(delta: float) -> bool:
+	return ai_decision_timer - delta <= 0.0
+
+
 func force_consume_plants_for_tests() -> void:
 	if not is_instance_valid(plant_target):
 		return

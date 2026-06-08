@@ -54,7 +54,11 @@ func build_restore_plan(resource_data: Array, normalize_position: Callable) -> A
 				float(position_data.get("y", 0.0))
 			)
 		if normalize_position.is_valid():
-			resource_data_entry["position"] = normalize_position.call(resource_kind, saved_position)
+			if normalize_position.get_argument_count() <= 1:
+				resource_data_entry["position"] = normalize_position.call(resource_kind)
+			else:
+				var position_payload := {"x": saved_position.x, "y": saved_position.y}
+				resource_data_entry["position"] = normalize_position.call(resource_kind, position_payload)
 		restore_plan.append(resource_data_entry)
 	return restore_plan
 

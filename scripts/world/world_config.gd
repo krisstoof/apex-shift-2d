@@ -359,6 +359,7 @@ static func get_biome_zones() -> Array[Dictionary]:
 	for biome_value in BIOME_ZONES:
 		var biome := Dictionary(biome_value).duplicate(true)
 		biome["points"] = _build_organic_biome_points(biome)
+		biome["bounds"] = _get_polygon_bounds(PackedVector2Array(biome["points"]))
 		cached_organic_biome_zones.append(biome)
 	cached_organic_biome_zones_built = true
 	return _duplicate_biome_zones(cached_organic_biome_zones)

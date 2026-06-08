@@ -258,7 +258,7 @@ func _get_player_health_value(player_node: Node) -> float:
 	if player_node.has_method("get_health"):
 		return float(player_node.get_health())
 	var stats: Variant = player_node.get("stats")
-	if stats != null and stats.has_method("get") and stats.get("health") != null:
+	if stats != null and stats is Dictionary and stats.get("health") != null:
 		return float(stats.get("health"))
 	var value: Variant = player_node.get("health")
 	if value != null:
@@ -273,7 +273,7 @@ func _get_player_max_health_value(player_node: Node) -> float:
 	if player_node.has_method("get_max_health"):
 		return float(player_node.get_max_health())
 	var stats: Variant = player_node.get("stats")
-	if stats != null and stats.has_method("get") and stats.get("MAX_HEALTH") != null:
+	if stats != null and stats is Dictionary and stats.get("MAX_HEALTH") != null:
 		return float(stats.get("MAX_HEALTH"))
 	var value: Variant = player_node.get("max_health")
 	if value != null:
@@ -336,7 +336,7 @@ func _get_player_stat_value(player_node: Node, stat_name: String, default_value:
 	if player_node.has_method(getter_name):
 		return float(player_node.call(getter_name))
 	var stats: Variant = player_node.get("stats")
-	if stats != null and stats.has_method("get"):
+	if stats != null and stats is Dictionary:
 		var stats_value: Variant = stats.get(stat_name)
 		if stats_value != null:
 			return float(stats_value)

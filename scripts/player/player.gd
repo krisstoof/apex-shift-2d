@@ -21,6 +21,7 @@ var torch_remaining_seconds := 0.0
 var evolution_director: Node
 var nearby_interactables: Array[Node] = []
 var recipes := {}
+var world_limits := WORLD_CONFIG.get_player_limits()
 var attack_visual_time := 0.0
 var bow_cooldown := 0.0
 var is_swimming := false
@@ -122,7 +123,10 @@ func _physics_process(delta: float) -> void:
 	var world_query: Variant = _get_world_query()
 	velocity = input_vector * speed
 	move_and_slide()
-	if not WORLD_CONFIG.WORLD_RECT.grow(-32.0).has_point(global_position) or (world_query != null and world_query.is_position_in_deep_water(global_position)):
+	var in_deep_water := false
+	if world_query != null and world_query.has_method("is_position_in_deep_water"):
+		in_deep_water = world_query.is_position_in_deep_water(global_position) == true
+	if not WORLD_CONFIG.WORLD_RECT.grow(-32.0).has_point(global_position) or in_deep_water:
 		global_position = previous_position
 		velocity = Vector2.ZERO
 	_refresh_campfire_regen_state(delta)
@@ -194,6 +198,14 @@ func receive_damage(amount: float, source: String = "unknown") -> bool:
 	return true
 
 
+func get_health() -> float:
+	return stats.health
+
+
+func get_max_health() -> float:
+	return PlayerStats.MAX_HEALTH
+
+
 func activate_torch() -> bool:
 	if is_dead:
 		return false
@@ -230,7 +242,7 @@ func _get_terrain_speed_multiplier() -> float:
 
 func _is_in_water() -> bool:
 	var world_query: Variant = _get_world_query()
-	if world_query != null:
+	if world_query != null and world_query.has_method("is_position_in_water"):
 		return world_query.is_position_in_water(global_position) == true
 	return false
 
@@ -278,7 +290,7 @@ func _get_world_query():
 	var world := _get_world_node()
 	if world == null:
 		return null
-	var query_service: Variant = world.query_service
+	var query_service: Variant = world.get("query_service")
 	if query_service != null:
 		return query_service
 	if world.has_method("get_query_service"):
