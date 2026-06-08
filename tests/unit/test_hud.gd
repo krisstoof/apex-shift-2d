@@ -2,6 +2,7 @@ extends RefCounted
 
 const HUD_SCENE := preload("res://scenes/ui/hud.tscn")
 const HUD_SCRIPT := preload("res://scripts/ui/hud.gd")
+const PLAYER_STATS := preload("res://scripts/player/player_stats.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -17,6 +18,9 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_hud_builds_compact_player_stats_from_snapshot(failures)
 	_test_hud_filters_world_messages_from_message_history(failures)
+	_test_hud_reads_hunger_from_player_stats_object(failures)
+	_test_hud_reads_stamina_from_player_stats_object(failures)
+	_test_hud_reads_rest_from_player_stats_object(failures)
 	_test_hud_creates_critical_health_overlay(failures)
 	_test_hud_activates_warning_when_health_is_low(failures)
 	_test_game_over_scene_is_root_full_rect(failures)
@@ -82,6 +86,66 @@ func _test_hud_filters_world_messages_from_message_history(failures: Array[Strin
 	TEST_UTILS.expect_equal(message_history[0], "Crafted torch", failures, "HUD should preserve player action messages")
 	TEST_UTILS.expect_equal(message_history[1], "Collected wood x1", failures, "HUD should preserve collection messages")
 	TEST_UTILS.expect_equal(message_history[2], "Ate meat", failures, "HUD should preserve eating messages")
+	hud.queue_free()
+
+
+class PlayerStatsPlayer:
+	extends Node
+
+	var stats := PLAYER_STATS.new()
+
+
+func _test_hud_reads_hunger_from_player_stats_object(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	var player := PlayerStatsPlayer.new()
+	player.stats.hunger = 20.0
+	player.stats.stamina = 100.0
+	player.stats.rest = 100.0
+	hud.player = player
+	hud.evolution_director = Node.new()
+	hud.day_night_system = Node.new()
+	var before_history_size := Array(hud.get("message_history")).size()
+	hud.call("_update_survival_warning_messages", 0.5)
+	var message_history: Array[String] = Array(hud.get("message_history"))
+	TEST_UTILS.expect_equal(message_history.size(), before_history_size + 1, failures, "HUD should append a hunger warning for low hunger")
+	if not message_history.is_empty():
+		TEST_UTILS.expect_equal(message_history[message_history.size() - 1], "You are hungry. Find food soon.", failures, "HUD should read hunger from PlayerStats object")
+	hud.queue_free()
+
+
+func _test_hud_reads_stamina_from_player_stats_object(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	var player := PlayerStatsPlayer.new()
+	player.stats.hunger = 100.0
+	player.stats.stamina = 15.0
+	player.stats.rest = 100.0
+	hud.player = player
+	hud.evolution_director = Node.new()
+	hud.day_night_system = Node.new()
+	var before_history_size := Array(hud.get("message_history")).size()
+	hud.call("_update_survival_warning_messages", 0.5)
+	var message_history: Array[String] = Array(hud.get("message_history"))
+	TEST_UTILS.expect_equal(message_history.size(), before_history_size + 1, failures, "HUD should append an exhaustion warning for low stamina")
+	if not message_history.is_empty():
+		TEST_UTILS.expect_equal(message_history[message_history.size() - 1], "You are exhausted. Rest near a campfire to recover faster.", failures, "HUD should read stamina from PlayerStats object")
+	hud.queue_free()
+
+
+func _test_hud_reads_rest_from_player_stats_object(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	var player := PlayerStatsPlayer.new()
+	player.stats.hunger = 100.0
+	player.stats.stamina = 100.0
+	player.stats.rest = 15.0
+	hud.player = player
+	hud.evolution_director = Node.new()
+	hud.day_night_system = Node.new()
+	var before_history_size := Array(hud.get("message_history")).size()
+	hud.call("_update_survival_warning_messages", 0.5)
+	var message_history: Array[String] = Array(hud.get("message_history"))
+	TEST_UTILS.expect_equal(message_history.size(), before_history_size + 1, failures, "HUD should append an exhaustion warning for low rest")
+	if not message_history.is_empty():
+		TEST_UTILS.expect_equal(message_history[message_history.size() - 1], "You are exhausted. Rest near a campfire to recover faster.", failures, "HUD should read rest from PlayerStats object")
 	hud.queue_free()
 
 
