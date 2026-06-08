@@ -1,6 +1,7 @@
 extends RefCounted
 class_name WorldQueryService
 
+const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
 var world
@@ -9,9 +10,10 @@ var hill_resource_block_radius_factor := 0.72
 var hill_visual_y_scale := 0.58
 var pond_visual_y_scale := 0.62
 var water_zone_land := "land"
+var water_zone_highland := "highland"
 var water_zone_shore := "shore"
 var water_zone_shallow := "shallow_water"
-var water_zone_deep := "deep_water"
+var water_zone_deep := "deep_ocean"
 
 
 func bind_world(
@@ -21,9 +23,10 @@ func bind_world(
 	p_hill_visual_y_scale := 0.58,
 	p_pond_visual_y_scale := 0.62,
 	p_water_zone_land := "land",
+	p_water_zone_highland := "highland",
 	p_water_zone_shore := "shore",
 	p_water_zone_shallow := "shallow_water",
-	p_water_zone_deep := "deep_water"
+	p_water_zone_deep := "deep_ocean"
 ) -> WorldQueryService:
 	world = p_world
 	plant_resource_kinds.clear()
@@ -33,6 +36,7 @@ func bind_world(
 	hill_visual_y_scale = p_hill_visual_y_scale
 	pond_visual_y_scale = p_pond_visual_y_scale
 	water_zone_land = p_water_zone_land
+	water_zone_highland = p_water_zone_highland
 	water_zone_shore = p_water_zone_shore
 	water_zone_shallow = p_water_zone_shallow
 	water_zone_deep = p_water_zone_deep
@@ -49,7 +53,14 @@ func get_terrain_speed_multiplier(position: Vector2) -> float:
 
 
 func get_water_zone(position: Vector2) -> String:
-	var best_zone := water_zone_land
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+	if terrain_zone == "deep_ocean":
+		return water_zone_deep
+	if terrain_zone == "shallow_water":
+		return water_zone_shallow
+	if terrain_zone == "shore":
+		return water_zone_shore
+	var best_zone := water_zone_highland if terrain_zone == "highland" else water_zone_land
 	var search_radius := _get_pond_water_search_radius()
 	if search_radius <= 0.0:
 		return best_zone
@@ -76,6 +87,10 @@ func is_position_in_water(position: Vector2) -> bool:
 
 func is_position_in_deep_water(position: Vector2) -> bool:
 	return get_water_zone(position) == water_zone_deep
+
+
+func is_position_inside_world_boundary(position: Vector2) -> bool:
+	return not _is_outside_world_boundary(position)
 
 
 func is_resource_position_blocked_by_water(resource_kind: String, position: Vector2) -> bool:
@@ -205,6 +220,13 @@ func _get_resource_water_margin_multiplier(resource_kind: String) -> float:
 
 func _is_position_in_hill_obstacle(position: Vector2, hill: Dictionary) -> bool:
 	return _get_hill_shape_ratio(position, hill) <= hill_resource_block_radius_factor
+
+
+func _is_outside_world_boundary(position: Vector2) -> bool:
+	var boundary_points := WORLD_CONFIG.get_world_boundary_points()
+	if boundary_points.size() < 3:
+		return false
+	return not Geometry2D.is_point_in_polygon(position, boundary_points)
 
 
 func _get_hill_shape_ratio(position: Vector2, hill: Dictionary) -> float:

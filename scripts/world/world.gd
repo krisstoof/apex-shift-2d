@@ -2576,11 +2576,12 @@ func _data_to_vector(data: Variant) -> Vector2:
 
 
 func _draw() -> void:
+	draw_rect(WORLD_CONFIG.WORLD_RECT, WORLD_CONFIG.OCEAN_COLOR, true)
 	_draw_biomes()
 	_draw_landmarks()
 	if debug_landmark_overlay_enabled:
 		_draw_landmark_debug_overlay()
-	draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
+	_draw_world_boundary()
 
 
 func _get_night_amount() -> float:
@@ -2636,6 +2637,16 @@ func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
 			_:
 				if biome_id == "hearth_meadow":
 					_draw_biome_grass_accent(position, rotation, scale, light_color, dark_color)
+
+
+func _draw_world_boundary() -> void:
+	var points := WORLD_CONFIG.get_world_boundary_points()
+	if points.size() < 3:
+		draw_rect(WORLD_CONFIG.WORLD_RECT, Color(0.07, 0.09, 0.07), false, 5.0)
+		return
+	var outline := PackedVector2Array(points)
+	outline.append(points[0])
+	draw_polyline(outline, Color(0.07, 0.09, 0.07), 5.0, true)
 
 
 func _get_biome_accent_colors(kind: String, base_color: Color, tint: float, alpha: float) -> Dictionary:
@@ -2911,6 +2922,8 @@ func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> vo
 
 
 func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color:
+	if not WORLD_CONFIG.get_world_boundary_points().is_empty() and not Geometry2D.is_point_in_polygon(position, WORLD_CONFIG.get_world_boundary_points()):
+		return WORLD_CONFIG.OCEAN_COLOR
 	var nearest_index := -1
 	var nearest_distance := INF
 	for i in biome_zones.size():
