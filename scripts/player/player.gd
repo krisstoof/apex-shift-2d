@@ -34,6 +34,7 @@ var debug_world_query_override: Variant = null
 var torch_light: PointLight2D
 var torch_light_flicker_time := 0.0
 static var cached_light_texture: Texture2D
+@onready var player_camera: Camera2D = $Camera2D
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -41,6 +42,10 @@ const WALL_SCENE := preload("res://scenes/buildings/wall.tscn")
 const STORAGE_BOX_SCENE := preload("res://scenes/buildings/storage_box.tscn")
 const TENT_SCENE := preload("res://scenes/buildings/tent.tscn")
 const ARROW_PROJECTILE_SCENE := preload("res://scenes/projectiles/arrow_projectile.tscn")
+const MIN_CAMERA_ZOOM := 1.30
+const MAX_CAMERA_ZOOM := 1.80
+const DEFAULT_CAMERA_ZOOM := Vector2(1.50, 1.50)
+const CAMERA_ZOOM_STEP := 0.10
 
 const PLAYER_SKIN_COLOR := Color(0.82, 0.68, 0.54)
 const PLAYER_HAIR_COLOR := Color(0.24, 0.16, 0.10)
@@ -66,14 +71,14 @@ func _ready() -> void:
 	interaction_area.area_entered.connect(_on_interactable_entered)
 	interaction_area.area_exited.connect(_on_interactable_exited)
 	rotation = 0.0
-	var camera := get_node_or_null("Camera2D")
+	_apply_default_camera_zoom()
 	var main := get_tree().current_scene
 	var world := main.get_node_or_null("World") if main else null
 	var hud := main.get_node_or_null("HUD") if main else null
 	print("[VIEW_SCALE_DEBUG] window_size=%s viewport_size=%s camera_zoom=%s player_scale=%s main_scale=%s world_scale=%s hud_scale=%s" % [
 		DisplayServer.window_get_size(),
 		get_viewport().get_visible_rect().size,
-		camera.zoom if camera else Vector2.ZERO,
+		player_camera.zoom if player_camera else Vector2.ZERO,
 		scale,
 		main.scale if main and main is Node2D else Vector2.ONE,
 		world.scale if world and world is Node2D else Vector2.ONE,
@@ -130,6 +135,13 @@ func _physics_process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if is_dead:
 		return
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_change_camera_zoom(CAMERA_ZOOM_STEP)
+			return
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_change_camera_zoom(-CAMERA_ZOOM_STEP)
+			return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_E:
 		_interact()
 	if event is InputEventKey and event.pressed:
@@ -347,6 +359,10 @@ func debug_restore_hunger_energy() -> void:
 	stats.restore_hunger_energy(GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT)
 	get_node("/root/EventBus").emit_game_event("debug_player_hunger_energy_restored", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
 	get_node("/root/EventBus").post_message("Debug restored hunger/energy")
+
+
+func set_default_camera_zoom() -> void:
+	_apply_default_camera_zoom()
 
 
 func deactivate_torch(reason := "manual") -> void:
@@ -898,3 +914,16 @@ func _draw_attack_visual() -> void:
 		points.append(Vector2.RIGHT.rotated(angle) * ATTACK_RANGE)
 	draw_colored_polygon(points, Color(1.0, 0.86, 0.30, alpha))
 	draw_arc(Vector2.ZERO, ATTACK_RANGE, start_angle, start_angle + ATTACK_ARC, steps, Color(1.0, 0.92, 0.48, alpha + 0.25), 4.0)
+
+
+func _apply_default_camera_zoom() -> void:
+	if player_camera == null:
+		return
+	player_camera.zoom = DEFAULT_CAMERA_ZOOM
+
+
+func _change_camera_zoom(delta: float) -> void:
+	if player_camera == null:
+		return
+	var next_zoom := clampf(player_camera.zoom.x + delta, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM)
+	player_camera.zoom = Vector2(next_zoom, next_zoom)

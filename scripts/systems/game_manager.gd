@@ -24,6 +24,8 @@ func _ready() -> void:
 		var died_callable := Callable(self, "_on_player_died")
 		if not player.is_connected("died", died_callable):
 			player.connect("died", died_callable)
+	if player.has_method("set_default_camera_zoom"):
+		player.set_default_camera_zoom()
 	await _apply_boot_action()
 	if hud:
 		hud.visible = true
@@ -37,7 +39,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F5:
 		save_system.save_game()
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F9:
-		save_system.load_game()
+		await save_system.load_game()
+		if player and player.has_method("set_default_camera_zoom"):
+			player.set_default_camera_zoom()
 
 
 func _wait_for_world_boot() -> void:
@@ -51,6 +55,8 @@ func _apply_boot_action() -> void:
 	if game_session.consume_load_save_request():
 		_set_loading_overlay_state("Loading save data...", 1.0)
 		await save_system.load_game()
+		if player and player.has_method("set_default_camera_zoom"):
+			player.set_default_camera_zoom()
 
 
 func _connect_world_boot_progress() -> void:
