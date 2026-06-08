@@ -21,12 +21,15 @@ func _ready() -> void:
 
 
 func interact(player: Node) -> void:
-	print("[STORAGE_BOX_DEBUG] interact called by: ", player.name if player != null else "null")
 	var hud := _get_hud()
+	print("[STORAGE_BOX_DEBUG] interact called")
+	print("[STORAGE_BOX_DEBUG] hud=", hud)
+	print("[STORAGE_BOX_DEBUG] hud has open_storage_box=", hud != null and hud.has_method("open_storage_box"))
 	if hud == null or not hud.has_method("open_storage_box"):
 		_post_event_message("Storage Box UI not implemented yet")
 		return
 	hud.open_storage_box(player.inventory, inventory, self)
+	_post_event_message("Storage Box opened")
 
 
 func get_prompt() -> String:

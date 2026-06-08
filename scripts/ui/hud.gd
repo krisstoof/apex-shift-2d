@@ -815,6 +815,11 @@ func _close_game_over_screen() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if game_over_screen.visible:
 		return
+	if event.is_action_pressed("ui_cancel"):
+		if storage_box_screen != null and storage_box_screen.visible:
+			close_storage_box()
+			get_viewport().set_input_as_handled()
+			return
 	if event.is_action_pressed("toggle_inventory"):
 		_set_inventory_screen_open(not inventory_screen.visible)
 		get_viewport().set_input_as_handled()
@@ -829,9 +834,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		_set_map_screen_open(not map_screen_open)
 		get_viewport().set_input_as_handled()
 		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E:
+		if storage_box_screen != null and storage_box_screen.visible:
+			close_storage_box()
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 		if storage_box_screen != null and storage_box_screen.visible:
-			_close_storage_box_screen()
+			close_storage_box()
 			get_viewport().set_input_as_handled()
 			return
 		if inventory_screen.visible:
@@ -842,11 +852,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		_set_pause_menu_open(not pause_menu_open)
 		get_viewport().set_input_as_handled()
 		return
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E:
-		if storage_box_screen != null and storage_box_screen.visible:
-			_close_storage_box_screen()
-			get_viewport().set_input_as_handled()
-			return
 
 
 func _set_map_screen_open(open: bool) -> void:
@@ -884,6 +889,7 @@ func _set_inventory_screen_open(open: bool) -> void:
 
 func open_storage_box(p_player_inventory: Variant, p_storage_inventory: Variant, p_storage_box: Node) -> void:
 	if storage_box_screen == null:
+		print("[HUD_STORAGE_DEBUG] storage_box_screen missing")
 		return
 	print("[HUD_STORAGE_DEBUG] open_storage_box called")
 	print("[HUD_STORAGE_DEBUG] storage_box_screen=", storage_box_screen)
@@ -898,23 +904,30 @@ func open_storage_box(p_player_inventory: Variant, p_storage_inventory: Variant,
 		storage_box_screen.open_storage_box()
 	else:
 		storage_box_screen.visible = true
+	print("[HUD_STORAGE_DEBUG] storage_box_screen.visible=", storage_box_screen.visible)
 	_set_inventory_screen_open(false)
 	_set_map_screen_open(false)
 	_set_pause_menu_open(false)
 	_update_tree_paused()
 
 
-func _close_storage_box_screen() -> void:
+func close_storage_box() -> void:
+	current_storage_box = null
+	current_storage_inventory = null
+	current_storage_player_inventory = null
 	if storage_box_screen == null:
+		print("[HUD_STORAGE_DEBUG] close_storage_box: storage_box_screen missing")
 		return
 	if storage_box_screen.has_method("close_storage_box"):
 		storage_box_screen.close_storage_box()
 	else:
 		storage_box_screen.visible = false
-	current_storage_box = null
-	current_storage_inventory = null
-	current_storage_player_inventory = null
+	print("[HUD_STORAGE_DEBUG] close_storage_box visible=", storage_box_screen.visible)
 	_update_tree_paused()
+
+
+func _close_storage_box_screen() -> void:
+	close_storage_box()
 
 
 func _update_tree_paused() -> void:

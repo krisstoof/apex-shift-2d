@@ -157,6 +157,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_E:
 		_interact()
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed:
 		match event.keycode:
 			KEY_SPACE:
