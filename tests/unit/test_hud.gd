@@ -3,6 +3,7 @@ extends RefCounted
 const HUD_SCENE := preload("res://scenes/ui/hud.tscn")
 const HUD_SCRIPT := preload("res://scripts/ui/hud.gd")
 const PLAYER_STATS := preload("res://scripts/player/player_stats.gd")
+const INVENTORY := preload("res://scripts/player/inventory.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -17,6 +18,7 @@ class TestPlayer:
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_hud_builds_compact_player_stats_from_snapshot(failures)
+	_test_hud_shows_resource_counts_from_player_inventory(failures)
 	_test_hud_filters_world_messages_from_message_history(failures)
 	_test_hud_reads_hunger_from_player_stats_object(failures)
 	_test_hud_reads_stamina_from_player_stats_object(failures)
@@ -86,6 +88,68 @@ func _test_hud_filters_world_messages_from_message_history(failures: Array[Strin
 	TEST_UTILS.expect_equal(message_history[0], "Crafted torch", failures, "HUD should preserve player action messages")
 	TEST_UTILS.expect_equal(message_history[1], "Collected wood x1", failures, "HUD should preserve collection messages")
 	TEST_UTILS.expect_equal(message_history[2], "Ate meat", failures, "HUD should preserve eating messages")
+	hud.queue_free()
+
+
+class ResourcePlayer:
+	extends Node2D
+
+	var inventory := INVENTORY.new()
+	var stats := PLAYER_STATS.new()
+	var has_spear := false
+	var has_bow := false
+	var recipes := {}
+
+	func is_torch_active() -> bool:
+		return false
+
+
+func _test_hud_shows_resource_counts_from_player_inventory(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	var player := ResourcePlayer.new()
+	hud.bind(player, Node.new(), Node.new(), null)
+	var wood_icon: TextureRect = hud.get_node("ResourcePanel/ResourceHBox/WoodItem/Icon")
+	var stone_icon: TextureRect = hud.get_node("ResourcePanel/ResourceHBox/StoneItem/Icon")
+	var fiber_icon: TextureRect = hud.get_node("ResourcePanel/ResourceHBox/FiberItem/Icon")
+	var meat_icon: TextureRect = hud.get_node("ResourcePanel/ResourceHBox/MeatItem/Icon")
+	var bone_icon: TextureRect = hud.get_node("ResourcePanel/ResourceHBox/BoneItem/Icon")
+	var wood_label: Label = hud.get_node("ResourcePanel/ResourceHBox/WoodItem/CountLabel")
+	var stone_label: Label = hud.get_node("ResourcePanel/ResourceHBox/StoneItem/CountLabel")
+	var fiber_label: Label = hud.get_node("ResourcePanel/ResourceHBox/FiberItem/CountLabel")
+	var meat_label: Label = hud.get_node("ResourcePanel/ResourceHBox/MeatItem/CountLabel")
+	var bone_label: Label = hud.get_node("ResourcePanel/ResourceHBox/BoneItem/CountLabel")
+	TEST_UTILS.expect_equal(wood_icon.custom_minimum_size, Vector2(36, 36), failures, "HUD should clamp wood icon size to 36x36")
+	TEST_UTILS.expect_equal(stone_icon.custom_minimum_size, Vector2(36, 36), failures, "HUD should clamp stone icon size to 36x36")
+	TEST_UTILS.expect_equal(fiber_icon.custom_minimum_size, Vector2(36, 36), failures, "HUD should clamp fiber icon size to 36x36")
+	TEST_UTILS.expect_equal(meat_icon.custom_minimum_size, Vector2(36, 36), failures, "HUD should clamp meat icon size to 36x36")
+	TEST_UTILS.expect_equal(bone_icon.custom_minimum_size, Vector2(36, 36), failures, "HUD should clamp bone icon size to 36x36")
+	TEST_UTILS.expect_equal(int(wood_icon.stretch_mode), int(TextureRect.STRETCH_KEEP_ASPECT_CENTERED), failures, "HUD should keep wood icon aspect centered")
+	TEST_UTILS.expect_equal(int(wood_icon.expand_mode), int(TextureRect.EXPAND_IGNORE_SIZE), failures, "HUD should ignore wood icon source size")
+	TEST_UTILS.expect_equal(int(hud.get_node("ResourcePanel").anchor_left), 0, failures, "HUD resource panel should anchor to left")
+	TEST_UTILS.expect_equal(int(hud.get_node("ResourcePanel").anchor_bottom), 1, failures, "HUD resource panel should anchor to bottom")
+	var resource_panel: Control = hud.get_node("ResourcePanel")
+	var panel_style := resource_panel.get_theme_stylebox("panel")
+	TEST_UTILS.expect(panel_style is StyleBoxFlat, failures, "HUD resource panel should use a flat stylebox")
+	if panel_style is StyleBoxFlat:
+		TEST_UTILS.expect_equal((panel_style as StyleBoxFlat).bg_color, Color(0.0, 0.0, 0.0, 0.45), failures, "HUD resource panel should use a translucent dark background")
+	TEST_UTILS.expect_equal(wood_label.text, "0", failures, "HUD should start with zero wood")
+	TEST_UTILS.expect_equal(stone_label.text, "0", failures, "HUD should start with zero stone")
+	TEST_UTILS.expect_equal(fiber_label.text, "0", failures, "HUD should start with zero fiber")
+	TEST_UTILS.expect_equal(meat_label.text, "0", failures, "HUD should start with zero meat")
+	TEST_UTILS.expect_equal(bone_label.text, "0", failures, "HUD should start with zero bone")
+	player.inventory.add_item("wood", 4)
+	player.inventory.add_item("stone", 2)
+	player.inventory.add_item("fiber", 3)
+	player.inventory.add_item("meat", 1)
+	player.inventory.add_item("bone", 5)
+	TEST_UTILS.expect_equal(wood_label.text, "4", failures, "HUD should update wood after inventory changes")
+	TEST_UTILS.expect_equal(stone_label.text, "2", failures, "HUD should update stone after inventory changes")
+	TEST_UTILS.expect_equal(fiber_label.text, "3", failures, "HUD should update fiber after inventory changes")
+	TEST_UTILS.expect_equal(meat_label.text, "1", failures, "HUD should update meat after inventory changes")
+	TEST_UTILS.expect_equal(bone_label.text, "5", failures, "HUD should update bone after inventory changes")
+	player.inventory.remove_item("wood", 1)
+	TEST_UTILS.expect_equal(wood_label.text, "3", failures, "HUD should refresh wood after removals")
+	TEST_UTILS.expect(wood_label.visible, failures, "HUD resource labels should remain visible when inventory is populated")
 	hud.queue_free()
 
 

@@ -1,6 +1,7 @@
 extends CanvasLayer
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 const WORLD_SNAPSHOT_SERVICE := preload("res://scripts/systems/world_snapshot_service.gd")
 const ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS := 30.0
 const HUD_REFRESH_INTERVAL := 0.10
@@ -41,6 +42,17 @@ var hitch_log_cooldowns: Dictionary = {}
 @onready var stats_label: Label = $Panel/StatsLabel
 @onready var prompt_label: Label = $Panel/PromptLabel
 @onready var message_label: Label = $Panel/MessageLabel
+@onready var resource_panel: Control = $ResourcePanel
+@onready var wood_resource_icon: TextureRect = $ResourcePanel/ResourceHBox/WoodItem/Icon
+@onready var wood_resource_count_label: Label = $ResourcePanel/ResourceHBox/WoodItem/CountLabel
+@onready var stone_resource_icon: TextureRect = $ResourcePanel/ResourceHBox/StoneItem/Icon
+@onready var stone_resource_count_label: Label = $ResourcePanel/ResourceHBox/StoneItem/CountLabel
+@onready var fiber_resource_icon: TextureRect = $ResourcePanel/ResourceHBox/FiberItem/Icon
+@onready var fiber_resource_count_label: Label = $ResourcePanel/ResourceHBox/FiberItem/CountLabel
+@onready var meat_resource_icon: TextureRect = $ResourcePanel/ResourceHBox/MeatItem/Icon
+@onready var meat_resource_count_label: Label = $ResourcePanel/ResourceHBox/MeatItem/CountLabel
+@onready var bone_resource_icon: TextureRect = $ResourcePanel/ResourceHBox/BoneItem/Icon
+@onready var bone_resource_count_label: Label = $ResourcePanel/ResourceHBox/BoneItem/CountLabel
 @onready var panel: Control = $Panel
 @onready var center_notification_label: Label = $CenterNotificationLabel
 @onready var skill_icon_bar: Control = $SkillIconBar
@@ -74,6 +86,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	center_notification_label.visible = false
 	_ensure_critical_health_overlay()
+	_configure_resource_panel_style()
 	_connect_event_bus()
 	pause_menu.resume_requested.connect(_on_pause_menu_resume)
 	pause_menu.save_requested.connect(_on_pause_menu_save)
@@ -106,7 +119,9 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	minimap.bind(player, world_rect, biome_zones, landmarks, snapshot_service)
 	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones, landmarks, snapshot_service)
 	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director, snapshot_service)
+	_connect_inventory_changed()
 	_apply_snapshot(snapshot)
+	_refresh_resource_panel()
 	_fix_low_resolution_layout()
 
 
@@ -151,6 +166,7 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 	stats_label.text = _build_player_stats_text_from_snapshot(snapshot)
 	prompt_label.text = _get_prompt_text_from_snapshot(snapshot)
 	_refresh_message_label()
+	_refresh_resource_panel()
 
 
 func _build_clock_text_from_snapshot(snapshot: Dictionary) -> String:
@@ -222,6 +238,117 @@ func _refresh_message_label() -> void:
 		return
 	message_label.text = "\n".join(message_history)
 	message_label.visible = message_history.size() > 0
+
+
+func _connect_inventory_changed() -> void:
+	var inventory: Variant = _get_player_inventory()
+	if inventory == null:
+		return
+	if inventory.has_signal("inventory_changed"):
+		var changed_callable: Callable = Callable(self, "_on_inventory_changed")
+		if not inventory.inventory_changed.is_connected(changed_callable):
+			inventory.inventory_changed.connect(changed_callable)
+
+
+func _on_inventory_changed() -> void:
+	_refresh_resource_panel()
+
+
+func _refresh_resource_panel() -> void:
+	if resource_panel == null:
+		return
+	var inventory: Variant = _get_player_inventory()
+	if inventory == null:
+		_set_resource_count(wood_resource_count_label, 0)
+		_set_resource_count(stone_resource_count_label, 0)
+		_set_resource_count(fiber_resource_count_label, 0)
+		_set_resource_count(meat_resource_count_label, 0)
+		_set_resource_count(bone_resource_count_label, 0)
+		return
+	_set_resource_icon(wood_resource_icon, "wood")
+	_set_resource_icon(stone_resource_icon, "stone")
+	_set_resource_icon(fiber_resource_icon, "fiber")
+	_set_resource_icon(meat_resource_icon, "meat")
+	_set_resource_icon(bone_resource_icon, "bone")
+	_set_resource_count(wood_resource_count_label, _get_inventory_count(inventory, "wood"))
+	_set_resource_count(stone_resource_count_label, _get_inventory_count(inventory, "stone"))
+	_set_resource_count(fiber_resource_count_label, _get_inventory_count(inventory, "fiber"))
+	_set_resource_count(meat_resource_count_label, _get_inventory_count(inventory, "meat"))
+	_set_resource_count(bone_resource_count_label, _get_inventory_count(inventory, "bone"))
+	_position_resource_panel()
+
+
+func _get_player_inventory() -> Variant:
+	if player == null:
+		return null
+	return player.get("inventory")
+
+
+func _get_inventory_count(inventory: Variant, item_id: String) -> int:
+	if inventory == null:
+		return 0
+	if inventory.has_method("get_amount"):
+		return int(inventory.call("get_amount", item_id))
+	if inventory.has_method("get_item_count"):
+		return int(inventory.call("get_item_count", item_id))
+	if inventory.has_method("get_count"):
+		return int(inventory.call("get_count", item_id))
+	if inventory is Dictionary:
+		return int(Dictionary(inventory).get(item_id, 0))
+	return 0
+
+
+func _set_resource_icon(icon_node: TextureRect, item_id: String) -> void:
+	if icon_node == null:
+		return
+	icon_node.custom_minimum_size = Vector2(36, 36)
+	icon_node.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon_node.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	icon_node.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon_node.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon_node.modulate = Color(1.0, 1.0, 1.0, 0.92)
+	var icon_path := ITEM_DATABASE.get_icon_path(item_id)
+	if icon_path.is_empty():
+		icon_node.texture = null
+		return
+	icon_node.texture = load(icon_path)
+
+
+func _set_resource_count(label: Label, amount: int) -> void:
+	if label == null:
+		return
+	label.text = str(amount)
+
+
+func _configure_resource_panel_style() -> void:
+	if resource_panel == null:
+		return
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.0, 0.0, 0.0, 0.45)
+	style.corner_radius_top_left = 6
+	style.corner_radius_top_right = 6
+	style.corner_radius_bottom_left = 6
+	style.corner_radius_bottom_right = 6
+	style.content_margin_left = 10.0
+	style.content_margin_right = 10.0
+	style.content_margin_top = 8.0
+	style.content_margin_bottom = 8.0
+	resource_panel.add_theme_stylebox_override("panel", style)
+
+
+func _position_resource_panel() -> void:
+	if resource_panel == null:
+		return
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+	var low_resolution: bool = viewport_size.x <= 1366.0 or viewport_size.y <= 768.0
+	resource_panel.anchor_left = 0.0
+	resource_panel.anchor_right = 0.0
+	resource_panel.anchor_top = 1.0
+	resource_panel.anchor_bottom = 1.0
+	resource_panel.offset_left = 16.0
+	resource_panel.offset_right = 420.0 if not low_resolution else 388.0
+	resource_panel.offset_top = -88.0 if not low_resolution else -82.0
+	resource_panel.offset_bottom = -20.0 if not low_resolution else -18.0
 
 
 
@@ -597,6 +724,17 @@ func _fix_low_resolution_layout() -> void:
 		message_label.offset_top = 128.0 if not low_resolution else 122.0
 		message_label.offset_bottom = 224.0 if not low_resolution else 210.0
 		message_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 13)
+	_position_resource_panel()
+	if wood_resource_count_label:
+		wood_resource_count_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
+	if stone_resource_count_label:
+		stone_resource_count_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
+	if fiber_resource_count_label:
+		fiber_resource_count_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
+	if meat_resource_count_label:
+		meat_resource_count_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
+	if bone_resource_count_label:
+		bone_resource_count_label.add_theme_font_size_override("font_size", 16 if not low_resolution else 14)
 	if skill_icon_bar:
 		skill_icon_bar.anchor_left = 0.5
 		skill_icon_bar.anchor_right = 0.5

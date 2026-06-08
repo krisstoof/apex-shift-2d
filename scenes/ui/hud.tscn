@@ -41,6 +41,113 @@ offset_bottom = 224.0
 theme_override_font_sizes/font_size = 16
 text = ""
 
+[node name="ResourcePanel" type="PanelContainer" parent="."]
+offset_left = 16.0
+offset_top = -88.0
+offset_right = 420.0
+offset_bottom = -20.0
+
+[node name="ResourceHBox" type="HBoxContainer" parent="ResourcePanel"]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 388.0
+offset_bottom = 52.0
+theme_override_constants/separation = 12
+
+[node name="WoodItem" type="HBoxContainer" parent="ResourcePanel/ResourceHBox"]
+offset_right = 84.0
+offset_bottom = 34.0
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="ResourcePanel/ResourceHBox/WoodItem"]
+custom_minimum_size = Vector2(36, 36)
+stretch_mode = 6
+expand_mode = 1
+
+[node name="CountLabel" type="Label" parent="ResourcePanel/ResourceHBox/WoodItem"]
+offset_left = 26.0
+offset_top = 4.0
+offset_right = 78.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 16
+text = "0"
+
+[node name="StoneItem" type="HBoxContainer" parent="ResourcePanel/ResourceHBox"]
+offset_left = 100.0
+offset_right = 184.0
+offset_bottom = 34.0
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="ResourcePanel/ResourceHBox/StoneItem"]
+custom_minimum_size = Vector2(36, 36)
+stretch_mode = 6
+expand_mode = 1
+
+[node name="CountLabel" type="Label" parent="ResourcePanel/ResourceHBox/StoneItem"]
+offset_left = 26.0
+offset_top = 4.0
+offset_right = 78.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 16
+text = "0"
+
+[node name="FiberItem" type="HBoxContainer" parent="ResourcePanel/ResourceHBox"]
+offset_left = 200.0
+offset_right = 284.0
+offset_bottom = 34.0
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="ResourcePanel/ResourceHBox/FiberItem"]
+custom_minimum_size = Vector2(36, 36)
+stretch_mode = 6
+expand_mode = 1
+
+[node name="CountLabel" type="Label" parent="ResourcePanel/ResourceHBox/FiberItem"]
+offset_left = 26.0
+offset_top = 4.0
+offset_right = 78.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 16
+text = "0"
+
+[node name="MeatItem" type="HBoxContainer" parent="ResourcePanel/ResourceHBox"]
+offset_left = 300.0
+offset_right = 384.0
+offset_bottom = 34.0
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="ResourcePanel/ResourceHBox/MeatItem"]
+custom_minimum_size = Vector2(36, 36)
+stretch_mode = 6
+expand_mode = 1
+
+[node name="CountLabel" type="Label" parent="ResourcePanel/ResourceHBox/MeatItem"]
+offset_left = 26.0
+offset_top = 4.0
+offset_right = 78.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 16
+text = "0"
+
+[node name="BoneItem" type="HBoxContainer" parent="ResourcePanel/ResourceHBox"]
+offset_left = 400.0
+offset_right = 484.0
+offset_bottom = 34.0
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="ResourcePanel/ResourceHBox/BoneItem"]
+custom_minimum_size = Vector2(36, 36)
+stretch_mode = 6
+expand_mode = 1
+
+[node name="CountLabel" type="Label" parent="ResourcePanel/ResourceHBox/BoneItem"]
+offset_left = 26.0
+offset_top = 4.0
+offset_right = 78.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 16
+text = "0"
+
 [node name="FPSLabel" type="Label" parent="."]
 offset_left = 12.0
 offset_top = 12.0
