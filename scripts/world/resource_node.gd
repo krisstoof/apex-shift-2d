@@ -70,6 +70,8 @@ func _ready() -> void:
 	add_to_group("resources")
 	if biome_id.is_empty():
 		biome_id = _get_biome_id_for_position(global_position)
+	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
+		print("[DROP_DEBUG] ready ", resource_kind, " pos=", global_position, " z=", z_index, " layer=", collision_layer, " mask=", collision_mask)
 	_apply_growth_stage()
 	_sync_resource_groups()
 	_sync_visual_sprite()
@@ -106,11 +108,13 @@ func setup(kind: String) -> void:
 			mature_color = Color(0.72, 0.12, 0.10)
 			mature_radius = 10.0
 			food_value = float(GAME_BALANCE.ANIMAL_AI.get("meat_food_value", 0.65))
+			z_index = 20
 		"bone_drop":
 			item_name = "bone"
 			mature_amount = 1
 			mature_color = Color(0.82, 0.78, 0.70)
 			mature_radius = 9.0
+			z_index = 20
 		"bush":
 			item_name = "fiber"
 			mature_amount = 2
@@ -164,6 +168,8 @@ func interact(player: Node) -> void:
 	if not can_be_harvested:
 		_post_event_message("%s is still regrowing" % _get_resource_label())
 		return
+	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
+		print("[DROP_DEBUG] interact ", resource_kind, " item=", item_name, " amount=", amount)
 	var collected_amount := amount
 	var leftover: int = player.inventory.add_item(item_name, collected_amount)
 	var added_amount: int = collected_amount - leftover

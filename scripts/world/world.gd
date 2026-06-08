@@ -1334,7 +1334,7 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 		return null
 	var initial_position: Vector2 = _clamp_position_to_world(drop_position)
 	# Ensure meat drop does not spawn in water or hills
-	var safe_position: Vector2 = _get_safe_restored_resource_position("meat_drop", initial_position)
+	var safe_position: Vector2 = _find_safe_drop_position("meat_drop", _get_safe_restored_resource_position("meat_drop", initial_position))
 	if is_resource_position_blocked_by_water("meat_drop", safe_position):
 		push_warning("Meat drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
 	var node: Node = _spawn_resource_at("meat_drop", safe_position)
@@ -1355,7 +1355,7 @@ func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	if amount <= 0:
 		return null
 	var initial_position: Vector2 = _clamp_position_to_world(drop_position)
-	var safe_position: Vector2 = _get_safe_restored_resource_position("bone_drop", initial_position)
+	var safe_position: Vector2 = _find_safe_drop_position("bone_drop", _get_safe_restored_resource_position("bone_drop", initial_position))
 	if is_resource_position_blocked_by_water("bone_drop", safe_position):
 		push_warning("Bone drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
 	var node: Node = _spawn_resource_at("bone_drop", safe_position)
@@ -1391,6 +1391,49 @@ func _get_bone_drop_amount(animal_kind: String) -> int:
 	if max_amount < min_amount:
 		max_amount = min_amount
 	return resource_rng.randi_range(min_amount, max_amount)
+
+
+func _find_safe_drop_position(resource_kind: String, origin: Vector2, radius: float = 18.0) -> Vector2:
+	var candidates: Array[Vector2] = [
+		Vector2.ZERO,
+		Vector2(24.0, 0.0),
+		Vector2(-24.0, 0.0),
+		Vector2(0.0, 24.0),
+		Vector2(0.0, -24.0),
+		Vector2(32.0, 16.0),
+		Vector2(-32.0, 16.0),
+		Vector2(32.0, -16.0),
+		Vector2(-32.0, -16.0),
+		Vector2(48.0, 0.0),
+		Vector2(-48.0, 0.0),
+		Vector2(0.0, 48.0),
+		Vector2(0.0, -48.0)
+	]
+	for offset in candidates:
+		var candidate := origin + offset
+		if _is_valid_drop_position(candidate, radius, resource_kind):
+			return candidate
+	return origin
+
+
+func _is_valid_drop_position(position: Vector2, radius: float = 18.0, resource_kind: String = "") -> bool:
+	if not WORLD_CONFIG.WORLD_RECT.has_point(position):
+		return false
+	if resource_kind != "" and is_resource_position_blocked_by_water(resource_kind, position):
+		return false
+	for landmark in get_tree().get_nodes_in_group("landmarks"):
+		if not is_instance_valid(landmark):
+			continue
+		var landmark_node := landmark as Node2D
+		if landmark_node == null:
+			continue
+		var safe_distance := 48.0
+		var custom_radius: Variant = landmark.get("radius") if landmark.has_method("get") else null
+		if custom_radius != null:
+			safe_distance = maxf(float(custom_radius), safe_distance)
+		if landmark_node.global_position.distance_to(position) < safe_distance + radius:
+			return false
+	return true
 
 
 func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
