@@ -33,6 +33,7 @@ var cached_varnaks_signature := ""
 var markers_cache_timer := 0.0
 var landmarks_signature := ""
 var camera_world_size_override := Vector2.ZERO
+var hitch_log_cooldowns: Dictionary = {}
 
 
 func _ready() -> void:
@@ -205,6 +206,11 @@ func _get_biome_colors_key() -> String:
 func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
 	if delta <= 0.1:
 		return
+	var now_ms := Time.get_ticks_msec()
+	var last_log_ms := int(hitch_log_cooldowns.get(system_name, 0))
+	if now_ms - last_log_ms < 5000:
+		return
+	hitch_log_cooldowns[system_name] = now_ms
 	var flag_text := ""
 	for key in flags.keys():
 		if not flag_text.is_empty():

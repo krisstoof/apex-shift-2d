@@ -38,6 +38,11 @@ const VISIBILITY_CULL_INTERVAL_SECONDS := 0.35
 const VISIBILITY_CULL_MARGIN := 384.0
 const VISIBILITY_CULL_GROUPS := ["resources", "small_prey", "grazer", "varnak"]
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
+const BIOME_DETAIL_CHUNK_WORLD_SIZE := 768.0
+const BIOME_DETAIL_CHUNK_TEXTURE_SIZE := Vector2i(256, 256)
+const BIOME_DETAIL_VISIBLE_CHUNK_RADIUS := 1
+const BIOME_DETAIL_WORLD_TILE_SIZE := 128.0
+const BIOME_DETAIL_ALPHA := 0.22
 const BIOME_TERRAIN_ACCENT_COUNTS := {
 	"westwood": 26,
 	"stoneback_ridge": 22,
@@ -151,6 +156,13 @@ var boot_status_message := "Preparing world..."
 var boot_status_progress := 0.0
 var integration_test_mode := false
 var biome_blend_background: Sprite2D
+var biome_detail_overlay_cache: Dictionary = {}
+var biome_detail_overlay_pending_keys: Array[String] = []
+var biome_detail_overlay_visible_keys: Array[String] = []
+var biome_detail_overlay_last_signature := ""
+var biome_detail_overlay_build_budget_per_frame := 1
+var hitch_log_cooldowns: Dictionary = {}
+var hitch_log_sequence: Dictionary = {}
 var world_biome_texture_build_count: int = 0
 var world_biome_texture_last_build_ms: float = 0.0
 var visibility_cull_timer := 0.0
@@ -200,6 +212,7 @@ func _ready() -> void:
 	_ensure_render_controller()
 	_set_boot_progress("Generating landmarks...", 0.18)
 	_create_landmarks()
+	_place_player_on_safe_start()
 	_queue_biome_terrain_accent_cache_rebuild()
 	_set_boot_progress("Growing vegetation...", 0.40)
 	await _spawn_resources()
@@ -231,6 +244,7 @@ func _ready() -> void:
 	_update_world_object_visibility()
 	visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
 	_sync_biome_blend_background()
+	_update_biome_detail_overlay(true)
 	world_initialized.emit()
 	queue_redraw()
 
@@ -270,6 +284,8 @@ func _process(delta: float) -> void:
 		if visibility_cull_timer <= 0.0:
 			visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
 			_update_world_object_visibility()
+	_update_biome_detail_overlay()
+	_build_pending_biome_detail_overlay_chunks()
 	_update_night_overlay(current_night_amount)
 
 
@@ -357,6 +373,10 @@ func get_landmarks() -> Array[Dictionary]:
 	if landmarks.is_empty():
 		return WORLD_CONFIG.get_landmarks()
 	return _ensure_landmark_service().get_landmarks()
+
+
+func get_safe_player_start_position() -> Vector2:
+	return WORLD_CONFIG.get_safe_player_start_position(landmarks)
 
 
 func get_world_seed() -> int:
@@ -872,6 +892,16 @@ func _create_landmarks() -> void:
 	world_seed = int(initial_layout.get("world_seed", world_seed))
 	landmarks = Array(initial_layout.get("landmarks", []))
 	_rebuild_landmark_runtime_state()
+
+
+func _place_player_on_safe_start() -> void:
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null or not (player is Node2D):
+		return
+	var safe_start := WORLD_CONFIG.get_safe_player_start_position(landmarks)
+	if safe_start == Vector2.INF:
+		return
+	(player as Node2D).global_position = safe_start
 
 
 func _rebuild_landmark_runtime_state() -> void:
@@ -2592,6 +2622,7 @@ func _draw() -> void:
 	if not has_biome_blend_background:
 		draw_rect(WORLD_CONFIG.WORLD_RECT, WORLD_CONFIG.OCEAN_COLOR, true)
 	_draw_biomes()
+	_draw_biome_detail_overlay()
 	_draw_landmarks()
 	if debug_landmark_overlay_enabled:
 		_draw_landmark_debug_overlay()
@@ -2618,6 +2649,173 @@ func _draw_biomes() -> void:
 		draw_colored_polygon(points, base_color)
 		if biome_terrain_accents_enabled:
 			_draw_biome_terrain_accents(biome, base_color)
+
+
+func _update_biome_detail_overlay(force_redraw: bool = false) -> void:
+	if not biome_textures_enabled:
+		biome_detail_overlay_pending_keys.clear()
+		if not biome_detail_overlay_visible_keys.is_empty():
+			biome_detail_overlay_visible_keys.clear()
+		biome_detail_overlay_last_signature = ""
+		return
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("detail_overlay_enabled", true)):
+		biome_detail_overlay_pending_keys.clear()
+		biome_detail_overlay_visible_keys.clear()
+		biome_detail_overlay_last_signature = ""
+		return
+	var visible_keys := _get_visible_biome_detail_overlay_keys()
+	var signature := "|".join(visible_keys)
+	biome_detail_overlay_visible_keys = visible_keys
+	if force_redraw or signature != biome_detail_overlay_last_signature:
+		biome_detail_overlay_last_signature = signature
+		_queue_missing_biome_detail_overlay_chunks(visible_keys)
+		queue_redraw()
+
+
+func _get_visible_biome_detail_overlay_keys() -> Array[String]:
+	var chunk_world_size: float = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_chunk_world_size", BIOME_DETAIL_CHUNK_WORLD_SIZE)), 1.0)
+	var visible_rect := get_camera_visible_world_rect(chunk_world_size)
+	var chunk_radius := int(GAME_BALANCE.BIOME_TEXTURES.get("detail_visible_chunk_radius", BIOME_DETAIL_VISIBLE_CHUNK_RADIUS))
+	var chunk_min_x := int(floor(visible_rect.position.x / chunk_world_size)) - chunk_radius
+	var chunk_min_y := int(floor(visible_rect.position.y / chunk_world_size)) - chunk_radius
+	var chunk_max_x := int(floor(visible_rect.end.x / chunk_world_size)) + chunk_radius
+	var chunk_max_y := int(floor(visible_rect.end.y / chunk_world_size)) + chunk_radius
+	var visible_keys: Array[String] = []
+	for chunk_y in range(chunk_min_y, chunk_max_y + 1):
+		for chunk_x in range(chunk_min_x, chunk_max_x + 1):
+			visible_keys.append("%d:%d" % [chunk_x, chunk_y])
+	return visible_keys
+
+
+func _draw_biome_detail_overlay() -> void:
+	if not biome_textures_enabled:
+		return
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("detail_overlay_enabled", true)):
+		return
+	if not is_instance_valid(biome_blend_background) or not biome_blend_background.visible:
+		return
+	var chunk_world_size: float = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_chunk_world_size", BIOME_DETAIL_CHUNK_WORLD_SIZE)), 1.0)
+	for chunk_key in biome_detail_overlay_visible_keys:
+		var chunk_texture: ImageTexture = _get_biome_detail_overlay_texture(chunk_key)
+		if chunk_texture == null:
+			continue
+		var key_parts := chunk_key.split(":")
+		if key_parts.size() != 2:
+			continue
+		var chunk_x := int(key_parts[0])
+		var chunk_y := int(key_parts[1])
+		var chunk_position := Vector2(
+			float(chunk_x) * chunk_world_size,
+			float(chunk_y) * chunk_world_size
+		)
+		draw_texture_rect(
+			chunk_texture,
+			Rect2(chunk_position, Vector2(chunk_world_size, chunk_world_size)),
+			false,
+			Color(1.0, 1.0, 1.0, clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_overlay_alpha", BIOME_DETAIL_ALPHA)), 0.0, 1.0))
+		)
+
+
+func _queue_missing_biome_detail_overlay_chunks(visible_keys: Array[String]) -> void:
+	var queued: Dictionary = {}
+	for key in biome_detail_overlay_pending_keys:
+		queued[key] = true
+	for key in visible_keys:
+		if biome_detail_overlay_cache.has(key) or queued.has(key):
+			continue
+		biome_detail_overlay_pending_keys.append(key)
+		queued[key] = true
+
+
+func _build_pending_biome_detail_overlay_chunks() -> void:
+	if not biome_textures_enabled:
+		return
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("detail_overlay_enabled", true)):
+		return
+	var budget := maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("detail_chunk_build_budget_per_frame", biome_detail_overlay_build_budget_per_frame)), 0)
+	var built_any := false
+	for _i in range(budget):
+		if biome_detail_overlay_pending_keys.is_empty():
+			break
+		var chunk_key := str(biome_detail_overlay_pending_keys.pop_front())
+		if biome_detail_overlay_cache.has(chunk_key):
+			continue
+		var key_parts := chunk_key.split(":")
+		if key_parts.size() != 2:
+			continue
+		var chunk_x := int(key_parts[0])
+		var chunk_y := int(key_parts[1])
+		biome_detail_overlay_cache[chunk_key] = _build_biome_detail_overlay_chunk_texture(chunk_x, chunk_y)
+		built_any = true
+	if built_any:
+		queue_redraw()
+
+
+func _get_biome_detail_overlay_texture(chunk_key: String) -> ImageTexture:
+	if biome_detail_overlay_cache.has(chunk_key):
+		return biome_detail_overlay_cache[chunk_key]
+	return null
+
+
+func _build_biome_detail_overlay_chunk_texture(chunk_x: int, chunk_y: int) -> ImageTexture:
+	var chunk_texture_size: int = max(int(GAME_BALANCE.BIOME_TEXTURES.get("detail_chunk_texture_size", BIOME_DETAIL_CHUNK_TEXTURE_SIZE.x)), 1)
+	var chunk_world_size: float = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_chunk_world_size", BIOME_DETAIL_CHUNK_WORLD_SIZE)), 1.0)
+	var image := Image.create(chunk_texture_size, chunk_texture_size, false, Image.FORMAT_RGBA8)
+	var chunk_origin := Vector2(
+		float(chunk_x) * chunk_world_size,
+		float(chunk_y) * chunk_world_size
+	)
+	for y in range(chunk_texture_size):
+		for x in range(chunk_texture_size):
+			var world_position := chunk_origin + Vector2(
+				(float(x) + 0.5) / float(chunk_texture_size) * chunk_world_size,
+				(float(y) + 0.5) / float(chunk_texture_size) * chunk_world_size
+			)
+			var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
+			if terrain_zone == "deep_ocean" or terrain_zone == "shallow_water" or terrain_zone == "shore":
+				continue
+			var biome := _get_biome_for_position(world_position)
+			if biome.is_empty():
+				continue
+			var terrain_pattern := _get_biome_terrain_pattern(biome)
+			if terrain_pattern.is_empty():
+				continue
+			var texture_color: Color = _sample_biome_detail_texture_color(terrain_pattern, world_position)
+			if texture_color == Color.BLACK:
+				continue
+			var luminance: float = clampf(texture_color.get_luminance(), 0.0, 1.0)
+			var base_color := _get_biome_visual_color(biome)
+			var overlay_color := base_color.darkened(0.10).lerp(base_color.lightened(0.12), luminance)
+			var alpha := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_overlay_alpha", BIOME_DETAIL_ALPHA)), 0.0, 1.0)
+			image.set_pixel(x, y, Color(overlay_color.r, overlay_color.g, overlay_color.b, alpha))
+	var texture := ImageTexture.create_from_image(image)
+	return texture
+
+
+func _sample_biome_detail_texture_color(terrain_pattern: Dictionary, world_position: Vector2) -> Color:
+	var texture_image := _get_biome_texture_image(terrain_pattern)
+	if texture_image.is_empty():
+		return Color.BLACK
+	var seed := float(terrain_pattern.get("seed", 0.0))
+	var density_multiplier := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)), 0.1)
+	density_multiplier *= maxf(float(terrain_pattern.get("density_scale", 1.0)), 0.1)
+	var tile_world_size := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_tile_world_size", BIOME_DETAIL_WORLD_TILE_SIZE)), 1.0)
+	var world_uv := Vector2(
+		world_position.x / tile_world_size,
+		world_position.y / tile_world_size
+	)
+	var tiled_uv := Vector2(
+		fposmod(world_uv.x * density_multiplier + seed * 0.013, 1.0),
+		fposmod(world_uv.y * density_multiplier + seed * 0.007, 1.0)
+	)
+	var sample_position := Vector2(
+		tiled_uv.x * float(texture_image.get_width() - 1),
+		tiled_uv.y * float(texture_image.get_height() - 1)
+	)
+	return texture_image.get_pixel(
+		clampi(int(round(sample_position.x)), 0, texture_image.get_width() - 1),
+		clampi(int(round(sample_position.y)), 0, texture_image.get_height() - 1)
+	)
 
 
 func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
@@ -2927,6 +3125,14 @@ func _draw_biome_blend_texture() -> void:
 func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
 	if delta <= 0.1:
 		return
+	var now_ms := Time.get_ticks_msec()
+	var last_log_ms := int(hitch_log_cooldowns.get(system_name, 0))
+	var log_count := int(hitch_log_sequence.get(system_name, 0))
+	if log_count < 3:
+		hitch_log_sequence[system_name] = log_count + 1
+	elif now_ms - last_log_ms < 2000:
+		return
+	hitch_log_cooldowns[system_name] = now_ms
 	var flag_text := ""
 	for key in flags.keys():
 		if not flag_text.is_empty():
@@ -2999,6 +3205,7 @@ func _get_biome_colors_key() -> String:
 		int(GAME_BALANCE.BIOME_TEXTURES.get("max_detail_per_chunk", 120))
 	])
 	parts.append("texture_scale:%.2f" % float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 2.0)))
+	parts.append("texture_world_scale:%.2f" % float(GAME_BALANCE.BIOME_TEXTURES.get("texture_world_scale", 1.0)))
 	return "|".join(parts)
 
 
@@ -3020,7 +3227,15 @@ func _get_biome_visual_color(biome: Dictionary) -> Color:
 
 
 func _get_biome_terrain_color(biome: Dictionary, world_position: Vector2, base_color: Color) -> Color:
-	return base_color
+	var variation_strength: float = minf(float(GAME_BALANCE.BIOME_TEXTURES.get("variation_noise_strength", 0.08)), 0.16)
+	if variation_strength <= 0.0:
+		return base_color
+	var seed := float(_get_string_seed(_get_biome_id(biome)) % 1000) * 0.013
+	var noise := sin(world_position.x * 0.004 + seed) * 0.5 + sin(world_position.y * 0.0037 - seed) * 0.5
+	var amount := clampf((noise + 1.0) * 0.5, 0.0, 1.0)
+	var darker := base_color.darkened(variation_strength)
+	var lighter := base_color.lightened(variation_strength * 0.35)
+	return base_color.lerp(darker.lerp(lighter, amount), 0.16)
 
 
 func _sample_biome_terrain_pattern(terrain_pattern: Dictionary, world_position: Vector2) -> float:
@@ -3225,14 +3440,15 @@ func _get_biome_texture_position(terrain_pattern: Dictionary, world_position: Ve
 	var seed := float(terrain_pattern.get("seed", 0.0))
 	var density_multiplier := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)), 0.1)
 	density_multiplier *= maxf(float(terrain_pattern.get("density_scale", 1.0)), 0.1)
+	var texture_world_scale := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("texture_world_scale", 1.0)), 0.1)
 	var world_rect := WORLD_CONFIG.WORLD_RECT
 	var world_uv := Vector2(
 		inverse_lerp(world_rect.position.x, world_rect.end.x, world_position.x),
 		inverse_lerp(world_rect.position.y, world_rect.end.y, world_position.y)
 	)
 	var tiled_uv := Vector2(
-		clampf(world_uv.x * density_multiplier + seed * 0.013, 0.0, 1.0),
-		clampf(world_uv.y * density_multiplier + seed * 0.007, 0.0, 1.0)
+		fposmod(world_uv.x * density_multiplier / texture_world_scale + seed * 0.013, 1.0),
+		fposmod(world_uv.y * density_multiplier / texture_world_scale + seed * 0.007, 1.0)
 	)
 	var sample_position := Vector2(
 		tiled_uv.x * float(texture_image.get_width() - 1),

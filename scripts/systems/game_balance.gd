@@ -318,12 +318,20 @@ const BIOME_VISUALS := {
 }
 
 const BIOME_TEXTURES := {
-	"detail_density_multiplier": 1.35,
-	"detail_alpha": 0.30,
-	"secondary_detail_alpha": 0.18,
-	"variation_noise_strength": 0.22,
+	"detail_overlay_enabled": false,
+	"detail_chunk_world_size": 768.0,
+	"detail_chunk_texture_size": 256,
+	"detail_visible_chunk_radius": 1,
+	"detail_overlay_alpha": 0.22,
+	"detail_tile_world_size": 128.0,
+	"detail_chunk_build_budget_per_frame": 1,
+	"detail_filter_nearest": true,
+	"detail_density_multiplier": 1.0,
+	"detail_alpha": 0.08,
+	"secondary_detail_alpha": 0.06,
+	"variation_noise_strength": 0.08,
 	"blend_cache_scale": 1.0,
-	"max_detail_per_chunk": 120
+	"max_detail_per_chunk": 80
 }
 
 const POPULATION_RECOVERY := {

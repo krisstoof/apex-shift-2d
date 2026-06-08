@@ -16,6 +16,11 @@ const HIGHLAND_THRESHOLD := 0.72
 const INNER_POND_CHANCE_MULTIPLIER := 0.35
 const PLAYER_EDGE_PADDING := 40.0
 const PLAYER_START_POSITION := Vector2(-260.0, 40.0)
+const PLAYER_LANDMARK_SAFE_DISTANCE := 760.0
+const PLAYER_POND_SAFE_DISTANCE := 900.0
+const PLAYER_HILL_SAFE_DISTANCE := 520.0
+const PLAYER_SPAWN_SEARCH_STEP := 160.0
+const PLAYER_SPAWN_SEARCH_RINGS := 10
 
 const TREE_COUNT := 48
 const ROCK_COUNT := 24
@@ -436,9 +441,50 @@ static func generate_landmarks(world_seed: int) -> Array[Dictionary]:
 		var landmark := _scale_landmark(Dictionary(landmark_value))
 		var biome_id := str(landmark.get("biome_id", ""))
 		var biome := _get_biome_by_id(biome_id, biomes)
-		landmark["position"] = _generate_landmark_position(landmark, biome, generated, rng)
+		var landmark_position := _generate_landmark_position(landmark, biome, generated, rng)
+		if landmark_position == Vector2.INF:
+			continue
+		landmark["position"] = landmark_position
 		generated.append(landmark)
 	return generated
+
+
+static func get_safe_player_start_position(landmarks: Array[Dictionary]) -> Vector2:
+	if is_safe_player_start_position(PLAYER_START_POSITION, landmarks):
+		return PLAYER_START_POSITION
+	for ring in range(1, PLAYER_SPAWN_SEARCH_RINGS + 1):
+		var ring_distance := float(ring) * PLAYER_SPAWN_SEARCH_STEP
+		var candidate_count: int = max(12, int(TAU * ring_distance / maxf(PLAYER_SPAWN_SEARCH_STEP * 0.75, 1.0)))
+		for index in range(candidate_count):
+			var angle := TAU * float(index) / float(candidate_count)
+			var candidate := PLAYER_START_POSITION + Vector2.RIGHT.rotated(angle) * ring_distance
+			if is_safe_player_start_position(candidate, landmarks):
+				return candidate
+	var world_center := WORLD_RECT.get_center()
+	if is_safe_player_start_position(world_center, landmarks):
+		return world_center
+	return PLAYER_START_POSITION
+
+
+static func is_safe_player_start_position(position: Vector2, landmarks: Array[Dictionary]) -> bool:
+	var zone := get_terrain_zone(position)
+	if zone != "land" and zone != "highland":
+		return false
+	if not WORLD_RECT.grow(-PLAYER_EDGE_PADDING * 4.0).has_point(position):
+		return false
+	for landmark_value in landmarks:
+		var landmark := Dictionary(landmark_value)
+		var landmark_position := Vector2(landmark.get("position", Vector2.ZERO))
+		var radius := float(landmark.get("radius", 0.0))
+		var landmark_type := str(landmark.get("type", ""))
+		var safe_distance := PLAYER_LANDMARK_SAFE_DISTANCE
+		if landmark_type == "pond":
+			safe_distance = PLAYER_POND_SAFE_DISTANCE
+		elif landmark_type == "hill":
+			safe_distance = PLAYER_HILL_SAFE_DISTANCE
+		if position.distance_to(landmark_position) < radius + safe_distance:
+			return false
+	return true
 
 
 static func _get_balanced_landmark_selection(world_seed: int) -> Array[Dictionary]:
@@ -535,7 +581,7 @@ static func _generate_landmark_position(landmark: Dictionary, biome: Dictionary,
 	var radius := float(landmark.get("radius", 120.0))
 	var spawn_margin := _get_landmark_spawn_margin(str(landmark.get("type", "")))
 	var world_margin := spawn_margin + radius
-	var player_safe_distance := float(GAME_BALANCE.LANDMARKS.get("landmark_player_safe_distance", 760.0))
+	var player_position := PLAYER_START_POSITION
 	var min_landmark_distance := float(GAME_BALANCE.LANDMARKS.get("landmark_min_distance", 420.0))
 	for _attempt in 96:
 		var candidate := Vector2(
@@ -548,12 +594,12 @@ static func _generate_landmark_position(landmark: Dictionary, biome: Dictionary,
 			continue
 		if not _is_landmark_position_on_valid_terrain(candidate, radius):
 			continue
-		if candidate.distance_to(PLAYER_START_POSITION) < player_safe_distance + radius:
+		if _is_landmark_too_close_to_player(candidate, radius, player_position):
 			continue
 		if _is_landmark_too_close_to_others(candidate, radius, placed_landmarks, min_landmark_distance):
 			continue
 		return candidate
-	return _find_landmark_fallback_position(fallback_position, points, radius, world_margin, placed_landmarks, min_landmark_distance)
+	return _find_landmark_fallback_position(fallback_position, points, radius, world_margin, placed_landmarks, min_landmark_distance, player_position)
 
 
 static func _is_landmark_inside_world_bounds(position: Vector2, margin: float) -> bool:
@@ -576,8 +622,18 @@ static func _is_landmark_too_close_to_others(position: Vector2, radius: float, p
 	return false
 
 
-static func _find_landmark_fallback_position(fallback_position: Vector2, points: PackedVector2Array, radius: float, world_margin: float, placed_landmarks: Array[Dictionary], min_landmark_distance: float) -> Vector2:
-	if Geometry2D.is_point_in_polygon(fallback_position, points) and _is_landmark_inside_world_bounds(fallback_position, world_margin) and _is_landmark_position_on_valid_terrain(fallback_position, radius) and not _is_landmark_too_close_to_others(fallback_position, radius, placed_landmarks, min_landmark_distance):
+static func _is_landmark_too_close_to_player(position: Vector2, radius: float, player_position: Vector2) -> bool:
+	var zone := get_terrain_zone(position)
+	var safe_distance := PLAYER_LANDMARK_SAFE_DISTANCE
+	if zone == "pond":
+		safe_distance = PLAYER_POND_SAFE_DISTANCE
+	elif zone == "hill":
+		safe_distance = PLAYER_HILL_SAFE_DISTANCE
+	return position.distance_to(player_position) < radius + safe_distance
+
+
+static func _find_landmark_fallback_position(fallback_position: Vector2, points: PackedVector2Array, radius: float, world_margin: float, placed_landmarks: Array[Dictionary], min_landmark_distance: float, player_position: Vector2) -> Vector2:
+	if Geometry2D.is_point_in_polygon(fallback_position, points) and _is_landmark_inside_world_bounds(fallback_position, world_margin) and _is_landmark_position_on_valid_terrain(fallback_position, radius) and not _is_landmark_too_close_to_others(fallback_position, radius, placed_landmarks, min_landmark_distance) and not _is_landmark_too_close_to_player(fallback_position, radius, player_position):
 		return fallback_position
 	var bounds := _get_polygon_bounds(points)
 	var center: Vector2 = bounds.get_center()
@@ -594,8 +650,12 @@ static func _find_landmark_fallback_position(fallback_position: Vector2, points:
 				continue
 			if _is_landmark_too_close_to_others(candidate, radius, placed_landmarks, min_landmark_distance):
 				continue
+			if _is_landmark_too_close_to_player(candidate, radius, player_position):
+				continue
 			return candidate
-	return fallback_position
+	if Geometry2D.is_point_in_polygon(center, points) and _is_landmark_inside_world_bounds(center, world_margin) and _is_landmark_position_on_valid_terrain(center, radius) and not _is_landmark_too_close_to_others(center, radius, placed_landmarks, min_landmark_distance) and not _is_landmark_too_close_to_player(center, radius, player_position):
+		return center
+	return Vector2.INF
 
 
 static func _is_landmark_position_on_valid_terrain(position: Vector2, radius: float) -> bool:

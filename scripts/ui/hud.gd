@@ -36,6 +36,7 @@ var exhaustion_warning_timer := 0.0
 var campfire_hint_timer := 0.0
 var distance_debug_label: Label
 var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
+var hitch_log_cooldowns: Dictionary = {}
 
 @onready var stats_label: Label = $Panel/StatsLabel
 @onready var prompt_label: Label = $Panel/PromptLabel
@@ -464,6 +465,11 @@ func _get_torch_status_text_from_snapshot(player_snapshot: Dictionary) -> String
 func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
 	if delta <= 0.1:
 		return
+	var now_ms := Time.get_ticks_msec()
+	var last_log_ms := int(hitch_log_cooldowns.get(system_name, 0))
+	if now_ms - last_log_ms < 5000:
+		return
+	hitch_log_cooldowns[system_name] = now_ms
 	var flag_text := ""
 	for key in flags.keys():
 		if not flag_text.is_empty():

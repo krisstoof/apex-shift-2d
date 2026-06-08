@@ -29,6 +29,7 @@ var swim_ripple_time := 0.0
 var is_dead := false
 var death_reason := "unknown"
 var god_mode := false
+var checked_start_safe_spawn := false
 var campfire_regen_refresh_timer := 0.0
 var debug_world_query_override: Variant = null
 var torch_light: PointLight2D
@@ -110,6 +111,11 @@ func _physics_process(delta: float) -> void:
 	if is_dead:
 		velocity = Vector2.ZERO
 		return
+	if not checked_start_safe_spawn:
+		checked_start_safe_spawn = true
+		var world := _get_world_node()
+		if world and world.has_method("get_safe_player_start_position") and world_query_is_deep_water(global_position):
+			global_position = world.call("get_safe_player_start_position")
 	_face_mouse()
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var terrain_speed := _get_terrain_speed_multiplier()
@@ -244,6 +250,13 @@ func _is_in_water() -> bool:
 	var world_query: Variant = _get_world_query()
 	if world_query != null and world_query.has_method("is_position_in_water"):
 		return world_query.is_position_in_water(global_position) == true
+	return false
+
+
+func world_query_is_deep_water(position: Vector2) -> bool:
+	var world_query: Variant = _get_world_query()
+	if world_query != null and world_query.has_method("is_position_in_deep_water"):
+		return world_query.is_position_in_deep_water(position) == true
 	return false
 
 
