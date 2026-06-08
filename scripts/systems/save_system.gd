@@ -47,7 +47,7 @@ func _collect_save_data() -> Dictionary:
 	var evolution_director := scene.get_node("EvolutionDirector")
 	var ecosystem_director := scene.get_node("EcosystemDirector")
 	return {
-		"version": 3,
+		"version": 4,
 		"world": world.get_save_data(),
 		"player": _get_player_data(player),
 		"resources": world.get_resource_save_data(),
@@ -65,7 +65,7 @@ func _get_player_data(player: Node) -> Dictionary:
 	return {
 		"position": _vector_to_data(player.global_position),
 		"stats": player.stats.get_save_data(),
-		"inventory": player.inventory.get_save_data(),
+		"inventory": player.inventory.to_save_data(),
 		"has_spear": player.has_spear,
 		"has_bow": player.has_bow,
 		"torch_active": player.torch_active,
@@ -142,7 +142,14 @@ func _restore_save_data(data: Dictionary) -> void:
 func _restore_player_data(player: Node, data: Dictionary) -> void:
 	player.global_position = _data_to_vector(data.get("position", {}))
 	player.stats.restore_from_data(Dictionary(data.get("stats", {})))
-	player.inventory.restore_from_data(Dictionary(data.get("inventory", {})))
+	if data.has("inventory"):
+		player.inventory.load_from_save_data(Dictionary(data.get("inventory", {})))
+	else:
+		player.inventory.clear()
+		player.inventory.add_item("wood", int(data.get("wood", 0)))
+		player.inventory.add_item("stone", int(data.get("stone", 0)))
+		player.inventory.add_item("fiber", int(data.get("fiber", 0)))
+		player.inventory.add_item("meat", int(data.get("meat", 0)))
 	player.has_spear = data.get("has_spear", player.has_spear) == true
 	player.has_bow = data.get("has_bow", player.has_bow) == true
 	player.torch_active = data.get("torch_active", player.torch_active) == true
