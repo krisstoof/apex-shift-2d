@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/ui/skill_icon_bar.gd" id="2"]
@@ -7,6 +7,7 @@
 [ext_resource type="Script" path="res://scripts/ui/pause_menu.gd" id="5"]
 [ext_resource type="Script" path="res://scripts/ui/debug_panel.gd" id="6"]
 [ext_resource type="PackedScene" path="res://scenes/ui/game_over_screen.tscn" id="7"]
+[ext_resource type="Script" path="res://scripts/ui/inventory_screen.gd" id="8"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1")
@@ -318,6 +319,16 @@ offset_top = 446.0
 offset_right = 396.0
 offset_bottom = 478.0
 text = "Next day"
+
+[node name="InventoryScreen" type="Control" parent="."]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+script = ExtResource("8")
 
 [node name="IncreaseAdaptationButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 408.0

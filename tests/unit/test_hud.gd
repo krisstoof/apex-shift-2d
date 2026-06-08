@@ -19,6 +19,8 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_hud_builds_compact_player_stats_from_snapshot(failures)
 	_test_hud_shows_resource_counts_from_player_inventory(failures)
+	_test_hud_toggles_inventory_screen_with_i_and_escape(failures)
+	_test_hud_inventory_screen_lists_inventory_items(failures)
 	_test_hud_filters_world_messages_from_message_history(failures)
 	_test_hud_reads_hunger_from_player_stats_object(failures)
 	_test_hud_reads_stamina_from_player_stats_object(failures)
@@ -151,6 +153,73 @@ func _test_hud_shows_resource_counts_from_player_inventory(failures: Array[Strin
 	TEST_UTILS.expect_equal(wood_label.text, "3", failures, "HUD should refresh wood after removals")
 	TEST_UTILS.expect(wood_label.visible, failures, "HUD resource labels should remain visible when inventory is populated")
 	hud.queue_free()
+
+
+func _test_hud_toggles_inventory_screen_with_i_and_escape(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	var player := ResourcePlayer.new()
+	hud.bind(player, Node.new(), Node.new(), null)
+	var inventory_screen: Control = hud.get_node("InventoryScreen")
+	TEST_UTILS.expect_equal(inventory_screen.visible, false, failures, "Inventory screen should start hidden")
+	hud.call("_unhandled_input", _make_key_event(KEY_I))
+	TEST_UTILS.expect_equal(inventory_screen.visible, true, failures, "Inventory screen should open with I")
+	TEST_UTILS.expect_equal(bool(hud.get_tree().paused), true, failures, "Inventory screen should pause the tree while open")
+	hud.call("_unhandled_input", _make_key_event(KEY_ESCAPE))
+	TEST_UTILS.expect_equal(inventory_screen.visible, false, failures, "Inventory screen should close with Escape")
+	TEST_UTILS.expect_equal(bool(hud.get_tree().paused), false, failures, "Closing inventory should unpause the tree when nothing else is open")
+	hud.queue_free()
+
+
+func _test_hud_inventory_screen_lists_inventory_items(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	var player := ResourcePlayer.new()
+	player.inventory.add_item("wood", 47)
+	player.inventory.add_item("stone", 6)
+	player.inventory.add_item("fiber", 12)
+	player.inventory.add_item("meat", 2)
+	player.inventory.add_item("bone", 3)
+	player.inventory.add_item("torch", 1)
+	hud.bind(player, Node.new(), Node.new(), null)
+	var inventory_screen: Control = hud.get_node("InventoryScreen")
+	TEST_UTILS.expect(hud.call("_get_player_inventory") != null, failures, "HUD should resolve the player's inventory directly")
+	inventory_screen.call("refresh")
+	var slot_nodes: Array = Array(inventory_screen.get("slot_nodes"))
+	var info_label: Label = inventory_screen.get("info_label")
+	TEST_UTILS.expect_equal(slot_nodes.size(), 9, failures, "Inventory screen should create exactly 9 slots")
+	if slot_nodes.size() >= 9:
+		var slot0: Control = slot_nodes[0]
+		var slot1: Control = slot_nodes[1]
+		var slot2: Control = slot_nodes[2]
+		var slot3: Control = slot_nodes[3]
+		var slot4: Control = slot_nodes[4]
+		var slot5: Control = slot_nodes[5]
+		var slot6: Control = slot_nodes[6]
+		var slot7: Control = slot_nodes[7]
+		var slot8: Control = slot_nodes[8]
+		TEST_UTILS.expect_equal((slot0.get_node("CountLabel") as Label).text, "x20", failures, "Wood should split into a 20 stack")
+		TEST_UTILS.expect_equal((slot1.get_node("CountLabel") as Label).text, "x20", failures, "Wood should split into a second 20 stack")
+		TEST_UTILS.expect_equal((slot2.get_node("CountLabel") as Label).text, "x7", failures, "Wood should leave a 7 stack")
+		TEST_UTILS.expect_equal((slot3.get_node("CountLabel") as Label).text, "", failures, "Stone x6 should fit into a single slot without stack label")
+		TEST_UTILS.expect_equal((slot4.get_node("CountLabel") as Label).text, "", failures, "Fiber x12 should fit into a single slot without stack label")
+		TEST_UTILS.expect_equal((slot5.get_node("CountLabel") as Label).text, "", failures, "Meat x2 should fit into a single slot without stack label")
+		TEST_UTILS.expect_equal((slot6.get_node("CountLabel") as Label).text, "", failures, "Bone x3 should fit into a single slot without stack label")
+		TEST_UTILS.expect_equal((slot7.get_node("CountLabel") as Label).text, "", failures, "Torch x1 should fit into a single slot without stack label")
+		TEST_UTILS.expect_equal((slot8.get_node("CountLabel") as Label).text, "", failures, "The last slot should remain empty")
+	TEST_UTILS.expect_equal(info_label.visible, false, failures, "Inventory screen should hide the overflow label when everything fits in 9 slots")
+	player.inventory.add_item("wood", 200)
+	inventory_screen.call("refresh")
+	TEST_UTILS.expect_equal(info_label.visible, true, failures, "Inventory screen should show overflow information when more than 9 stacks exist")
+	TEST_UTILS.expect(info_label.text.contains("not shown"), failures, "Inventory screen should explain that extra stacks are not shown")
+	TEST_UTILS.expect((slot_nodes[0].get_node("Icon") as TextureRect).texture != null, failures, "Inventory screen should render an item icon in the first slot")
+	hud.queue_free()
+
+
+func _make_key_event(keycode: int) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.keycode = keycode
+	event.pressed = true
+	event.echo = false
+	return event
 
 
 class PlayerStatsPlayer:
