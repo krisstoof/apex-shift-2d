@@ -1383,7 +1383,7 @@ func _get_biome_resource_weight(biome: Dictionary, resource_kind: String) -> flo
 
 
 func _get_biome_bounds(biome: Dictionary) -> Rect2:
-	var points := _get_biome_points(biome)
+	var points := _get_runtime_biome_points(biome)
 	var bounds := Rect2(points[0], Vector2.ZERO)
 	for point in points:
 		bounds = bounds.expand(point)
@@ -1391,11 +1391,13 @@ func _get_biome_bounds(biome: Dictionary) -> Rect2:
 
 
 func _is_point_in_biome(point: Vector2, biome: Dictionary) -> bool:
-	return Geometry2D.is_point_in_polygon(point, PackedVector2Array(_get_biome_points(biome)))
+	return Geometry2D.is_point_in_polygon(point, _get_runtime_biome_points(biome))
 
 
-func _get_biome_points(biome: Dictionary) -> Array[Vector2]:
-	return WORLD_CONFIG.get_biome_points(biome)
+func _get_runtime_biome_points(biome: Dictionary) -> PackedVector2Array:
+	if biome.has("bounds"):
+		return PackedVector2Array(biome.get("points", []))
+	return PackedVector2Array(WORLD_CONFIG.get_biome_points(biome))
 
 
 func _is_valid_resource_position(candidate: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
@@ -1694,7 +1696,7 @@ func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vec
 
 func _get_biome_for_position(position: Vector2) -> Dictionary:
 	for biome in WORLD_CONFIG.get_biome_zones():
-		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
+		if _is_point_in_biome(position, biome):
 			return biome
 	return {}
 
@@ -2947,11 +2949,23 @@ func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color
 		var bounds := Rect2(biome.get("bounds", Rect2()))
 		if not bounds.has_point(position):
 			continue
-		var points := PackedVector2Array(biome["points"])
-		if Geometry2D.is_point_in_polygon(position, points):
+		if _is_point_in_biome(position, biome):
 			var visual_color := _get_biome_visual_color(biome)
 			return _get_biome_terrain_color(biome, position, visual_color)
-	return Color(0.18, 0.28, 0.13)
+	return _get_nearest_biome_visual_color(position, biome_zones)
+
+
+func _get_nearest_biome_visual_color(position: Vector2, biome_zones: Array) -> Color:
+	var best_color := Color(0.18, 0.28, 0.13)
+	var best_distance := INF
+	for biome_value in biome_zones:
+		var biome: Dictionary = biome_value
+		var center := Vector2(biome.get("center", Rect2(biome.get("bounds", Rect2())).get_center()))
+		var distance := position.distance_squared_to(center)
+		if distance < best_distance:
+			best_distance = distance
+			best_color = _get_biome_visual_color(biome)
+	return best_color
 
 
 func _get_point_polygon_edge_distance(point: Vector2, points: PackedVector2Array) -> float:

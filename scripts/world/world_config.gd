@@ -360,6 +360,7 @@ static func get_biome_zones() -> Array[Dictionary]:
 		var biome := Dictionary(biome_value).duplicate(true)
 		biome["points"] = _build_organic_biome_points(biome)
 		biome["bounds"] = _get_polygon_bounds(PackedVector2Array(biome["points"]))
+		biome["center"] = _get_polygon_center(PackedVector2Array(biome["points"]))
 		cached_organic_biome_zones.append(biome)
 	cached_organic_biome_zones_built = true
 	return _duplicate_biome_zones(cached_organic_biome_zones)
@@ -639,6 +640,15 @@ static func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
 		max_point.x = max(max_point.x, point.x)
 		max_point.y = max(max_point.y, point.y)
 	return Rect2(min_point, max_point - min_point)
+
+
+static func _get_polygon_center(points: PackedVector2Array) -> Vector2:
+	if points.is_empty():
+		return Vector2.ZERO
+	var total := Vector2.ZERO
+	for point in points:
+		total += point
+	return total / float(points.size())
 
 
 static func _build_world_boundary_points() -> PackedVector2Array:
