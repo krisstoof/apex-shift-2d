@@ -14,7 +14,8 @@ const RESOURCE_ATLAS_COLUMNS := {
 	"grass_patch": 6,
 	"dense_grass": 7,
 	"rock": 8,
-	"meat_drop": 9
+	"meat_drop": 9,
+	"bone_drop": 10
 }
 static var shared_resource_atlas: ImageTexture
 
@@ -86,6 +87,11 @@ func setup(kind: String) -> void:
 			mature_color = Color(0.72, 0.12, 0.10)
 			mature_radius = 10.0
 			food_value = float(GAME_BALANCE.ANIMAL_AI.get("meat_food_value", 0.65))
+		"bone_drop":
+			item_name = "bone"
+			mature_amount = 1
+			mature_color = Color(0.82, 0.78, 0.70)
+			mature_radius = 9.0
 		"bush":
 			item_name = "fiber"
 			mature_amount = 2
@@ -146,7 +152,7 @@ func interact(player: Node) -> void:
 		get_node("/root/EventBus").post_message("Inventory full")
 		return
 	get_node("/root/EventBus").post_message("Collected %s x%d" % [item_name, added_amount])
-	if resource_kind == "meat_drop":
+	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
 		get_node("/root/EventBus").emit_game_event("meat_collected", {
 			"amount": added_amount,
 			"position": global_position

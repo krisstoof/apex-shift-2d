@@ -109,7 +109,8 @@ func _process(_delta: float) -> void:
 	state_refresh_timer = 0.0
 	_set_state_text(_build_state_text())
 	debug_panel_refresh_count += 1
-	_refresh_creature_debug_overlays()
+	if active_tab == "Creatures":
+		_refresh_creature_debug_overlays()
 
 
 func toggle() -> void:
@@ -127,7 +128,8 @@ func set_open(open: bool) -> void:
 	if visible:
 		_update_active_tab_view()
 		_set_state_text(_build_state_text(), true)
-		_refresh_creature_debug_overlays()
+		if active_tab == "Creatures":
+			_refresh_creature_debug_overlays()
 	else:
 		last_state_text = ""
 
@@ -981,11 +983,16 @@ func get_debug_panel_performance_debug() -> Dictionary:
 
 
 func _get_snapshot() -> Dictionary:
-	if snapshot_service != null and snapshot_service.has_method("get_snapshot"):
-		var snapshot: Dictionary = snapshot_service.get_snapshot()
-		if snapshot.is_empty() and snapshot_service.has_method("refresh"):
-			return snapshot_service.refresh(true)
-		return snapshot
+	if snapshot_service != null:
+		if snapshot_service.has_method("refresh"):
+			var refreshed_snapshot: Dictionary = snapshot_service.refresh()
+			if not refreshed_snapshot.is_empty():
+				return refreshed_snapshot
+		if snapshot_service.has_method("get_snapshot"):
+			var snapshot: Dictionary = snapshot_service.get_snapshot()
+			if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+				return snapshot_service.refresh(true)
+			return snapshot
 	return {}
 
 

@@ -1350,12 +1350,44 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	return node
 
 
+func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
+	var amount: int = _get_bone_drop_amount(animal_kind)
+	if amount <= 0:
+		return null
+	var initial_position: Vector2 = _clamp_position_to_world(drop_position)
+	var safe_position: Vector2 = _get_safe_restored_resource_position("bone_drop", initial_position)
+	if is_resource_position_blocked_by_water("bone_drop", safe_position):
+		push_warning("Bone drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
+	var node: Node = _spawn_resource_at("bone_drop", safe_position)
+	if node.has_method("set_loot_amount"):
+		node.set_loot_amount(amount)
+	var event_bus := _get_event_bus()
+	if event_bus:
+		event_bus.emit_game_event("animal_dropped_bone", {
+			"animal_kind": animal_kind,
+			"amount": amount,
+			"position": node.global_position
+		})
+	return node
+
+
 func _get_meat_drop_amount(animal_kind: String) -> int:
 	var loot: Dictionary = GAME_BALANCE.ANIMAL_LOOT.get(animal_kind, {})
 	if loot.is_empty():
 		return 0
 	var min_amount := int(loot.get("meat_min", 0))
 	var max_amount := int(loot.get("meat_max", min_amount))
+	if max_amount < min_amount:
+		max_amount = min_amount
+	return resource_rng.randi_range(min_amount, max_amount)
+
+
+func _get_bone_drop_amount(animal_kind: String) -> int:
+	var loot: Dictionary = GAME_BALANCE.ANIMAL_LOOT.get(animal_kind, {})
+	if loot.is_empty():
+		return 0
+	var min_amount := int(loot.get("bone_min", 0))
+	var max_amount := int(loot.get("bone_max", min_amount))
 	if max_amount < min_amount:
 		max_amount = min_amount
 	return resource_rng.randi_range(min_amount, max_amount)

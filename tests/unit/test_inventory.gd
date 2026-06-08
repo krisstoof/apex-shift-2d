@@ -18,6 +18,7 @@ func run() -> Array[String]:
 	_test_get_amount_sums_all_stacks(failures)
 	_test_inventory_never_goes_below_zero(failures)
 	_test_unknown_item_is_safe(failures)
+	_test_inventory_accepts_bone(failures)
 	_test_save_load_restores_slots(failures)
 	_test_save_load_ignores_invalid_items(failures)
 	return failures
@@ -110,6 +111,14 @@ func _test_unknown_item_is_safe(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(inventory.add_item("unknown", 4), 4, failures, "Unknown items should be rejected as leftovers")
 	TEST_UTILS.expect(not inventory.remove_item("unknown", 1), failures, "Unknown item removal should fail safely")
 	TEST_UTILS.expect_equal(inventory.get_amount("unknown"), 0, failures, "Unknown items should not be stored")
+
+
+func _test_inventory_accepts_bone(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new()
+	TEST_UTILS.expect(ITEM_DATABASE.has_item("bone"), failures, "Bone should exist in the item database")
+	TEST_UTILS.expect_equal(inventory.add_item("bone", 25), 0, failures, "Bone should stack like other normal items")
+	TEST_UTILS.expect_equal(inventory.get_amount("bone"), 25, failures, "Bone should be stored in inventory")
+	TEST_UTILS.expect_equal(int(inventory.get_slots()[0].get("amount", 0)), 20, failures, "Bone should respect the max stack size")
 
 
 func _test_save_load_restores_slots(failures: Array[String]) -> void:
