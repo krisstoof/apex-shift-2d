@@ -3,6 +3,7 @@ extends RefCounted
 const SAVE_SYSTEM_SCRIPT := preload("res://scripts/systems/save_system.gd")
 const PLAYER_STATS := preload("res://scripts/player/player_stats.gd")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
+const STORAGE_BOX := preload("res://scripts/buildings/storage_box.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -145,6 +146,8 @@ func run() -> Array[String]:
 	_test_restore_save_data_restores_world_layout_and_bootstrap(failures)
 	_test_restore_save_data_skips_missing_world_layout(failures)
 	_test_get_building_data_contains_expected_fields(failures)
+	_test_get_storage_boxes_data_contains_positions_and_inventories(failures)
+	_test_restore_storage_boxes_restores_many_boxes_without_duplicates(failures)
 	_test_restore_building_state_restores_building_fields(failures)
 	return failures
 
@@ -336,6 +339,52 @@ func _test_get_building_data_contains_expected_fields(failures: Array[String]) -
 	TEST_UTILS.expect_equal(trap_data.get("kind", ""), "trap", failures, "Trap save data should contain the kind")
 	TEST_UTILS.expect_equal(wall_data.get("kind", ""), "wall", failures, "Wall save data should contain the kind")
 	TEST_UTILS.expect(campfire_data.has("position"), failures, "Campfire save data should contain position")
+
+
+func _test_get_storage_boxes_data_contains_positions_and_inventories(failures: Array[String]) -> void:
+	var context := _setup_save_scene()
+	var save_system: Node = context.get("save_system")
+	var scene := context.get("scene") as Node
+	var box_a := STORAGE_BOX.new()
+	box_a.global_position = Vector2(123.0, 456.0)
+	box_a.inventory.add_item("wood", 2)
+	var box_b := STORAGE_BOX.new()
+	box_b.global_position = Vector2(-50.0, 75.0)
+	box_b.inventory.add_item("stone", 4)
+	scene.add_child(box_a)
+	scene.add_child(box_b)
+	var storage_boxes: Array = Array(save_system.call("_get_storage_boxes_data"))
+	TEST_UTILS.expect_equal(storage_boxes.size(), 2, failures, "Save data should include each storage box separately")
+	if storage_boxes.size() == 2:
+		var first_box := Dictionary(storage_boxes[0])
+		TEST_UTILS.expect(first_box.has("position"), failures, "Storage box save data should contain position")
+		TEST_UTILS.expect(first_box.has("inventory"), failures, "Storage box save data should contain inventory")
+	_cleanup_save_scene(context)
+
+
+func _test_restore_storage_boxes_restores_many_boxes_without_duplicates(failures: Array[String]) -> void:
+	var context := _setup_save_scene()
+	var save_system: Node = context.get("save_system")
+	var scene := context.get("scene") as Node
+	var existing_box := STORAGE_BOX.new()
+	scene.add_child(existing_box)
+	existing_box.inventory.add_item("wood", 9)
+	save_system.call("_restore_storage_boxes", {
+		"storage_boxes": [
+			{
+				"position": {"x": 12.0, "y": 34.0},
+				"inventory": {"slots": [{"item_id": "wood", "amount": 5}]}
+			},
+			{
+				"position": {"x": -25.0, "y": 88.0},
+				"inventory": {"slots": [{"item_id": "stone", "amount": 4}]}
+			}
+		]
+	})
+	await scene.get_tree().process_frame
+	var boxes := scene.get_tree().get_nodes_in_group("storage_boxes")
+	TEST_UTILS.expect_equal(boxes.size(), 2, failures, "Restore should replace existing storage boxes with the saved set")
+	_cleanup_save_scene(context)
 
 
 func _test_restore_building_state_restores_building_fields(failures: Array[String]) -> void:

@@ -27,6 +27,8 @@ func run() -> Array[String]:
 	_test_storage_box_exposes_interaction_methods(failures)
 	_test_storage_box_screen_transfers_items_between_inventories(failures)
 	_test_save_load_restores_slots(failures)
+	_test_save_load_accepts_items_alias(failures)
+	_test_save_load_ignores_empty_and_unknown_items(failures)
 	_test_save_load_ignores_invalid_items(failures)
 	return failures
 
@@ -198,3 +200,27 @@ func _test_save_load_ignores_invalid_items(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(inventory.get_amount("wood"), ITEM_DATABASE.get_max_stack("wood"), failures, "Load should clamp stacked amounts to the item max")
 	TEST_UTILS.expect_equal(inventory.get_amount("meat"), 3, failures, "Load should restore valid items")
 	TEST_UTILS.expect_equal(inventory.get_amount("invalid"), 0, failures, "Load should ignore invalid items")
+
+
+func _test_save_load_accepts_items_alias(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new()
+	inventory.load_from_save_data({
+		"items": [
+			{"item_id": "fiber", "amount": 8}
+		]
+	})
+	TEST_UTILS.expect_equal(inventory.get_amount("fiber"), 8, failures, "Load should accept legacy items arrays")
+
+
+func _test_save_load_ignores_empty_and_unknown_items(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new()
+	inventory.load_from_save_data({
+		"slots": [
+			{"item_id": "", "amount": 12},
+			{"item_id": "unknown", "amount": 4},
+			{"item_id": "meat", "amount": 0},
+			{"item_id": "bone", "amount": 2}
+		]
+	})
+	TEST_UTILS.expect_equal(inventory.get_amount("bone"), 2, failures, "Load should keep valid items")
+	TEST_UTILS.expect_equal(inventory.get_amount("unknown"), 0, failures, "Load should ignore unknown items")
