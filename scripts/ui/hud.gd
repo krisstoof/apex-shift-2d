@@ -34,6 +34,7 @@ var critical_health_active := false
 var hunger_warning_timer := 0.0
 var exhaustion_warning_timer := 0.0
 var campfire_hint_timer := 0.0
+var distance_debug_label: Label
 var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 
 @onready var stats_label: Label = $Panel/StatsLabel
@@ -171,6 +172,8 @@ func _build_stats_text_from_snapshot(snapshot: Dictionary) -> String:
 func _get_prompt_text_from_snapshot(snapshot: Dictionary) -> String:
 	var player_snapshot := Dictionary(snapshot.get("player", {}))
 	return str(player_snapshot.get("prompt_text", ""))
+
+
 
 
 func _on_message(new_message: String) -> void:

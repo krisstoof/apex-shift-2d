@@ -19,7 +19,7 @@ shape = SubResource("1")
 
 [node name="Camera2D" type="Camera2D" parent="."]
 enabled = true
-zoom = Vector2(1.1, 1.1)
+zoom = Vector2(1.5, 1.5)
 
 [node name="InteractionArea" type="Area2D" parent="."]
 collision_layer = 0

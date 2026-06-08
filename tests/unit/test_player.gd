@@ -58,6 +58,7 @@ func run() -> Array[String]:
 	_test_player_god_mode_syncs_to_stats_and_blocks_damage(failures)
 	_test_player_torch_activation_and_deactivation(failures)
 	_test_player_creates_torch_light_and_enables_it_when_active(failures)
+	_test_player_camera_zoom_defaults_and_scroll_input(failures)
 	_test_player_starvation_damage_is_slow_enough(failures)
 	_test_player_campfire_regen_speeds_up_health_recovery(failures)
 	_test_player_debug_item_helpers(failures)
@@ -226,6 +227,22 @@ func _test_player_creates_torch_light_and_enables_it_when_active(failures: Array
 	player.queue_free()
 
 
+func _test_player_camera_zoom_defaults_and_scroll_input(failures: Array[String]) -> void:
+	var player := _make_player()
+	var camera := player.get_node_or_null("Camera2D") as Camera2D
+	TEST_UTILS.expect(camera != null, failures, "Player should have a Camera2D")
+	if camera != null:
+		TEST_UTILS.expect_close(camera.zoom.x, 1.50, failures, "Camera should start at the default zoom")
+		TEST_UTILS.expect_close(camera.zoom.y, 1.50, failures, "Camera zoom should be uniform on both axes")
+		player.call("_unhandled_input", _make_mouse_wheel_event(MOUSE_BUTTON_WHEEL_UP))
+		TEST_UTILS.expect(camera.zoom.x > 1.50, failures, "Mouse wheel up should zoom in")
+		player.call("_unhandled_input", _make_mouse_wheel_event(MOUSE_BUTTON_WHEEL_DOWN))
+		TEST_UTILS.expect_close(camera.zoom.x, 1.50, failures, "Mouse wheel down should return toward default zoom")
+		player.call("set_default_camera_zoom")
+		TEST_UTILS.expect_close(camera.zoom.x, 1.50, failures, "Resetting the camera should restore default zoom")
+	player.queue_free()
+
+
 func _test_player_starvation_damage_is_slow_enough(failures: Array[String]) -> void:
 	TEST_UTILS.expect_close(GAME_BALANCE.PLAYER_STARVATION_DAMAGE_PER_SECOND, 1.0, failures, "Starvation damage should be slowed down to give the player reaction time")
 
@@ -374,6 +391,13 @@ func _make_player() -> Node:
 	var tree := Engine.get_main_loop() as SceneTree
 	tree.current_scene.add_child(player)
 	return player
+
+
+func _make_mouse_wheel_event(button_index: MouseButton) -> InputEventMouseButton:
+	var event := InputEventMouseButton.new()
+	event.button_index = button_index
+	event.pressed = true
+	return event
 
 
 func _get_polygon_center(points: PackedVector2Array) -> Vector2:
