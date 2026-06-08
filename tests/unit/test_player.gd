@@ -68,6 +68,7 @@ func run() -> Array[String]:
 	_test_player_melee_attack_spends_stamina(failures)
 	_test_player_bow_shooting_spends_stamina_and_sets_cooldown(failures)
 	_test_player_craft_bow_requires_bone_and_consumes_it(failures)
+	_test_player_craft_torch_rolls_back_costs_when_inventory_is_full(failures)
 	_test_player_eat_meat_consumes_inventory_and_restores_hunger(failures)
 	return failures
 
@@ -388,6 +389,20 @@ func _test_player_craft_bow_requires_bone_and_consumes_it(failures: Array[String
 	player.call("_craft", "bow")
 	TEST_UTILS.expect(player.has_bow, failures, "Bow crafting should succeed when bone is present")
 	TEST_UTILS.expect_equal(player.inventory.get_amount("bone"), 0, failures, "Bow crafting should consume bone")
+	player.queue_free()
+
+
+func _test_player_craft_torch_rolls_back_costs_when_inventory_is_full(failures: Array[String]) -> void:
+	var player := _make_player()
+	for i in range(8):
+		player.inventory.add_item("wood", 20)
+	player.inventory.add_item("fiber", 20)
+	var before_wood: int = player.inventory.get_amount("wood")
+	var before_fiber: int = player.inventory.get_amount("fiber")
+	player.call("_craft", "torch")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("torch"), 0, failures, "Torch crafting should fail when the inventory has no room")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("wood"), before_wood, failures, "Torch crafting should roll back spent wood on failure")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("fiber"), before_fiber, failures, "Torch crafting should roll back spent fiber on failure")
 	player.queue_free()
 
 

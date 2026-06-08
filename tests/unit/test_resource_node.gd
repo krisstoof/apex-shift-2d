@@ -1,7 +1,28 @@
 extends RefCounted
 
 const RESOURCE_NODE_SCENE := preload("res://scenes/world/resource_node.tscn")
+const INVENTORY := preload("res://scripts/player/inventory.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
+
+
+class TestEventBus:
+	extends Node
+
+	var last_event_name := ""
+	var last_event_payload: Dictionary = {}
+
+	func emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+		last_event_name = event_name
+		last_event_payload = payload.duplicate(true)
+
+	func post_message(_message: String) -> void:
+		pass
+
+
+class TestPlayer:
+	extends Node2D
+
+	var inventory := INVENTORY.new()
 
 
 func run() -> Array[String]:
@@ -12,6 +33,7 @@ func run() -> Array[String]:
 	_test_resource_node_restore_defaults_render_only_for_legacy_saves(failures)
 	_test_resource_node_syncs_collision_radius_with_growth(failures)
 	_test_resource_node_uses_shared_atlas_and_depleted_region(failures)
+	_test_resource_node_emits_bone_collected_for_bone_drop(failures)
 	return failures
 
 
@@ -157,3 +179,26 @@ func _test_resource_node_uses_shared_atlas_and_depleted_region(failures: Array[S
 	if depleted_texture != null:
 		TEST_UTILS.expect_equal(int(depleted_texture.region.position.y), 80, failures, "A depleted resource should use the depleted atlas row")
 	resource.free()
+
+
+func _test_resource_node_emits_bone_collected_for_bone_drop(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var previous_event_bus := tree.root.get_node_or_null("EventBus")
+	if previous_event_bus != null:
+		previous_event_bus.name = "LiveEventBus"
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	tree.root.add_child(event_bus)
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	tree.current_scene.add_child(resource)
+	resource.call("setup", "bone_drop")
+	var player := TestPlayer.new()
+	tree.current_scene.add_child(player)
+	resource.call("interact", player)
+	TEST_UTILS.expect_equal(event_bus.last_event_name, "bone_collected", failures, "Bone drops should emit a bone_collected event")
+	TEST_UTILS.expect_equal(int(player.inventory.get_amount("bone")), 1, failures, "Bone pickup should add bone to inventory")
+	resource.queue_free()
+	player.queue_free()
+	event_bus.queue_free()
+	if previous_event_bus != null:
+		previous_event_bus.name = "EventBus"

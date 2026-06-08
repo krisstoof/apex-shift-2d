@@ -141,6 +141,7 @@ func run() -> Array[String]:
 	_test_get_player_data_contains_expected_fields(failures)
 	_test_collect_save_data_includes_world_layout(failures)
 	_test_restore_player_data_restores_player_state(failures)
+	_test_restore_player_data_migrates_legacy_bone_field(failures)
 	_test_restore_save_data_restores_world_layout_and_bootstrap(failures)
 	_test_restore_save_data_skips_missing_world_layout(failures)
 	_test_get_building_data_contains_expected_fields(failures)
@@ -232,6 +233,21 @@ func _test_restore_player_data_restores_player_state(failures: Array[String]) ->
 	TEST_UTILS.expect(player.has_spear == true, failures, "Player spear state should be restored")
 	TEST_UTILS.expect(player.has_bow == true, failures, "Player bow state should be restored")
 	TEST_UTILS.expect_close(player.torch_remaining_seconds, 12.5, failures, "Player torch duration should be restored")
+
+
+func _test_restore_player_data_migrates_legacy_bone_field(failures: Array[String]) -> void:
+	var save_system := SAVE_SYSTEM_SCRIPT.new()
+	var player := _make_player()
+	save_system.call("_restore_player_data", player, {
+		"position": {"x": 0.0, "y": 0.0},
+		"stats": {},
+		"wood": 0,
+		"stone": 0,
+		"fiber": 0,
+		"meat": 0,
+		"bone": 3
+	})
+	TEST_UTILS.expect_equal(player.inventory.get_amount("bone"), 3, failures, "Legacy bone field should migrate into inventory")
 
 
 func _test_restore_save_data_restores_world_layout_and_bootstrap(failures: Array[String]) -> void:
