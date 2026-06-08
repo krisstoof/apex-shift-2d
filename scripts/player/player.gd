@@ -465,8 +465,12 @@ func recover_from_sleep() -> void:
 func _interact() -> void:
 	if is_dead:
 		return
+	print("[INTERACTION_DEBUG] E pressed. nearby_interactables=", nearby_interactables.size())
+	_refresh_nearby_interactables_from_area()
 	for node in nearby_interactables.duplicate():
+		print("[INTERACTION_DEBUG] candidate: ", node.name if is_instance_valid(node) else "invalid")
 		if is_instance_valid(node) and node.has_method("interact"):
+			print("[INTERACTION_DEBUG] interacting with: ", node.name)
 			node.interact(self)
 			return
 	_post_event_message("Nothing to interact with")
@@ -728,12 +732,29 @@ func _refund_recipe_cost(costs: Dictionary) -> void:
 
 
 func _on_interactable_entered(node: Node) -> void:
+	print("[INTERACTION_DEBUG] entered: ", node.name, " has_interact=", node.has_method("interact"), " class=", node.get_class())
 	if node.has_method("interact") and not nearby_interactables.has(node):
 		nearby_interactables.append(node)
+		print("[INTERACTION_DEBUG] added interactable: ", node.name)
 
 
 func _on_interactable_exited(node: Node) -> void:
+	print("[INTERACTION_DEBUG] exited: ", node.name)
 	nearby_interactables.erase(node)
+
+
+func _refresh_nearby_interactables_from_area() -> void:
+	var filtered: Array[Node] = []
+	for node in nearby_interactables:
+		if is_instance_valid(node):
+			filtered.append(node)
+	nearby_interactables = filtered
+	for body in interaction_area.get_overlapping_bodies():
+		if body.has_method("interact") and not nearby_interactables.has(body):
+			nearby_interactables.append(body)
+	for area in interaction_area.get_overlapping_areas():
+		if area.has_method("interact") and not nearby_interactables.has(area):
+			nearby_interactables.append(area)
 
 
 func _load_recipes() -> Dictionary:

@@ -841,6 +841,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		_set_map_screen_open(false)
 		_set_pause_menu_open(not pause_menu_open)
 		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E:
+		if storage_box_screen != null and storage_box_screen.visible:
+			_close_storage_box_screen()
+			get_viewport().set_input_as_handled()
+			return
 
 
 func _set_map_screen_open(open: bool) -> void:
@@ -879,6 +885,10 @@ func _set_inventory_screen_open(open: bool) -> void:
 func open_storage_box(p_player_inventory: Variant, p_storage_inventory: Variant, p_storage_box: Node) -> void:
 	if storage_box_screen == null:
 		return
+	print("[HUD_STORAGE_DEBUG] open_storage_box called")
+	print("[HUD_STORAGE_DEBUG] storage_box_screen=", storage_box_screen)
+	print("[HUD_STORAGE_DEBUG] player_inventory=", p_player_inventory)
+	print("[HUD_STORAGE_DEBUG] storage_inventory=", p_storage_inventory)
 	current_storage_box = p_storage_box
 	current_storage_player_inventory = p_player_inventory
 	current_storage_inventory = p_storage_inventory
