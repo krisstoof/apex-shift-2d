@@ -889,7 +889,7 @@ func _set_inventory_screen_open(open: bool) -> void:
 
 func open_storage_box(p_player_inventory: Variant, p_storage_inventory: Variant, p_storage_box: Node) -> void:
 	if storage_box_screen == null:
-		print("[HUD_STORAGE_DEBUG] storage_box_screen missing")
+		_push_survival_message("Storage Box screen missing")
 		return
 	print("[HUD_STORAGE_DEBUG] open_storage_box called")
 	print("[HUD_STORAGE_DEBUG] storage_box_screen=", storage_box_screen)
@@ -904,6 +904,7 @@ func open_storage_box(p_player_inventory: Variant, p_storage_inventory: Variant,
 		storage_box_screen.open_storage_box()
 	else:
 		storage_box_screen.visible = true
+	storage_box_screen.move_to_front()
 	print("[HUD_STORAGE_DEBUG] storage_box_screen.visible=", storage_box_screen.visible)
 	_set_inventory_screen_open(false)
 	_set_map_screen_open(false)
@@ -916,13 +917,11 @@ func close_storage_box() -> void:
 	current_storage_inventory = null
 	current_storage_player_inventory = null
 	if storage_box_screen == null:
-		print("[HUD_STORAGE_DEBUG] close_storage_box: storage_box_screen missing")
 		return
 	if storage_box_screen.has_method("close_storage_box"):
 		storage_box_screen.close_storage_box()
 	else:
 		storage_box_screen.visible = false
-	print("[HUD_STORAGE_DEBUG] close_storage_box visible=", storage_box_screen.visible)
 	_update_tree_paused()
 
 
