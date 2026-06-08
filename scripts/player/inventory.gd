@@ -5,6 +5,8 @@ const ItemDatabase := preload("res://scripts/items/item_database.gd")
 
 const SLOT_COUNT := 9
 
+signal inventory_changed
+
 var slots: Array[Dictionary] = []
 
 
@@ -19,6 +21,7 @@ func clear() -> void:
 			"item_id": "",
 			"amount": 0
 		})
+	inventory_changed.emit()
 
 
 func add_item(item_id: String, amount: int) -> int:
@@ -49,6 +52,8 @@ func add_item(item_id: String, amount: int) -> int:
 		slot["item_id"] = item_id
 		slot["amount"] = added_amount
 		remaining -= added_amount
+	if remaining != amount:
+		inventory_changed.emit()
 	return remaining
 
 
@@ -74,6 +79,7 @@ func remove_item(item_id: String, amount: int) -> bool:
 			slot["amount"] = 0
 		else:
 			slot["amount"] = current_amount
+	inventory_changed.emit()
 	return true
 
 
@@ -140,6 +146,7 @@ func load_from_save_data(data: Dictionary) -> void:
 		slots[slot_index]["item_id"] = item_id
 		slots[slot_index]["amount"] = amount
 		slot_index += 1
+	inventory_changed.emit()
 
 
 func get_save_data() -> Dictionary:
