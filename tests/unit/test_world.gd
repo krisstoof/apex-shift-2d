@@ -165,6 +165,8 @@ class VisibilityCullingWorld:
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_world_rect_matches_config(failures)
+	_test_safe_player_start_avoids_water_and_landmarks(failures)
+	_test_landmark_generation_keeps_distance_from_player_start(failures)
 	_test_water_zone_detection_uses_pond_geometry(failures)
 	_test_plant_resources_are_blocked_by_water(failures)
 	_test_non_plant_resources_ignore_water_blocking(failures)
@@ -210,6 +212,36 @@ func _test_world_rect_matches_config(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
 	TEST_UTILS.expect_equal(world.get_world_rect(), WORLD_CONFIG.WORLD_RECT, failures, "World rectangle should match world config")
 	world.free()
+
+
+func _test_safe_player_start_avoids_water_and_landmarks(failures: Array[String]) -> void:
+	var landmarks: Array[Dictionary] = [{
+		"id": "test_pond",
+		"type": "pond",
+		"position": WORLD_CONFIG.PLAYER_START_POSITION,
+		"radius": 180.0
+	}]
+	var safe_start := WORLD_CONFIG.get_safe_player_start_position(landmarks)
+	TEST_UTILS.expect(WORLD_CONFIG.is_safe_player_start_position(safe_start, landmarks), failures, "Safe player start should stay on land and outside landmark buffers")
+	TEST_UTILS.expect_equal(WORLD_CONFIG.get_terrain_zone(safe_start) in ["land", "highland"], true, failures, "Safe player start should end on land or highland")
+	TEST_UTILS.expect(safe_start.distance_to(Vector2.ZERO) > 0.0, failures, "Blocked default start should move the player to a nearby safe point")
+
+
+func _test_landmark_generation_keeps_distance_from_player_start(failures: Array[String]) -> void:
+	var landmarks: Array[Dictionary] = WORLD_CONFIG.generate_landmarks(2468)
+	TEST_UTILS.expect(not landmarks.is_empty(), failures, "World config should still generate landmarks")
+	for landmark_value in landmarks:
+		var landmark := Dictionary(landmark_value)
+		var position := Vector2(landmark.get("position", Vector2.INF))
+		var radius := float(landmark.get("radius", 0.0))
+		var landmark_type := str(landmark.get("type", ""))
+		var safe_distance := WORLD_CONFIG.PLAYER_LANDMARK_SAFE_DISTANCE
+		if landmark_type == "pond":
+			safe_distance = WORLD_CONFIG.PLAYER_POND_SAFE_DISTANCE
+		elif landmark_type == "hill":
+			safe_distance = WORLD_CONFIG.PLAYER_HILL_SAFE_DISTANCE
+		TEST_UTILS.expect(position != Vector2.INF, failures, "Generated landmarks should not fall back to an invalid position")
+		TEST_UTILS.expect(position.distance_to(WORLD_CONFIG.PLAYER_START_POSITION) >= radius + safe_distance, failures, "Generated landmarks should keep a safe distance from the player start")
 
 
 func _test_varnak_population_target_scales_with_day_and_caps(failures: Array[String]) -> void:
@@ -477,7 +509,8 @@ func _test_biome_surface_stays_crisp_and_uses_accents_for_detail(failures: Array
 	var base_color := Color(biome["color"])
 	var surface_color: Color = world.call("_get_biome_terrain_color", biome, Vector2(100.0, 150.0), base_color)
 	var accents: Array = world.call("_build_biome_terrain_accent_layout", biome)
-	TEST_UTILS.expect_equal(surface_color, base_color, failures, "Biome surface should keep a crisp flat color instead of applying a blurred full-screen texture")
+	var color_delta: float = abs(surface_color.r - base_color.r) + abs(surface_color.g - base_color.g) + abs(surface_color.b - base_color.b)
+	TEST_UTILS.expect(color_delta > 0.01, failures, "Biome surface should show visible texture variation instead of staying perfectly flat")
 	TEST_UTILS.expect(not accents.is_empty(), failures, "Biome variation should remain visible through crisp cached terrain accents")
 	world.free()
 
@@ -509,8 +542,8 @@ func _test_biome_texture_variation_is_continuous_without_tiling(failures: Array[
 	var color_far: Color = world.call("_get_biome_terrain_color", biome, Vector2(900.0, 650.0), base_color)
 	var near_difference: float = abs(color_a.r - color_near.r) + abs(color_a.g - color_near.g) + abs(color_a.b - color_near.b)
 	var far_difference: float = abs(color_a.r - color_far.r) + abs(color_a.g - color_far.g) + abs(color_a.b - color_far.b)
-	TEST_UTILS.expect_close(near_difference, 0.0, failures, "Biome surface should not introduce blurred gradients between nearby points")
-	TEST_UTILS.expect_close(far_difference, 0.0, failures, "Biome surface should not introduce full-screen noise at distant points")
+	TEST_UTILS.expect(near_difference <= 0.18, failures, "Biome surface should keep nearby points visually coherent")
+	TEST_UTILS.expect(far_difference >= 0.01, failures, "Biome surface should still vary across the biome instead of staying flat")
 	var cache_size: Vector2i = world.call("_get_world_biome_blend_texture_size")
 	TEST_UTILS.expect(cache_size.x >= 384 and cache_size.y >= 236, failures, "Biome blend cache should not drop below the baseline resolution")
 	world.free()
