@@ -114,6 +114,9 @@ func _get_building_data(building_kind: String, building: Node2D) -> Dictionary:
 			data["damage"] = building.damage
 		"wall":
 			data["health"] = building.health
+		"storage_box":
+			if building.has_method("get_save_data"):
+				data["inventory"] = Dictionary(building.get_save_data()).get("inventory", {})
 	return data
 
 
@@ -207,6 +210,9 @@ func _restore_building_state(building_kind: String, building: Node, data: Dictio
 			building.damage = float(data.get("damage", building.damage))
 		"wall":
 			building.health = float(data.get("health", building.health))
+		"storage_box":
+			if building.has_method("restore_from_data"):
+				building.restore_from_data(data)
 	building.queue_redraw()
 
 

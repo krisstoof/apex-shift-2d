@@ -1,6 +1,7 @@
 extends RefCounted
 
 const INVENTORY := preload("res://scripts/player/inventory.gd")
+const STORAGE_BOX := preload("res://scripts/buildings/storage_box.gd")
 const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
@@ -19,6 +20,9 @@ func run() -> Array[String]:
 	_test_inventory_never_goes_below_zero(failures)
 	_test_unknown_item_is_safe(failures)
 	_test_inventory_accepts_bone(failures)
+	_test_storage_box_inventory_uses_twelve_slots(failures)
+	_test_storage_box_prompt_mentions_open(failures)
+	_test_storage_boxes_keep_independent_inventories(failures)
 	_test_save_load_restores_slots(failures)
 	_test_save_load_ignores_invalid_items(failures)
 	return failures
@@ -119,6 +123,31 @@ func _test_inventory_accepts_bone(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(inventory.add_item("bone", 25), 0, failures, "Bone should stack like other normal items")
 	TEST_UTILS.expect_equal(inventory.get_amount("bone"), 25, failures, "Bone should be stored in inventory")
 	TEST_UTILS.expect_equal(int(inventory.get_slots()[0].get("amount", 0)), 20, failures, "Bone should respect the max stack size")
+
+
+func _test_storage_box_inventory_uses_twelve_slots(failures: Array[String]) -> void:
+	var storage_box := STORAGE_BOX.new()
+	var box_inventory: Variant = storage_box.get("inventory")
+	TEST_UTILS.expect(box_inventory is INVENTORY, failures, "Storage box should create an Inventory instance")
+	TEST_UTILS.expect_equal(box_inventory.get_slots().size(), 12, failures, "Storage box should expose 12 slots")
+
+
+func _test_storage_box_prompt_mentions_open(failures: Array[String]) -> void:
+	var storage_box := STORAGE_BOX.new()
+	TEST_UTILS.expect_equal(storage_box.call("get_prompt"), "E: Open Storage Box", failures, "Storage box prompt should mention opening the box")
+
+
+func _test_storage_boxes_keep_independent_inventories(failures: Array[String]) -> void:
+	var storage_box_a := STORAGE_BOX.new()
+	var storage_box_b := STORAGE_BOX.new()
+	var inventory_a: Inventory = storage_box_a.get("inventory")
+	var inventory_b: Inventory = storage_box_b.get("inventory")
+	inventory_a.add_item("wood", 5)
+	inventory_b.add_item("stone", 3)
+	TEST_UTILS.expect_equal(inventory_a.get_amount("wood"), 5, failures, "First storage box should keep its own wood")
+	TEST_UTILS.expect_equal(inventory_a.get_amount("stone"), 0, failures, "First storage box should not inherit second box items")
+	TEST_UTILS.expect_equal(inventory_b.get_amount("stone"), 3, failures, "Second storage box should keep its own stone")
+	TEST_UTILS.expect_equal(inventory_b.get_amount("wood"), 0, failures, "Second storage box should not inherit first box items")
 
 
 func _test_save_load_restores_slots(failures: Array[String]) -> void:

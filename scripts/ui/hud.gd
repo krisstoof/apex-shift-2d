@@ -38,6 +38,9 @@ var campfire_hint_timer := 0.0
 var distance_debug_label: Label
 var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 var hitch_log_cooldowns: Dictionary = {}
+var current_storage_box: Node = null
+var current_storage_inventory: Variant = null
+var current_storage_player_inventory: Variant = null
 
 @onready var stats_label: Label = $Panel/StatsLabel
 @onready var prompt_label: Label = $Panel/PromptLabel
@@ -64,6 +67,7 @@ var hitch_log_cooldowns: Dictionary = {}
 @onready var game_over_screen: Control = $GameOverScreen
 @onready var debug_panel: Control = $DebugPanel
 @onready var inventory_screen: Control = $InventoryScreen
+@onready var storage_box_screen: Control = $StorageBoxScreen
 @onready var game_session: Node = get_node("/root/GameSession")
 
 
@@ -122,6 +126,8 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director, snapshot_service)
 	if inventory_screen.has_method("setup"):
 		inventory_screen.setup(_get_player_inventory())
+	if storage_box_screen != null and storage_box_screen.has_method("setup"):
+		storage_box_screen.visible = false
 	_connect_inventory_changed()
 	_apply_snapshot(snapshot)
 	_refresh_resource_panel()
@@ -259,6 +265,8 @@ func _on_inventory_changed() -> void:
 	_refresh_resource_panel()
 	if inventory_screen != null and inventory_screen.visible and inventory_screen.has_method("refresh"):
 		inventory_screen.refresh()
+	if storage_box_screen != null and storage_box_screen.visible and storage_box_screen.has_method("refresh"):
+		storage_box_screen.refresh()
 
 
 func _refresh_resource_panel() -> void:
@@ -822,6 +830,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		if storage_box_screen != null and storage_box_screen.visible:
+			_close_storage_box_screen()
+			get_viewport().set_input_as_handled()
+			return
 		if inventory_screen.visible:
 			_set_inventory_screen_open(false)
 			get_viewport().set_input_as_handled()
@@ -848,6 +860,8 @@ func _set_pause_menu_open(open: bool) -> void:
 func _set_inventory_screen_open(open: bool) -> void:
 	if inventory_screen == null:
 		return
+	if storage_box_screen != null and storage_box_screen.visible:
+		_close_storage_box_screen()
 	if inventory_screen.has_method("open_inventory") and open:
 		inventory_screen.open_inventory()
 	elif inventory_screen.has_method("close_inventory") and not open:
@@ -862,8 +876,40 @@ func _set_inventory_screen_open(open: bool) -> void:
 	_update_tree_paused()
 
 
+func open_storage_box(p_player_inventory: Variant, p_storage_inventory: Variant, p_storage_box: Node) -> void:
+	if storage_box_screen == null:
+		return
+	current_storage_box = p_storage_box
+	current_storage_player_inventory = p_player_inventory
+	current_storage_inventory = p_storage_inventory
+	if storage_box_screen.has_method("setup"):
+		storage_box_screen.setup(current_storage_player_inventory, current_storage_inventory, current_storage_box)
+	if storage_box_screen.has_method("open_storage_box"):
+		storage_box_screen.open_storage_box()
+	else:
+		storage_box_screen.visible = true
+	_set_inventory_screen_open(false)
+	_set_map_screen_open(false)
+	_set_pause_menu_open(false)
+	_update_tree_paused()
+
+
+func _close_storage_box_screen() -> void:
+	if storage_box_screen == null:
+		return
+	if storage_box_screen.has_method("close_storage_box"):
+		storage_box_screen.close_storage_box()
+	else:
+		storage_box_screen.visible = false
+	current_storage_box = null
+	current_storage_inventory = null
+	current_storage_player_inventory = null
+	_update_tree_paused()
+
+
 func _update_tree_paused() -> void:
-	get_tree().paused = map_screen_open or pause_menu_open or (inventory_screen != null and inventory_screen.visible)
+	var storage_box_open := storage_box_screen != null and storage_box_screen.visible
+	get_tree().paused = map_screen_open or pause_menu_open or (inventory_screen != null and inventory_screen.visible) or storage_box_open
 
 
 func _on_pause_menu_resume() -> void:

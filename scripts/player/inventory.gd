@@ -3,20 +3,22 @@ class_name Inventory
 
 const ItemDatabase := preload("res://scripts/items/item_database.gd")
 
-const SLOT_COUNT := 9
+const DEFAULT_SLOT_COUNT := 9
 
 signal inventory_changed
 
 var slots: Array[Dictionary] = []
+var slot_count: int = DEFAULT_SLOT_COUNT
 
 
-func _init() -> void:
+func _init(p_slot_count: int = DEFAULT_SLOT_COUNT) -> void:
+	slot_count = maxi(p_slot_count, 1)
 	clear()
 
 
 func clear() -> void:
 	slots.clear()
-	for _i in range(SLOT_COUNT):
+	for _i in range(slot_count):
 		slots.append({
 			"item_id": "",
 			"amount": 0
@@ -134,7 +136,7 @@ func load_from_save_data(data: Dictionary) -> void:
 	var slot_data: Array = Array(data.get("slots", []))
 	var slot_index := 0
 	for entry in slot_data:
-		if slot_index >= SLOT_COUNT:
+		if slot_index >= slot_count:
 			break
 		if typeof(entry) != TYPE_DICTIONARY:
 			continue
