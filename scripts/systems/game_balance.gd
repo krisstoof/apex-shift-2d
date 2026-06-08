@@ -139,6 +139,66 @@ const VARNAK_DAY_SCALING := {
 	"other_creature_min_distance": 140.0
 }
 
+# Early-week difficulty curve keeps day 1 gentle, day 3 meaningful, and days 6-7 clearly harsher.
+const FIRST_WEEK_DIFFICULTY := {
+	1: {
+		"varnak_max_population": 1,
+		"varnak_spawn_chance": 0.08,
+		"varnak_aggression_multiplier": 0.60,
+		"varnak_activity_multiplier": 0.70,
+		"small_prey_population_multiplier": 1.15,
+		"grazer_population_multiplier": 1.10
+	},
+	2: {
+		"varnak_max_population": 2,
+		"varnak_spawn_chance": 0.15,
+		"varnak_aggression_multiplier": 0.75,
+		"varnak_activity_multiplier": 0.85,
+		"small_prey_population_multiplier": 1.08,
+		"grazer_population_multiplier": 1.05
+	},
+	3: {
+		"varnak_max_population": 3,
+		"varnak_spawn_chance": 0.25,
+		"varnak_aggression_multiplier": 1.00,
+		"varnak_activity_multiplier": 1.00,
+		"small_prey_population_multiplier": 1.00,
+		"grazer_population_multiplier": 1.00
+	},
+	4: {
+		"varnak_max_population": 4,
+		"varnak_spawn_chance": 0.34,
+		"varnak_aggression_multiplier": 1.10,
+		"varnak_activity_multiplier": 1.10,
+		"small_prey_population_multiplier": 0.95,
+		"grazer_population_multiplier": 0.98
+	},
+	5: {
+		"varnak_max_population": 5,
+		"varnak_spawn_chance": 0.43,
+		"varnak_aggression_multiplier": 1.20,
+		"varnak_activity_multiplier": 1.20,
+		"small_prey_population_multiplier": 0.90,
+		"grazer_population_multiplier": 0.95
+	},
+	6: {
+		"varnak_max_population": 6,
+		"varnak_spawn_chance": 0.52,
+		"varnak_aggression_multiplier": 1.30,
+		"varnak_activity_multiplier": 1.30,
+		"small_prey_population_multiplier": 0.85,
+		"grazer_population_multiplier": 0.90
+	},
+	7: {
+		"varnak_max_population": 7,
+		"varnak_spawn_chance": 0.60,
+		"varnak_aggression_multiplier": 1.40,
+		"varnak_activity_multiplier": 1.40,
+		"small_prey_population_multiplier": 0.80,
+		"grazer_population_multiplier": 0.88
+	}
+}
+
 const VARNAK_SPAWN := {
 	"default_biome_weight": 1.0,
 	"dangerous_biome_weight_multiplier": 3.0,
@@ -421,3 +481,8 @@ const ECOSYSTEM := {
 const DEBUG_PLAYER_DAMAGE_AMOUNT := 25.0
 const DEBUG_PLAYER_HEAL_AMOUNT := 25.0
 const DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT := 25.0
+
+
+static func get_first_week_difficulty(day: int) -> Dictionary:
+	var clamped_day: int = clampi(day, 1, 7)
+	return Dictionary(FIRST_WEEK_DIFFICULTY.get(clamped_day, FIRST_WEEK_DIFFICULTY[7]))

@@ -70,6 +70,15 @@ class TestEcosystemDirector:
 		return state.duplicate(true)
 
 
+class TestDayNightSystem:
+	extends Node
+
+	var day := 1
+
+	func get_day() -> int:
+		return day
+
+
 class TestPlayer:
 	extends Node2D
 
@@ -88,6 +97,7 @@ func run() -> Array[String]:
 	_test_varnak_initializes_with_valid_health(failures)
 	_test_varnak_initializes_inside_world(failures)
 	_test_varnak_has_predator_diet(failures)
+	_test_varnak_uses_first_week_profile_tuning(failures)
 	_test_varnak_has_hunger_component(failures)
 	_test_varnak_has_attack_damage(failures)
 	_test_varnak_has_detection_range(failures)
@@ -149,6 +159,22 @@ func _test_varnak_has_predator_diet(failures: Array[String]) -> void:
 	varnak.apply_profile(profile)
 	TEST_UTILS.expect_close(varnak.meat_diet, 1.0, failures, "Varnak should strongly prefer meat")
 	TEST_UTILS.expect_close(varnak.scavenger_diet, 0.45, failures, "Varnak should keep the configured scavenger diet")
+	varnak.queue_free()
+
+
+func _test_varnak_uses_first_week_profile_tuning(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	var profile := _read_profile()
+	var day_night := TestDayNightSystem.new()
+	day_night.day = 1
+	varnak.day_night_system = day_night
+	varnak.apply_profile(profile)
+	TEST_UTILS.expect_close(varnak.aggression, 0.27, failures, "Day 1 should soften Varnak aggression")
+	TEST_UTILS.expect_close(varnak.night_activity, 0.175, failures, "Day 1 should soften Varnak night activity")
+	day_night.day = 3
+	varnak.apply_profile(profile)
+	TEST_UTILS.expect_close(varnak.aggression, 0.45, failures, "Day 3 should restore the baseline aggression")
+	TEST_UTILS.expect_close(varnak.night_activity, 0.25, failures, "Day 3 should restore the baseline night activity")
 	varnak.queue_free()
 
 

@@ -105,6 +105,7 @@ func apply_profile(profile: Dictionary) -> void:
 	base_curiosity = float(profile.get("base_curiosity", base_curiosity))
 	stalk_tendency = float(profile.get("stalk_tendency", stalk_tendency))
 	speed = 90.0 + aggression * 50.0 + pack_coordination * 20.0
+	_apply_first_week_profile_tuning()
 	queue_redraw()
 
 
@@ -656,6 +657,31 @@ func _get_night_hunting_multiplier() -> float:
 	return 1.0
 
 
+func _get_current_day() -> int:
+	if day_night_system and day_night_system.has_method("get_day"):
+		return maxi(int(day_night_system.get_day()), 1)
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.current_scene == null:
+		return 1
+	var scene := tree.current_scene
+	if scene:
+		var day_night := scene.get_node_or_null("DayNightSystem")
+		if day_night and day_night.has_method("get_day"):
+			return maxi(int(day_night.get_day()), 1)
+	return 1
+
+
+func _apply_first_week_profile_tuning() -> void:
+	var day := _get_current_day()
+	if day > 7:
+		return
+	var difficulty := GAME_BALANCE.get_first_week_difficulty(day)
+	var aggression_multiplier := float(difficulty.get("varnak_aggression_multiplier", 1.0))
+	var activity_multiplier := float(difficulty.get("varnak_activity_multiplier", 1.0))
+	aggression = clamp(aggression * aggression_multiplier, 0.0, 1.0)
+	night_activity = clamp(night_activity * activity_multiplier, 0.0, 1.0)
+
+
 func _get_hunt_feed_amount(hunted_kind: String) -> float:
 	return HUNT_FEED_AMOUNT * (1.25 if hunted_kind == "grazer" else 1.0)
 
@@ -983,13 +1009,19 @@ func _drop_meat_once() -> void:
 	if dropped_meat:
 		return
 	dropped_meat = true
-	var world := get_tree().current_scene.get_node_or_null("World")
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.current_scene == null:
+		return
+	var world := tree.current_scene.get_node_or_null("World")
 	if world and world.has_method("spawn_meat_drop_for_animal"):
 		world.spawn_meat_drop_for_animal("varnak", global_position)
 
 
 func _drop_bone_once() -> void:
-	var world := get_tree().current_scene.get_node_or_null("World")
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.current_scene == null:
+		return
+	var world := tree.current_scene.get_node_or_null("World")
 	if world and world.has_method("spawn_bone_drop_for_animal"):
 		world.spawn_bone_drop_for_animal("varnak", global_position)
 
@@ -1098,9 +1130,10 @@ func _draw_debug_lines(lines: Array[String], top_left: Vector2) -> void:
 
 
 func _get_world_node() -> Node2D:
-	var scene := get_tree().current_scene
-	if not scene:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.current_scene == null:
 		return null
+	var scene := tree.current_scene
 	return scene.get_node_or_null("World") as Node2D
 
 

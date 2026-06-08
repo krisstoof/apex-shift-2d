@@ -7,6 +7,15 @@ const ECOSYSTEM_DELTA := preload("res://scripts/systems/ecosystem_delta.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
+class TestDayNightSystem:
+	extends Node
+
+	var day := 1
+
+	func get_day() -> int:
+		return day
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_grazer_traits_use_state_and_balance_defaults(failures)
@@ -15,6 +24,7 @@ func run() -> Array[String]:
 	_test_save_and_load_round_trip_restores_biome_state(failures)
 	_test_runtime_tick_queues_biomes_across_frames(failures)
 	_test_daily_population_recovery_uses_biomass_and_caps_at_target(failures)
+	_test_first_week_recovery_uses_population_multipliers(failures)
 	_test_critical_populations_reduce_predation_pressure(failures)
 	return failures
 
@@ -188,6 +198,46 @@ func _test_daily_population_recovery_uses_biomass_and_caps_at_target(failures: A
 	TEST_UTILS.expect_close(float(depleted.get("grazer_population", 0.0)), 14.0, failures, "Daily Grazer recovery should stop at the target population")
 	TEST_UTILS.expect_equal(str(healthy.get("small_prey_population_trend", "")), "growing", failures, "Successful daily recovery should mark SmallPrey as growing")
 	director.free()
+
+
+func _test_first_week_recovery_uses_population_multipliers(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var scene := tree.current_scene
+	var director := ECOSYSTEM_DIRECTOR.new()
+	var day_night := TestDayNightSystem.new()
+	scene.add_child(day_night)
+	scene.add_child(director)
+	day_night.name = "DayNightSystem"
+	director.biome_states = {
+		"hearth_meadow": {
+			"plant_biomass_percent": 100.0,
+			"small_prey_population": 10.0,
+			"grazer_population": 5.0
+		}
+	}
+	day_night.day = 1
+	director.call("_apply_daily_population_recovery")
+	var state: Dictionary = director.get_biome_state("hearth_meadow")
+	TEST_UTILS.expect_close(float(state.get("small_prey_population", 0.0)), 12.0, failures, "Day 1 should gently boost SmallPrey recovery")
+	TEST_UTILS.expect_close(float(state.get("grazer_population", 0.0)), 5.5, failures, "Day 1 should gently boost Grazer recovery")
+	day_night.day = 9
+	director.biome_states = {
+		"hearth_meadow": {
+			"plant_biomass_percent": 100.0,
+			"small_prey_population": 10.0,
+			"grazer_population": 5.0
+		}
+	}
+	director.call("_apply_daily_population_recovery")
+	state = director.get_biome_state("hearth_meadow")
+	TEST_UTILS.expect_close(float(state.get("small_prey_population", 0.0)), 14.0, failures, "After the first week, SmallPrey recovery should return to baseline")
+	TEST_UTILS.expect_close(float(state.get("grazer_population", 0.0)), 7.5, failures, "After the first week, Grazer recovery should return to baseline")
+	if director.get_parent():
+		director.get_parent().remove_child(director)
+		director.free()
+	if day_night.get_parent():
+		day_night.get_parent().remove_child(day_night)
+		day_night.free()
 
 
 func _test_critical_populations_reduce_predation_pressure(failures: Array[String]) -> void:
