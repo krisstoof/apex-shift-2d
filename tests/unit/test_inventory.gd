@@ -23,6 +23,7 @@ func run() -> Array[String]:
 	_test_storage_box_inventory_uses_twelve_slots(failures)
 	_test_storage_box_prompt_mentions_open(failures)
 	_test_storage_boxes_keep_independent_inventories(failures)
+	_test_storage_box_exposes_interaction_methods(failures)
 	_test_save_load_restores_slots(failures)
 	_test_save_load_ignores_invalid_items(failures)
 	return failures
@@ -148,6 +149,12 @@ func _test_storage_boxes_keep_independent_inventories(failures: Array[String]) -
 	TEST_UTILS.expect_equal(inventory_a.get_amount("stone"), 0, failures, "First storage box should not inherit second box items")
 	TEST_UTILS.expect_equal(inventory_b.get_amount("stone"), 3, failures, "Second storage box should keep its own stone")
 	TEST_UTILS.expect_equal(inventory_b.get_amount("wood"), 0, failures, "Second storage box should not inherit first box items")
+
+
+func _test_storage_box_exposes_interaction_methods(failures: Array[String]) -> void:
+	var storage_box := STORAGE_BOX.new()
+	TEST_UTILS.expect(storage_box.has_method("interact"), failures, "Storage box should expose an interact method")
+	TEST_UTILS.expect(storage_box.has_method("get_prompt"), failures, "Storage box should expose a prompt method")
 
 
 func _test_save_load_restores_slots(failures: Array[String]) -> void:
