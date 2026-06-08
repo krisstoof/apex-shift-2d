@@ -157,6 +157,7 @@ var visibility_cull_last_visible_resources: int = 0
 var visibility_cull_last_hidden_resources: int = 0
 var visibility_cull_last_visible_creatures: int = 0
 var visibility_cull_last_hidden_creatures: int = 0
+var is_restoring_save: bool = false
 var night_overlay_polygon: Polygon2D
 var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
@@ -243,6 +244,8 @@ func _process(delta: float) -> void:
 		"visible_creatures": visibility_cull_last_visible_creatures,
 		"hidden_creatures": visibility_cull_last_hidden_creatures
 	})
+	if is_restoring_save:
+		return
 	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
 		small_prey_failed_spawn_retry_timer = maxf(0.0, small_prey_failed_spawn_retry_timer - delta)
 	if varnak_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
@@ -561,6 +564,14 @@ func get_save_data() -> Dictionary:
 		"world_seed": world_seed,
 		"landmarks": get_landmark_save_data()
 	}
+
+
+func begin_save_restore() -> void:
+	is_restoring_save = true
+
+
+func end_save_restore() -> void:
+	is_restoring_save = false
 
 
 func is_boot_ready() -> bool:
@@ -2508,6 +2519,8 @@ func _get_varnak_spawn_check_interval() -> float:
 
 
 func _on_day_changed(_day: int) -> void:
+	if is_restoring_save:
+		return
 	varnak_spawn_timer = 0.0
 	call_deferred("_sync_visible_varnaks", true)
 	call_deferred("_sync_visible_small_prey")

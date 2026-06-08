@@ -117,6 +117,8 @@ func _restore_save_data(data: Dictionary) -> void:
 	var ecosystem_director := scene.get_node("EcosystemDirector")
 	var game_session := get_node_or_null("/root/GameSession")
 	var world_data := Dictionary(data.get("world", {}))
+	if world and world.has_method("begin_save_restore"):
+		world.begin_save_restore()
 
 	if not world_data.is_empty():
 		await world.restore_landmarks(Array(world_data.get("landmarks", [])), int(world_data.get("world_seed", 0)))
@@ -133,6 +135,8 @@ func _restore_save_data(data: Dictionary) -> void:
 		await world.restore_small_prey(Array(data.get("small_prey", [])))
 	if data.has("grazers"):
 		await world.restore_grazers(Array(data.get("grazers", [])))
+	if world and world.has_method("end_save_restore"):
+		world.end_save_restore()
 
 
 func _restore_player_data(player: Node, data: Dictionary) -> void:
