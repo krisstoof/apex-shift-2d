@@ -96,6 +96,11 @@ func is_position_inside_world_boundary(position: Vector2) -> bool:
 func is_resource_position_blocked_by_water(resource_kind: String, position: Vector2) -> bool:
 	if not _is_plant_resource_kind(resource_kind):
 		return false
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+	if terrain_zone in ["deep_ocean", "shallow_water"]:
+		return true
+	if terrain_zone == "shore":
+		return true
 	var margin_multiplier := _get_resource_water_margin_multiplier(resource_kind)
 	for pond_value in _get_pond_landmarks():
 		var pond := Dictionary(pond_value)
@@ -115,7 +120,8 @@ func is_creature_navigation_blocked(position: Vector2) -> bool:
 
 
 func is_creature_spawn_blocked_by_water(position: Vector2) -> bool:
-	return is_position_in_deep_water(position)
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+	return terrain_zone in ["deep_ocean", "shallow_water", "shore"]
 
 
 func _get_pond_landmarks() -> Array:

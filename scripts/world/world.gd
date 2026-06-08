@@ -2922,8 +2922,14 @@ func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> vo
 
 
 func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color:
-	if not WORLD_CONFIG.get_world_boundary_points().is_empty() and not Geometry2D.is_point_in_polygon(position, WORLD_CONFIG.get_world_boundary_points()):
-		return WORLD_CONFIG.OCEAN_COLOR
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+	match terrain_zone:
+		"deep_ocean":
+			return WORLD_CONFIG.OCEAN_COLOR
+		"shallow_water":
+			return Color(0.11, 0.30, 0.50)
+		"shore":
+			return Color(0.64, 0.60, 0.38)
 	var nearest_index := -1
 	var nearest_distance := INF
 	for i in biome_zones.size():
