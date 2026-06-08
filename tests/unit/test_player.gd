@@ -67,6 +67,7 @@ func run() -> Array[String]:
 	_test_player_prefers_world_query_service_for_terrain_reads(failures)
 	_test_player_melee_attack_spends_stamina(failures)
 	_test_player_bow_shooting_spends_stamina_and_sets_cooldown(failures)
+	_test_player_craft_bow_requires_bone_and_consumes_it(failures)
 	_test_player_eat_meat_consumes_inventory_and_restores_hunger(failures)
 	return failures
 
@@ -373,6 +374,20 @@ func _test_player_bow_shooting_spends_stamina_and_sets_cooldown(failures: Array[
 	player.call("_shoot_bow")
 	TEST_UTILS.expect(player.stats.stamina < before_stamina, failures, "Bow shot should spend stamina")
 	TEST_UTILS.expect(player.bow_cooldown > 0.0, failures, "Bow shot should start cooldown")
+	player.queue_free()
+
+
+func _test_player_craft_bow_requires_bone_and_consumes_it(failures: Array[String]) -> void:
+	var player := _make_player()
+	player.inventory.add_item("wood", 3)
+	player.inventory.add_item("fiber", 4)
+	player.call("_craft", "bow")
+	TEST_UTILS.expect(not player.has_bow, failures, "Bow crafting should fail without bone")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("bone"), 0, failures, "Failed bow crafting should not create bone")
+	player.inventory.add_item("bone", 1)
+	player.call("_craft", "bow")
+	TEST_UTILS.expect(player.has_bow, failures, "Bow crafting should succeed when bone is present")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("bone"), 0, failures, "Bow crafting should consume bone")
 	player.queue_free()
 
 

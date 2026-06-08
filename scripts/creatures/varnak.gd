@@ -945,6 +945,7 @@ func _die(source: String) -> void:
 		return
 	is_dead = true
 	_drop_meat_once()
+	_drop_bone_once()
 	var event_name := "varnak_killed_by_trap" if source == "trap" else "varnak_killed_by_player"
 	get_node("/root/EventBus").emit_game_event(event_name, {
 		"position": global_position,
@@ -956,7 +957,6 @@ func _die(source: String) -> void:
 	get_node("/root/EventBus").post_message("Varnak killed by %s" % source)
 	if is_instance_valid(player) and global_position.distance_to(player.global_position) < 90.0:
 		player.inventory.add_item("hide", 1)
-		player.inventory.add_item("bone", 1)
 	queue_free()
 
 
@@ -967,6 +967,12 @@ func _drop_meat_once() -> void:
 	var world := get_tree().current_scene.get_node_or_null("World")
 	if world and world.has_method("spawn_meat_drop_for_animal"):
 		world.spawn_meat_drop_for_animal("varnak", global_position)
+
+
+func _drop_bone_once() -> void:
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("spawn_bone_drop_for_animal"):
+		world.spawn_bone_drop_for_animal("varnak", global_position)
 
 
 func _draw() -> void:

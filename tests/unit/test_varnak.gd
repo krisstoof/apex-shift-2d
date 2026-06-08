@@ -15,6 +15,7 @@ class TestWorld:
 	var navigation_blocked := false
 	var deep_water := false
 	var spawned_meat_amount := 0
+	var spawned_bone_amount := 0
 	var cached_groups := {}
 
 	func get_terrain_speed_multiplier(_position: Vector2) -> float:
@@ -31,6 +32,10 @@ class TestWorld:
 
 	func spawn_meat_drop_for_animal(_animal_kind: String, _drop_position: Vector2) -> Node:
 		spawned_meat_amount += 1
+		return Node2D.new()
+
+	func spawn_bone_drop_for_animal(_animal_kind: String, _drop_position: Vector2) -> Node:
+		spawned_bone_amount += 1
 		return Node2D.new()
 
 	func get_cached_group_nodes(group_name: String) -> Array:
@@ -110,6 +115,7 @@ func run() -> Array[String]:
 	_test_varnak_takes_damage(failures)
 	_test_varnak_dies_at_zero_health(failures)
 	_test_varnak_drops_meat_on_death(failures)
+	_test_varnak_drops_bone_on_death(failures)
 	_test_varnak_does_not_duplicate_meat_drop_on_repeated_death(failures)
 	_test_varnak_removed_from_ecosystem_after_death(failures)
 	return failures
@@ -456,6 +462,15 @@ func _test_varnak_drops_meat_on_death(failures: Array[String]) -> void:
 	varnak.queue_free()
 
 
+func _test_varnak_drops_bone_on_death(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	var world := _ensure_world()
+	world.spawned_bone_amount = 0
+	varnak.take_damage(999.0, "player")
+	TEST_UTILS.expect(world.spawned_bone_amount > 0, failures, "Dead varnak should spawn a bone drop")
+	varnak.queue_free()
+
+
 func _test_varnak_does_not_duplicate_meat_drop_on_repeated_death(failures: Array[String]) -> void:
 	var varnak := _make_varnak()
 	var world := _ensure_world()
@@ -525,6 +540,7 @@ func _ensure_world() -> TestWorld:
 	if world:
 		world.cached_groups.clear()
 		world.spawned_meat_amount = 0
+		world.spawned_bone_amount = 0
 		return world
 	var new_world := TestWorld.new()
 	new_world.name = "World"

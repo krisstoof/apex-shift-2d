@@ -90,7 +90,9 @@ const ANIMAL_LOOT := {
 	},
 	"varnak": {
 		"meat_min": 2,
-		"meat_max": 4
+		"meat_max": 4,
+		"bone_min": 1,
+		"bone_max": 2
 	}
 }
 

@@ -549,12 +549,12 @@ func _craft(item_name: String) -> void:
 	if item_name == "bow" and has_bow:
 		get_node("/root/EventBus").post_message("Bow already crafted")
 		return
-	var missing := _get_missing_ingredients(recipe)
-	if not missing.is_empty():
-		get_node("/root/EventBus").post_message("Not enough resources for %s: %s" % [item_name, ", ".join(missing)])
+	if not _can_afford_recipe(recipe):
+		get_node("/root/EventBus").post_message("Missing resources")
 		return
-	for ingredient in recipe.keys():
-		inventory.remove_item(ingredient, int(recipe[ingredient]))
+	if not _pay_recipe_cost(recipe):
+		get_node("/root/EventBus").post_message("Missing resources")
+		return
 	if item_name == "torch":
 		inventory.add_item("torch", 1)
 		get_node("/root/EventBus").emit_game_event("player_crafted_torch", {"count": inventory.get_amount("torch")})
@@ -590,6 +590,9 @@ func _eat(item_name: String) -> void:
 	if is_dead:
 		return
 	if item_name != "meat":
+		return
+	if not inventory.has_item("meat", 1):
+		get_node("/root/EventBus").post_message("No meat to eat")
 		return
 	if not inventory.remove_item(item_name, 1):
 		get_node("/root/EventBus").post_message("No meat to eat")
@@ -670,14 +673,22 @@ static func _get_radial_light_texture() -> Texture2D:
 	return cached_light_texture
 
 
-func _get_missing_ingredients(recipe: Dictionary) -> Array[String]:
-	var missing: Array[String] = []
-	for ingredient in recipe.keys():
-		var required := int(recipe[ingredient])
-		var owned: int = inventory.get_amount(str(ingredient))
-		if owned < required:
-			missing.append("%s %d/%d" % [str(ingredient), owned, required])
-	return missing
+func _can_afford_recipe(costs: Dictionary) -> bool:
+	for item_id in costs.keys():
+		var amount := int(costs[item_id])
+		if not inventory.has_item(str(item_id), amount):
+			return false
+	return true
+
+
+func _pay_recipe_cost(costs: Dictionary) -> bool:
+	if not _can_afford_recipe(costs):
+		return false
+	for item_id in costs.keys():
+		var amount := int(costs[item_id])
+		if not inventory.remove_item(str(item_id), amount):
+			return false
+	return true
 
 
 func _on_interactable_entered(node: Node) -> void:

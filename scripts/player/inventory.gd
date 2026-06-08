@@ -37,7 +37,7 @@ func add_item(item_id: String, amount: int) -> int:
 		var available_space: int = max_stack - current_amount
 		if available_space <= 0:
 			continue
-		var added_amount: int = mini(available_space, remaining)
+		var added_amount: int = int(min(available_space, remaining))
 		slot["amount"] = current_amount + added_amount
 		remaining -= added_amount
 	for slot in slots:
@@ -45,7 +45,7 @@ func add_item(item_id: String, amount: int) -> int:
 			break
 		if str(slot.get("item_id", "")) != "":
 			continue
-		var added_amount: int = mini(max_stack, remaining)
+		var added_amount: int = int(min(max_stack, remaining))
 		slot["item_id"] = item_id
 		slot["amount"] = added_amount
 		remaining -= added_amount
@@ -66,7 +66,7 @@ func remove_item(item_id: String, amount: int) -> bool:
 		if str(slot.get("item_id", "")) != item_id:
 			continue
 		var current_amount: int = int(slot.get("amount", 0))
-		var removed_amount: int = mini(current_amount, remaining)
+		var removed_amount: int = int(min(current_amount, remaining))
 		current_amount -= removed_amount
 		remaining -= removed_amount
 		if current_amount <= 0:
