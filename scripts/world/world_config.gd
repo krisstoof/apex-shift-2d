@@ -3,9 +3,17 @@ class_name WorldConfig
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
-const WORLD_SCALE := 2.2
+const WORLD_SCALE := 3.0
 const BASE_WORLD_RECT := Rect2(-1440, -880, 2880, 1760)
 const WORLD_RECT := Rect2(BASE_WORLD_RECT.position * WORLD_SCALE, BASE_WORLD_RECT.size * WORLD_SCALE)
+const ISLAND_RADIUS_RATIO := 0.44
+const ISLAND_NOISE_SCALE := 0.0018
+const ISLAND_NOISE_STRENGTH := 0.22
+const DEEP_OCEAN_THRESHOLD := 0.14
+const SHALLOW_WATER_THRESHOLD := 0.26
+const SHORE_THRESHOLD := 0.36
+const HIGHLAND_THRESHOLD := 0.72
+const INNER_POND_CHANCE_MULTIPLIER := 0.35
 const PLAYER_EDGE_PADDING := 40.0
 const PLAYER_START_POSITION := Vector2(-2450.0, 1450.0)
 
@@ -290,9 +298,44 @@ const BIOME_ZONES := [
 	}
 ]
 
+const BIOME_EDGE_SUBDIVISIONS := 8
+const BIOME_EDGE_JITTER := 60.0
+const BIOME_EDGE_NOISE_SCALE := 0.021
+const OCEAN_COLOR := Color(0.08, 0.22, 0.40)
+
+static var cached_organic_biome_zones: Array[Dictionary] = []
+static var cached_organic_biome_zones_built := false
+static var cached_world_boundary_points: PackedVector2Array = PackedVector2Array()
+static var cached_world_boundary_points_built := false
+static var cached_island_noise: FastNoiseLite = FastNoiseLite.new()
+
 
 static func get_player_limits() -> Vector2:
 	return WORLD_RECT.size * 0.5 - Vector2(PLAYER_EDGE_PADDING, PLAYER_EDGE_PADDING)
+
+
+static func get_terrain_height(position: Vector2) -> float:
+	var center := WORLD_RECT.get_center()
+	var island_radius := minf(WORLD_RECT.size.x, WORLD_RECT.size.y) * ISLAND_RADIUS_RATIO
+	if island_radius <= 0.0:
+		return 0.0
+	var normalized_distance := position.distance_to(center) / island_radius
+	var falloff := clampf(normalized_distance, 0.0, 2.0)
+	var noise_value := _get_island_noise().get_noise_2d(position.x * ISLAND_NOISE_SCALE, position.y * ISLAND_NOISE_SCALE)
+	return 1.0 - falloff + noise_value * ISLAND_NOISE_STRENGTH
+
+
+static func get_terrain_zone(position: Vector2) -> String:
+	var height := get_terrain_height(position)
+	if height < DEEP_OCEAN_THRESHOLD:
+		return "deep_ocean"
+	if height < SHALLOW_WATER_THRESHOLD:
+		return "shallow_water"
+	if height < SHORE_THRESHOLD:
+		return "shore"
+	if height < HIGHLAND_THRESHOLD:
+		return "land"
+	return "highland"
 
 
 static func scale_world_point(point: Vector2) -> Vector2:
@@ -307,16 +350,75 @@ static func get_biome_points(biome: Dictionary) -> Array[Vector2]:
 
 
 static func get_biome_zones() -> Array[Dictionary]:
-	var scaled_biomes: Array[Dictionary] = []
+	if cached_organic_biome_zones_built:
+		return _duplicate_biome_zones(cached_organic_biome_zones)
+	cached_organic_biome_zones = []
 	for biome_value in BIOME_ZONES:
 		var biome := Dictionary(biome_value).duplicate(true)
-		biome["points"] = get_biome_points(biome)
-		scaled_biomes.append(biome)
-	return scaled_biomes
+		biome["points"] = _build_organic_biome_points(biome)
+		cached_organic_biome_zones.append(biome)
+	cached_organic_biome_zones_built = true
+	return _duplicate_biome_zones(cached_organic_biome_zones)
+
+
+static func _duplicate_biome_zones(zones: Array[Dictionary]) -> Array[Dictionary]:
+	var duplicated: Array[Dictionary] = []
+	for biome_value in zones:
+		duplicated.append(Dictionary(biome_value).duplicate(true))
+	return duplicated
+
+
+static func _build_organic_biome_points(biome: Dictionary) -> Array[Vector2]:
+	var base_points := get_biome_points(biome)
+	if base_points.size() < 3:
+		return base_points
+	var biome_seed := _get_biome_seed(biome)
+	var organic_points: Array[Vector2] = []
+	for i in base_points.size():
+		var a := base_points[i]
+		var b := base_points[(i + 1) % base_points.size()]
+		organic_points.append(a)
+		for step in range(1, BIOME_EDGE_SUBDIVISIONS):
+			var t := float(step) / float(BIOME_EDGE_SUBDIVISIONS)
+			var midpoint := a.lerp(b, t)
+			var edge := b - a
+			var normal := Vector2(-edge.y, edge.x)
+			if normal.length_squared() > 0.0001:
+				normal = normal.normalized()
+				var jitter := _get_biome_edge_jitter(midpoint, biome_seed)
+				midpoint += normal * jitter
+			organic_points.append(midpoint)
+	return organic_points
+
+
+static func _get_biome_seed(biome: Dictionary) -> float:
+	var biome_name := str(biome.get("name", "biome"))
+	var seed := 0
+	for i in biome_name.length():
+		seed = (seed * 31 + biome_name.unicode_at(i) * (i + 7)) % 10007
+	return float(seed)
+
+
+static func _get_biome_edge_jitter(point: Vector2, biome_seed: float) -> float:
+	var wave := (
+		sin(point.x * BIOME_EDGE_NOISE_SCALE + biome_seed * 0.013) * 0.42
+		+ sin(point.y * BIOME_EDGE_NOISE_SCALE * 1.27 - biome_seed * 0.017) * 0.26
+		+ sin((point.x + point.y) * BIOME_EDGE_NOISE_SCALE * 0.73 + biome_seed * 0.021) * 0.18
+		+ sin((point.x - point.y) * BIOME_EDGE_NOISE_SCALE * 1.61 + biome_seed * 0.009) * 0.14
+	) / 1.00
+	return wave * BIOME_EDGE_JITTER
 
 
 static func get_landmarks() -> Array[Dictionary]:
 	return generate_landmarks(1)
+
+
+static func get_world_boundary_points() -> PackedVector2Array:
+	if cached_world_boundary_points_built:
+		return cached_world_boundary_points.duplicate()
+	cached_world_boundary_points = _build_world_boundary_points()
+	cached_world_boundary_points_built = true
+	return cached_world_boundary_points.duplicate()
 
 
 static func generate_landmarks(world_seed: int) -> Array[Dictionary]:
@@ -507,6 +609,55 @@ static func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
 		max_point.x = max(max_point.x, point.x)
 		max_point.y = max(max_point.y, point.y)
 	return Rect2(min_point, max_point - min_point)
+
+
+static func _build_world_boundary_points() -> PackedVector2Array:
+	var rect := WORLD_RECT
+	var points := PackedVector2Array([
+		Vector2(rect.position.x, rect.position.y + rect.size.y * 0.14),
+		Vector2(rect.position.x + rect.size.x * 0.06, rect.position.y + rect.size.y * 0.02),
+		Vector2(rect.position.x + rect.size.x * 0.12, rect.position.y + rect.size.y * 0.09),
+		Vector2(rect.position.x + rect.size.x * 0.20, rect.position.y + rect.size.y * 0.01),
+		Vector2(rect.position.x + rect.size.x * 0.29, rect.position.y + rect.size.y * 0.12),
+		Vector2(rect.position.x + rect.size.x * 0.37, rect.position.y + rect.size.y * 0.03),
+		Vector2(rect.position.x + rect.size.x * 0.48, rect.position.y + rect.size.y * 0.10),
+		Vector2(rect.position.x + rect.size.x * 0.58, rect.position.y + rect.size.y * 0.02),
+		Vector2(rect.position.x + rect.size.x * 0.68, rect.position.y + rect.size.y * 0.13),
+		Vector2(rect.position.x + rect.size.x * 0.78, rect.position.y + rect.size.y * 0.06),
+		Vector2(rect.position.x + rect.size.x * 0.88, rect.position.y + rect.size.y * 0.17),
+		Vector2(rect.end.x, rect.position.y + rect.size.y * 0.26),
+		Vector2(rect.end.x - rect.size.x * 0.01, rect.position.y + rect.size.y * 0.38),
+		Vector2(rect.end.x - rect.size.x * 0.07, rect.position.y + rect.size.y * 0.50),
+		Vector2(rect.end.x - rect.size.x * 0.02, rect.position.y + rect.size.y * 0.64),
+		Vector2(rect.end.x - rect.size.x * 0.08, rect.position.y + rect.size.y * 0.78),
+		Vector2(rect.end.x - rect.size.x * 0.02, rect.position.y + rect.size.y * 0.91),
+		Vector2(rect.position.x + rect.size.x * 0.84, rect.end.y),
+		Vector2(rect.position.x + rect.size.x * 0.70, rect.end.y - rect.size.y * 0.03),
+		Vector2(rect.position.x + rect.size.x * 0.58, rect.end.y - rect.size.y * 0.01),
+		Vector2(rect.position.x + rect.size.x * 0.45, rect.end.y - rect.size.y * 0.06),
+		Vector2(rect.position.x + rect.size.x * 0.32, rect.end.y - rect.size.y * 0.02),
+		Vector2(rect.position.x + rect.size.x * 0.18, rect.end.y - rect.size.y * 0.08),
+		Vector2(rect.position.x + rect.size.x * 0.06, rect.end.y - rect.size.y * 0.02),
+		Vector2(rect.position.x, rect.end.y - rect.size.y * 0.14),
+		Vector2(rect.position.x + rect.size.x * 0.02, rect.position.y + rect.size.y * 0.82),
+		Vector2(rect.position.x + rect.size.x * 0.00, rect.position.y + rect.size.y * 0.56)
+	])
+	for i in points.size():
+		var point := points[i]
+		var x_wave := sin(point.y * 0.0023 + float(i) * 0.82) * 60.0
+		var y_wave := cos(point.x * 0.0020 - float(i) * 0.64) * 44.0
+		point.x = clampf(point.x + x_wave, rect.position.x, rect.end.x)
+		point.y = clampf(point.y + y_wave, rect.position.y, rect.end.y)
+		points[i] = point
+	return points
+
+
+static func _get_island_noise() -> FastNoiseLite:
+	if cached_island_noise == null:
+		cached_island_noise = FastNoiseLite.new()
+		cached_island_noise.seed = 224466
+		cached_island_noise.frequency = 0.6
+	return cached_island_noise
 
 
 static func _get_biome_id(biome: Dictionary) -> String:

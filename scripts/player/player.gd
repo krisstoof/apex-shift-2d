@@ -113,6 +113,7 @@ func _physics_process(delta: float) -> void:
 	_face_mouse()
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var terrain_speed := _get_terrain_speed_multiplier()
+	var previous_position := global_position
 	var was_swimming := is_swimming
 	is_swimming = _is_in_water()
 	if is_swimming != was_swimming:
@@ -121,6 +122,13 @@ func _physics_process(delta: float) -> void:
 	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier() * terrain_speed
 	velocity = input_vector * speed
 	move_and_slide()
+	var world_query: Variant = _get_world_query()
+	if world_query != null and world_query.is_position_inside_world_boundary(global_position) == false:
+		global_position = previous_position
+		velocity = Vector2.ZERO
+		is_swimming = false
+		if was_swimming != is_swimming:
+			queue_redraw()
 	global_position.x = clamp(global_position.x, -world_limits.x, world_limits.x)
 	global_position.y = clamp(global_position.y, -world_limits.y, world_limits.y)
 	_refresh_campfire_regen_state(delta)
