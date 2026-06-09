@@ -192,6 +192,13 @@ func _test_resource_node_renders_and_regrows_dry_tree(failures: Array[String]) -
 	TEST_UTILS.expect_equal(resource.get("is_edible_by_herbivores") == true, false, failures, "Dry trees should not be herbivore food")
 	TEST_UTILS.expect_equal(float(resource.get("food_value")), 0.0, failures, "Dry trees should not expose a food value")
 	TEST_UTILS.expect_equal(int(resource.call("_get_regrowth_time_days")), 15, failures, "Dry trees should inherit the slowed tree regrowth")
+	resource.call("_sync_visual_sprite")
+	var sprite := resource.get_node("VisualSprite") as Sprite2D
+	var atlas_texture := sprite.texture as AtlasTexture
+	TEST_UTILS.expect(atlas_texture != null, failures, "Dry trees should render through the shared resource atlas")
+	if atlas_texture != null:
+		TEST_UTILS.expect_equal(int(atlas_texture.region.position.x), 880, failures, "Dry trees should use the dry-tree atlas column")
+		TEST_UTILS.expect_equal(int(atlas_texture.region.position.y), 0, failures, "Dry trees should use the mature atlas row before depletion")
 	resource.free()
 
 

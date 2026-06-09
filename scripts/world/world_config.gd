@@ -23,6 +23,7 @@ const PLAYER_SPAWN_SEARCH_STEP := 160.0
 const PLAYER_SPAWN_SEARCH_RINGS := 10
 
 const TREE_COUNT := 48
+const WESTWOOD_EXTRA_CONIFER_COUNT := 48
 const ROCK_COUNT := 24
 const BUSH_COUNT := 36
 const SMALL_BUSH_COUNT := 28
@@ -179,10 +180,10 @@ const BIOME_ZONES := [
 			Vector2(-1440, 880)
 		],
 		"color": Color(0.10, 0.24, 0.13),
-		"tree_weight": 7.0,
-		"conifer_tree_weight": 8.0,
-		"leafy_tree_weight": 1.0,
-		"dry_tree_weight": 0.2,
+		"tree_weight": 14.0,
+		"conifer_tree_weight": 16.0,
+		"leafy_tree_weight": 2.0,
+		"dry_tree_weight": 0.4,
 		"rock_weight": 1.0,
 		"bush_weight": 3.0,
 		"berry_bush_weight": 6.0,
@@ -211,10 +212,10 @@ const BIOME_ZONES := [
 			Vector2(-720, -620)
 		],
 		"color": Color(0.22, 0.25, 0.23),
-		"tree_weight": 1.0,
-		"conifer_tree_weight": 1.4,
-		"leafy_tree_weight": 0.3,
-		"dry_tree_weight": 0.2,
+		"tree_weight": 2.0,
+		"conifer_tree_weight": 2.8,
+		"leafy_tree_weight": 0.6,
+		"dry_tree_weight": 0.4,
 		"rock_weight": 7.0,
 		"bush_weight": 1.0,
 		"dry_bush_weight": 4.0,
@@ -245,10 +246,10 @@ const BIOME_ZONES := [
 			Vector2(-720, -260)
 		],
 		"color": Color(0.16, 0.30, 0.14),
-		"tree_weight": 3.0,
-		"conifer_tree_weight": 1.0,
-		"leafy_tree_weight": 5.0,
-		"dry_tree_weight": 0.4,
+		"tree_weight": 6.0,
+		"conifer_tree_weight": 2.0,
+		"leafy_tree_weight": 10.0,
+		"dry_tree_weight": 0.8,
 		"rock_weight": 2.0,
 		"bush_weight": 4.0,
 		"dry_bush_weight": 1.4,
@@ -274,13 +275,13 @@ const BIOME_ZONES := [
 			Vector2(-700, 520)
 		],
 		"color": Color(0.20, 0.34, 0.12),
-		"tree_weight": 2.0,
-		"conifer_tree_weight": 3.5,
-		"leafy_tree_weight": 0.2,
-		"dry_tree_weight": 0.6,
+		"tree_weight": 2.8,
+		"conifer_tree_weight": 0.6,
+		"leafy_tree_weight": 4.4,
+		"dry_tree_weight": 0.4,
 		"rock_weight": 1.0,
-		"bush_weight": 7.0,
-		"dry_bush_weight": 8.0,
+		"bush_weight": 4.5,
+		"dry_bush_weight": 0.8,
 		"berry_bush_weight": 0.9,
 		"grass_weight": 6.0,
 		"landmark_weights": {
@@ -308,15 +309,15 @@ const BIOME_ZONES := [
 			Vector2(680, -710)
 		],
 		"color": Color(0.26, 0.18, 0.13),
-		"tree_weight": 3.0,
-		"conifer_tree_weight": 0.4,
-		"leafy_tree_weight": 0.2,
-		"dry_tree_weight": 5.0,
+		"tree_weight": 6.0,
+		"conifer_tree_weight": 0.8,
+		"leafy_tree_weight": 0.4,
+		"dry_tree_weight": 20.0,
 		"rock_weight": 4.0,
 		"bush_weight": 2.0,
-		"dry_bush_weight": 6.5,
+		"dry_bush_weight": 9.5,
 		"berry_bush_weight": 0.2,
-		"grass_weight": 2.0,
+		"grass_weight": 1.0,
 		"landmark_weights": {
 			"hill": 1.60,
 			"pond": 0.70
