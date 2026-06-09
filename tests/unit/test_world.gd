@@ -292,8 +292,11 @@ func _test_varnak_population_target_scales_with_day_and_caps(failures: Array[Str
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 1)), 0, failures, "Day 1 should keep the Varnak target at zero")
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 2)), 1, failures, "Day 2 should start Varnak spawning")
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 3)), 2, failures, "Day 3 should raise the Varnak target again")
-	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 4)), 5, failures, "Later days should grow the target gradually")
-	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 99)), 12, failures, "Varnak population target should respect the hard maximum")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 4)), 3, failures, "Day 4 should keep the target growing gradually")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 5)), 4, failures, "Day 5 should continue the steady rise")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 6)), 5, failures, "Day 6 should continue the steady rise")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 7)), 6, failures, "Day 7 should reach the first-week cap")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 99)), 8, failures, "Varnak population target should respect the hard maximum")
 	world.free()
 
 
@@ -303,15 +306,15 @@ func _test_varnak_spawn_chance_scales_with_day_and_caps(failures: Array[String])
 	var day_five_chance := float(world.call("_get_varnak_spawn_chance", 5))
 	var late_game_chance := float(world.call("_get_varnak_spawn_chance", 99))
 	TEST_UTILS.expect(day_five_chance > day_one_chance, failures, "Varnak spawn chance should increase with survived days")
-	TEST_UTILS.expect_close(late_game_chance, 0.90, failures, "Varnak spawn chance should respect its configured cap")
+	TEST_UTILS.expect_close(late_game_chance, 0.55, failures, "Varnak spawn chance should respect its configured cap")
 	world.free()
 
 
 func _test_varnak_spawn_budget_is_batched_and_stops_at_target(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 0, 99)), 2, failures, "Missing Varnaks should be restored in small batches")
-	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 11, 99)), 1, failures, "The final recovery batch should not exceed the hard target")
-	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 12, 99)), 0, failures, "No Varnaks should spawn after reaching the hard target")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 7, 99)), 1, failures, "The final recovery batch should not exceed the hard target")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_spawn_budget", 8, 99)), 0, failures, "No Varnaks should spawn after reaching the hard target")
 	world.free()
 
 
@@ -493,14 +496,14 @@ func _test_world_save_data_includes_seed_and_landmark_fields(failures: Array[Str
 func _test_varnak_first_week_curve_limits_population_and_spawn(failures: Array[String]) -> void:
 	var world := FirstWeekWorld.new()
 	world.current_day = 1
-	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 1)), 1, failures, "Day 1 should keep Varnak population very low")
-	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 1)), 0.08, failures, "Day 1 should use the onboarding spawn chance")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 1)), 0, failures, "Day 1 should keep Varnak population very low")
+	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 1)), 0.00, failures, "Day 1 should use the onboarding spawn chance")
 	world.current_day = 3
-	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 3)), 3, failures, "Day 3 should raise the Varnak cap")
-	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 3)), 0.25, failures, "Day 3 should increase the spawn chance")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 3)), 2, failures, "Day 3 should raise the Varnak cap")
+	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 3)), 0.18, failures, "Day 3 should increase the spawn chance")
 	world.current_day = 9
-	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 9)), 10, failures, "Days after the first week should fall back to standard scaling")
-	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 9)), 0.56, failures, "Days after the first week should fall back to standard spawn scaling")
+	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 9)), 8, failures, "Days after the first week should fall back to standard scaling")
+	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 9)), 0.55, failures, "Days after the first week should fall back to standard spawn scaling")
 	world.free()
 
 

@@ -34,6 +34,7 @@ func run() -> Array[String]:
 	_test_resource_node_restore_defaults_render_only_for_legacy_saves(failures)
 	_test_resource_node_syncs_collision_radius_with_growth(failures)
 	_test_resource_node_uses_shared_atlas_and_depleted_region(failures)
+	_test_resource_node_renders_bone_drop_through_custom_draw(failures)
 	_test_resource_node_emits_bone_collected_for_bone_drop(failures)
 	_test_resource_node_reports_inventory_full_when_pickup_does_not_fit(failures)
 	return failures
@@ -204,6 +205,18 @@ func _test_resource_node_emits_bone_collected_for_bone_drop(failures: Array[Stri
 	event_bus.queue_free()
 	if previous_event_bus != null:
 		previous_event_bus.name = "EventBus"
+
+
+func _test_resource_node_renders_bone_drop_through_custom_draw(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	resource.call("setup", "bone_drop")
+	resource.call("_sync_visual_sprite")
+	var sprite := resource.get_node("VisualSprite") as Sprite2D
+	TEST_UTILS.expect(sprite != null, failures, "Bone drops should keep a visual sprite node")
+	if sprite != null:
+		TEST_UTILS.expect_equal(sprite.visible, false, failures, "Bone drops should bypass the atlas sprite and use custom drawing")
+	TEST_UTILS.expect_equal(resource.call("is_render_only_resource"), false, failures, "Bone drops should stay interactive like meat drops")
+	resource.free()
 
 
 func _test_resource_node_reports_inventory_full_when_pickup_does_not_fit(failures: Array[String]) -> void:
