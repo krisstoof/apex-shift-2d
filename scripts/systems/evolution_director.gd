@@ -2,6 +2,20 @@ extends Node
 
 signal profile_changed(profile: Dictionary)
 
+# Lightweight Varnak adaptation system.
+#
+# This node keeps the historical `EvolutionDirector` name for save/load and scene compatibility,
+# but the current prototype does not implement a full species evolution model.
+#
+# The system adjusts a single Varnak profile in response to gameplay events:
+# - trap kills increase trap awareness,
+# - fire scares reduce fire fear and increase stalking,
+# - player kills increase aggression and pack coordination,
+# - wall attacks increase curiosity.
+#
+# Do not treat this as genetics, multi-species evolution, or a full population simulation.
+# User-facing text should call this "animal adaptation" or "Varnak adaptation".
+
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
 var species_profile: Dictionary = {}
@@ -46,6 +60,8 @@ func get_profile() -> Dictionary:
 
 
 func get_save_data() -> Dictionary:
+	# Save keys keep historical generation naming for backward compatibility.
+	# User-facing text should describe this as adaptation steps.
 	return {
 		"species_profile": species_profile.duplicate(true),
 		"trap_kills": trap_kills,
@@ -70,15 +86,19 @@ func restore_from_data(data: Dictionary) -> void:
 	profile_changed.emit(get_profile())
 
 
+func force_adaptation_step() -> void:
+	_apply_adaptation_step("manual")
+
+
 func force_generation_change() -> void:
-	_change_generation("manual")
+	force_adaptation_step()
 
 
 func debug_increase_adaptation() -> void:
 	for key in ["aggression", "trap_awareness", "pack_coordination", "night_activity", "base_curiosity", "stalk_tendency"]:
 		species_profile[key] = _clamp_profile(key, GAME_BALANCE.ADAPTATION_DEBUG_GROWTH)
 	_emit_game_event("debug_adaptation_increased", {"profile": get_profile()})
-	_post_event_message("Debug adaptation increased")
+	_post_event_message("Debug: Varnak adaptation increased")
 	profile_changed.emit(get_profile())
 
 
@@ -95,10 +115,10 @@ func _on_game_event(event_name: String, _payload: Dictionary) -> void:
 		"day_ended":
 			days_since_generation += 1
 			if days_since_generation >= days_until_next_generation:
-				_change_generation("natural_cycle")
+				_apply_adaptation_step("natural_cycle")
 
 
-func _change_generation(reason: String) -> void:
+func _apply_adaptation_step(reason: String) -> void:
 	species_profile["generation"] = int(species_profile.get("generation", 1)) + 1
 	var adapted_to_traps := trap_kills >= 1
 	var adapted_to_fire := fire_scares >= 1
@@ -119,16 +139,24 @@ func _change_generation(reason: String) -> void:
 	wall_attacks = 0
 	days_since_generation = 0
 	days_until_next_generation = _roll_generation_interval()
-	_emit_game_event("generation_changed", {"profile": get_profile(), "reason": reason})
-	_emit_game_event("center_notification", {"text": "Generation %d evolved" % int(species_profile.get("generation", 1))})
-	_post_event_message("Generation changed")
+	var adaptation_step := int(species_profile.get("generation", 1))
+	_emit_game_event("generation_changed", {"profile": get_profile(), "reason": reason, "adaptation_step": adaptation_step})
+	_emit_game_event("varnak_adaptation_changed", {"profile": get_profile(), "reason": reason, "adaptation_step": adaptation_step})
+	_emit_game_event("center_notification", {"text": "Varnaks adapted"})
+	_post_event_message("Varnaks adapted")
 	if adapted_to_traps:
 		_post_event_message("Varnaks adapted to traps")
 	if adapted_to_fire:
-		_post_event_message("Varnaks are less afraid of fire")
+		_post_event_message("Varnaks adapted to fire")
 	if adapted_to_player:
 		_post_event_message("Varnaks became more aggressive")
+	if wall_attacks >= 1:
+		_post_event_message("Varnaks became more curious")
 	profile_changed.emit(get_profile())
+
+
+func _change_generation(reason: String) -> void:
+	_apply_adaptation_step(reason)
 
 
 func _roll_generation_interval() -> int:

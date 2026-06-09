@@ -1,6 +1,8 @@
 # Apex Shift 2D Prototype
 
-Apex Shift 2D is a small Godot 4.x top-down survival prototype. The current build stabilizes the Milestone 1 / Milestone 2 vertical slice and prepares the project for the next milestone: The Pack Remembers.
+Apex Shift 2D is a small Godot 4.x top-down survival prototype focused on gathering resources, crafting tools, storing supplies, and surviving an increasingly dangerous living world.
+
+The current Varnak adaptation system is intentionally lightweight. It adjusts a single Varnak behavior profile in response to player actions such as traps, fire scares, wall attacks, and player kills. It is not a full species evolution, genetics, or population simulation model.
 
 ## Running
 
@@ -47,24 +49,26 @@ Debug tools are available inside the Debug Panel:
 - A tent can be crafted with `6`; interact with it at night to sleep until morning.
 - Missing Varnaks respawn after each night, including nights skipped by sleeping in a tent.
 - The HUD includes a compact icon bar for core actions and craftable survival skills.
-- The HUD debug section shows day, generation, trap kills, player kills, fire scares, adaptation values, and live Varnak count.
+- The HUD debug section shows day, adaptation step, trap kills, player kills, fire scares, adaptation values, and live Varnak count.
 - Campfires scare Varnaks while their `fire_fear` is high.
-- Traps can kill Varnaks and push future generations toward higher `trap_awareness`.
-- Fire scares reduce `fire_fear` and increase `stalk_tendency` on the next generation.
-- Player kills increase `aggression` and `pack_coordination` on the next generation.
+- Traps can kill Varnaks and increase `trap_awareness` in the lightweight adaptation profile.
+- Fire scares can reduce `fire_fear` and increase `stalk_tendency`.
+- Player kills can increase `aggression` and `pack_coordination`.
 - New Varnaks spawned by the Debug Panel, sleeping, day changes, or generation changes use the current adaptation profile.
 - The HUD shows health, hunger, stamina, key resources, spear status, debug values, interaction prompts, and recent system messages.
 
-## Testing Animal Adaptation
+## Testing Varnak Adaptation
 
 1. Gather nearby wood, stone, and fiber with `E`.
 2. Craft a campfire with `1` and a trap with `3`.
 3. Lure a Varnak near the campfire to trigger fire fear.
 4. Lure a Varnak into the trap to record a trap kill.
 5. Press `F3` to open the Debug Panel.
-6. Use the Debug Panel to force an animal adaptation step when needed.
+6. Use the Debug Panel to force a Varnak adaptation step when needed.
 7. Use the Debug Panel to spawn a fresh Varnak test group when needed.
 8. Watch the HUD debug values for `fire_fear`, `trap_awareness`, `aggression`, and `pack_coordination`.
+
+This is a lightweight adaptation system for prototype testing, not a full species evolution model.
 
 ## Manual Test Checklists
 
