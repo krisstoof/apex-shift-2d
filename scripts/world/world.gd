@@ -1846,6 +1846,19 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 		used_positions.append(candidate)
 		_spawn_small_prey_at(candidate, _get_biome_id(biome))
 		return true
+	var fallback_position := _find_valid_creature_position_in_biome(
+		biome,
+		player_position,
+		used_positions,
+		SMALL_PREY_MIN_DISTANCE,
+		SMALL_PREY_PLAYER_SAFE_DISTANCE,
+		small_prey_rng,
+		WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS * 2
+	)
+	if fallback_position != Vector2.INF:
+		used_positions.append(fallback_position)
+		_spawn_small_prey_at(fallback_position, _get_biome_id(biome))
+		return true
 	var player_limits: Vector2 = WORLD_CONFIG.get_player_limits()
 	for distance_step in 8:
 		var distance_factor: float = float(distance_step) / 7.0
@@ -1907,6 +1920,37 @@ func _get_biome_id_for_position(position: Vector2) -> String:
 	if biome.is_empty():
 		return ""
 	return _get_biome_id(biome)
+
+
+func _find_valid_creature_position_in_biome(
+	biome: Dictionary,
+	player_position: Vector2,
+	used_positions: Array[Vector2],
+	min_distance: float,
+	player_safe_distance: float,
+	rng: RandomNumberGenerator,
+	max_attempts: int = 96
+) -> Vector2:
+	if biome.is_empty():
+		return Vector2.INF
+	var bounds := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+	for _attempt in max_attempts:
+		var candidate := Vector2(
+			rng.randf_range(bounds.position.x, bounds.end.x),
+			rng.randf_range(bounds.position.y, bounds.end.y)
+		)
+		if not _is_point_in_biome(candidate, biome):
+			continue
+		if not _is_valid_creature_spawn_position(
+			candidate,
+			used_positions,
+			min_distance,
+			player_position,
+			player_safe_distance
+		):
+			continue
+		return candidate
+	return Vector2.INF
 
 
 func _sync_all_biome_vegetation() -> void:
@@ -2260,6 +2304,13 @@ func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2
 
 func _get_creature_horizon_spawn_ring() -> Vector2:
 	var viewport_size := get_viewport_rect().size
+	if viewport_size.x < 320.0 or viewport_size.y < 180.0:
+		viewport_size = Vector2(
+			float(ProjectSettings.get_setting("display/window/size/viewport_width", 1280)),
+			float(ProjectSettings.get_setting("display/window/size/viewport_height", 720))
+		)
+	if viewport_size.x < 320.0 or viewport_size.y < 180.0:
+		viewport_size = Vector2(1280.0, 720.0)
 	var camera_zoom := Vector2.ONE
 	var player := get_tree().get_first_node_in_group("player")
 	if player:
@@ -2268,6 +2319,9 @@ func _get_creature_horizon_spawn_ring() -> Vector2:
 			camera_zoom = camera.zoom
 	var minimum_distance := _calculate_creature_horizon_distance(viewport_size, camera_zoom)
 	var ring_width := float(GAME_BALANCE.CREATURE_SPAWN["horizon_ring_width"])
+	var min_ring := float(GAME_BALANCE.CREATURE_SPAWN.get("min_spawn_ring_distance", 360.0))
+	var max_ring := float(GAME_BALANCE.CREATURE_SPAWN.get("max_spawn_ring_distance", 1200.0))
+	minimum_distance = clampf(minimum_distance, min_ring, max_ring)
 	return Vector2(minimum_distance, minimum_distance + ring_width)
 
 
@@ -2408,6 +2462,27 @@ func _try_spawn_varnak_in_weighted_biome(player_position: Vector2, used_position
 		varnak.set("hunger", varnak_rng.randf_range(0.12, 0.42))
 		varnak.set("energy", varnak_rng.randf_range(0.72, 0.96))
 		varnak.set("decision_reason", "weighted_biome_spawn")
+		return true
+	for biome_value in _get_varnak_spawn_biomes():
+		var biome := Dictionary(biome_value)
+		var fallback_position := _find_valid_creature_position_in_biome(
+			biome,
+			player_position,
+			used_positions,
+			VARNAK_MIN_DISTANCE,
+			maxf(spawn_ring.x, WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE),
+			varnak_rng,
+			WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS
+		)
+		if fallback_position == Vector2.INF:
+			continue
+		if _is_position_inside_camera_view(fallback_position, float(GAME_BALANCE.VARNAK_SPAWN.get("avoid_camera_margin", 160.0))):
+			continue
+		used_positions.append(fallback_position)
+		var varnak := _spawn_varnak_at(fallback_position)
+		varnak.set("hunger", varnak_rng.randf_range(0.12, 0.42))
+		varnak.set("energy", varnak_rng.randf_range(0.72, 0.96))
+		varnak.set("decision_reason", "fallback_land_biome_spawn")
 		return true
 	return false
 
