@@ -1430,19 +1430,18 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	if amount <= 0:
 		return null
 	var initial_position: Vector2 = _clamp_position_to_world(drop_position)
-	# Ensure meat drop does not spawn in water or hills
-	var safe_position: Vector2 = _find_safe_drop_position("meat_drop", _get_safe_restored_resource_position("meat_drop", initial_position))
+	# Ensure meat drop does not spawn in water or hills.
+	var safe_position: Vector2 = _find_safe_drop_position(
+		"meat_drop",
+		_get_safe_restored_resource_position("meat_drop", initial_position)
+	)
 	if is_resource_position_blocked_by_water("meat_drop", safe_position):
 		push_warning("Meat drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
-	call_deferred("_spawn_meat_drop_after_query_flush", animal_kind, safe_position, amount)
-	return null
-
-
-func _spawn_meat_drop_after_query_flush(animal_kind: String, safe_position: Vector2, amount: int) -> void:
 	var node: Node = _spawn_resource_at("meat_drop", safe_position)
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
-	_update_world_object_visibility()
+	if visibility_culling_enabled:
+		_update_world_object_visibility()
 	var event_bus := _get_event_bus()
 	if event_bus:
 		event_bus.emit_game_event("animal_dropped_meat", {
@@ -1450,6 +1449,7 @@ func _spawn_meat_drop_after_query_flush(animal_kind: String, safe_position: Vect
 			"amount": amount,
 			"position": node.global_position
 		})
+	return node
 
 
 func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
@@ -1457,18 +1457,17 @@ func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	if amount <= 0:
 		return null
 	var initial_position: Vector2 = _clamp_position_to_world(drop_position)
-	var safe_position: Vector2 = _find_safe_drop_position("bone_drop", _get_safe_restored_resource_position("bone_drop", initial_position))
+	var safe_position: Vector2 = _find_safe_drop_position(
+		"bone_drop",
+		_get_safe_restored_resource_position("bone_drop", initial_position)
+	)
 	if is_resource_position_blocked_by_water("bone_drop", safe_position):
 		push_warning("Bone drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
-	call_deferred("_spawn_bone_drop_after_query_flush", animal_kind, safe_position, amount)
-	return null
-
-
-func _spawn_bone_drop_after_query_flush(animal_kind: String, safe_position: Vector2, amount: int) -> void:
 	var node: Node = _spawn_resource_at("bone_drop", safe_position)
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
-	_update_world_object_visibility()
+	if visibility_culling_enabled:
+		_update_world_object_visibility()
 	var event_bus := _get_event_bus()
 	if event_bus:
 		event_bus.emit_game_event("animal_dropped_bone", {
@@ -1476,6 +1475,7 @@ func _spawn_bone_drop_after_query_flush(animal_kind: String, safe_position: Vect
 			"amount": amount,
 			"position": node.global_position
 		})
+	return node
 
 
 func _get_meat_drop_amount(animal_kind: String) -> int:
