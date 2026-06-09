@@ -4,9 +4,12 @@ const GAME_SCENE_PATH := "res://scenes/main.tscn"
 const SETTINGS_SCENE_PATH := "res://scenes/ui/settings_menu.tscn"
 const APP_VERSION := preload("res://scripts/systems/app_version.gd")
 
-const PANEL_SIZE := Vector2(520.0, 360.0)
+const PANEL_SIZE := Vector2(620.0, 520.0)
 const BUTTON_HEIGHT := 42.0
 const SIDE_MARGIN := 28.0
+const GAME_GOAL_TEXT := "Survive, gather resources, craft tools, store supplies,\nand observe how the ecosystem reacts."
+const CONTROLS_TEXT := "Controls:\nWASD - Move\nE - Interact\nI - Inventory\nM - Map\nEsc - Pause\nF3 - Debug"
+const STORAGE_HINT_TEXT := "Storage boxes can hold supplies."
 
 var main_panel: PanelContainer
 var new_game_button: Button
@@ -52,7 +55,7 @@ func _build_ui() -> void:
 	main_panel.add_child(main_margin)
 
 	var main_stack := VBoxContainer.new()
-	main_stack.add_theme_constant_override("separation", 12)
+	main_stack.add_theme_constant_override("separation", 9)
 	main_margin.add_child(main_stack)
 
 	var title := Label.new()
@@ -66,6 +69,14 @@ func _build_ui() -> void:
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", 15)
 	main_stack.add_child(subtitle)
+
+	var info_spacer := Control.new()
+	info_spacer.custom_minimum_size = Vector2(0.0, 6.0)
+	main_stack.add_child(info_spacer)
+
+	_add_info_label(main_stack, GAME_GOAL_TEXT, 14)
+	_add_info_label(main_stack, CONTROLS_TEXT, 13)
+	_add_info_label(main_stack, STORAGE_HINT_TEXT, 13)
 
 	var spacer := Control.new()
 	spacer.custom_minimum_size = Vector2(0.0, 8.0)
@@ -81,7 +92,7 @@ func _build_ui() -> void:
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_label.add_theme_font_size_override("font_size", 14)
-	status_label.custom_minimum_size = Vector2(0.0, 56.0)
+	status_label.custom_minimum_size = Vector2(0.0, 48.0)
 	main_stack.add_child(status_label)
 
 
@@ -93,6 +104,17 @@ func _add_main_button(stack: VBoxContainer, label: String, callback: Callable) -
 	button.pressed.connect(callback)
 	stack.add_child(button)
 	return button
+
+
+func _add_info_label(stack: VBoxContainer, text: String, font_size: int = 14) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.add_theme_font_size_override("font_size", font_size)
+	stack.add_child(label)
+	return label
 
 
 func _apply_panel_margins(container: MarginContainer) -> void:
