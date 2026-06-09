@@ -82,6 +82,7 @@ const NIGHT_REDRAW_MIN_DELTA := 0.03
 const PLANT_RESOURCE_KINDS := [
 	"conifer_tree",
 	"leafy_tree",
+	"dry_tree",
 	"bush",
 	"dry_bush",
 	"small_bush",
@@ -1049,6 +1050,7 @@ func _spawn_resources() -> void:
 
 	await _spawn_resource_kind("conifer_tree", conifer_count, used_positions, player_position)
 	await _spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
+	await _spawn_resource_kind("dry_tree", int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.10)), used_positions, player_position)
 	await _spawn_resource_kind("rock", WORLD_CONFIG.ROCK_COUNT, used_positions, player_position)
 	await _spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
 	await _spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
@@ -1475,12 +1477,20 @@ func _pick_resource_biome(resource_kind: String) -> Dictionary:
 
 func _get_biome_resource_weight(biome: Dictionary, resource_kind: String) -> float:
 	match resource_kind:
-		"tree", "conifer_tree", "leafy_tree":
-			return float(biome.get("tree_weight", 0.0))
+		"tree", "conifer_tree":
+			return float(biome.get("conifer_tree_weight", biome.get("tree_weight", 0.0)))
+		"leafy_tree":
+			return float(biome.get("leafy_tree_weight", biome.get("tree_weight", 0.0)))
+		"dry_tree":
+			return float(biome.get("dry_tree_weight", biome.get("tree_weight", 0.0)))
 		"rock":
 			return float(biome.get("rock_weight", 0.0))
-		"bush", "dry_bush", "small_bush", "berry_bush":
+		"bush", "small_bush":
 			return float(biome.get("bush_weight", 0.0))
+		"dry_bush":
+			return float(biome.get("dry_bush_weight", biome.get("bush_weight", 0.0)))
+		"berry_bush":
+			return float(biome.get("berry_bush_weight", biome.get("bush_weight", 0.0)))
 		"grass_patch", "dense_grass":
 			return float(biome.get("grass_weight", 0.0))
 		_:
@@ -1886,9 +1896,11 @@ func _get_biome_resource_target_count(biome: Dictionary, resource_kind: String) 
 func _get_base_resource_count(resource_kind: String) -> int:
 	match resource_kind:
 		"conifer_tree":
-			return int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.6))
+			return int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.50))
 		"leafy_tree":
-			return WORLD_CONFIG.TREE_COUNT - int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.6))
+			return WORLD_CONFIG.TREE_COUNT - int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.50)) - int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.10))
+		"dry_tree":
+			return int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.10))
 		"bush":
 			return WORLD_CONFIG.BUSH_COUNT - int(ceil(float(WORLD_CONFIG.BUSH_COUNT) * 0.35))
 		"dry_bush":
