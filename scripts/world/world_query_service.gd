@@ -178,10 +178,10 @@ func _get_pond_shape_scale(pond: Dictionary, angle: float) -> float:
 
 func _get_pond_shape_seed(pond: Dictionary) -> float:
 	var pond_id := str(pond.get("id", "pond"))
-	var seed := 0
+	var hash_value := 0
 	for i in pond_id.length():
-		seed = (seed + pond_id.unicode_at(i) * (i + 3)) % 997
-	return float(seed) / 997.0 * TAU
+		hash_value = (hash_value + pond_id.unicode_at(i) * (i + 3)) % 997
+	return float(hash_value) / 997.0 * TAU
 
 
 func _get_pond_shape_irregularity() -> float:

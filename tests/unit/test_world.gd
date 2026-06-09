@@ -1089,6 +1089,39 @@ func _test_world_object_visibility_culls_and_restores_group_nodes(failures: Arra
 	for node in outside_nodes:
 		node.free()
 	shared_creature.free()
+	_test_world_visibility_culls_newly_registered_nodes_start_hidden(failures)
+	world.free()
+
+
+func _test_world_visibility_culls_newly_registered_nodes_start_hidden(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	TEST_UTILS.expect(tree != null and tree.current_scene != null, failures, "Test runner should provide a current scene for visibility culling registration tests")
+	if tree == null or tree.current_scene == null:
+		return
+	var world := VisibilityCullingWorld.new()
+	tree.current_scene.add_child(world)
+	var resource := Node2D.new()
+	resource.position = Vector2(900.0, 0.0)
+	resource.add_to_group("resources")
+	tree.current_scene.add_child(resource)
+	world.register_resource_node(resource)
+	TEST_UTILS.expect_equal(resource.visible, false, failures, "World visibility culling should hide newly registered resources immediately")
+	var creature := Node2D.new()
+	creature.position = Vector2(900.0, 64.0)
+	creature.add_to_group("small_prey")
+	tree.current_scene.add_child(creature)
+	world.register_creature_node(creature, "small_prey")
+	TEST_UTILS.expect_equal(creature.visible, false, failures, "World visibility culling should hide newly registered creatures immediately")
+	var visible_rect := Rect2(Vector2(832.0, -128.0), Vector2(256.0, 256.0))
+	world.call("_set_world_object_visibility_by_rect", visible_rect)
+	TEST_UTILS.expect_equal(resource.visible, true, failures, "World visibility culling should show registered resources when they enter the visible rect")
+	TEST_UTILS.expect_equal(creature.visible, true, failures, "World visibility culling should show registered creatures when they enter the visible rect")
+	var hidden_rect := Rect2(Vector2(-128.0, -128.0), Vector2(256.0, 256.0))
+	world.call("_set_world_object_visibility_by_rect", hidden_rect)
+	TEST_UTILS.expect_equal(resource.visible, false, failures, "World visibility culling should hide registered resources again after they leave the visible rect")
+	TEST_UTILS.expect_equal(creature.visible, false, failures, "World visibility culling should hide registered creatures again after they leave the visible rect")
+	resource.free()
+	creature.free()
 	world.free()
 
 
