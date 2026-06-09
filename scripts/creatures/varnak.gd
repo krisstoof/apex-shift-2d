@@ -271,6 +271,7 @@ func _physics_process(delta: float) -> void:
 	_update_individual_energy(delta, velocity.length() / max(speed, 1.0))
 	move_and_slide()
 	_enforce_world_bounds()
+	_update_spatial_cell_tick(delta)
 
 
 func force_ai_decision_for_tests() -> void:
@@ -527,7 +528,8 @@ func _set_nearest_meat_target(search_range: float) -> bool:
 func _find_nearest_meat_drop(search_range: float) -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := search_range
-	for resource in _get_cached_group_nodes("meat_drops"):
+	var candidates := _get_nearby_meat(search_range)
+	for resource in candidates:
 		if not is_instance_valid(resource):
 			continue
 		if not (resource is Node2D):
@@ -586,7 +588,8 @@ func _find_ecosystem_target() -> Node2D:
 	for group_name in ["small_prey", "grazer"]:
 		if _is_species_population_critical(group_name):
 			continue
-		for creature in _get_cached_group_nodes(group_name):
+		var candidates := _get_nearby_creatures(detect_range, group_name)
+		for creature in candidates:
 			if not is_instance_valid(creature):
 				continue
 			if not _get_world_rect().has_point(creature.global_position):
@@ -1183,6 +1186,38 @@ func _get_cached_group_nodes(group_name: String) -> Array:
 	if world and world.has_method("get_cached_group_nodes"):
 		return world.get_cached_group_nodes(group_name)
 	return get_tree().get_nodes_in_group(group_name)
+
+
+func _get_nearby_meat(search_range: float) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_meat_near"):
+		return world.get_meat_near(global_position, search_range)
+	return _get_cached_group_nodes("meat_drops")
+
+
+func _get_nearby_creatures(search_range: float, creature_type_filter: Variant = null) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_creatures_near"):
+		return world.get_creatures_near(global_position, search_range, creature_type_filter)
+	return _get_cached_group_nodes(str(creature_type_filter))
+
+
+const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
+var spatial_update_timer := 0.0
+
+
+func _update_spatial_cell_tick(delta: float) -> void:
+	spatial_update_timer -= delta
+	if spatial_update_timer > 0.0:
+		return
+	spatial_update_timer = SPATIAL_UPDATE_INTERVAL_SECONDS
+	_update_spatial_cell()
+
+
+func _update_spatial_cell() -> void:
+	var world := _get_world_node()
+	if world and world.has_method("update_spatial_entity_cell"):
+		world.update_spatial_entity_cell(self)
 
 
 func _is_debug_overlay_visible() -> bool:

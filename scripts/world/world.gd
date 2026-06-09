@@ -693,6 +693,22 @@ func _ensure_registry():
 	return registry
 
 
+func update_spatial_entity_cell(node: Node) -> void:
+	_ensure_registry().update_entity_cell(node)
+
+
+func get_resources_near(position: Vector2, radius: float, kind_filter: Variant = null) -> Array:
+	return _ensure_registry().get_resources_near(position, radius, kind_filter)
+
+
+func get_creatures_near(position: Vector2, radius: float, creature_type_filter: Variant = null) -> Array:
+	return _ensure_registry().get_creatures_near(position, radius, creature_type_filter)
+
+
+func get_meat_near(position: Vector2, radius: float) -> Array:
+	return _ensure_registry().get_meat_near(position, radius)
+
+
 func _ensure_landmark_service():
 	if landmark_service == null:
 		landmark_service = LANDMARK_SERVICE_SCRIPT.new()

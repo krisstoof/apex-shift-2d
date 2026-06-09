@@ -303,6 +303,7 @@ func _physics_process(delta: float) -> void:
 	_act(delta)
 	move_and_slide()
 	_enforce_world_bounds()
+	_update_spatial_cell_tick(delta)
 
 
 func force_ai_decision_for_tests() -> void:
@@ -638,7 +639,15 @@ func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := search_range
 	var current_biome_id := _get_current_biome_id()
-	for vegetation in _get_cached_group_nodes("edible_vegetation"):
+	var candidates := _get_nearby_resources(search_range, [
+		"bush",
+		"dry_bush",
+		"small_bush",
+		"berry_bush",
+		"grass_patch",
+		"dense_grass"
+	])
+	for vegetation in candidates:
 		if not _is_edible_vegetation_target(vegetation):
 			continue
 		var distance := global_position.distance_to(vegetation.global_position)
@@ -655,7 +664,15 @@ func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
 func _find_nearest_consumable_vegetation() -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := INF
-	for vegetation in _get_cached_group_nodes("edible_vegetation"):
+	var candidates := _get_nearby_resources(vegetation_consume_range + 80.0, [
+		"bush",
+		"dry_bush",
+		"small_bush",
+		"berry_bush",
+		"grass_patch",
+		"dense_grass"
+	])
+	for vegetation in candidates:
 		if not _is_edible_vegetation_target(vegetation):
 			continue
 		var distance := global_position.distance_to(vegetation.global_position)
@@ -731,7 +748,8 @@ func _set_nearest_meat_target(search_range: float = meat_eat_range) -> bool:
 func _find_nearest_meat_drop(search_range: float) -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := search_range
-	for resource in _get_cached_group_nodes("meat_drops"):
+	var candidates := _get_nearby_meat(search_range)
+	for resource in candidates:
 		if not is_instance_valid(resource):
 			continue
 		if not (resource is Node2D):
@@ -800,7 +818,7 @@ func _get_flee_origin() -> Vector2:
 		if player_distance < player_flee_range * fear and aggression < 0.45:
 			nearest_origin = player.global_position
 			nearest_distance = player_distance
-	for varnak in _get_cached_group_nodes("varnak"):
+	for varnak in _get_nearby_creatures(varnak_flee_range * fear, "varnak"):
 		if not is_instance_valid(varnak):
 			continue
 		var distance := global_position.distance_to(varnak.global_position)
@@ -813,7 +831,8 @@ func _get_flee_origin() -> Vector2:
 func _find_nearest_small_prey() -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := INF
-	for small_prey in _get_cached_group_nodes("small_prey"):
+	var candidates := _get_nearby_creatures(small_prey_detect_range, "small_prey")
+	for small_prey in candidates:
 		if not is_instance_valid(small_prey):
 			continue
 		var distance := global_position.distance_to(small_prey.global_position)
@@ -1243,6 +1262,45 @@ func _get_cached_group_nodes(group_name: String) -> Array:
 	if world and world.has_method("get_cached_group_nodes"):
 		return world.get_cached_group_nodes(group_name)
 	return get_tree().get_nodes_in_group(group_name)
+
+
+func _get_nearby_resources(search_range: float, kind_filter: Variant = null) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_resources_near"):
+		return world.get_resources_near(global_position, search_range, kind_filter)
+	return _get_cached_group_nodes("edible_vegetation")
+
+
+func _get_nearby_meat(search_range: float) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_meat_near"):
+		return world.get_meat_near(global_position, search_range)
+	return _get_cached_group_nodes("meat_drops")
+
+
+func _get_nearby_creatures(search_range: float, creature_type_filter: Variant = null) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_creatures_near"):
+		return world.get_creatures_near(global_position, search_range, creature_type_filter)
+	return _get_cached_group_nodes(str(creature_type_filter))
+
+
+const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
+var spatial_update_timer := 0.0
+
+
+func _update_spatial_cell_tick(delta: float) -> void:
+	spatial_update_timer -= delta
+	if spatial_update_timer > 0.0:
+		return
+	spatial_update_timer = SPATIAL_UPDATE_INTERVAL_SECONDS
+	_update_spatial_cell()
+
+
+func _update_spatial_cell() -> void:
+	var world := _get_world_node()
+	if world and world.has_method("update_spatial_entity_cell"):
+		world.update_spatial_entity_cell(self)
 
 
 func _initialize_from_game_balance() -> void:
