@@ -147,6 +147,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 	var small_prey_spawn_sync: Dictionary = {}
 	var varnak_spawn_sync: Dictionary = {}
 	var varnak_population: Dictionary = {}
+	var creature_ai_state_counts: Dictionary = {}
 	var visibility_culling: Dictionary = {}
 	var landmark_overlay_enabled := false
 	var biome_textures_enabled := true
@@ -177,6 +178,11 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 			varnak_spawn_sync = Dictionary(active_world.get_varnak_spawn_sync_debug())
 		if active_world.has_method("get_varnak_population_status"):
 			varnak_population = Dictionary(active_world.get_varnak_population_status())
+		creature_ai_state_counts = {
+			"small_prey": _count_ai_states(_get_world_creatures_from_world(active_world, "small_prey")),
+			"grazer": _count_ai_states(_get_world_creatures_from_world(active_world, "grazer")),
+			"varnak": _count_ai_states(_get_world_creatures_from_world(active_world, "varnak"))
+		}
 		if active_world.has_method("get_visibility_culling_debug"):
 			visibility_culling = Dictionary(active_world.get_visibility_culling_debug())
 		if active_world.has_method("is_landmark_debug_overlay_enabled"):
@@ -213,6 +219,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 		"small_prey_spawn_sync": small_prey_spawn_sync,
 		"varnak_spawn_sync": varnak_spawn_sync,
 		"varnak_population": varnak_population,
+		"creature_ai_state_counts": creature_ai_state_counts,
 		"visibility_culling": visibility_culling,
 		"landmark_overlay_enabled": landmark_overlay_enabled,
 		"biome_textures_enabled": biome_textures_enabled,
@@ -261,6 +268,49 @@ func _build_creature_markers(creature_type: String) -> Array[Dictionary]:
 			"type": creature_type
 		})
 	return markers
+
+
+func _get_world_creatures_from_world(active_world: Node, creature_type: String) -> Array:
+	if active_world == null:
+		return []
+	if active_world.has_method("get_registered_creatures_by_type"):
+		return active_world.get_registered_creatures_by_type(creature_type)
+	return []
+
+
+func _count_ai_states(nodes: Array) -> Dictionary:
+	var counts: Dictionary = {}
+	for node in nodes:
+		if not is_instance_valid(node):
+			continue
+		var state_name := ""
+		if node.has_method("get_debug_ai_state"):
+			state_name = str(node.get_debug_ai_state())
+		elif node.has_method("get_debug_data"):
+			var data: Dictionary = node.get_debug_data()
+			state_name = str(data.get("state", ""))
+		if state_name.is_empty():
+			continue
+		state_name = _normalize_ai_state_label(state_name)
+		if state_name.is_empty():
+			continue
+		counts[state_name] = int(counts.get(state_name, 0)) + 1
+	return counts
+
+
+func _normalize_ai_state_label(state_name: String) -> String:
+	var normalized := state_name.strip_edges().to_lower()
+	if normalized.is_empty():
+		return ""
+	if normalized.contains("flee"):
+		return "fleeing"
+	if normalized.contains("eat"):
+		return "eating"
+	if normalized.contains("hunt") or normalized.contains("stalk") or normalized.contains("chase") or normalized.contains("attack"):
+		return "hunting"
+	if normalized.contains("hungry") or normalized.contains("starv"):
+		return "hungry"
+	return "wandering" if normalized.contains("wander") or normalized.contains("idle") else normalized
 
 
 func _build_ecosystem_snapshot() -> Dictionary:

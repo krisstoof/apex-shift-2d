@@ -2,6 +2,9 @@ extends RefCounted
 
 const HUD_SCENE := preload("res://scenes/ui/hud.tscn")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
+const SMALL_PREY_SCENE := preload("res://scripts/creatures/small_prey.gd")
+const GRAZER_SCENE := preload("res://scripts/creatures/grazer.gd")
+const VARKAN_SCENE := preload("res://scripts/creatures/varnak.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -61,6 +64,7 @@ func run() -> Array[String]:
 	await _test_debug_panel_refreshes_snapshot_when_visible(failures)
 	await _test_debug_panel_refreshes_overlays_only_for_creatures_tab(failures)
 	await _test_population_recovery_debug_lines_explain_population_changes(failures)
+	await _test_creature_debug_ai_state_methods_return_text(failures)
 	return failures
 
 
@@ -127,6 +131,9 @@ func _test_debug_panel_refreshes_snapshot_when_visible(failures: Array[String]) 
 	debug_panel.call("bind", mock_player, mock_director, mock_day_night, null, mock_service)
 	debug_panel.call("set_open", true)
 	debug_panel.call("_on_debug_tab_changed", 1)
+	var refresh_count_before := mock_service.refresh_count
+	debug_panel.call("_process", 0.1)
+	TEST_UTILS.expect_equal(mock_service.refresh_count, refresh_count_before, failures, "Visible debug panel should not refresh the snapshot before the timer interval elapses")
 	debug_panel.call("_process", 0.6)
 	var first_text := str(debug_panel.get_node("Panel/StateScroll/StateLabel").text)
 	mock_service.snapshot = {
@@ -181,6 +188,18 @@ func _test_population_recovery_debug_lines_explain_population_changes(failures: 
 	TEST_UTILS.expect(lines[1].contains("6/14/25"), failures, "Grazer debug line should show min, target, and max populations")
 	TEST_UTILS.expect(lines[1].contains("starve 0.15"), failures, "Grazer debug line should show starvation pressure")
 	hud.queue_free()
+
+
+func _test_creature_debug_ai_state_methods_return_text(failures: Array[String]) -> void:
+	var small_prey := SMALL_PREY_SCENE.new()
+	small_prey.set("state", 1)
+	TEST_UTILS.expect(not str(small_prey.call("get_debug_ai_state")).is_empty(), failures, "SmallPrey debug AI state should return visible text")
+	var grazer := GRAZER_SCENE.new()
+	grazer.set("state", 1)
+	TEST_UTILS.expect(not str(grazer.call("get_debug_ai_state")).is_empty(), failures, "Grazer debug AI state should return visible text")
+	var varnak := VARKAN_SCENE.new()
+	varnak.set("state", 1)
+	TEST_UTILS.expect(not str(varnak.call("get_debug_ai_state")).is_empty(), failures, "Varnak debug AI state should return visible text")
 
 
 func _instantiate_hud() -> CanvasLayer:
