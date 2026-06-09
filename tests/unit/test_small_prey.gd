@@ -59,6 +59,7 @@ func run() -> Array[String]:
 	_test_small_prey_eats_valid_food(failures)
 	_test_small_prey_does_not_eat_invalid_food(failures)
 	_test_small_prey_hunger_restored_after_eating(failures)
+	_test_small_prey_restore_from_data_handles_null_fields(failures)
 	_test_small_prey_takes_damage_and_flees(failures)
 	_test_small_prey_dies_and_drops_meat(failures)
 	return failures
@@ -219,6 +220,20 @@ func _test_small_prey_hunger_restored_after_eating(failures: Array[String]) -> v
 	prey.call("_consume_plants")
 	TEST_UTILS.expect(prey.hunger_diet.hunger < 0.10, failures, "Eating should reduce hunger")
 	resource.queue_free()
+	prey.queue_free()
+
+
+func _test_small_prey_restore_from_data_handles_null_fields(failures: Array[String]) -> void:
+	var prey := _make_small_prey()
+	var before_health: float = prey.health
+	prey.restore_from_data({
+		"facing_angle": null,
+		"health": null,
+		"speed": null,
+		"dropped_meat": null
+	})
+	TEST_UTILS.expect_close(prey.health, before_health, failures, "Small prey restore should ignore null health values")
+	TEST_UTILS.expect(prey.facing_angle == prey.facing_angle, failures, "Small prey restore should not produce an invalid facing angle")
 	prey.queue_free()
 
 

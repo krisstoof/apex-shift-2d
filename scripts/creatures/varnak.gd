@@ -183,25 +183,62 @@ func get_debug_ai_state() -> String:
 func restore_from_data(data: Dictionary) -> void:
 	species_id = str(data.get("species_id", species_id))
 	species_name = str(data.get("species_name", species_name))
-	generation = max(int(data.get("generation", generation)), 1)
+	generation = max(_safe_int(data, "generation", generation), 1)
 	population_biome_id = str(data.get("population_biome_id", population_biome_id))
 	global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
-	facing_angle = float(data.get("facing_angle", data.get("rotation", facing_angle)))
-	facing_side = float(data.get("facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0))
-	max_health = max(float(data.get("max_health", max_health)), 1.0)
-	health = clamp(float(data.get("health", health)), 0.0, max_health)
-	hunger = clamp(float(data.get("hunger", hunger)), 0.0, 1.0)
-	energy = clamp(float(data.get("energy", energy)), 0.0, 1.0)
-	age_seconds = max(float(data.get("age_seconds", age_seconds)), 0.0)
-	night_health_bonus_active = data.get("night_health_bonus_active", night_health_bonus_active) == true
-	state = int(data.get("state", State.WANDER))
+	facing_angle = _safe_float(data, "facing_angle", _safe_float(data, "rotation", facing_angle))
+	facing_side = _safe_float(data, "facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0)
+	max_health = max(_safe_float(data, "max_health", max_health), 1.0)
+	health = clamp(_safe_float(data, "health", health), 0.0, max_health)
+	hunger = clamp(_safe_float(data, "hunger", hunger), 0.0, 1.0)
+	energy = clamp(_safe_float(data, "energy", energy), 0.0, 1.0)
+	age_seconds = max(_safe_float(data, "age_seconds", age_seconds), 0.0)
+	night_health_bonus_active = _safe_bool(data, "night_health_bonus_active", night_health_bonus_active)
+	state = _safe_int(data, "state", State.WANDER)
 	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
-	attack_cooldown = float(data.get("attack_cooldown", attack_cooldown))
+	attack_cooldown = _safe_float(data, "attack_cooldown", attack_cooldown)
 	last_food_source = str(data.get("last_food_source", last_food_source))
-	meat_diet = float(data.get("meat_diet", meat_diet))
-	scavenger_diet = float(data.get("scavenger_diet", scavenger_diet))
-	dropped_meat = data.get("dropped_meat", dropped_meat) == true
+	meat_diet = _safe_float(data, "meat_diet", meat_diet)
+	scavenger_diet = _safe_float(data, "scavenger_diet", scavenger_diet)
+	dropped_meat = _safe_bool(data, "dropped_meat", dropped_meat)
 	queue_redraw()
+
+
+func _safe_float(data: Dictionary, key: String, fallback: float) -> float:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+		return float(value)
+	if typeof(value) == TYPE_STRING and str(value).is_valid_float():
+		return float(value)
+	return fallback
+
+
+func _safe_int(data: Dictionary, key: String, fallback: int) -> int:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+		return int(value)
+	if typeof(value) == TYPE_STRING and str(value).is_valid_int():
+		return int(value)
+	return fallback
+
+
+func _safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_BOOL:
+		return bool(value)
+	if typeof(value) == TYPE_STRING:
+		var normalized := str(value).to_lower()
+		if normalized == "true":
+			return true
+		if normalized == "false":
+			return false
+	return fallback
 
 
 func _physics_process(delta: float) -> void:
