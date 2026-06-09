@@ -352,6 +352,18 @@ func _set_world_object_visibility_by_rect(visible_rect: Rect2) -> void:
 	visibility_cull_last_visible_nodes = current_visible_nodes
 
 
+func _set_visibility_culled_node(node: Node, should_be_visible: bool) -> void:
+	if not is_instance_valid(node):
+		return
+	var node_2d := node as Node2D
+	if node_2d == null:
+		return
+	if node.is_in_group("resources") and node.has_method("set_visibility_culled"):
+		node.call("set_visibility_culled", should_be_visible)
+	else:
+		node_2d.visible = should_be_visible
+
+
 func _mark_visibility_candidate(node: Node, is_resource: bool, current_visible_nodes: Dictionary) -> void:
 	if not is_instance_valid(node):
 		return
@@ -360,10 +372,7 @@ func _mark_visibility_candidate(node: Node, is_resource: bool, current_visible_n
 		return
 	var instance_id := node.get_instance_id()
 	current_visible_nodes[instance_id] = node
-	if is_resource and node.has_method("set_visibility_culled"):
-		node.call("set_visibility_culled", true)
-	else:
-		node_2d.visible = true
+	_set_visibility_culled_node(node, true)
 	if is_resource:
 		visibility_cull_last_visible_resources += 1
 	else:
@@ -384,10 +393,7 @@ func _hide_nodes_that_left_visibility_rect(current_visible_nodes: Dictionary) ->
 		if node_2d == null:
 			continue
 		var is_resource := previous_node.is_in_group("resources")
-		if is_resource and previous_node.has_method("set_visibility_culled"):
-			previous_node.call("set_visibility_culled", false)
-		else:
-			node_2d.visible = false
+		_set_visibility_culled_node(previous_node, false)
 		if is_resource:
 			visibility_cull_last_hidden_resources += 1
 		else:
@@ -690,10 +696,14 @@ func get_registered_buildings_by_type(building_type: String) -> Array:
 
 func register_resource_node(node: Node) -> void:
 	_ensure_registry().register_resource(node)
+	if visibility_culling_enabled:
+		_set_visibility_culled_node(node, false)
 
 
 func register_creature_node(node: Node, creature_type: String) -> void:
 	_ensure_registry().register_creature(node, creature_type)
+	if visibility_culling_enabled:
+		_set_visibility_culled_node(node, false)
 
 
 func register_building_node(node: Node, building_type: String) -> void:
@@ -1432,6 +1442,7 @@ func _spawn_meat_drop_after_query_flush(animal_kind: String, safe_position: Vect
 	var node: Node = _spawn_resource_at("meat_drop", safe_position)
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
+	_update_world_object_visibility()
 	var event_bus := _get_event_bus()
 	if event_bus:
 		event_bus.emit_game_event("animal_dropped_meat", {
@@ -1457,6 +1468,7 @@ func _spawn_bone_drop_after_query_flush(animal_kind: String, safe_position: Vect
 	var node: Node = _spawn_resource_at("bone_drop", safe_position)
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
+	_update_world_object_visibility()
 	var event_bus := _get_event_bus()
 	if event_bus:
 		event_bus.emit_game_event("animal_dropped_bone", {

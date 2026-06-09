@@ -773,9 +773,9 @@ func _get_current_ecosystem_state() -> Dictionary:
 	return ecosystem.get_biome_state(biome_id)
 
 
-func _get_biome_id_for_position(position: Vector2) -> String:
+func _get_biome_id_for_position(world_position: Vector2) -> String:
 	for biome in WORLD_CONFIG.get_biome_zones():
-		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
+		if Geometry2D.is_point_in_polygon(world_position, PackedVector2Array(biome["points"])):
 			return _get_biome_id(biome)
 	return ""
 
@@ -812,12 +812,12 @@ func _get_navigation_direction(desired_direction: Vector2, target: Vector2) -> V
 	return fallback if fallback.length_squared() > 0.0 else Vector2.RIGHT
 
 
-func _is_navigation_position_valid(position: Vector2) -> bool:
-	var clamped_position := _clamp_to_world(position)
-	if clamped_position.distance_squared_to(position) > 0.01:
+func _is_navigation_position_valid(world_position: Vector2) -> bool:
+	var clamped_position := _clamp_to_world(world_position)
+	if clamped_position.distance_squared_to(world_position) > 0.01:
 		return false
 	var world_query: Variant = _get_world_query()
-	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(position) == true:
+	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(world_position) == true:
 		return false
 	return true
 
