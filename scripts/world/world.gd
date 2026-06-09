@@ -361,7 +361,7 @@ func _set_visibility_culled_node(node: Node, should_be_visible: bool) -> void:
 	var node_2d := node as Node2D
 	if node_2d == null:
 		return
-	if node.is_in_group("resources") and node.has_method("set_visibility_culled"):
+	if node.has_method("set_visibility_culled"):
 		node.call("set_visibility_culled", should_be_visible)
 	else:
 		node_2d.visible = should_be_visible

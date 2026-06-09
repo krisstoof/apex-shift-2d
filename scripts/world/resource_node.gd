@@ -44,6 +44,7 @@ var pond_id := ""
 var food_bonus_multiplier := 1.0
 var pond_visual_multiplier := 1.0
 var biome_id := ""
+var is_visibility_culled := false
 
 
 func _get_event_bus() -> Node:
@@ -499,8 +500,13 @@ func is_render_only_resource() -> bool:
 
 
 func set_visibility_culled(should_be_visible: bool) -> void:
+	is_visibility_culled = not should_be_visible
 	visible = should_be_visible
 	_sync_collision_state(should_be_visible)
+	set_process(should_be_visible)
+	set_physics_process(should_be_visible)
+	if should_be_visible:
+		queue_redraw()
 
 
 func _is_render_only_kind() -> bool:

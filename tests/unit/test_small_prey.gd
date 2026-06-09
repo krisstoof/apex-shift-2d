@@ -60,6 +60,7 @@ func run() -> Array[String]:
 	_test_small_prey_does_not_eat_invalid_food(failures)
 	_test_small_prey_hunger_restored_after_eating(failures)
 	_test_small_prey_restore_from_data_handles_null_fields(failures)
+	_test_small_prey_visibility_culling_sleeps_ai_and_collision(failures)
 	_test_small_prey_takes_damage_and_flees(failures)
 	_test_small_prey_dies_and_drops_meat(failures)
 	return failures
@@ -234,6 +235,35 @@ func _test_small_prey_restore_from_data_handles_null_fields(failures: Array[Stri
 	})
 	TEST_UTILS.expect_close(prey.health, before_health, failures, "Small prey restore should ignore null health values")
 	TEST_UTILS.expect(prey.facing_angle == prey.facing_angle, failures, "Small prey restore should not produce an invalid facing angle")
+	prey.queue_free()
+
+
+func _test_small_prey_visibility_culling_sleeps_ai_and_collision(failures: Array[String]) -> void:
+	var prey := _make_small_prey()
+	prey.player = Node2D.new()
+	prey.player.global_position = Vector2(100000.0, 100000.0)
+	var original_layer: int = prey.collision_layer
+	var original_mask: int = prey.collision_mask
+	var before_position: Vector2 = prey.global_position
+	var before_ai_decisions: int = prey.ai_decision_count
+	TEST_UTILS.expect(prey.has_method("set_visibility_culled"), failures, "Small prey should expose visibility culling")
+	prey.call("set_visibility_culled", false)
+	TEST_UTILS.expect_equal(prey.visible, false, failures, "Culled small prey should be hidden")
+	TEST_UTILS.expect_equal(bool(prey.get("is_visibility_culled")), true, failures, "Culled small prey should remember they are sleeping")
+	TEST_UTILS.expect_equal(prey.collision_layer, 0, failures, "Culled small prey should disable its collision layer")
+	TEST_UTILS.expect_equal(prey.collision_mask, 0, failures, "Culled small prey should disable its collision mask")
+	TEST_UTILS.expect_equal(prey.is_physics_processing(), false, failures, "Culled small prey should stop physics processing")
+	TEST_UTILS.expect_equal(prey.is_processing(), false, failures, "Culled small prey should stop frame processing")
+	prey.call("_physics_process", 0.2)
+	TEST_UTILS.expect_equal(prey.ai_decision_count, before_ai_decisions, failures, "Sleeping small prey should not advance AI decisions")
+	TEST_UTILS.expect_equal(prey.global_position, before_position, failures, "Sleeping small prey should not move")
+	prey.call("set_visibility_culled", true)
+	TEST_UTILS.expect_equal(prey.visible, true, failures, "Reactivated small prey should be visible")
+	TEST_UTILS.expect_equal(bool(prey.get("is_visibility_culled")), false, failures, "Reactivated small prey should clear the sleeping flag")
+	TEST_UTILS.expect_equal(prey.collision_layer, original_layer, failures, "Reactivated small prey should restore its collision layer")
+	TEST_UTILS.expect_equal(prey.collision_mask, original_mask, failures, "Reactivated small prey should restore its collision mask")
+	TEST_UTILS.expect_equal(prey.is_physics_processing(), true, failures, "Reactivated small prey should resume physics")
+	TEST_UTILS.expect_equal(prey.is_processing(), true, failures, "Reactivated small prey should resume frame processing")
 	prey.queue_free()
 
 
