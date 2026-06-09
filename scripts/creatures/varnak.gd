@@ -21,6 +21,7 @@ const DEBUG_FRAME_FONT_SIZE := 11
 const BASE_HUNGER_TIME_SCALE := 0.05
 const MOVEMENT_HUNGER_TIME_SCALE := 0.06
 const AI_DECISION_INTERVAL_SECONDS := 0.14
+const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
 
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
@@ -60,6 +61,7 @@ var decision_reason := "spawn"
 var ai_decision_interval := 0.30
 var ai_decision_timer := 0.0
 var ai_decision_count := 0
+var spatial_update_timer := 0.0
 var is_dead := false
 var meat_diet := 1.0
 var scavenger_diet := 0.45
@@ -1200,10 +1202,6 @@ func _get_nearby_creatures(search_range: float, creature_type_filter: Variant = 
 	if world and world.has_method("get_creatures_near"):
 		return world.get_creatures_near(global_position, search_range, creature_type_filter)
 	return _get_cached_group_nodes(str(creature_type_filter))
-
-
-const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
-var spatial_update_timer := 0.0
 
 
 func _update_spatial_cell_tick(delta: float) -> void:

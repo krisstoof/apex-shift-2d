@@ -11,6 +11,8 @@ var entity_types: Dictionary = {}
 
 
 func register_entity(entity: Node, category: String = "", type_name: String = "") -> void:
+	if not _is_supported_category(category):
+		return
 	if not _is_live_entity(entity):
 		return
 	unregister_entity(entity)
@@ -26,8 +28,6 @@ func unregister_entity(entity: Node) -> void:
 	if entity == null:
 		return
 	if not is_instance_valid(entity):
-		var stale_id := entity.get_instance_id()
-		_cleanup_stale_entity(stale_id)
 		return
 	var instance_id := entity.get_instance_id()
 	var cell_value: Variant = entity_cells.get(instance_id, null)
@@ -52,6 +52,8 @@ func update_entity_cell(entity: Node) -> void:
 	if next_cell == current_cell:
 		return
 	var category := str(entity_categories.get(instance_id, ""))
+	if not _is_supported_category(category):
+		return
 	_remove_entity_from_cell(entity, category, current_cell)
 	_add_entity_to_cell(entity, category, next_cell)
 	entity_cells[instance_id] = next_cell
@@ -59,6 +61,8 @@ func update_entity_cell(entity: Node) -> void:
 
 func query_near(position: Vector2, radius: float, category: String = "", type_filter: Variant = null) -> Array:
 	if radius <= 0.0:
+		return []
+	if not _is_supported_category(category):
 		return []
 	var min_cell_x := floori((position.x - radius) / cell_size)
 	var max_cell_x := floori((position.x + radius) / cell_size)
@@ -74,10 +78,12 @@ func query_near(position: Vector2, radius: float, category: String = "", type_fi
 			if not cells.has(cell):
 				continue
 			for entity_value in Array(cells[cell]):
+				if entity_value == null:
+					continue
+				if not is_instance_valid(entity_value):
+					continue
 				var entity := entity_value as Node
 				if not _is_live_entity(entity):
-					if entity != null:
-						stale_entities.append(entity)
 					continue
 				if not _matches_type_filter(entity, type_filter):
 					continue
@@ -134,6 +140,10 @@ func get_debug_counts() -> Dictionary:
 	}
 
 
+func _is_supported_category(category: String) -> bool:
+	return category == "resource" or category == "creature" or category == "meat"
+
+
 func _get_cells_for_category(category: String) -> Dictionary:
 	match category:
 		"resource":
@@ -147,9 +157,11 @@ func _get_cells_for_category(category: String) -> Dictionary:
 
 
 func _add_entity_to_cell(entity: Node, category: String, cell: Vector2i) -> void:
-	var cells := _get_cells_for_category(category)
-	if cells.is_empty():
+	if not _is_supported_category(category):
 		return
+	if not _is_live_entity(entity):
+		return
+	var cells := _get_cells_for_category(category)
 	if not cells.has(cell):
 		cells[cell] = []
 	var bucket: Array = Array(cells[cell])
@@ -159,12 +171,22 @@ func _add_entity_to_cell(entity: Node, category: String, cell: Vector2i) -> void
 
 
 func _remove_entity_from_cell(entity: Node, category: String, cell: Vector2i) -> void:
+	if not _is_supported_category(category):
+		return
 	var cells := _get_cells_for_category(category)
-	if cells.is_empty() or not cells.has(cell):
+	if not cells.has(cell):
 		return
 	var bucket: Array = Array(cells[cell])
 	for index in range(bucket.size() - 1, -1, -1):
-		if bucket[index] == entity:
+		var bucket_entity_value: Variant = bucket[index]
+		if bucket_entity_value == null:
+			bucket.remove_at(index)
+			continue
+		if not is_instance_valid(bucket_entity_value):
+			bucket.remove_at(index)
+			continue
+		var bucket_entity := bucket_entity_value as Node
+		if bucket_entity == entity or bucket_entity == null or bucket_entity.is_queued_for_deletion():
 			bucket.remove_at(index)
 	if bucket.is_empty():
 		cells.erase(cell)
@@ -202,9 +224,17 @@ func _is_live_entity(entity: Node) -> bool:
 func _matches_type_filter(entity: Node, type_filter: Variant) -> bool:
 	if type_filter == null:
 		return true
+	if entity == null or not is_instance_valid(entity):
+		return false
 	var entity_type := str(entity_types.get(entity.get_instance_id(), ""))
 	if typeof(type_filter) == TYPE_STRING:
-		return entity_type == str(type_filter)
+		var filter_string := str(type_filter)
+		if filter_string.is_empty():
+			return true
+		return entity_type == filter_string
 	if type_filter is Array:
-		return entity_type in Array(type_filter)
+		for filter_value in Array(type_filter):
+			if entity_type == str(filter_value):
+				return true
+		return false
 	return true
