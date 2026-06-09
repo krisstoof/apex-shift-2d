@@ -502,7 +502,7 @@ func is_render_only_resource() -> bool:
 func set_visibility_culled(should_be_visible: bool) -> void:
 	is_visibility_culled = not should_be_visible
 	visible = should_be_visible
-	_sync_collision_state(should_be_visible)
+	_set_collision_state_safe(should_be_visible)
 	set_process(should_be_visible)
 	set_physics_process(should_be_visible)
 	if should_be_visible:
@@ -612,10 +612,14 @@ func _get_collision_shape() -> CollisionShape2D:
 
 
 func _sync_collision_state(should_be_visible: bool) -> void:
+	_set_collision_state_safe(should_be_visible)
+
+
+func _set_collision_state_safe(should_be_enabled: bool) -> void:
 	var shape := _get_collision_shape()
 	if shape == null:
 		return
-	var should_disable := (not should_be_visible) or render_only or not player_harvestable or not can_be_harvested
+	var should_disable := (not should_be_enabled) or render_only or not player_harvestable or not can_be_harvested
 	shape.set_deferred("disabled", should_disable)
 
 
