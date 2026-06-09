@@ -9,7 +9,7 @@ const DEBUG_TABS := [
 	"World",
 	"Ecosystem",
 	"Creatures",
-	"Evolution",
+	"Adaptation",
 	"Combat",
 	"Events",
 	"Tools"
@@ -220,7 +220,8 @@ func _register_existing_tool_buttons() -> void:
 	_add_tool_button_node(next_day_button, "World")
 	_add_tool_button_node(spawn_aggressive_button, "Creatures")
 	_add_tool_button_node(spawn_neutral_button, "Creatures")
-	_add_tool_button_node(increase_adaptation_button, "Evolution")
+	increase_adaptation_button.text = "Force adaptation step"
+	_add_tool_button_node(increase_adaptation_button, "Adaptation")
 	_add_tool_button_node(add_spear_button, "Combat")
 
 
@@ -315,7 +316,7 @@ func _build_state_text() -> String:
 			return _build_ecosystem_text()
 		"Creatures":
 			return _build_creatures_text()
-		"Evolution":
+		"Adaptation":
 			return _build_evolution_text(profile)
 		"Combat":
 			return _build_combat_text()
@@ -502,7 +503,7 @@ func _build_creatures_text() -> String:
 
 func _build_evolution_text(profile: Dictionary) -> String:
 	var lines: Array[String] = []
-	lines.append("Evolution")
+	lines.append("Adaptation")
 	lines.append("Generation %d | pressure %.2f" % [
 		int(profile.get("generation", 1)),
 		_get_adaptation_pressure(profile)
