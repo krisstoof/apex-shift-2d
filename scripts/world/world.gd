@@ -17,6 +17,7 @@ const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_rende
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS := 5.0
 const VARNAK_FAILED_SPAWN_RETRY_SECONDS := 5.0
+const ROCK_SPAWN_TICK_SECONDS := 18.0
 const SMALL_PREY_MAX_VISIBLE_COUNT := 12
 const SMALL_PREY_MAX_VISIBLE_PER_BIOME := 5
 const SMALL_PREY_VISIBLE_SPAWN_RADIUS := 850.0
@@ -126,6 +127,7 @@ var small_prey_spawn_sync_last_requested := 0
 var small_prey_spawn_sync_last_failed := 0
 var small_prey_spawn_sync_last_success := 0
 var varnak_spawn_timer := 0.0
+var rock_spawn_timer := 0.0
 var varnak_failed_spawn_retry_timer := 0.0
 var varnak_failed_spawn_warning_printed := false
 var varnak_spawn_sync_attempt_count := 0
@@ -275,6 +277,10 @@ func _process(delta: float) -> void:
 	if varnak_spawn_timer >= _get_varnak_spawn_check_interval():
 		varnak_spawn_timer = 0.0
 		_sync_visible_varnaks()
+	rock_spawn_timer += delta
+	if rock_spawn_timer >= ROCK_SPAWN_TICK_SECONDS:
+		rock_spawn_timer = 0.0
+		_sync_periodic_rock_spawn()
 	var current_night_amount := _get_night_amount()
 	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
 	if should_redraw_background:
@@ -1049,6 +1055,14 @@ func _spawn_resources() -> void:
 	var green_bush_count := WORLD_CONFIG.BUSH_COUNT - dry_bush_count
 
 	await _spawn_resource_kind("conifer_tree", conifer_count, used_positions, player_position)
+	await _spawn_resource_kind_in_biome(
+		"conifer_tree",
+		WORLD_CONFIG.WESTWOOD_EXTRA_CONIFER_COUNT,
+		"westwood",
+		used_positions,
+		player_position,
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72
+	)
 	await _spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
 	await _spawn_resource_kind("dry_tree", int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.10)), used_positions, player_position)
 	await _spawn_resource_kind("rock", WORLD_CONFIG.ROCK_COUNT, used_positions, player_position)
@@ -1067,6 +1081,27 @@ func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Arr
 	for _i in count:
 		if not _try_spawn_resource(resource_kind, used_positions, player_position):
 			push_warning("Could not find a valid spawn position for %s" % resource_kind)
+		spawned_since_yield += 1
+		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
+			spawned_since_yield = 0
+			await get_tree().process_frame
+
+
+func _spawn_resource_kind_in_biome(
+	resource_kind: String,
+	count: int,
+	biome_id: String,
+	used_positions: Array[Vector2],
+	player_position: Vector2,
+	min_distance: float = WORLD_CONFIG.RESOURCE_MIN_DISTANCE
+) -> void:
+	var biome := _get_biome_for_id(biome_id)
+	if biome.is_empty():
+		return
+	var spawned_since_yield := 0
+	for _i in count:
+		if not _try_spawn_resource_in_biome(resource_kind, biome, used_positions, player_position, min_distance):
+			push_warning("Could not find a valid spawn position for %s in biome %s" % [resource_kind, biome_id])
 		spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
@@ -1831,6 +1866,22 @@ func _get_biome_for_position(position: Vector2) -> Dictionary:
 	return {}
 
 
+func _get_weighted_biome_for_resource(resource_kind: String) -> Dictionary:
+	var total_weight := 0.0
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		total_weight += _get_biome_resource_weight(Dictionary(biome_value), resource_kind)
+	if total_weight <= 0.0:
+		return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
+	var roll := resource_rng.randf_range(0.0, total_weight)
+	var cursor := 0.0
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome: Dictionary = Dictionary(biome_value)
+		cursor += _get_biome_resource_weight(biome, resource_kind)
+		if roll <= cursor:
+			return biome
+	return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
+
+
 func _get_biome_id(biome: Dictionary) -> String:
 	return str(biome.get("name", "biome")).to_snake_case()
 
@@ -1848,6 +1899,19 @@ func _sync_all_biome_vegetation() -> void:
 		changed = _sync_biome_vegetation(_get_biome_id(biome)) or changed
 	if changed:
 		queue_redraw()
+
+
+func _sync_periodic_rock_spawn() -> bool:
+	var biome := _get_weighted_biome_for_resource("rock")
+	if biome.is_empty():
+		return false
+	var used_positions := _get_existing_resource_positions()
+	var spawned := false
+	if _try_spawn_resource_in_biome("rock", biome, used_positions, _get_player_position(), WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.9):
+		spawned = true
+	if spawned:
+		queue_redraw()
+	return spawned
 
 
 func _sync_biome_vegetation(biome_id: String) -> bool:
@@ -1958,7 +2022,7 @@ func _remove_plant_resources(resources: Array[Node2D], count: int) -> void:
 		removed += 1
 
 
-func _try_spawn_resource_in_biome(resource_kind: String, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+func _try_spawn_resource_in_biome(resource_kind: String, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, min_distance: float = WORLD_CONFIG.RESOURCE_MIN_DISTANCE) -> bool:
 	var spawn_area := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
 		var candidate := Vector2(
@@ -1969,7 +2033,7 @@ func _try_spawn_resource_in_biome(resource_kind: String, biome: Dictionary, used
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
 			continue
-		if _is_point_in_scaled_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
+		if _is_point_in_scaled_biome(candidate, biome) and _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, min_distance):
 			used_positions.append(candidate)
 			_spawn_resource_at(resource_kind, candidate)
 			return true

@@ -15,6 +15,38 @@ class CountingWorld:
 		sync_calls += 1
 
 
+class PeriodicRockSpawnWorld:
+	extends WORLD_SCRIPT
+
+	var spawn_calls := 0
+	var last_min_distance := -1.0
+	var last_resource_kind := ""
+	var last_biome_id := ""
+	var player_position := Vector2.ZERO
+
+	func _get_player_position() -> Vector2:
+		return player_position
+
+	func _get_weighted_biome_for_resource(resource_kind: String) -> Dictionary:
+		last_resource_kind = resource_kind
+		return {
+			"name": "Redfang Wilds",
+			"biome_id": "redfang_wilds",
+			"dangerous": true,
+			"points": [Vector2(-10.0, -10.0), Vector2(10.0, -10.0), Vector2(10.0, 10.0), Vector2(-10.0, 10.0)]
+		}
+
+	func _get_existing_resource_positions() -> Array[Vector2]:
+		return []
+
+	func _try_spawn_resource_in_biome(resource_kind: String, biome: Dictionary, _used_positions: Array[Vector2], _player_position: Vector2, min_distance: float = WORLD_CONFIG.RESOURCE_MIN_DISTANCE) -> bool:
+		spawn_calls += 1
+		last_resource_kind = resource_kind
+		last_biome_id = str(biome.get("biome_id", ""))
+		last_min_distance = min_distance
+		return true
+
+
 class FixedRenderControllerStub:
 	extends RefCounted
 
@@ -212,6 +244,9 @@ func run() -> Array[String]:
 	_test_landmark_save_data_round_trip_vectors(failures)
 	_test_world_save_data_includes_seed_and_landmark_fields(failures)
 	_test_biome_resource_weights_match_target_character(failures)
+	_test_westwood_extra_conifer_configuration_is_local(failures)
+	_test_south_thicket_biome_weights_match_target_character(failures)
+	_test_redfang_dry_tree_and_periodic_rock_spawn(failures)
 	_test_varnak_first_week_curve_limits_population_and_spawn(failures)
 	_test_biomes_have_sample_texture_assets(failures)
 	_test_biome_terrain_accent_layout_is_dense_and_inside_biome(failures)
@@ -313,6 +348,49 @@ func _test_biome_resource_weights_match_target_character(failures: Array[String]
 	TEST_UTILS.expect(float(stoneback.get("dry_bush_weight", 0.0)) > float(stoneback.get("berry_bush_weight", 0.0)), failures, "Stoneback should favor dry bushes over berries")
 	TEST_UTILS.expect(float(redfang.get("dry_tree_weight", 0.0)) > float(redfang.get("leafy_tree_weight", 0.0)), failures, "Redfang should favor dry trees")
 	TEST_UTILS.expect(float(redfang.get("dry_bush_weight", 0.0)) > float(redfang.get("berry_bush_weight", 0.0)), failures, "Redfang should favor dry bushes over berries")
+
+
+func _test_westwood_extra_conifer_configuration_is_local(failures: Array[String]) -> void:
+	TEST_UTILS.expect_equal(int(WORLD_CONFIG.TREE_COUNT), 48, failures, "Westwood bonus should not change the global tree budget")
+	TEST_UTILS.expect_equal(int(WORLD_CONFIG.WESTWOOD_EXTRA_CONIFER_COUNT), 48, failures, "Westwood should use the configured local conifer bonus")
+	TEST_UTILS.expect(float(WORLD_CONFIG.WESTWOOD_EXTRA_CONIFER_COUNT) > 0.0, failures, "Westwood should spawn extra conifers locally")
+	TEST_UTILS.expect(float(WORLD_CONFIG.RESOURCE_MIN_DISTANCE) * 0.72 < float(WORLD_CONFIG.RESOURCE_MIN_DISTANCE), failures, "Westwood bonus spawn spacing should be tighter than the global resource spacing")
+	var westwood := Dictionary(WORLD_CONFIG.get_biome_zones()[0])
+	TEST_UTILS.expect(float(westwood.get("conifer_tree_weight", 0.0)) > float(westwood.get("leafy_tree_weight", 0.0)), failures, "Westwood should favor conifer trees over leafy trees")
+	TEST_UTILS.expect(float(westwood.get("conifer_tree_weight", 0.0)) > 0.0, failures, "Westwood should keep a positive conifer weight")
+	var stoneback := Dictionary(WORLD_CONFIG.get_biome_zones()[1])
+	var hearth := Dictionary(WORLD_CONFIG.get_biome_zones()[2])
+	var redfang := Dictionary(WORLD_CONFIG.get_biome_zones()[4])
+	TEST_UTILS.expect_equal(float(westwood.get("tree_weight", 0.0)), 14.0, failures, "Westwood should get the doubled tree density target")
+	TEST_UTILS.expect_equal(float(westwood.get("conifer_tree_weight", 0.0)), 16.0, failures, "Westwood should keep the stronger conifer focus")
+	TEST_UTILS.expect_equal(float(stoneback.get("tree_weight", 0.0)), 2.0, failures, "Stoneback should get the doubled tree density target")
+	TEST_UTILS.expect_equal(float(hearth.get("tree_weight", 0.0)), 6.0, failures, "Hearth should get the doubled tree density target")
+	TEST_UTILS.expect_equal(float(redfang.get("tree_weight", 0.0)), 6.0, failures, "Redfang should get the doubled tree density target")
+	TEST_UTILS.expect(float(redfang.get("dry_bush_weight", 0.0)) > float(redfang.get("grass_weight", 0.0)), failures, "Redfang should favor dry bushes over grass")
+
+
+func _test_south_thicket_biome_weights_match_target_character(failures: Array[String]) -> void:
+	var stoneback := Dictionary(WORLD_CONFIG.get_biome_zones()[1])
+	var south := Dictionary(WORLD_CONFIG.get_biome_zones()[3])
+	var redfang := Dictionary(WORLD_CONFIG.get_biome_zones()[4])
+	TEST_UTILS.expect(float(south.get("leafy_tree_weight", 0.0)) > float(south.get("conifer_tree_weight", 0.0)), failures, "South Thicket should favor leafy trees over conifers")
+	TEST_UTILS.expect(float(south.get("dry_bush_weight", 0.0)) < float(stoneback.get("dry_bush_weight", 0.0)), failures, "South Thicket dry_bush_weight should be lower than Stoneback dry_bush_weight")
+	TEST_UTILS.expect(float(south.get("dry_bush_weight", 0.0)) < float(redfang.get("dry_bush_weight", 0.0)), failures, "South Thicket dry_bush_weight should be lower than Redfang dry_bush_weight")
+
+
+func _test_redfang_dry_tree_and_periodic_rock_spawn(failures: Array[String]) -> void:
+	var redfang := Dictionary(WORLD_CONFIG.get_biome_zones()[4])
+	TEST_UTILS.expect(float(redfang.get("dry_tree_weight", 0.0)) >= 20.0, failures, "Redfang should spawn twice as many dry trees")
+	TEST_UTILS.expect(float(redfang.get("dry_tree_weight", 0.0)) > float(redfang.get("leafy_tree_weight", 0.0)), failures, "Redfang should stay focused on dry trees")
+	TEST_UTILS.expect(float(redfang.get("dry_bush_weight", 0.0)) > float(redfang.get("grass_weight", 0.0)), failures, "Redfang should still favor dry bushes over grass")
+	var world := PeriodicRockSpawnWorld.new()
+	TEST_UTILS.expect_equal(int(WORLD_CONFIG.ROCK_COUNT), 24, failures, "Rock density baseline should stay unchanged")
+	TEST_UTILS.expect(world.call("_sync_periodic_rock_spawn") == true, failures, "Periodic rock spawning should produce a spawn attempt")
+	TEST_UTILS.expect_equal(world.spawn_calls, 1, failures, "Periodic rock spawning should try exactly one rock per tick")
+	TEST_UTILS.expect_equal(world.last_resource_kind, "rock", failures, "Periodic rock spawning should target rocks")
+	TEST_UTILS.expect_equal(world.last_biome_id, "redfang_wilds", failures, "Periodic rock spawning should prefer the weighted biome")
+	TEST_UTILS.expect_close(world.last_min_distance, float(WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.9), failures, "Periodic rock spawning should use the tighter spawn spacing")
+	world.free()
 
 
 func _test_varnak_spawn_chance_scales_with_day_and_caps(failures: Array[String]) -> void:

@@ -345,7 +345,7 @@ func _sync_visual_sprite() -> void:
 	var sprite := _get_visual_sprite()
 	if sprite == null:
 		return
-	if resource_kind == "bone_drop" or resource_kind == "dry_tree":
+	if resource_kind == "bone_drop":
 		sprite.visible = false
 		sprite.texture = null
 		return
@@ -637,8 +637,6 @@ func _draw() -> void:
 			_draw_conifer_tree()
 		"leafy_tree":
 			_draw_leafy_tree()
-		"dry_tree":
-			_draw_dry_tree()
 		"bush":
 			_draw_bush()
 		"dry_bush":
@@ -693,19 +691,6 @@ func _draw_leafy_tree() -> void:
 	draw_circle(Vector2(0, -20), 18.0, Color(0.18, 0.58, 0.20))
 	draw_circle(Vector2(0, -7), 19.0, Color(0.16, 0.52, 0.18))
 	draw_arc(Vector2.ZERO, 26.0, -PI, 0.0, 16, Color(0.06, 0.18, 0.08, 0.45), 2.0)
-
-
-func _draw_dry_tree() -> void:
-	var trunk_color := Color(0.55, 0.39, 0.18)
-	var branch_color := Color(0.68, 0.49, 0.26)
-	draw_rect(Rect2(-4, 3, 8, 25), trunk_color, true)
-	draw_line(Vector2(0, 10), Vector2(-20, -8), branch_color, 3.0)
-	draw_line(Vector2(0, 14), Vector2(20, -7), branch_color, 3.0)
-	draw_line(Vector2(-2, 2), Vector2(-14, -16), branch_color.darkened(0.08), 2.4)
-	draw_line(Vector2(2, 6), Vector2(14, -18), branch_color.darkened(0.08), 2.4)
-	draw_circle(Vector2(-10, -8), 8.0, Color(0.52, 0.36, 0.18, 0.30))
-	draw_circle(Vector2(10, -9), 7.0, Color(0.58, 0.41, 0.20, 0.24))
-	draw_circle(Vector2(0, -18), 10.0, Color(0.62, 0.45, 0.24, 0.18))
 
 
 func _draw_bush() -> void:

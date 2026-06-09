@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="160" viewBox="0 0 800 160">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="160" viewBox="0 0 960 160">
   <g id="conifer">
     <rect x="36" y="46" width="8" height="22" fill="#613819"/>
     <path d="M40 8 16 43h48Z" fill="#0f4724"/>
@@ -61,13 +61,36 @@
     <circle cx="47" cy="39" r="9" fill="#c7251f"/>
     <circle cx="42" cy="49" r="7" fill="#730807"/>
   </g>
+  <g id="bone" transform="translate(800)">
+    <circle cx="30" cy="42" r="9" fill="#f4ecdd"/>
+    <circle cx="50" cy="39" r="9" fill="#f4ecdd"/>
+    <rect x="29" y="36" width="22" height="12" rx="6" fill="#fbf6eb"/>
+    <rect x="35" y="33" width="10" height="20" rx="5" fill="#e6decc"/>
+    <path d="M28 41h24" stroke="#cfc5af" stroke-width="2" opacity=".55"/>
+  </g>
+  <g id="dry-tree" transform="translate(880)">
+    <rect x="36" y="39" width="8" height="28" fill="#69411f"/>
+    <path d="M40 39 30 30" stroke="#7b5731" stroke-width="3.5" stroke-linecap="round"/>
+    <path d="M40 37 50 29" stroke="#7b5731" stroke-width="3.5" stroke-linecap="round"/>
+    <path d="M40 31 23 20" stroke="#8a673c" stroke-width="3" stroke-linecap="round"/>
+    <path d="M40 30 57 19" stroke="#8a673c" stroke-width="3" stroke-linecap="round"/>
+    <path d="M40 26 18 30" stroke="#74502b" stroke-width="2.7" stroke-linecap="round"/>
+    <path d="M40 25 62 31" stroke="#74502b" stroke-width="2.7" stroke-linecap="round"/>
+    <path d="M40 19v49" stroke="#4e341d" stroke-width="2" opacity=".5"/>
+    <path d="M30 30 26 24M50 29 54 23M23 20 18 16M57 19 62 15M18 30 14 32M62 31 66 33" stroke="#5e3f22" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M32 60 28 64M48 61 52 65" stroke="#53341a" stroke-width="2.2" stroke-linecap="round"/>
+  </g>
 
   <g transform="translate(0 80)">
-    <g id="depleted-tree">
-      <rect x="35" y="38" width="10" height="24" fill="#573016"/>
-      <ellipse cx="40" cy="55" rx="18" ry="11" fill="#2b1c0f" opacity=".25"/>
+    <g id="stump">
+      <rect x="30" y="40" width="20" height="18" rx="5" fill="#6b3d1b"/>
+      <ellipse cx="40" cy="42" rx="11" ry="7" fill="#8d5a32"/>
+      <ellipse cx="40" cy="42" rx="6" ry="4" fill="#4f2e18"/>
+      <path d="M32 56 27 60M48 56 53 60" stroke="#4a2814" stroke-width="3" stroke-linecap="round"/>
+      <path d="M33 53h14" stroke="#3b2212" stroke-width="2" opacity=".5"/>
+      <ellipse cx="40" cy="58" rx="16" ry="7" fill="#2b1c0f" opacity=".25"/>
     </g>
-    <use href="#depleted-tree" transform="translate(80)"/>
+    <use href="#stump" transform="translate(80)"/>
     <g id="depleted-bush" transform="translate(160)" stroke="#55401c" stroke-width="3" stroke-linecap="round">
       <path d="m27 52 27-20M54 52 27 33"/>
       <circle cx="40" cy="43" r="13" fill="#242014" stroke="none" opacity=".2"/>
@@ -81,5 +104,7 @@
     <use href="#depleted-grass" transform="translate(80)"/>
     <use href="#rock"/>
     <use href="#meat"/>
+    <use href="#stump" transform="translate(880)"/>
+
   </g>
 </svg>
