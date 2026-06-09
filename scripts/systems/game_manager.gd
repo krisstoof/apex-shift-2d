@@ -43,8 +43,11 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
-		world.respawn_varnaks()
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_R:
+		if hud != null and hud.has_node("DebugPanel"):
+			var debug_panel := hud.get_node("DebugPanel") as Control
+			if debug_panel != null and debug_panel.visible:
+				world.respawn_varnaks()
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F5:
 		save_system.save_game()
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F9:

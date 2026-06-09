@@ -163,9 +163,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_SPACE:
 				_melee_attack()
-			KEY_G:
-				if evolution_director:
-					evolution_director.force_generation_change()
 			KEY_1:
 				_craft("campfire")
 			KEY_2:
