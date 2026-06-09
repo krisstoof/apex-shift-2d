@@ -803,7 +803,7 @@ func _get_current_biome_name() -> String:
 
 func _format_time(seconds: float) -> String:
 	var whole_seconds := int(floor(seconds))
-	var minutes := whole_seconds / 60
+	var minutes := float(whole_seconds) / 60.0
 	var remainder := whole_seconds % 60
 	return "%02d:%02d" % [minutes, remainder]
 

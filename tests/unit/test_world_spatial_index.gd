@@ -10,6 +10,7 @@ func run() -> Array[String]:
 	_test_unregister_resource(failures)
 	_test_update_cell_moves_entity_between_cells(failures)
 	_test_query_radius_filters_by_distance(failures)
+	_test_query_rect_returns_only_nodes_inside_rect(failures)
 	_test_query_type_filter_matches_resources(failures)
 	_test_query_type_filter_matches_creatures(failures)
 	_test_meat_query_uses_meat_category(failures)
@@ -65,6 +66,19 @@ func _test_query_radius_filters_by_distance(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(index.query_resources_near(Vector2(0.0, 0.0), 80.0, "berry_bush").size(), 1, failures, "Radius query should only return nearby nodes")
 	near_node.queue_free()
 	far_node.queue_free()
+
+
+func _test_query_rect_returns_only_nodes_inside_rect(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var index := SPATIAL_INDEX.new()
+	var inside := _make_node(tree, Vector2(64.0, 64.0))
+	var outside := _make_node(tree, Vector2(600.0, 600.0))
+	index.register_entity(inside, "resource", "berry_bush")
+	index.register_entity(outside, "resource", "berry_bush")
+	var result := index.query_resources_in_rect(Rect2(Vector2.ZERO, Vector2(128.0, 128.0)), "berry_bush")
+	TEST_UTILS.expect_equal(result.size(), 1, failures, "Rect query should return only resource inside rect")
+	inside.queue_free()
+	outside.queue_free()
 
 
 func _test_query_type_filter_matches_resources(failures: Array[String]) -> void:

@@ -327,21 +327,21 @@ func _get_pond_shape_scale(landmark: Dictionary, angle: float) -> float:
 	var irregularity: float = float(clamp(float(GAME_BALANCE.LANDMARKS.get("pond_shape_irregularity", 0.16)), 0.0, 0.45))
 	if irregularity <= 0.0:
 		return 1.0
-	var seed: float = _get_pond_shape_seed(landmark)
+	var pond_phase: float = _get_pond_shape_phase(landmark)
 	var wave: float = (
-		sin(angle * 2.0 + seed) * 0.55
-		+ sin(angle * 3.0 - seed * 1.7) * 0.32
-		+ sin(angle * 5.0 + seed * 0.6) * 0.18
+		sin(angle * 2.0 + pond_phase) * 0.55
+		+ sin(angle * 3.0 - pond_phase * 1.7) * 0.32
+		+ sin(angle * 5.0 + pond_phase * 0.6) * 0.18
 	) / 1.05
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.25, 1.0 + irregularity * 1.25)
 
 
-func _get_pond_shape_seed(landmark: Dictionary) -> float:
+func _get_pond_shape_phase(landmark: Dictionary) -> float:
 	var pond_id := str(landmark.get("id", "pond"))
-	var seed := 0
+	var phase_seed := 0
 	for i in pond_id.length():
-		seed = (seed + pond_id.unicode_at(i) * (i + 3)) % 997
-	return float(seed) / 997.0 * TAU
+		phase_seed = (phase_seed + pond_id.unicode_at(i) * (i + 3)) % 997
+	return float(phase_seed) / 997.0 * TAU
 
 
 func _get_pond_shape_sample_count() -> int:
@@ -375,21 +375,21 @@ func _get_hill_shape_scale(landmark: Dictionary, angle: float) -> float:
 	var irregularity: float = float(clamp(float(GAME_BALANCE.LANDMARKS.get("hill_shape_irregularity", 0.10)), 0.0, 0.35))
 	if irregularity <= 0.0:
 		return 1.0
-	var seed: float = _get_hill_shape_seed(landmark)
+	var hill_phase: float = _get_hill_shape_phase(landmark)
 	var wave: float = (
-		sin(angle * 2.0 + seed) * 0.50
-		+ sin(angle * 4.0 - seed * 1.35) * 0.28
-		+ sin(angle * 6.0 + seed * 0.4) * 0.16
+		sin(angle * 2.0 + hill_phase) * 0.50
+		+ sin(angle * 4.0 - hill_phase * 1.35) * 0.28
+		+ sin(angle * 6.0 + hill_phase * 0.4) * 0.16
 	) / 0.94
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.15, 1.0 + irregularity * 1.15)
 
 
-func _get_hill_shape_seed(landmark: Dictionary) -> float:
+func _get_hill_shape_phase(landmark: Dictionary) -> float:
 	var hill_id := str(landmark.get("id", "hill"))
-	var seed := 0
+	var phase_seed := 0
 	for i in hill_id.length():
-		seed = (seed + hill_id.unicode_at(i) * (i + 5)) % 997
-	return float(seed) / 997.0 * TAU
+		phase_seed = (phase_seed + hill_id.unicode_at(i) * (i + 5)) % 997
+	return float(phase_seed) / 997.0 * TAU
 
 
 func _get_hill_shape_sample_count() -> int:
@@ -441,9 +441,9 @@ func _draw_map_legend(map_rect: Rect2) -> void:
 	_draw_legend_entry(legend_rect.position + Vector2(12.0, 100.0), "Varnak", Color(0.88, 0.22, 0.16))
 
 
-func _draw_legend_entry(position: Vector2, label: String, color: Color) -> void:
-	draw_circle(position + Vector2(5.0, -4.0), 4.5, color)
-	draw_string(get_theme_default_font(), position + Vector2(16.0, 0.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12, Color(0.86, 0.88, 0.82))
+func _draw_legend_entry(legend_position: Vector2, label: String, color: Color) -> void:
+	draw_circle(legend_position + Vector2(5.0, -4.0), 4.5, color)
+	draw_string(get_theme_default_font(), legend_position + Vector2(16.0, 0.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12, Color(0.86, 0.88, 0.82))
 
 
 func _draw_varnaks(map_rect: Rect2) -> void:
@@ -495,8 +495,8 @@ func _ensure_biome_texture() -> void:
 	map_screen_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 
 
-func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+func _get_direct_biome_color_at(world_position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
 	match terrain_zone:
 		"deep_ocean":
 			return WORLD_CONFIG.OCEAN_COLOR
@@ -508,9 +508,9 @@ func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], col
 	var nearest_distance := INF
 	for i in zones.size():
 		var points := PackedVector2Array(zones[i]["points"])
-		if Geometry2D.is_point_in_polygon(position, points):
+		if Geometry2D.is_point_in_polygon(world_position, points):
 			return colors[i]
-		var edge_distance := _get_point_polygon_edge_distance(position, points)
+		var edge_distance := _get_point_polygon_edge_distance(world_position, points)
 		if edge_distance < nearest_distance:
 			nearest_distance = edge_distance
 			nearest_index = i

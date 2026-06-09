@@ -1,8 +1,8 @@
 extends StaticBody2D
 
-const Inventory := preload("res://scripts/player/inventory.gd")
+const INVENTORY := preload("res://scripts/player/inventory.gd")
 
-var inventory := Inventory.new(12)
+var inventory := INVENTORY.new(12)
 
 
 func _post_event_message(message: String) -> void:

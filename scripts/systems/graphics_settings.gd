@@ -210,7 +210,11 @@ func _apply_window_resolution(resolution: Vector2i) -> void:
 	var current_screen := DisplayServer.window_get_current_screen()
 	var screen_position := DisplayServer.screen_get_position(current_screen)
 	var screen_size := DisplayServer.screen_get_size(current_screen)
-	DisplayServer.window_set_position(screen_position + (screen_size - resolution) / 2)
+	var centered_offset := Vector2i(
+		floori(float(screen_size.x - resolution.x) * 0.5),
+		floori(float(screen_size.y - resolution.y) * 0.5)
+	)
+	DisplayServer.window_set_position(screen_position + centered_offset)
 	print("[GRAPHICS_SETTINGS] windowed size applied: %s" % resolution)
 
 
@@ -240,10 +244,9 @@ func _finish_windowed_mode(apply_serial: int, resolution: Vector2i) -> void:
 func _center_window(resolution: Vector2i) -> void:
 	var screen := DisplayServer.window_get_current_screen()
 	var usable_rect := DisplayServer.screen_get_usable_rect(screen)
-	var position := usable_rect.position + Vector2i(
-		maxi((usable_rect.size.x - resolution.x) / 2, 0),
-		maxi((usable_rect.size.y - resolution.y) / 2, 0)
-	)
+	var x_offset := maxi(floori(float(usable_rect.size.x - resolution.x) * 0.5), 0)
+	var y_offset := maxi(floori(float(usable_rect.size.y - resolution.y) * 0.5), 0)
+	var position := usable_rect.position + Vector2i(x_offset, y_offset)
 	DisplayServer.window_set_position(position)
 
 

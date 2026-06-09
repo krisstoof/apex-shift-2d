@@ -498,9 +498,9 @@ func is_render_only_resource() -> bool:
 	return render_only
 
 
-func set_visibility_culled(is_visible: bool) -> void:
-	visible = is_visible
-	_sync_collision_state(is_visible)
+func set_visibility_culled(should_be_visible: bool) -> void:
+	visible = should_be_visible
+	_sync_collision_state(should_be_visible)
 
 
 func _is_render_only_kind() -> bool:
@@ -539,12 +539,12 @@ func _emit_plant_resource_harvested() -> void:
 	var biomass_impact := _get_biomass_impact()
 	if biomass_impact <= 0.0:
 		return
-	var biome_id := _get_biome_id_for_position(global_position)
-	if biome_id.is_empty():
+	var target_biome_id := _get_biome_id_for_position(global_position)
+	if target_biome_id.is_empty():
 		return
 	_emit_game_event("plant_resource_harvested", {
 		"resource_type": resource_kind,
-		"biome_id": biome_id,
+		"biome_id": target_biome_id,
 		"position": global_position,
 		"biomass_impact": biomass_impact
 	})
@@ -605,16 +605,17 @@ func _get_collision_shape() -> CollisionShape2D:
 	return collision_shape
 
 
-func _sync_collision_state(is_visible: bool) -> void:
+func _sync_collision_state(should_be_visible: bool) -> void:
 	var shape := _get_collision_shape()
 	if shape == null:
 		return
-	shape.disabled = (not is_visible) or render_only or not player_harvestable or not can_be_harvested
+	var should_disable := (not should_be_visible) or render_only or not player_harvestable or not can_be_harvested
+	shape.set_deferred("disabled", should_disable)
 
 
-func _get_biome_id_for_position(position: Vector2) -> String:
+func _get_biome_id_for_position(world_position: Vector2) -> String:
 	for biome in WORLD_CONFIG.get_biome_zones():
-		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
+		if Geometry2D.is_point_in_polygon(world_position, PackedVector2Array(biome["points"])):
 			return _get_biome_id(biome)
 	return ""
 

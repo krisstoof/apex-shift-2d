@@ -155,8 +155,8 @@ func _ensure_biome_texture() -> void:
 	minimap_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 
 
-func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+func _get_direct_biome_color_at(world_position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
 	match terrain_zone:
 		"deep_ocean":
 			return WORLD_CONFIG.OCEAN_COLOR
@@ -168,9 +168,9 @@ func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], col
 	var nearest_distance := INF
 	for i in zones.size():
 		var points := PackedVector2Array(zones[i]["points"])
-		if Geometry2D.is_point_in_polygon(position, points):
+		if Geometry2D.is_point_in_polygon(world_position, points):
 			return colors[i]
-		var edge_distance := _get_point_polygon_edge_distance(position, points)
+		var edge_distance := _get_point_polygon_edge_distance(world_position, points)
 		if edge_distance < nearest_distance:
 			nearest_distance = edge_distance
 			nearest_index = i
@@ -356,21 +356,21 @@ func _get_hill_shape_scale(landmark: Dictionary, angle: float) -> float:
 	var irregularity: float = float(clamp(float(GAME_BALANCE.LANDMARKS.get("hill_shape_irregularity", 0.10)), 0.0, 0.35))
 	if irregularity <= 0.0:
 		return 1.0
-	var seed: float = _get_hill_shape_seed(landmark)
+	var hill_seed: float = _get_hill_shape_seed(landmark)
 	var wave: float = (
-		sin(angle * 2.0 + seed) * 0.50
-		+ sin(angle * 4.0 - seed * 1.35) * 0.28
-		+ sin(angle * 6.0 + seed * 0.4) * 0.16
+		sin(angle * 2.0 + hill_seed) * 0.50
+		+ sin(angle * 4.0 - hill_seed * 1.35) * 0.28
+		+ sin(angle * 6.0 + hill_seed * 0.4) * 0.16
 	) / 0.94
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.15, 1.0 + irregularity * 1.15)
 
 
 func _get_hill_shape_seed(landmark: Dictionary) -> float:
 	var hill_id := str(landmark.get("id", "hill"))
-	var seed := 0
+	var hash_value := 0
 	for i in hill_id.length():
-		seed = (seed + hill_id.unicode_at(i) * (i + 5)) % 997
-	return float(seed) / 997.0 * TAU
+		hash_value = (hash_value + hill_id.unicode_at(i) * (i + 5)) % 997
+	return float(hash_value) / 997.0 * TAU
 
 
 func _get_hill_shape_sample_count() -> int:
@@ -482,8 +482,8 @@ func _get_max_shape_scale(landmark: Dictionary, is_pond: bool) -> float:
 	var sample_count := _get_pond_shape_sample_count() if is_pond else _get_hill_shape_sample_count()
 	for i in range(sample_count):
 		var angle := TAU * float(i) / float(sample_count)
-		var scale := _get_pond_shape_scale(landmark, angle) if is_pond else _get_hill_shape_scale(landmark, angle)
-		max_scale = maxf(max_scale, scale)
+		var shape_scale := _get_pond_shape_scale(landmark, angle) if is_pond else _get_hill_shape_scale(landmark, angle)
+		max_scale = maxf(max_scale, shape_scale)
 	return max_scale
 
 

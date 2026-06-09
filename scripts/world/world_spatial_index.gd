@@ -107,6 +107,51 @@ func query_meat_near(position: Vector2, radius: float) -> Array:
 	return query_near(position, radius, "meat")
 
 
+func query_rect(rect: Rect2, category: String = "", type_filter: Variant = null) -> Array:
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return []
+	if not _is_supported_category(category):
+		return []
+	var min_cell_x := floori(rect.position.x / cell_size)
+	var max_cell_x := floori(rect.end.x / cell_size)
+	var min_cell_y := floori(rect.position.y / cell_size)
+	var max_cell_y := floori(rect.end.y / cell_size)
+	var cells := _get_cells_for_category(category)
+	var results: Array = []
+	for cell_x in range(min_cell_x, max_cell_x + 1):
+		for cell_y in range(min_cell_y, max_cell_y + 1):
+			var cell := Vector2i(cell_x, cell_y)
+			if not cells.has(cell):
+				continue
+			var bucket: Array = Array(cells[cell])
+			for entity_value in bucket:
+				if entity_value == null:
+					continue
+				if not is_instance_valid(entity_value):
+					continue
+				var entity := entity_value as Node
+				if not _is_live_entity(entity):
+					continue
+				if not _matches_type_filter(entity, type_filter):
+					continue
+				var entity_position := _get_entity_position(entity)
+				if rect.has_point(entity_position):
+					results.append(entity)
+	return results
+
+
+func query_resources_in_rect(rect: Rect2, kind_filter: Variant = null) -> Array:
+	return query_rect(rect, "resource", kind_filter)
+
+
+func query_creatures_in_rect(rect: Rect2, creature_type_filter: Variant = null) -> Array:
+	return query_rect(rect, "creature", creature_type_filter)
+
+
+func query_meat_in_rect(rect: Rect2) -> Array:
+	return query_rect(rect, "meat")
+
+
 func clear() -> void:
 	resources_by_cell.clear()
 	creatures_by_cell.clear()

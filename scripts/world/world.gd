@@ -173,6 +173,7 @@ var visibility_cull_last_visible_resources: int = 0
 var visibility_cull_last_hidden_resources: int = 0
 var visibility_cull_last_visible_creatures: int = 0
 var visibility_cull_last_hidden_creatures: int = 0
+var visibility_cull_last_visible_nodes: Dictionary = {}
 var is_restoring_save: bool = false
 var night_overlay_polygon: Polygon2D
 var registry = WORLD_REGISTRY_SCRIPT.new()
@@ -334,42 +335,63 @@ func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: 
 
 
 func _set_world_object_visibility_by_rect(visible_rect: Rect2) -> void:
-	var visited: Dictionary = {}
 	visibility_cull_last_visible_resources = 0
 	visibility_cull_last_hidden_resources = 0
 	visibility_cull_last_visible_creatures = 0
 	visibility_cull_last_hidden_creatures = 0
-	for group_name in VISIBILITY_CULL_GROUPS:
-		var is_resource_group: bool = group_name == "resources"
-		_update_group_visibility_by_rect(group_name, visible_rect, is_resource_group, visited)
+	var query_rect := visible_rect.grow(128.0)
+	var current_visible_nodes: Dictionary = {}
+	var visible_resources := get_resources_in_rect(query_rect)
+	for node in visible_resources:
+		_mark_visibility_candidate(node, true, current_visible_nodes)
+	for creature_type in ["small_prey", "grazer", "varnak"]:
+		var visible_creatures := get_creatures_in_rect(query_rect, creature_type)
+		for node in visible_creatures:
+			_mark_visibility_candidate(node, false, current_visible_nodes)
+	_hide_nodes_that_left_visibility_rect(current_visible_nodes)
+	visibility_cull_last_visible_nodes = current_visible_nodes
 
 
-func _update_group_visibility_by_rect(group_name: String, visible_rect: Rect2, is_resource_group: bool, visited: Dictionary) -> void:
-	var scene_tree := get_tree()
-	if scene_tree == null:
+func _mark_visibility_candidate(node: Node, is_resource: bool, current_visible_nodes: Dictionary) -> void:
+	if not is_instance_valid(node):
 		return
-	for node in scene_tree.get_nodes_in_group(group_name):
-		if not is_instance_valid(node) or visited.has(node):
+	var node_2d := node as Node2D
+	if node_2d == null:
+		return
+	var instance_id := node.get_instance_id()
+	current_visible_nodes[instance_id] = node
+	if is_resource and node.has_method("set_visibility_culled"):
+		node.call("set_visibility_culled", true)
+	else:
+		node_2d.visible = true
+	if is_resource:
+		visibility_cull_last_visible_resources += 1
+	else:
+		visibility_cull_last_visible_creatures += 1
+
+
+func _hide_nodes_that_left_visibility_rect(current_visible_nodes: Dictionary) -> void:
+	for previous_id in visibility_cull_last_visible_nodes.keys():
+		if current_visible_nodes.has(previous_id):
 			continue
-		visited[node] = true
-		var node_2d := node as Node2D
+		var previous_value: Variant = visibility_cull_last_visible_nodes.get(previous_id, null)
+		if previous_value == null or not is_instance_valid(previous_value):
+			continue
+		var previous_node := previous_value as Node
+		if previous_node == null:
+			continue
+		var node_2d := previous_node as Node2D
 		if node_2d == null:
 			continue
-		var should_be_visible := visible_rect.grow(128.0).has_point(node_2d.global_position)
-		if is_resource_group and node.has_method("set_visibility_culled"):
-			node.call("set_visibility_culled", should_be_visible)
+		var is_resource := previous_node.is_in_group("resources")
+		if is_resource and previous_node.has_method("set_visibility_culled"):
+			previous_node.call("set_visibility_culled", false)
 		else:
-			node_2d.visible = should_be_visible
-		if is_resource_group:
-			if should_be_visible:
-				visibility_cull_last_visible_resources += 1
-			else:
-				visibility_cull_last_hidden_resources += 1
+			node_2d.visible = false
+		if is_resource:
+			visibility_cull_last_hidden_resources += 1
 		else:
-			if should_be_visible:
-				visibility_cull_last_visible_creatures += 1
-			else:
-				visibility_cull_last_hidden_creatures += 1
+			visibility_cull_last_hidden_creatures += 1
 
 
 func get_biome_zones() -> Array[Dictionary]:
@@ -430,8 +452,8 @@ func enable_integration_test_mode() -> void:
 	varnak_spawn_sync_last_success = 0
 
 
-func spawn_resource_for_tests(resource_kind: String, position: Vector2) -> Node:
-	return _spawn_resource_at(resource_kind, position)
+func spawn_resource_for_tests(resource_kind: String, world_position: Vector2) -> Node:
+	return _spawn_resource_at(resource_kind, world_position)
 
 
 func spawn_small_prey_for_tests(position: Vector2, biome_id: String) -> Node:
@@ -707,6 +729,18 @@ func get_creatures_near(position: Vector2, radius: float, creature_type_filter: 
 
 func get_meat_near(position: Vector2, radius: float) -> Array:
 	return _ensure_registry().get_meat_near(position, radius)
+
+
+func get_resources_in_rect(rect: Rect2, kind_filter: Variant = null) -> Array:
+	return _ensure_registry().get_resources_in_rect(rect, kind_filter)
+
+
+func get_creatures_in_rect(rect: Rect2, creature_type_filter: Variant = null) -> Array:
+	return _ensure_registry().get_creatures_in_rect(rect, creature_type_filter)
+
+
+func get_meat_in_rect(rect: Rect2) -> Array:
+	return _ensure_registry().get_meat_in_rect(rect)
 
 
 func _ensure_landmark_service():
@@ -1191,7 +1225,7 @@ func _get_pond_vegetation_count() -> int:
 	return max(POND_VEGETATION_MIN_COUNT, int(round(float(base_count) * bonus)))
 
 
-func _get_pond_vegetation_ring_factor(index: int, count: int) -> float:
+func _get_pond_vegetation_ring_factor(index: int, _count: int) -> float:
 	var inner_factor := float(GAME_BALANCE.LANDMARKS.get("pond_vegetation_inner_ring_factor", POND_VEGETATION_RING_MIN_FACTOR))
 	var outer_factor := float(GAME_BALANCE.LANDMARKS.get("pond_vegetation_outer_ring_factor", POND_VEGETATION_RING_MAX_FACTOR))
 	var band_index := (index * 5) % 4
@@ -1390,6 +1424,11 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	var safe_position: Vector2 = _find_safe_drop_position("meat_drop", _get_safe_restored_resource_position("meat_drop", initial_position))
 	if is_resource_position_blocked_by_water("meat_drop", safe_position):
 		push_warning("Meat drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
+	call_deferred("_spawn_meat_drop_after_query_flush", animal_kind, safe_position, amount)
+	return null
+
+
+func _spawn_meat_drop_after_query_flush(animal_kind: String, safe_position: Vector2, amount: int) -> void:
 	var node: Node = _spawn_resource_at("meat_drop", safe_position)
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
@@ -1400,7 +1439,6 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 			"amount": amount,
 			"position": node.global_position
 		})
-	return node
 
 
 func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
@@ -1411,6 +1449,11 @@ func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	var safe_position: Vector2 = _find_safe_drop_position("bone_drop", _get_safe_restored_resource_position("bone_drop", initial_position))
 	if is_resource_position_blocked_by_water("bone_drop", safe_position):
 		push_warning("Bone drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
+	call_deferred("_spawn_bone_drop_after_query_flush", animal_kind, safe_position, amount)
+	return null
+
+
+func _spawn_bone_drop_after_query_flush(animal_kind: String, safe_position: Vector2, amount: int) -> void:
 	var node: Node = _spawn_resource_at("bone_drop", safe_position)
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
@@ -1421,7 +1464,6 @@ func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 			"amount": amount,
 			"position": node.global_position
 		})
-	return node
 
 
 func _get_meat_drop_amount(animal_kind: String) -> int:
@@ -1834,7 +1876,7 @@ func _get_existing_small_prey_positions() -> Array[Vector2]:
 	return positions
 
 
-func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2], slot_index: int, slot_count: int) -> bool:
+func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2], slot_index: int, _slot_count: int) -> bool:
 	var spawn_ring := _get_creature_horizon_spawn_ring()
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
 		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(spawn_ring.x, spawn_ring.y)
@@ -3196,9 +3238,9 @@ func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
 	var biome_id := _get_biome_id(biome)
 	for accent_value in accents:
 		var accent := Dictionary(accent_value)
-		var position := Vector2(accent.get("position", Vector2.ZERO))
+		var accent_position := Vector2(accent.get("position", Vector2.ZERO))
 		var rotation := float(accent.get("rotation", 0.0))
-		var scale := float(accent.get("scale", 1.0))
+		var accent_scale := float(accent.get("scale", 1.0))
 		var tint := float(accent.get("tint", 0.0))
 		var is_secondary: bool = accent.get("secondary", false) == true
 		var detail_alpha: float = float(GAME_BALANCE.BIOME_TEXTURES.get(
@@ -3210,18 +3252,18 @@ func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
 		var dark_color := Color(colors.get("dark", base_color.darkened(0.18)))
 		match str(accent.get("kind", "")):
 			"grass":
-				_draw_biome_grass_accent(position, rotation, scale, light_color, dark_color)
+				_draw_biome_grass_accent(accent_position, rotation, accent_scale, light_color, dark_color)
 			"leaf":
-				_draw_biome_leaf_accent(position, rotation, scale, light_color, dark_color)
+				_draw_biome_leaf_accent(accent_position, rotation, accent_scale, light_color, dark_color)
 			"plate":
-				_draw_biome_plate_accent(position, rotation, scale, light_color, dark_color)
+				_draw_biome_plate_accent(accent_position, rotation, accent_scale, light_color, dark_color)
 			"thicket":
-				_draw_biome_thicket_accent(position, rotation, scale, light_color, dark_color)
+				_draw_biome_thicket_accent(accent_position, rotation, accent_scale, light_color, dark_color)
 			"crack":
-				_draw_biome_crack_accent(position, rotation, scale, light_color, dark_color)
+				_draw_biome_crack_accent(accent_position, rotation, accent_scale, light_color, dark_color)
 			_:
 				if biome_id == "hearth_meadow":
-					_draw_biome_grass_accent(position, rotation, scale, light_color, dark_color)
+					_draw_biome_grass_accent(accent_position, rotation, accent_scale, light_color, dark_color)
 
 
 func _draw_world_boundary() -> void:
@@ -3810,7 +3852,7 @@ func _get_biome_texture_image(terrain_pattern: Dictionary) -> Image:
 
 
 func _get_biome_texture_position(terrain_pattern: Dictionary, world_position: Vector2, texture_image: Image) -> Vector2i:
-	var seed := float(terrain_pattern.get("seed", 0.0))
+	var pattern_seed := float(terrain_pattern.get("seed", 0.0))
 	var density_multiplier := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)), 0.1)
 	density_multiplier *= maxf(float(terrain_pattern.get("density_scale", 1.0)), 0.1)
 	var texture_world_scale := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("texture_world_scale", 1.0)), 0.1)
@@ -3820,8 +3862,8 @@ func _get_biome_texture_position(terrain_pattern: Dictionary, world_position: Ve
 		inverse_lerp(world_rect.position.y, world_rect.end.y, world_position.y)
 	)
 	var tiled_uv := Vector2(
-		fposmod(world_uv.x * density_multiplier / texture_world_scale + seed * 0.013, 1.0),
-		fposmod(world_uv.y * density_multiplier / texture_world_scale + seed * 0.007, 1.0)
+		fposmod(world_uv.x * density_multiplier / texture_world_scale + pattern_seed * 0.013, 1.0),
+		fposmod(world_uv.y * density_multiplier / texture_world_scale + pattern_seed * 0.007, 1.0)
 	)
 	var sample_position := Vector2(
 		tiled_uv.x * float(texture_image.get_width() - 1),
@@ -3952,20 +3994,20 @@ func _draw_pond_aquatic_vegetation(pond: Dictionary) -> void:
 			_draw_lily_pad(lily_position, angle)
 
 
-func _draw_reed_cluster(position: Vector2, angle: float, blade_count: int) -> void:
+func _draw_reed_cluster(cluster_position: Vector2, angle: float, blade_count: int) -> void:
 	for blade_index in range(blade_count):
 		var offset := Vector2.RIGHT.rotated(angle + PI * 0.5) * (float(blade_index) - float(blade_count - 1) * 0.5) * 3.0
-		var base := position + offset
+		var base := cluster_position + offset
 		var height := 14.0 + float(blade_index % 3) * 4.0
 		var lean := Vector2.RIGHT.rotated(angle - 0.45 + float(blade_index) * 0.20) * 4.0
 		draw_line(base, base + Vector2(0.0, -height) + lean, Color(0.47, 0.55, 0.25, 0.82), 2.0)
 		draw_line(base + Vector2(1.5, 0.0), base + Vector2(1.5, -height * 0.74) - lean * 0.4, Color(0.25, 0.43, 0.20, 0.78), 1.4)
 
 
-func _draw_lily_pad(position: Vector2, angle: float) -> void:
+func _draw_lily_pad(lily_position: Vector2, angle: float) -> void:
 	var radius := 7.0
-	_draw_filled_ellipse(Rect2(position - Vector2(radius, radius * 0.62), Vector2(radius * 2.0, radius * 1.24)), Color(0.18, 0.45, 0.22, 0.82))
-	var notch_start := position + Vector2.RIGHT.rotated(angle) * 1.5
+	_draw_filled_ellipse(Rect2(lily_position - Vector2(radius, radius * 0.62), Vector2(radius * 2.0, radius * 1.24)), Color(0.18, 0.45, 0.22, 0.82))
+	var notch_start := lily_position + Vector2.RIGHT.rotated(angle) * 1.5
 	draw_line(notch_start, notch_start + Vector2.RIGHT.rotated(angle) * radius, Color(0.08, 0.23, 0.15, 0.55), 1.2)
 
 

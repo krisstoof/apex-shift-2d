@@ -380,7 +380,6 @@ func _update_state() -> void:
 	var food_search_range := _get_food_search_range()
 	var nearest_plant := _find_nearest_edible_vegetation(food_search_range)
 	var nearest_prey := _find_nearest_small_prey()
-	var nearest_meat := _find_nearest_meat_drop(food_search_range)
 	var hunger_stage := hunger_diet.get_hunger_stage()
 	var risk_drive: float = hunger_diet.get_risk_drive()
 	if hunger_stage == "hungry" and _has_valid_plant_target(food_search_range):

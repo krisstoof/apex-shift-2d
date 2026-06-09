@@ -171,6 +171,24 @@ func get_meat_near(position: Vector2, radius: float) -> Array:
 	return spatial_index.query_meat_near(position, radius)
 
 
+func get_resources_in_rect(rect: Rect2, kind_filter: Variant = null) -> Array:
+	if spatial_index == null:
+		return []
+	return spatial_index.query_resources_in_rect(rect, kind_filter)
+
+
+func get_creatures_in_rect(rect: Rect2, creature_type_filter: Variant = null) -> Array:
+	if spatial_index == null:
+		return []
+	return spatial_index.query_creatures_in_rect(rect, creature_type_filter)
+
+
+func get_meat_in_rect(rect: Rect2) -> Array:
+	if spatial_index == null:
+		return []
+	return spatial_index.query_meat_in_rect(rect)
+
+
 func _register_node(node: Node, category: String, type_name: String) -> void:
 	if not is_instance_valid(node):
 		return

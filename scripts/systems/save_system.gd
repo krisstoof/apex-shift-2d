@@ -27,7 +27,7 @@ func _post_event_message(message: String) -> void:
 
 
 func save_game() -> void:
-	var data := _collect_save_data()
+	var data: Dictionary = Dictionary(_sanitize_save_data(_collect_save_data()))
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if not file:
 		_post_event_message("Could not save game")
@@ -279,3 +279,36 @@ func _data_to_vector(data: Variant) -> Vector2:
 	if typeof(data) != TYPE_DICTIONARY:
 		return Vector2.ZERO
 	return Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
+
+
+func _sanitize_save_data(value: Variant) -> Variant:
+	match typeof(value):
+		TYPE_DICTIONARY:
+			var sanitized: Dictionary = {}
+			for key in Dictionary(value).keys():
+				sanitized[key] = _sanitize_save_data(Dictionary(value)[key])
+			return sanitized
+		TYPE_ARRAY:
+			var sanitized_array: Array = []
+			for item in Array(value):
+				sanitized_array.append(_sanitize_save_data(item))
+			return sanitized_array
+		TYPE_FLOAT:
+			var float_value := float(value)
+			if is_nan(float_value) or is_inf(float_value):
+				return null
+			return float_value
+		TYPE_VECTOR2:
+			var vector_value := Vector2(value)
+			return {
+				"x": _sanitize_save_data(vector_value.x),
+				"y": _sanitize_save_data(vector_value.y)
+			}
+		TYPE_VECTOR2I:
+			var vector2i_value := Vector2i(value)
+			return {
+				"x": vector2i_value.x,
+				"y": vector2i_value.y
+			}
+		_:
+			return value
