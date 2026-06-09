@@ -167,11 +167,11 @@ func _get_pond_shape_scale(pond: Dictionary, angle: float) -> float:
 	var irregularity := _get_pond_shape_irregularity()
 	if irregularity <= 0.0:
 		return 1.0
-	var seed := _get_pond_shape_seed(pond)
+	var pond_seed := _get_pond_shape_seed(pond)
 	var wave := (
-		sin(angle * 2.0 + seed) * 0.55
-		+ sin(angle * 3.0 - seed * 1.7) * 0.32
-		+ sin(angle * 5.0 + seed * 0.6) * 0.18
+		sin(angle * 2.0 + pond_seed) * 0.55
+		+ sin(angle * 3.0 - pond_seed * 1.7) * 0.32
+		+ sin(angle * 5.0 + pond_seed * 0.6) * 0.18
 	) / 1.05
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.25, 1.0 + irregularity * 1.25)
 

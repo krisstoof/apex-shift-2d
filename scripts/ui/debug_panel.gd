@@ -610,8 +610,8 @@ func _get_bow_state() -> String:
 	return "yes" if has_bow == true else "no"
 
 
-func _get_position_text(position: Vector2) -> String:
-	return "(%d, %d)" % [int(round(position.x)), int(round(position.y))]
+func _get_position_text(world_position: Vector2) -> String:
+	return "(%d, %d)" % [int(round(world_position.x)), int(round(world_position.y))]
 
 
 func _get_current_biome_name() -> String:
@@ -1070,7 +1070,7 @@ func _get_creature_state_summary(group_name: String) -> String:
 	])
 
 
-func _get_varnak_state_summary(varnaks: Array) -> String:
+func _get_varnak_state_summary(_varnaks: Array) -> String:
 	return _get_fixed_creature_state_summary("varnak", [
 		"idle",
 		"wander",

@@ -429,10 +429,10 @@ static func _build_organic_biome_points(biome: Dictionary) -> Array[Vector2]:
 
 static func _get_biome_seed(biome: Dictionary) -> float:
 	var biome_name := str(biome.get("name", "biome"))
-	var seed := 0
+	var hash_value := 0
 	for i in biome_name.length():
-		seed = (seed * 31 + biome_name.unicode_at(i) * (i + 7)) % 10007
-	return float(seed)
+		hash_value = (hash_value * 31 + biome_name.unicode_at(i) * (i + 7)) % 10007
+	return float(hash_value)
 
 
 static func _get_biome_edge_jitter(point: Vector2, biome_seed: float) -> float:

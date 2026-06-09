@@ -1,7 +1,7 @@
 extends RefCounted
 class_name Inventory
 
-const ItemDatabase := preload("res://scripts/items/item_database.gd")
+const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 
 const DEFAULT_SLOT_COUNT := 9
 
@@ -29,10 +29,10 @@ func clear() -> void:
 func add_item(item_id: String, amount: int) -> int:
 	if amount <= 0:
 		return 0
-	if not ItemDatabase.has_item(item_id):
+	if not ITEM_DATABASE.has_item(item_id):
 		return amount
 	var remaining := amount
-	var max_stack := ItemDatabase.get_max_stack(item_id)
+	var max_stack := ITEM_DATABASE.get_max_stack(item_id)
 	for slot in slots:
 		if remaining <= 0:
 			break
@@ -62,7 +62,7 @@ func add_item(item_id: String, amount: int) -> int:
 func remove_item(item_id: String, amount: int) -> bool:
 	if amount <= 0:
 		return true
-	if not ItemDatabase.has_item(item_id):
+	if not ITEM_DATABASE.has_item(item_id):
 		return false
 	if not has_item(item_id, amount):
 		return false
@@ -148,9 +148,9 @@ func load_from_save_data(data: Dictionary) -> void:
 			continue
 		var slot_entry := Dictionary(entry)
 		var item_id := str(slot_entry.get("item_id", ""))
-		if item_id.is_empty() or not ItemDatabase.has_item(item_id):
+		if item_id.is_empty() or not ITEM_DATABASE.has_item(item_id):
 			continue
-		var amount := clampi(int(slot_entry.get("amount", 0)), 1, ItemDatabase.get_max_stack(item_id))
+		var amount := clampi(int(slot_entry.get("amount", 0)), 1, ITEM_DATABASE.get_max_stack(item_id))
 		slots[slot_index]["item_id"] = item_id
 		slots[slot_index]["amount"] = amount
 		slot_index += 1

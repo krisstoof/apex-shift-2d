@@ -2,7 +2,7 @@ extends CharacterBody2D
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
-const Inventory := preload("res://scripts/player/inventory.gd")
+const INVENTORY := preload("res://scripts/player/inventory.gd")
 
 signal died(reason: String)
 
@@ -14,7 +14,7 @@ const ATTACK_ARC := deg_to_rad(82.0)
 const ATTACK_VISUAL_DURATION := 0.16
 
 var stats := PlayerStats.new()
-var inventory := Inventory.new()
+var inventory := INVENTORY.new()
 var has_spear := false
 var has_bow := false
 var torch_active := false
@@ -256,10 +256,10 @@ func _is_in_water() -> bool:
 	return false
 
 
-func world_query_is_deep_water(position: Vector2) -> bool:
+func world_query_is_deep_water(world_position: Vector2) -> bool:
 	var world_query: Variant = _get_world_query()
 	if world_query != null and world_query.has_method("is_position_in_deep_water"):
-		return world_query.is_position_in_deep_water(position) == true
+		return world_query.is_position_in_deep_water(world_position) == true
 	return false
 
 

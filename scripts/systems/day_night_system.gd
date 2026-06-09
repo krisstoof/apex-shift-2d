@@ -84,7 +84,7 @@ func get_day() -> int:
 
 func get_clock_time() -> String:
 	var total_minutes := int(get_hour_float() * 60.0)
-	var hour := total_minutes / 60
+	var hour := float(total_minutes) / 60.0
 	var minute := total_minutes % 60
 	return "%02d:%02d" % [hour, minute]
 

@@ -196,7 +196,7 @@ func restore_from_data(data: Dictionary) -> void:
 	energy = clamp(_safe_float(data, "energy", energy), 0.0, 1.0)
 	age_seconds = max(_safe_float(data, "age_seconds", age_seconds), 0.0)
 	night_health_bonus_active = _safe_bool(data, "night_health_bonus_active", night_health_bonus_active)
-	state = _safe_int(data, "state", State.WANDER)
+	state = _safe_int(data, "state", State.WANDER) as State
 	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
 	attack_cooldown = _safe_float(data, "attack_cooldown", attack_cooldown)
 	last_food_source = str(data.get("last_food_source", last_food_source))
@@ -398,7 +398,7 @@ func _update_state() -> void:
 		_pick_wander_target()
 
 
-func _act(delta: float) -> void:
+func _act(_delta: float) -> void:
 	match state:
 		State.IDLE:
 			velocity = Vector2.ZERO
