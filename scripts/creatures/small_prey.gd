@@ -5,6 +5,7 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
 const SPECIES_PATH := "res://data/species/small_prey.json"
 const AI_DECISION_INTERVAL_SECONDS := 0.14
+const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
 
 enum State { IDLE, WANDER, SEEK_FOOD, EAT, FLEE, DEAD }
 
@@ -62,6 +63,7 @@ var decision_reason := "spawn"
 var ai_decision_interval := 0.30
 var ai_decision_timer := 0.0
 var ai_decision_count := 0
+var spatial_update_timer := 0.0
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
 
@@ -971,10 +973,6 @@ func _get_nearby_creatures(search_range: float, creature_type_filter: Variant = 
 	if world and world.has_method("get_creatures_near"):
 		return world.get_creatures_near(global_position, search_range, creature_type_filter)
 	return _get_cached_group_nodes(str(creature_type_filter))
-
-
-const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
-var spatial_update_timer := 0.0
 
 
 func _update_spatial_cell_tick(delta: float) -> void:
