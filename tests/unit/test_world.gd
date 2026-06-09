@@ -593,7 +593,7 @@ func _test_varnak_first_week_curve_limits_population_and_spawn(failures: Array[S
 	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 1)), 0.00, failures, "Day 1 should use the onboarding spawn chance")
 	world.current_day = 3
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 3)), 2, failures, "Day 3 should raise the Varnak cap")
-	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 3)), 0.18, failures, "Day 3 should increase the spawn chance")
+	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 3)), 0.15, failures, "Day 3 should increase the spawn chance")
 	world.current_day = 9
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 9)), 8, failures, "Days after the first week should fall back to standard scaling")
 	TEST_UTILS.expect_close(float(world.call("_get_varnak_spawn_chance", 9)), 0.55, failures, "Days after the first week should fall back to standard spawn scaling")

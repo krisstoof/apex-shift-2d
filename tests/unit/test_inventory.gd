@@ -195,7 +195,7 @@ func _test_storage_box_screen_posts_transfer_messages_to_hud(failures: Array[Str
 	event_bus.name = "EventBus"
 	tree.root.add_child(event_bus)
 	var screen := STORAGE_BOX_SCREEN.new()
-	screen.call("_ready")
+	tree.root.add_child(screen)
 	var player_inventory := INVENTORY.new()
 	var storage_inventory := INVENTORY.new(12)
 	player_inventory.add_item("storage_box", 1)

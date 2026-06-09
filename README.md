@@ -14,6 +14,9 @@ The current Varnak adaptation system is intentionally lightweight. It adjusts a 
 - WASD: move
 - Shift: run
 - E: gather nearby resources
+- I: inventory
+- M: map
+- Esc: pause / close screen
 - Space or left mouse: attack
 - 1: craft campfire
 - 2: craft spear
@@ -21,7 +24,9 @@ The current Varnak adaptation system is intentionally lightweight. It adjusts a 
 - 4: craft wall
 - 5: craft storage box
 - 6: craft tent
+- 7: eat meat
 - 8: craft torch
+- 9: craft bow
 - T: activate/deactivate torch
 - Mouse wheel: zoom camera
 
@@ -54,7 +59,7 @@ Debug tools are available inside the Debug Panel:
 - Traps can kill Varnaks and increase `trap_awareness` in the lightweight adaptation profile.
 - Fire scares can reduce `fire_fear` and increase `stalk_tendency`.
 - Player kills can increase `aggression` and `pack_coordination`.
-- New Varnaks spawned by the Debug Panel, sleeping, day changes, or generation changes use the current adaptation profile.
+- New Varnaks spawned by the Debug Panel, sleeping, day changes, or adaptation steps use the current adaptation profile.
 - The HUD shows health, hunger, stamina, key resources, spear status, debug values, interaction prompts, and recent system messages.
 
 ## Testing Varnak Adaptation
