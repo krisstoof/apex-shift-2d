@@ -344,6 +344,9 @@ func _set_world_object_visibility_by_rect(visible_rect: Rect2) -> void:
 	var visible_resources := get_resources_in_rect(query_rect)
 	for node in visible_resources:
 		_mark_visibility_candidate(node, true, current_visible_nodes)
+	var visible_meat := get_meat_in_rect(query_rect)
+	for node in visible_meat:
+		_mark_visibility_candidate(node, true, current_visible_nodes)
 	for creature_type in ["small_prey", "grazer", "varnak"]:
 		var visible_creatures := get_creatures_in_rect(query_rect, creature_type)
 		for node in visible_creatures:
