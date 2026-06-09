@@ -18,6 +18,7 @@ class TestPlayer:
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_hud_builds_compact_player_stats_from_snapshot(failures)
+	_test_hud_builds_hunger_status_in_player_stats(failures)
 	_test_hud_shows_resource_counts_from_player_inventory(failures)
 	_test_hud_toggles_inventory_screen_with_i_and_escape(failures)
 	_test_hud_inventory_screen_lists_inventory_items(failures)
@@ -27,6 +28,7 @@ func run() -> Array[String]:
 	_test_hud_reads_rest_from_player_stats_object(failures)
 	_test_hud_creates_critical_health_overlay(failures)
 	_test_hud_activates_warning_when_health_is_low(failures)
+	_test_hud_warns_about_nearby_varnak_threat(failures)
 	_test_game_over_scene_is_root_full_rect(failures)
 	_test_hud_survival_warning_debug_exists(failures)
 	return failures
@@ -74,6 +76,31 @@ func _test_hud_builds_compact_player_stats_from_snapshot(failures: Array[String]
 	TEST_UTILS.expect(player_stats_text.contains("Spear: Yes"), failures, "HUD should keep spear ownership visible in the compact stats section")
 	TEST_UTILS.expect(player_stats_text.contains("Wood: 4"), failures, "HUD should keep the basic inventory snapshot visible in the compact stats section")
 	TEST_UTILS.expect_equal(hud.call("_get_prompt_text_from_snapshot", snapshot), "E: interact", failures, "HUD should still read the interaction prompt from snapshot data")
+	hud.free()
+
+
+func _test_hud_builds_hunger_status_in_player_stats(failures: Array[String]) -> void:
+	var hud := HUD_SCRIPT.new()
+	var snapshot := {
+		"time": {
+			"clock_time": "07:10",
+			"day": 1,
+			"time_label": "Morning"
+		},
+		"player": {
+			"health": 80,
+			"max_health": 100,
+			"hunger": 22,
+			"stamina": 64,
+			"rest": 90,
+			"inventory": {}
+		}
+	}
+	var player_stats_text: String = hud.call("_build_player_stats_text_from_snapshot", snapshot)
+	TEST_UTILS.expect(player_stats_text.contains("Hunger: 22% (Hungry)"), failures, "HUD should label low hunger as Hungry")
+	snapshot.player.hunger = 0
+	player_stats_text = hud.call("_build_player_stats_text_from_snapshot", snapshot)
+	TEST_UTILS.expect(player_stats_text.contains("Hunger: 0% (Starving)"), failures, "HUD should label zero hunger as Starving")
 	hud.free()
 
 
@@ -248,6 +275,24 @@ func _test_hud_reads_hunger_from_player_stats_object(failures: Array[String]) ->
 	hud.queue_free()
 
 
+func _test_hud_reads_starvation_from_player_stats_object(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	var player := PlayerStatsPlayer.new()
+	player.stats.hunger = 0.0
+	player.stats.stamina = 100.0
+	player.stats.rest = 100.0
+	hud.player = player
+	hud.evolution_director = Node.new()
+	hud.day_night_system = Node.new()
+	var before_history_size := Array(hud.get("message_history")).size()
+	hud.call("_update_survival_warning_messages", 0.5)
+	var message_history: Array[String] = Array(hud.get("message_history"))
+	TEST_UTILS.expect_equal(message_history.size(), before_history_size + 1, failures, "HUD should append a starvation warning when hunger reaches zero")
+	if not message_history.is_empty():
+		TEST_UTILS.expect_equal(message_history[message_history.size() - 1], "You are starving and losing health. Eat food.", failures, "HUD should prioritize starvation feedback over the ordinary hunger warning")
+	hud.queue_free()
+
+
 func _test_hud_reads_stamina_from_player_stats_object(failures: Array[String]) -> void:
 	var hud := _make_hud()
 	var player := PlayerStatsPlayer.new()
@@ -314,6 +359,35 @@ func _test_hud_activates_warning_when_health_is_low(failures: Array[String]) -> 
 	hud.queue_free()
 
 
+class NearbyThreatVarnak:
+	extends Node2D
+
+
+func _test_hud_warns_about_nearby_varnak_threat(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	var player := TestPlayer.new()
+	player.stats.health = 100.0
+	player.stats.hunger = 100.0
+	player.stats.stamina = 100.0
+	player.stats.rest = 100.0
+	hud.player = player
+	hud.evolution_director = Node.new()
+	hud.day_night_system = Node.new()
+	var varnak := NearbyThreatVarnak.new()
+	varnak.global_position = Vector2(100.0, 0.0)
+	varnak.add_to_group("varnak")
+	hud.get_tree().current_scene.add_child(varnak)
+	hud.call("_update_nearby_threat_warning", 0.5)
+	var message_history: Array[String] = Array(hud.get("message_history"))
+	TEST_UTILS.expect(message_history.has("Danger nearby. Move away or prepare to fight."), failures, "HUD should warn when a Varnak is nearby")
+	var before_history_size := message_history.size()
+	hud.call("_update_nearby_threat_warning", 0.5)
+	message_history = Array(hud.get("message_history"))
+	TEST_UTILS.expect_equal(message_history.size(), before_history_size, failures, "Nearby threat warning should respect its cooldown")
+	hud.queue_free()
+	varnak.queue_free()
+
+
 func _test_game_over_scene_is_root_full_rect(failures: Array[String]) -> void:
 	var scene_text := FileAccess.get_file_as_string("res://scenes/ui/game_over_screen.tscn")
 	TEST_UTILS.expect(scene_text.contains("anchors_preset = 15"), failures, "Game Over root should fill the full screen so the internal center container can center the panel")
@@ -324,7 +398,9 @@ func _test_hud_survival_warning_debug_exists(failures: Array[String]) -> void:
 	var hud := _make_hud()
 	var debug_state: Dictionary = hud.call("get_survival_warning_debug")
 	TEST_UTILS.expect(debug_state.has("hunger_warning_timer"), failures, "HUD should expose survival warning debug timers")
+	TEST_UTILS.expect(debug_state.has("starving_warning_timer"), failures, "HUD should expose starvation debug timers")
 	TEST_UTILS.expect(debug_state.has("exhaustion_warning_timer"), failures, "HUD should expose exhaustion warning debug timers")
+	TEST_UTILS.expect(debug_state.has("nearby_threat_check_timer"), failures, "HUD should expose nearby threat debug timers")
 	TEST_UTILS.expect(debug_state.has("campfire_hint_timer"), failures, "HUD should expose campfire hint debug timers")
 	hud.queue_free()
 

@@ -201,7 +201,10 @@ func receive_damage(amount: float, source: String = "unknown") -> bool:
 			_post_event_message("God mode blocked damage")
 		return false
 	stats.damage(amount)
-	_post_event_message("Player hit for %s" % int(amount))
+	var damage_message := "Took %d damage" % int(round(amount))
+	if source == "varnak":
+		damage_message = "Took %d damage from Varnak" % int(round(amount))
+	_post_event_message(damage_message)
 	if stats.health <= 0.0:
 		_die(source)
 	return true
