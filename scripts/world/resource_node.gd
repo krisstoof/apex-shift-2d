@@ -338,6 +338,10 @@ func _sync_visual_sprite() -> void:
 	var sprite := _get_visual_sprite()
 	if sprite == null:
 		return
+	if resource_kind == "bone_drop":
+		sprite.visible = false
+		sprite.texture = null
+		return
 	var column := int(RESOURCE_ATLAS_COLUMNS.get(resource_kind, RESOURCE_ATLAS_COLUMNS["bush"]))
 	var row := 1 if _uses_regrowth() and growth_stage <= 0 else 0
 	var atlas := _get_resource_atlas()
@@ -639,6 +643,8 @@ func _draw() -> void:
 			_draw_rock()
 		"meat_drop":
 			_draw_meat_drop()
+		"bone_drop":
+			_draw_bone_drop()
 		_:
 			_draw_bush()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -740,3 +746,11 @@ func _draw_meat_drop() -> void:
 	draw_circle(Vector2(5, -2), 7.0, Color(0.78, 0.15, 0.12))
 	draw_circle(Vector2(1, 5), 5.0, Color(0.45, 0.03, 0.03))
 	draw_line(Vector2(-7, -3), Vector2(7, 6), Color(0.95, 0.62, 0.48, 0.55), 2.0)
+
+
+func _draw_bone_drop() -> void:
+	draw_circle(Vector2(-6, 0), 5.0, Color(0.88, 0.84, 0.76))
+	draw_circle(Vector2(6, 0), 5.0, Color(0.88, 0.84, 0.76))
+	draw_rect(Rect2(-6, -4, 12, 8), Color(0.94, 0.92, 0.88), true)
+	draw_rect(Rect2(-3, -7, 6, 14), Color(0.80, 0.76, 0.68), true)
+	draw_line(Vector2(-7, -1), Vector2(7, 1), Color(0.98, 0.98, 0.94, 0.45), 1.6)

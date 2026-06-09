@@ -169,8 +169,8 @@ func _test_varnak_uses_first_week_profile_tuning(failures: Array[String]) -> voi
 	day_night.day = 1
 	varnak.day_night_system = day_night
 	varnak.apply_profile(profile)
-	TEST_UTILS.expect_close(varnak.aggression, 0.27, failures, "Day 1 should soften Varnak aggression")
-	TEST_UTILS.expect_close(varnak.night_activity, 0.175, failures, "Day 1 should soften Varnak night activity")
+	TEST_UTILS.expect_close(varnak.aggression, 0.18, failures, "Day 1 should soften Varnak aggression")
+	TEST_UTILS.expect_close(varnak.night_activity, 0.14, failures, "Day 1 should soften Varnak night activity")
 	day_night.day = 3
 	varnak.apply_profile(profile)
 	TEST_UTILS.expect_close(varnak.aggression, 0.45, failures, "Day 3 should restore the baseline aggression")

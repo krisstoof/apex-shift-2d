@@ -128,74 +128,74 @@ const VARNAK_DAY_SCALING := {
 	"day_2_max": 2,
 	"day_3_min": 2,
 	"day_3_max": 4,
-	"max_varnaks": 12,
+	"max_varnaks": 8,
 	"daily_growth": 1,
 	"spawn_check_interval_seconds": 10.0,
 	"spawn_batch_limit": 2,
 	"day_1_spawn_chance": 0.0,
-	"day_2_spawn_chance": 0.55,
-	"spawn_chance_daily_growth": 0.07,
-	"max_spawn_chance": 0.9,
+	"day_2_spawn_chance": 0.10,
+	"spawn_chance_daily_growth": 0.05,
+	"max_spawn_chance": 0.55,
 	"other_creature_min_distance": 140.0
 }
 
 # Early-week difficulty curve keeps day 1 gentle, day 3 meaningful, and days 6-7 clearly harsher.
 const FIRST_WEEK_DIFFICULTY := {
 	1: {
-		"varnak_max_population": 1,
-		"varnak_spawn_chance": 0.08,
-		"varnak_aggression_multiplier": 0.60,
-		"varnak_activity_multiplier": 0.70,
+		"varnak_max_population": 0,
+		"varnak_spawn_chance": 0.00,
+		"varnak_aggression_multiplier": 0.40,
+		"varnak_activity_multiplier": 0.55,
 		"small_prey_population_multiplier": 1.15,
 		"grazer_population_multiplier": 1.10
 	},
 	2: {
-		"varnak_max_population": 2,
-		"varnak_spawn_chance": 0.15,
-		"varnak_aggression_multiplier": 0.75,
-		"varnak_activity_multiplier": 0.85,
+		"varnak_max_population": 1,
+		"varnak_spawn_chance": 0.10,
+		"varnak_aggression_multiplier": 0.55,
+		"varnak_activity_multiplier": 0.68,
 		"small_prey_population_multiplier": 1.08,
 		"grazer_population_multiplier": 1.05
 	},
 	3: {
-		"varnak_max_population": 3,
-		"varnak_spawn_chance": 0.25,
-		"varnak_aggression_multiplier": 1.00,
-		"varnak_activity_multiplier": 1.00,
+		"varnak_max_population": 2,
+		"varnak_spawn_chance": 0.18,
+		"varnak_aggression_multiplier": 0.70,
+		"varnak_activity_multiplier": 0.80,
 		"small_prey_population_multiplier": 1.00,
 		"grazer_population_multiplier": 1.00
 	},
 	4: {
-		"varnak_max_population": 4,
-		"varnak_spawn_chance": 0.34,
-		"varnak_aggression_multiplier": 1.10,
-		"varnak_activity_multiplier": 1.10,
+		"varnak_max_population": 3,
+		"varnak_spawn_chance": 0.26,
+		"varnak_aggression_multiplier": 0.82,
+		"varnak_activity_multiplier": 0.90,
 		"small_prey_population_multiplier": 0.95,
 		"grazer_population_multiplier": 0.98
 	},
 	5: {
-		"varnak_max_population": 5,
-		"varnak_spawn_chance": 0.43,
-		"varnak_aggression_multiplier": 1.20,
-		"varnak_activity_multiplier": 1.20,
-		"small_prey_population_multiplier": 0.90,
-		"grazer_population_multiplier": 0.95
+		"varnak_max_population": 4,
+		"varnak_spawn_chance": 0.34,
+		"varnak_aggression_multiplier": 0.92,
+		"varnak_activity_multiplier": 1.00,
+		"small_prey_population_multiplier": 0.92,
+		"grazer_population_multiplier": 0.96
 	},
 	6: {
-		"varnak_max_population": 6,
-		"varnak_spawn_chance": 0.52,
-		"varnak_aggression_multiplier": 1.30,
-		"varnak_activity_multiplier": 1.30,
-		"small_prey_population_multiplier": 0.85,
-		"grazer_population_multiplier": 0.90
+		"varnak_max_population": 5,
+		"varnak_spawn_chance": 0.42,
+		"varnak_aggression_multiplier": 1.02,
+		"varnak_activity_multiplier": 1.10,
+		"small_prey_population_multiplier": 0.88,
+		"grazer_population_multiplier": 0.92
 	},
 	7: {
-		"varnak_max_population": 7,
-		"varnak_spawn_chance": 0.60,
-		"varnak_aggression_multiplier": 1.40,
-		"varnak_activity_multiplier": 1.40,
-		"small_prey_population_multiplier": 0.80,
-		"grazer_population_multiplier": 0.88
+		"varnak_max_population": 6,
+		"varnak_spawn_chance": 0.50,
+		"varnak_aggression_multiplier": 1.12,
+		"varnak_activity_multiplier": 1.22,
+		"small_prey_population_multiplier": 0.84,
+		"grazer_population_multiplier": 0.90
 	}
 }
 
@@ -300,15 +300,15 @@ const VARNAK_HUNTING := {
 	"player_intrusion_radius": 240.0,
 	"prey_chase_priority": 0.65,
 	"player_chase_priority": 0.85,
-	"night_hunting_multiplier": 1.25,
+	"night_hunting_multiplier": 1.35,
 	"fire_avoidance_priority": 1.10,
 	"torch_avoidance_priority": 0.75,
-	"target_lock_seconds": 1.10,
+	"target_lock_seconds": 1.25,
 	"local_patrol_radius": 320.0,
 	"hungry_roam_radius": 720.0,
 	"starving_roam_radius": 1120.0,
 	"hunting_roam_target_reached_distance": 90.0,
-	"cross_biome_hunt_drive": 0.55
+	"cross_biome_hunt_drive": 0.62
 }
 
 # Ranged combat values reserved for the bow and arrow projectile systems.
