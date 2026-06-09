@@ -76,6 +76,9 @@ var ai_decision_count := 0
 var spatial_update_timer := 0.0
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
+var is_visibility_culled := false
+var stored_collision_layer := 0
+var stored_collision_mask := 0
 
 
 func _get_event_bus() -> Node:
@@ -103,6 +106,8 @@ func _ready() -> void:
 	add_to_group("grazer")
 	rng.randomize()
 	player = get_tree().get_first_node_in_group("player")
+	stored_collision_layer = collision_layer
+	stored_collision_mask = collision_mask
 	_initialize_from_game_balance()
 	_load_species_data()
 	if biome_id.is_empty():
@@ -112,6 +117,22 @@ func _ready() -> void:
 	ai_decision_timer = rng.randf_range(0.0, AI_DECISION_INTERVAL_SECONDS)
 	_pick_wander_target()
 	queue_redraw()
+
+
+func set_visibility_culled(should_be_visible: bool) -> void:
+	is_visibility_culled = not should_be_visible
+	visible = should_be_visible
+	if should_be_visible:
+		collision_layer = stored_collision_layer
+		collision_mask = stored_collision_mask
+		set_physics_process(true)
+		set_process(true)
+		queue_redraw()
+	else:
+		collision_layer = 0
+		collision_mask = 0
+		set_physics_process(false)
+		set_process(false)
 
 
 func setup(p_biome_id: String = "") -> void:
@@ -285,6 +306,8 @@ func take_damage(amount: float, source: String = "unknown") -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if is_visibility_culled:
+		return
 	if state == State.DEAD:
 		return
 	if not is_instance_valid(player):

@@ -122,6 +122,7 @@ func run() -> Array[String]:
 	_test_varnak_skips_freed_meat_drop_targets(failures)
 	_test_varnak_hunger_restored_after_eating(failures)
 	_test_varnak_restore_from_data_handles_null_fields(failures)
+	_test_varnak_visibility_culling_sleeps_ai_and_collision(failures)
 	_test_varnak_returns_to_wandering_after_eating(failures)
 	_test_varnak_takes_damage(failures)
 	_test_varnak_dies_at_zero_health(failures)
@@ -460,6 +461,35 @@ func _test_varnak_restore_from_data_handles_null_fields(failures: Array[String])
 	})
 	TEST_UTILS.expect_close(varnak.health, before_health, failures, "Varnak restore should ignore null health values")
 	TEST_UTILS.expect(varnak.facing_angle == varnak.facing_angle, failures, "Varnak restore should not produce an invalid facing angle")
+	varnak.queue_free()
+
+
+func _test_varnak_visibility_culling_sleeps_ai_and_collision(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	varnak.player = Node2D.new()
+	varnak.player.global_position = Vector2(100000.0, 100000.0)
+	var original_layer: int = varnak.collision_layer
+	var original_mask: int = varnak.collision_mask
+	var before_position: Vector2 = varnak.global_position
+	var before_ai_decisions: int = varnak.ai_decision_count
+	TEST_UTILS.expect(varnak.has_method("set_visibility_culled"), failures, "Varnak should expose visibility culling")
+	varnak.call("set_visibility_culled", false)
+	TEST_UTILS.expect_equal(varnak.visible, false, failures, "Culled varnak should be hidden")
+	TEST_UTILS.expect_equal(bool(varnak.get("is_visibility_culled")), true, failures, "Culled varnak should remember it is sleeping")
+	TEST_UTILS.expect_equal(varnak.collision_layer, 0, failures, "Culled varnak should disable its collision layer")
+	TEST_UTILS.expect_equal(varnak.collision_mask, 0, failures, "Culled varnak should disable its collision mask")
+	TEST_UTILS.expect_equal(varnak.is_physics_processing(), false, failures, "Culled varnak should stop physics processing")
+	TEST_UTILS.expect_equal(varnak.is_processing(), false, failures, "Culled varnak should stop frame processing")
+	varnak.call("_physics_process", 0.2)
+	TEST_UTILS.expect_equal(varnak.ai_decision_count, before_ai_decisions, failures, "Sleeping varnak should not advance AI decisions")
+	TEST_UTILS.expect_equal(varnak.global_position, before_position, failures, "Sleeping varnak should not move")
+	varnak.call("set_visibility_culled", true)
+	TEST_UTILS.expect_equal(varnak.visible, true, failures, "Reactivated varnak should be visible")
+	TEST_UTILS.expect_equal(bool(varnak.get("is_visibility_culled")), false, failures, "Reactivated varnak should clear the sleeping flag")
+	TEST_UTILS.expect_equal(varnak.collision_layer, original_layer, failures, "Reactivated varnak should restore its collision layer")
+	TEST_UTILS.expect_equal(varnak.collision_mask, original_mask, failures, "Reactivated varnak should restore its collision mask")
+	TEST_UTILS.expect_equal(varnak.is_physics_processing(), true, failures, "Reactivated varnak should resume physics")
+	TEST_UTILS.expect_equal(varnak.is_processing(), true, failures, "Reactivated varnak should resume frame processing")
 	varnak.queue_free()
 
 

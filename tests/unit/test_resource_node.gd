@@ -30,6 +30,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_resource_node_setup_exposes_herbivore_food(failures)
 	_test_resource_node_marks_grass_as_render_only_and_edible(failures)
+	_test_resource_node_visibility_culling_toggles_active_state(failures)
 	_test_resource_node_restore_recreates_edible_food_value(failures)
 	_test_resource_node_restore_defaults_render_only_for_legacy_saves(failures)
 	_test_resource_node_syncs_collision_radius_with_growth(failures)
@@ -99,6 +100,25 @@ func _test_resource_node_marks_grass_as_render_only_and_edible(failures: Array[S
 		if collision_shape != null:
 			TEST_UTILS.expect_equal(collision_shape.disabled, true, failures, "%s should keep collision disabled after consumption" % kind)
 		resource.free()
+
+
+func _test_resource_node_visibility_culling_toggles_active_state(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.current_scene.add_child(resource)
+	var collision_shape := resource.get_node("CollisionShape2D") as CollisionShape2D
+	TEST_UTILS.expect(resource.has_method("set_visibility_culled"), failures, "Resource nodes should expose visibility culling")
+	resource.call("set_visibility_culled", false)
+	TEST_UTILS.expect_equal(resource.visible, false, failures, "Culled resources should be hidden")
+	TEST_UTILS.expect_equal(bool(resource.get("is_visibility_culled")), true, failures, "Culled resources should remember they are sleeping")
+	if collision_shape != null:
+		TEST_UTILS.expect_equal(collision_shape.disabled, true, failures, "Culled resources should disable collision")
+	resource.call("set_visibility_culled", true)
+	TEST_UTILS.expect_equal(resource.visible, true, failures, "Visible resources should be shown again")
+	TEST_UTILS.expect_equal(bool(resource.get("is_visibility_culled")), false, failures, "Visible resources should clear the sleeping flag")
+	if collision_shape != null:
+		TEST_UTILS.expect_equal(collision_shape.disabled, false, failures, "Reactivated resources should restore collision")
+	resource.queue_free()
 
 
 func _test_resource_node_syncs_collision_radius_with_growth(failures: Array[String]) -> void:

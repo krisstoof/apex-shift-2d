@@ -65,6 +65,9 @@ var spatial_update_timer := 0.0
 var is_dead := false
 var meat_diet := 1.0
 var scavenger_diet := 0.45
+var is_visibility_culled := false
+var stored_collision_layer := 0
+var stored_collision_mask := 0
 
 
 func _get_event_bus() -> Node:
@@ -88,9 +91,27 @@ func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
 func _ready() -> void:
 	add_to_group("varnak")
 	player = get_tree().get_first_node_in_group("player")
+	stored_collision_layer = collision_layer
+	stored_collision_mask = collision_mask
 	ai_decision_timer = fmod(float(get_instance_id()), 7.0) / 7.0 * AI_DECISION_INTERVAL_SECONDS
 	_pick_wander_target()
 	queue_redraw()
+
+
+func set_visibility_culled(should_be_visible: bool) -> void:
+	is_visibility_culled = not should_be_visible
+	visible = should_be_visible
+	if should_be_visible:
+		collision_layer = stored_collision_layer
+		collision_mask = stored_collision_mask
+		set_physics_process(true)
+		set_process(true)
+		queue_redraw()
+	else:
+		collision_layer = 0
+		collision_mask = 0
+		set_physics_process(false)
+		set_process(false)
 
 
 func apply_profile(profile: Dictionary) -> void:
@@ -244,6 +265,8 @@ func _safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	if is_visibility_culled:
+		return
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
 		return
