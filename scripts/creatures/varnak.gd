@@ -176,6 +176,10 @@ func get_debug_data() -> Dictionary:
 	}
 
 
+func get_debug_ai_state() -> String:
+	return _get_debug_action_label()
+
+
 func restore_from_data(data: Dictionary) -> void:
 	species_id = str(data.get("species_id", species_id))
 	species_name = str(data.get("species_name", species_name))

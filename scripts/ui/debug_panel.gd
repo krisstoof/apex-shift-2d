@@ -335,6 +335,7 @@ func _build_overview_text(profile: Dictionary) -> String:
 	var ecosystem_snapshot := Dictionary(snapshot.get("ecosystem", {}))
 	var world_snapshot := Dictionary(snapshot.get("world", {}))
 	var varnak_population := Dictionary(world_snapshot.get("varnak_population", {}))
+	var ai_state_counts := Dictionary(world_snapshot.get("creature_ai_state_counts", {}))
 	var lines: Array[String] = []
 	lines.append("Day %d | %s | night %.2f" % [
 		int(time_snapshot.get("day", _get_day())),
@@ -360,6 +361,11 @@ func _build_overview_text(profile: Dictionary) -> String:
 		int(varnak_population.get("target", 0)),
 		int(varnak_population.get("live", debug_snapshot.get("live_varnaks", 0))),
 		int(varnak_population.get("max", 0))
+	])
+	lines.append("AI states: prey %s | grazers %s | varnaks %s" % [
+		_get_ai_state_summary_text(Dictionary(ai_state_counts.get("small_prey", {})), ["wandering", "hungry", "eating", "fleeing"]),
+		_get_ai_state_summary_text(Dictionary(ai_state_counts.get("grazer", {})), ["wandering", "hungry", "eating", "fleeing"]),
+		_get_ai_state_summary_text(Dictionary(ai_state_counts.get("varnak", {})), ["wandering", "hungry", "hunting", "fleeing"])
 	])
 	lines.append("creatures_out_of_bounds_count = %d" % int(Dictionary(snapshot.get("world", {})).get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))
 	lines.append("Ecosystem warnings: %s" % str(ecosystem_snapshot.get("warnings_text", _get_ecosystem_warnings_text())))
@@ -1096,6 +1102,15 @@ func _get_fixed_creature_state_summary(group_name: String, state_names: Array[St
 		parts.append("%s:%d" % [state_name, int(counts.get(state_name, 0))])
 	parts.append("satiety:%d%%" % _get_average_percent(satiety_total, count))
 	parts.append("energy:%d%%" % _get_average_percent(energy_total, count))
+	return ", ".join(parts)
+
+
+func _get_ai_state_summary_text(state_counts: Dictionary, state_names: Array[String]) -> String:
+	if state_counts.is_empty():
+		return "none"
+	var parts: Array[String] = []
+	for state_name in state_names:
+		parts.append("%s:%d" % [state_name, int(state_counts.get(state_name, 0))])
 	return ", ".join(parts)
 
 

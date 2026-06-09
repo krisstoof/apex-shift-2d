@@ -147,6 +147,10 @@ func get_debug_data() -> Dictionary:
 	return data
 
 
+func get_debug_ai_state() -> String:
+	return _get_debug_action_label()
+
+
 func get_save_data() -> Dictionary:
 	return {
 		"species_id": species_id,
