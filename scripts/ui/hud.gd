@@ -12,9 +12,13 @@ const LOW_STAMINA_THRESHOLD := 20.0
 const LOW_REST_THRESHOLD := 25.0
 const LOW_HEALTH_CAMPFIRE_HINT_THRESHOLD := 50.0
 const HUNGER_WARNING_COOLDOWN_SECONDS := 12.0
+const STARVING_WARNING_COOLDOWN_SECONDS := 10.0
 const EXHAUSTION_WARNING_COOLDOWN_SECONDS := 14.0
 const CAMPFIRE_HINT_COOLDOWN_SECONDS := 18.0
 const CAMPFIRE_HINT_RADIUS := 180.0
+const NEARBY_THREAT_CHECK_INTERVAL_SECONDS := 0.5
+const NEARBY_THREAT_WARNING_COOLDOWN_SECONDS := 8.0
+const NEARBY_THREAT_RADIUS := 260.0
 
 var player: Node
 var evolution_director: Node
@@ -33,8 +37,11 @@ var critical_health_pulse_time := 0.0
 var critical_health_warning_timer := 0.0
 var critical_health_active := false
 var hunger_warning_timer := 0.0
+var starving_warning_timer := 0.0
 var exhaustion_warning_timer := 0.0
 var campfire_hint_timer := 0.0
+var nearby_threat_check_timer := 0.0
+var nearby_threat_warning_timer := 0.0
 var distance_debug_label: Label
 var snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 var hitch_log_cooldowns: Dictionary = {}
@@ -139,6 +146,7 @@ func _process(delta: float) -> void:
 		return
 	_update_critical_health_warning(delta)
 	_update_survival_warning_messages(delta)
+	_update_nearby_threat_warning(delta)
 	_log_hitch(delta, "HUD", {
 		"map_screen_open": map_screen_open,
 		"pause_menu_open": pause_menu_open,
@@ -198,11 +206,15 @@ func _build_player_stats_text_from_snapshot(snapshot: Dictionary) -> String:
 	var day := int(time_snapshot.get("day", 1))
 	var time_label := str(time_snapshot.get("time_label", ""))
 	var rest_label := "Rest" if player_snapshot.has("rest") else "Fatigue"
+	var hunger_status := _get_hunger_status_label(hunger)
+	var hunger_text := "Hunger: %d%%" % int(round(hunger))
+	if not hunger_status.is_empty():
+		hunger_text += " (%s)" % hunger_status
 	return "\n".join([
-		"HP: %d / %d  Hunger: %d%%  Stamina: %d%%" % [
+		"HP: %d / %d  %s  Stamina: %d%%" % [
 			int(round(health)),
 			int(round(max_health)),
-			int(round(hunger)),
+			hunger_text,
 			int(round(stamina))
 		],
 		"%s: %d%%  Day: %d  Time: %s" % [
@@ -228,6 +240,14 @@ func _get_player_max_health_value_from_snapshot(player_snapshot: Dictionary) -> 
 	if value > 0.0:
 		return value
 	return float(PlayerStats.MAX_HEALTH)
+
+
+func _get_hunger_status_label(hunger_percent: float) -> String:
+	if hunger_percent <= 0.0:
+		return "Starving"
+	if hunger_percent <= LOW_HUNGER_THRESHOLD:
+		return "Hungry"
+	return ""
 
 
 func _get_snapshot_stat_percent(player_snapshot: Dictionary, stat_name: String, max_value: float) -> float:
@@ -493,6 +513,7 @@ func _show_critical_health_message() -> void:
 
 func _update_survival_warning_messages(delta: float) -> void:
 	hunger_warning_timer = maxf(0.0, hunger_warning_timer - delta)
+	starving_warning_timer = maxf(0.0, starving_warning_timer - delta)
 	exhaustion_warning_timer = maxf(0.0, exhaustion_warning_timer - delta)
 	campfire_hint_timer = maxf(0.0, campfire_hint_timer - delta)
 	if _is_game_over_active():
@@ -504,7 +525,11 @@ func _update_survival_warning_messages(delta: float) -> void:
 	var stamina := _get_player_stat_value(player_node, "stamina", 100.0)
 	var rest := _get_player_stat_value(player_node, "rest", 100.0)
 	var health := _get_player_stat_value(player_node, "health", 100.0)
-	if hunger <= LOW_HUNGER_THRESHOLD and hunger_warning_timer <= 0.0:
+	if hunger <= 0.0 and starving_warning_timer <= 0.0:
+		_push_survival_message("You are starving and losing health. Eat food.")
+		starving_warning_timer = STARVING_WARNING_COOLDOWN_SECONDS
+		hunger_warning_timer = HUNGER_WARNING_COOLDOWN_SECONDS
+	elif hunger <= LOW_HUNGER_THRESHOLD and hunger_warning_timer <= 0.0:
 		_push_survival_message("You are hungry. Find food soon.")
 		hunger_warning_timer = HUNGER_WARNING_COOLDOWN_SECONDS
 	if (stamina <= LOW_STAMINA_THRESHOLD or rest <= LOW_REST_THRESHOLD) and exhaustion_warning_timer <= 0.0:
@@ -513,6 +538,41 @@ func _update_survival_warning_messages(delta: float) -> void:
 	if health <= LOW_HEALTH_CAMPFIRE_HINT_THRESHOLD and _is_player_near_campfire(player_node) and campfire_hint_timer <= 0.0:
 		_push_survival_message("Campfire speeds up rest and health regeneration.")
 		campfire_hint_timer = CAMPFIRE_HINT_COOLDOWN_SECONDS
+
+
+func _update_nearby_threat_warning(delta: float) -> void:
+	nearby_threat_check_timer = maxf(0.0, nearby_threat_check_timer - delta)
+	nearby_threat_warning_timer = maxf(0.0, nearby_threat_warning_timer - delta)
+	if nearby_threat_check_timer > 0.0:
+		return
+	nearby_threat_check_timer = NEARBY_THREAT_CHECK_INTERVAL_SECONDS
+	if nearby_threat_warning_timer > 0.0:
+		return
+	if _is_game_over_active():
+		return
+	var player_node := _get_player_for_hud()
+	var player_2d := player_node as Node2D
+	if player_2d == null:
+		return
+	if _has_nearby_varnak_threat(player_2d.global_position):
+		_push_survival_message("Danger nearby. Move away or prepare to fight.")
+		nearby_threat_warning_timer = NEARBY_THREAT_WARNING_COOLDOWN_SECONDS
+
+
+func _has_nearby_varnak_threat(player_position: Vector2) -> bool:
+	var tree := get_tree()
+	if tree == null:
+		return false
+	var varnaks := tree.get_nodes_in_group("varnak")
+	for node in varnaks:
+		if not is_instance_valid(node):
+			continue
+		var varnak := node as Node2D
+		if varnak == null:
+			continue
+		if varnak.global_position.distance_to(player_position) <= NEARBY_THREAT_RADIUS:
+			return true
+	return false
 
 
 func _push_survival_message(message_text: String) -> void:
@@ -583,8 +643,11 @@ func _is_player_near_campfire(player_node: Node) -> bool:
 func get_survival_warning_debug() -> Dictionary:
 	return {
 		"hunger_warning_timer": hunger_warning_timer,
+		"starving_warning_timer": starving_warning_timer,
 		"exhaustion_warning_timer": exhaustion_warning_timer,
-		"campfire_hint_timer": campfire_hint_timer
+		"campfire_hint_timer": campfire_hint_timer,
+		"nearby_threat_check_timer": nearby_threat_check_timer,
+		"nearby_threat_warning_timer": nearby_threat_warning_timer
 	}
 
 

@@ -181,15 +181,25 @@ func _test_player_defaults_are_valid(failures: Array[String]) -> void:
 
 func _test_player_receive_damage_reduces_health(failures: Array[String]) -> void:
 	var player := _make_player()
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	player.get_tree().root.add_child(event_bus)
 	var before_health: float = player.stats.health
 	TEST_UTILS.expect(player.receive_damage(17.0), failures, "Receiving damage should report success when god mode is off")
 	TEST_UTILS.expect(player.stats.health < before_health, failures, "Receiving damage should reduce player health")
 	TEST_UTILS.expect_close(player.stats.health, before_health - 17.0, failures, "Damage should reduce health by the requested amount")
+	TEST_UTILS.expect_equal(event_bus.last_message, "Took 17 damage", failures, "Player damage message should be clearer than the old hit text")
+	player.receive_damage(5.0, "varnak")
+	TEST_UTILS.expect_equal(event_bus.last_message, "Took 5 damage from Varnak", failures, "Varnak damage should identify the attacker")
+	event_bus.queue_free()
 	player.queue_free()
 
 
 func _test_player_god_mode_syncs_to_stats_and_blocks_damage(failures: Array[String]) -> void:
 	var player := _make_player()
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	player.get_tree().root.add_child(event_bus)
 	player.stats.health = 64.0
 	player.stats.hunger = 70.0
 	player.stats.stamina = 55.0
@@ -208,6 +218,8 @@ func _test_player_god_mode_syncs_to_stats_and_blocks_damage(failures: Array[Stri
 	TEST_UTILS.expect_close(player.stats.rest, before_rest, failures, "God mode should keep player rest unchanged after damage")
 	player.debug_damage_player()
 	TEST_UTILS.expect_close(player.stats.health, before_health, failures, "Debug damage should not reduce health in god mode")
+	TEST_UTILS.expect_equal(event_bus.last_message, "God mode blocked damage", failures, "God mode should keep its existing damage block message")
+	event_bus.queue_free()
 	player.queue_free()
 
 

@@ -2,7 +2,7 @@ extends Node
 
 signal day_changed(day: int)
 
-@export var day_length_seconds := 120.0
+@export var day_length_seconds := 180.0
 
 const START_HOUR := 8.0
 const MORNING_HOUR := 6.0

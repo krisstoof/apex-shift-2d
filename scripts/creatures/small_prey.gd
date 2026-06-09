@@ -795,7 +795,15 @@ func _vector_to_data(value: Vector2) -> Dictionary:
 func _data_to_vector(data: Variant) -> Vector2:
 	if typeof(data) != TYPE_DICTIONARY:
 		return Vector2.ZERO
-	return Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
+	var x_raw: Variant = data.get("x", 0.0)
+	var y_raw: Variant = data.get("y", 0.0)
+	var x_value := 0.0
+	var y_value := 0.0
+	if x_raw != null:
+		x_value = float(x_raw)
+	if y_raw != null:
+		y_value = float(y_raw)
+	return Vector2(x_value, y_value)
 
 
 func _draw() -> void:
