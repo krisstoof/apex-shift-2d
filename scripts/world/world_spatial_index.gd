@@ -84,6 +84,8 @@ func query_near(position: Vector2, radius: float, category: String = "", type_fi
 					continue
 				var entity := entity_value as Node
 				if not _is_live_entity(entity):
+					if entity != null and is_instance_valid(entity) and entity.is_queued_for_deletion():
+						stale_entities.append(entity)
 					continue
 				if not _matches_type_filter(entity, type_filter):
 					continue
@@ -199,6 +201,20 @@ func _get_cells_for_category(category: String) -> Dictionary:
 			return meat_by_cell
 		_:
 			return {}
+
+
+func _cleanup_stale_bucket_entries(bucket: Array) -> Array[Node]:
+	var stale_entities: Array[Node] = []
+	for bucket_entity_value in bucket:
+		if bucket_entity_value == null:
+			continue
+		if not is_instance_valid(bucket_entity_value):
+			continue
+		var bucket_entity := bucket_entity_value as Node
+		if bucket_entity == null or bucket_entity.is_queued_for_deletion():
+			continue
+		stale_entities.append(bucket_entity)
+	return stale_entities
 
 
 func _add_entity_to_cell(entity: Node, category: String, cell: Vector2i) -> void:
