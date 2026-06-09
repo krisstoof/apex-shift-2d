@@ -7,6 +7,15 @@ const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
+class TestEventBus:
+	extends Node
+
+	var last_message := ""
+
+	func post_message(message: String) -> void:
+		last_message = message
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_starts_empty(failures)
@@ -26,6 +35,7 @@ func run() -> Array[String]:
 	_test_storage_boxes_keep_independent_inventories(failures)
 	_test_storage_box_exposes_interaction_methods(failures)
 	_test_storage_box_screen_transfers_items_between_inventories(failures)
+	_test_storage_box_screen_posts_transfer_messages_to_hud(failures)
 	_test_save_load_restores_slots(failures)
 	_test_save_load_accepts_items_alias(failures)
 	_test_save_load_ignores_empty_and_unknown_items(failures)
@@ -168,12 +178,34 @@ func _test_storage_box_screen_transfers_items_between_inventories(failures: Arra
 	var storage_inventory := INVENTORY.new(12)
 	player_inventory.add_item("wood", 5)
 	screen.call("setup", player_inventory, storage_inventory, null)
-	screen.call("_transfer_item", player_inventory, storage_inventory, "wood", 5, "Storage Box full")
+	screen.call("_transfer_item", player_inventory, storage_inventory, "wood", 5, "Storage box full", "Stored")
 	TEST_UTILS.expect_equal(player_inventory.get_amount("wood"), 0, failures, "Player inventory should lose transferred wood")
 	TEST_UTILS.expect_equal(storage_inventory.get_amount("wood"), 5, failures, "Storage inventory should gain transferred wood")
-	screen.call("_transfer_item", storage_inventory, player_inventory, "wood", 5, "Inventory full")
+	screen.call("_transfer_item", storage_inventory, player_inventory, "wood", 5, "Inventory full", "Took")
 	TEST_UTILS.expect_equal(player_inventory.get_amount("wood"), 5, failures, "Player inventory should get wood back from storage")
 	TEST_UTILS.expect_equal(storage_inventory.get_amount("wood"), 0, failures, "Storage inventory should lose transferred wood")
+
+
+func _test_storage_box_screen_posts_transfer_messages_to_hud(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var previous_event_bus := tree.root.get_node_or_null("EventBus")
+	if previous_event_bus != null:
+		previous_event_bus.name = "LiveEventBus"
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	tree.root.add_child(event_bus)
+	var screen := STORAGE_BOX_SCREEN.new()
+	screen.call("_ready")
+	var player_inventory := INVENTORY.new()
+	var storage_inventory := INVENTORY.new(12)
+	player_inventory.add_item("storage_box", 1)
+	screen.call("setup", player_inventory, storage_inventory, null)
+	screen.call("_transfer_item", player_inventory, storage_inventory, "storage_box", 1, "Storage box full", "Stored")
+	TEST_UTILS.expect_equal(event_bus.last_message, "Stored storage box x1", failures, "Storage transfers should post readable HUD messages")
+	screen.queue_free()
+	event_bus.queue_free()
+	if previous_event_bus != null:
+		previous_event_bus.name = "EventBus"
 
 
 func _test_save_load_restores_slots(failures: Array[String]) -> void:

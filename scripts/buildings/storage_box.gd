@@ -6,6 +6,8 @@ var inventory := Inventory.new(12)
 
 
 func _post_event_message(message: String) -> void:
+	if not is_inside_tree():
+		return
 	var tree := get_tree()
 	if tree == null:
 		return
@@ -25,7 +27,7 @@ func interact(player: Node) -> void:
 		_post_event_message("Storage Box UI not implemented yet")
 		return
 	hud.open_storage_box(player.inventory, inventory, self)
-	_post_event_message("Storage Box opened")
+	_post_event_message("Opened storage box")
 
 
 func get_prompt() -> String:
