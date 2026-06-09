@@ -255,6 +255,21 @@ func _connect_inventory_changed() -> void:
 			storage_inventory.inventory_changed.connect(storage_callable)
 
 
+func _post_event_message(message: String) -> void:
+	if not is_inside_tree():
+		return
+	var tree := get_tree()
+	if tree == null:
+		return
+	var event_bus := tree.root.get_node_or_null("EventBus")
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _format_item_label(item_id: String) -> String:
+	return str(item_id).replace("_", " ")
+
+
 func _on_inventory_changed() -> void:
 	if visible:
 		refresh()
@@ -271,12 +286,12 @@ func _on_slot_gui_input(event: InputEvent, slot: Control) -> void:
 	if item_id.is_empty() or amount <= 0:
 		return
 	if slot.get_parent() == player_grid:
-		_transfer_item(player_inventory, storage_inventory, item_id, amount, "Storage Box full")
+		_transfer_item(player_inventory, storage_inventory, item_id, amount, "Storage box full", "Stored")
 	else:
-		_transfer_item(storage_inventory, player_inventory, item_id, amount, "Inventory full")
+		_transfer_item(storage_inventory, player_inventory, item_id, amount, "Inventory full", "Took")
 
 
-func _transfer_item(source_inventory: Variant, destination_inventory: Variant, item_id: String, amount: int, full_message: String) -> void:
+func _transfer_item(source_inventory: Variant, destination_inventory: Variant, item_id: String, amount: int, full_message: String, action_label: String) -> void:
 	if source_inventory == null or destination_inventory == null:
 		return
 	if item_id.is_empty() or amount <= 0:
@@ -296,11 +311,17 @@ func _transfer_item(source_inventory: Variant, destination_inventory: Variant, i
 	var moved := requested - leftover
 	if moved > 0:
 		source_inventory.call("remove_item", item_id, moved)
-		_show_info("Moved %s x%d" % [item_id, moved])
+		var item_label := _format_item_label(item_id)
+		var success_message := "%s %s x%d" % [action_label, item_label, moved]
+		_show_info(success_message)
+		_post_event_message(success_message)
 		if leftover > 0:
-			_show_info("Moved %d/%d %s. %s" % [moved, requested, item_id, full_message])
+			var partial_message := "%s %d/%d %s. %s" % [action_label, moved, requested, item_label, full_message]
+			_show_info(partial_message)
+			_post_event_message(partial_message)
 	else:
 		_show_info(full_message)
+		_post_event_message(full_message)
 	refresh()
 
 

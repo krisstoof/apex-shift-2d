@@ -155,7 +155,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_change_camera_zoom(-CAMERA_ZOOM_STEP)
 			return
-	if event is InputEventKey and event.pressed and event.keycode == KEY_E:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E:
 		_interact()
 		get_viewport().set_input_as_handled()
 		return
@@ -351,6 +351,10 @@ func _post_event_message(message: String) -> void:
 	var event_bus := _get_event_bus()
 	if event_bus and event_bus.has_method("post_message"):
 		event_bus.post_message(message)
+
+
+func _format_item_label(item_id: String) -> String:
+	return str(item_id).replace("_", " ")
 
 
 func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
@@ -615,7 +619,7 @@ func _craft(item_name: String) -> void:
 	if world and world.has_method("register_building_node"):
 		world.register_building_node(building, item_name)
 	_emit_game_event("player_crafted_%s" % item_name, {"position": building.global_position})
-	_post_event_message("Crafted %s" % item_name)
+	_post_event_message("Crafted %s" % _format_item_label(item_name))
 
 
 func _eat(item_name: String) -> void:
