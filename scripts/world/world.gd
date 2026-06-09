@@ -1927,7 +1927,7 @@ func _sync_biome_vegetation(biome_id: String) -> bool:
 		var current_count := current_resources.size()
 		if current_count < target_count:
 			for _i in target_count - current_count:
-				if _try_spawn_resource_in_biome(kind, biome, used_positions, _get_player_position()):
+				if _try_spawn_resource_in_biome(kind, biome, used_positions, _get_player_position(), WORLD_CONFIG.RESOURCE_MIN_DISTANCE):
 					changed = true
 	if changed:
 		return true
@@ -2022,21 +2022,33 @@ func _remove_plant_resources(resources: Array[Node2D], count: int) -> void:
 		removed += 1
 
 
-func _try_spawn_resource_in_biome(resource_kind: String, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, min_distance: float = WORLD_CONFIG.RESOURCE_MIN_DISTANCE) -> bool:
-	var spawn_area := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+func _try_spawn_resource_in_biome(
+	resource_kind: String,
+	biome: Dictionary,
+	used_positions: Array[Vector2],
+	player_position: Vector2,
+	min_distance: float
+) -> bool:
 	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
 		var candidate := Vector2(
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
+
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
 			continue
-		if _is_point_in_scaled_biome(candidate, biome) and _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, min_distance):
-			used_positions.append(candidate)
-			_spawn_resource_at(resource_kind, candidate)
-			return true
+		if not _is_point_in_biome(candidate, biome):
+			continue
+		if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, min_distance):
+			continue
+
+		used_positions.append(candidate)
+		_spawn_resource_at(resource_kind, candidate)
+		return true
+
 	return false
 
 
