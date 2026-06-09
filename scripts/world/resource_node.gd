@@ -15,7 +15,8 @@ const RESOURCE_ATLAS_COLUMNS := {
 	"dense_grass": 7,
 	"rock": 8,
 	"meat_drop": 9,
-	"bone_drop": 10
+	"bone_drop": 10,
+	"dry_tree": 11
 }
 static var shared_resource_atlas: ImageTexture
 
@@ -95,6 +96,12 @@ func setup(kind: String) -> void:
 			mature_color = Color(0.16, 0.52, 0.18)
 			mature_radius = 24.0
 			food_value = float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
+		"dry_tree":
+			item_name = "wood"
+			mature_amount = 3
+			mature_color = Color(0.60, 0.44, 0.20)
+			mature_radius = 22.0
+			food_value = 0.0
 		"rock":
 			item_name = "stone"
 			mature_amount = 2
@@ -338,7 +345,7 @@ func _sync_visual_sprite() -> void:
 	var sprite := _get_visual_sprite()
 	if sprite == null:
 		return
-	if resource_kind == "bone_drop":
+	if resource_kind == "bone_drop" or resource_kind == "dry_tree":
 		sprite.visible = false
 		sprite.texture = null
 		return
@@ -440,7 +447,7 @@ func _get_days_to_next_stage() -> float:
 
 func _get_regrowth_time_days() -> float:
 	match resource_kind:
-		"conifer_tree", "leafy_tree":
+		"conifer_tree", "leafy_tree", "dry_tree":
 			return float(GAME_BALANCE.RESOURCE_REGROWTH.get("tree_regrowth_time_days", 3))
 		"bush", "small_bush", "berry_bush":
 			return float(GAME_BALANCE.RESOURCE_REGROWTH.get("bush_regrowth_time_days", 2))
@@ -473,6 +480,7 @@ func _uses_regrowth() -> bool:
 	return resource_kind in [
 		"conifer_tree",
 		"leafy_tree",
+		"dry_tree",
 		"bush",
 		"dry_bush",
 		"small_bush",
@@ -504,7 +512,7 @@ func _sync_resource_groups() -> void:
 		if is_in_group(group_name):
 			remove_from_group(group_name)
 	match resource_kind:
-		"conifer_tree", "leafy_tree":
+		"conifer_tree", "leafy_tree", "dry_tree":
 			add_to_group("trees")
 			add_to_group("vegetation")
 		"bush", "dry_bush", "small_bush", "berry_bush":
@@ -544,7 +552,7 @@ func _emit_plant_resource_harvested() -> void:
 
 func _get_biomass_impact() -> float:
 	match resource_kind:
-		"conifer_tree", "leafy_tree":
+		"conifer_tree", "leafy_tree", "dry_tree":
 			return float(GAME_BALANCE.ECOSYSTEM["tree_biomass_impact"])
 		"bush":
 			return float(GAME_BALANCE.ECOSYSTEM["bush_biomass_impact"])
@@ -563,6 +571,8 @@ func _get_default_herbivore_food_value() -> float:
 	match resource_kind:
 		"conifer_tree", "leafy_tree":
 			return float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
+		"dry_tree":
+			return 0.0
 		"bush":
 			return float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45))
 		"dry_bush":
@@ -627,6 +637,8 @@ func _draw() -> void:
 			_draw_conifer_tree()
 		"leafy_tree":
 			_draw_leafy_tree()
+		"dry_tree":
+			_draw_dry_tree()
 		"bush":
 			_draw_bush()
 		"dry_bush":
@@ -652,7 +664,7 @@ func _draw() -> void:
 
 func _draw_depleted_plant() -> void:
 	match resource_kind:
-		"conifer_tree", "leafy_tree":
+		"conifer_tree", "leafy_tree", "dry_tree":
 			draw_rect(Rect2(-5, -2, 10, 14), Color(0.34, 0.19, 0.09), true)
 			draw_circle(Vector2.ZERO, 13.0, Color(0.17, 0.11, 0.06, 0.26))
 		"bush", "dry_bush", "small_bush", "berry_bush":
@@ -681,6 +693,19 @@ func _draw_leafy_tree() -> void:
 	draw_circle(Vector2(0, -20), 18.0, Color(0.18, 0.58, 0.20))
 	draw_circle(Vector2(0, -7), 19.0, Color(0.16, 0.52, 0.18))
 	draw_arc(Vector2.ZERO, 26.0, -PI, 0.0, 16, Color(0.06, 0.18, 0.08, 0.45), 2.0)
+
+
+func _draw_dry_tree() -> void:
+	var trunk_color := Color(0.55, 0.39, 0.18)
+	var branch_color := Color(0.68, 0.49, 0.26)
+	draw_rect(Rect2(-4, 3, 8, 25), trunk_color, true)
+	draw_line(Vector2(0, 10), Vector2(-20, -8), branch_color, 3.0)
+	draw_line(Vector2(0, 14), Vector2(20, -7), branch_color, 3.0)
+	draw_line(Vector2(-2, 2), Vector2(-14, -16), branch_color.darkened(0.08), 2.4)
+	draw_line(Vector2(2, 6), Vector2(14, -18), branch_color.darkened(0.08), 2.4)
+	draw_circle(Vector2(-10, -8), 8.0, Color(0.52, 0.36, 0.18, 0.30))
+	draw_circle(Vector2(10, -9), 7.0, Color(0.58, 0.41, 0.20, 0.24))
+	draw_circle(Vector2(0, -18), 10.0, Color(0.62, 0.45, 0.24, 0.18))
 
 
 func _draw_bush() -> void:

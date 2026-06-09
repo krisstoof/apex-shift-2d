@@ -373,7 +373,7 @@ const RESOURCE_REGROWTH := {
 	},
 	"grass_regrowth_time_days": 1,
 	"bush_regrowth_time_days": 2,
-	"tree_regrowth_time_days": 3,
+	"tree_regrowth_time_days": 15,
 	"dry_bush_regrowth_time_days": 3,
 	"growth_tick_seconds": 5.0
 }

@@ -211,6 +211,7 @@ func run() -> Array[String]:
 	_test_terrain_speed_multiplier_changes_in_water(failures)
 	_test_landmark_save_data_round_trip_vectors(failures)
 	_test_world_save_data_includes_seed_and_landmark_fields(failures)
+	_test_biome_resource_weights_match_target_character(failures)
 	_test_varnak_first_week_curve_limits_population_and_spawn(failures)
 	_test_biomes_have_sample_texture_assets(failures)
 	_test_biome_terrain_accent_layout_is_dense_and_inside_biome(failures)
@@ -298,6 +299,20 @@ func _test_varnak_population_target_scales_with_day_and_caps(failures: Array[Str
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 7)), 6, failures, "Day 7 should reach the first-week cap")
 	TEST_UTILS.expect_equal(int(world.call("_get_varnak_target_count", 99)), 8, failures, "Varnak population target should respect the hard maximum")
 	world.free()
+
+
+func _test_biome_resource_weights_match_target_character(failures: Array[String]) -> void:
+	var westwood := Dictionary(WORLD_CONFIG.get_biome_zones()[0])
+	var stoneback := Dictionary(WORLD_CONFIG.get_biome_zones()[1])
+	var hearth := Dictionary(WORLD_CONFIG.get_biome_zones()[2])
+	var south := Dictionary(WORLD_CONFIG.get_biome_zones()[3])
+	var redfang := Dictionary(WORLD_CONFIG.get_biome_zones()[4])
+	TEST_UTILS.expect(float(westwood.get("conifer_tree_weight", 0.0)) > float(westwood.get("leafy_tree_weight", 0.0)), failures, "Westwood should favor conifer trees")
+	TEST_UTILS.expect(float(westwood.get("berry_bush_weight", 0.0)) > float(south.get("berry_bush_weight", 0.0)), failures, "Westwood should favor berries over South Thicket")
+	TEST_UTILS.expect(float(hearth.get("leafy_tree_weight", 0.0)) > float(hearth.get("conifer_tree_weight", 0.0)), failures, "Hearth Watch should favor leafy trees")
+	TEST_UTILS.expect(float(stoneback.get("dry_bush_weight", 0.0)) > float(stoneback.get("berry_bush_weight", 0.0)), failures, "Stoneback should favor dry bushes over berries")
+	TEST_UTILS.expect(float(redfang.get("dry_tree_weight", 0.0)) > float(redfang.get("leafy_tree_weight", 0.0)), failures, "Redfang should favor dry trees")
+	TEST_UTILS.expect(float(redfang.get("dry_bush_weight", 0.0)) > float(redfang.get("berry_bush_weight", 0.0)), failures, "Redfang should favor dry bushes over berries")
 
 
 func _test_varnak_spawn_chance_scales_with_day_and_caps(failures: Array[String]) -> void:

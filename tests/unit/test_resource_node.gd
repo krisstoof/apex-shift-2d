@@ -34,6 +34,7 @@ func run() -> Array[String]:
 	_test_resource_node_restore_defaults_render_only_for_legacy_saves(failures)
 	_test_resource_node_syncs_collision_radius_with_growth(failures)
 	_test_resource_node_uses_shared_atlas_and_depleted_region(failures)
+	_test_resource_node_renders_and_regrows_dry_tree(failures)
 	_test_resource_node_renders_bone_drop_through_custom_draw(failures)
 	_test_resource_node_emits_bone_collected_for_bone_drop(failures)
 	_test_resource_node_reports_inventory_full_when_pickup_does_not_fit(failures)
@@ -181,6 +182,16 @@ func _test_resource_node_uses_shared_atlas_and_depleted_region(failures: Array[S
 	TEST_UTILS.expect(depleted_texture != null, failures, "A depleted resource should keep using the shared atlas")
 	if depleted_texture != null:
 		TEST_UTILS.expect_equal(int(depleted_texture.region.position.y), 80, failures, "A depleted resource should use the depleted atlas row")
+	resource.free()
+
+
+func _test_resource_node_renders_and_regrows_dry_tree(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	resource.call("setup", "dry_tree")
+	TEST_UTILS.expect_equal(str(resource.get("item_name")), "wood", failures, "Dry trees should still provide wood")
+	TEST_UTILS.expect_equal(resource.get("is_edible_by_herbivores") == true, false, failures, "Dry trees should not be herbivore food")
+	TEST_UTILS.expect_equal(float(resource.get("food_value")), 0.0, failures, "Dry trees should not expose a food value")
+	TEST_UTILS.expect_equal(int(resource.call("_get_regrowth_time_days")), 15, failures, "Dry trees should inherit the slowed tree regrowth")
 	resource.free()
 
 
