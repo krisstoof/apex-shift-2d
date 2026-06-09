@@ -190,37 +190,37 @@ func get_save_data() -> Dictionary:
 func restore_from_data(data: Dictionary) -> void:
 	species_id = str(data.get("species_id", species_id))
 	species_name = str(data.get("species_name", species_name))
-	generation = max(int(data.get("generation", generation)), 1)
+	generation = max(_safe_int(data, "generation", generation), 1)
 	global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
-	facing_angle = float(data.get("facing_angle", facing_angle))
-	facing_side = float(data.get("facing_side", facing_side))
-	max_health = max(float(data.get("max_health", max_health)), 1.0)
-	health = clamp(float(data.get("health", health)), 0.0, max_health)
-	speed = float(data.get("speed", speed))
-	fear = float(data.get("fear", fear))
-	aggression = float(data.get("aggression", aggression))
-	max_hunger = max(float(data.get("max_hunger", max_hunger)), 0.01)
-	hunger = clamp(float(data.get("hunger", hunger)), 0.0, max_hunger)
-	hunger_growth_rate = float(data.get("hunger_growth_rate", hunger_growth_rate))
-	energy = clamp(float(data.get("energy", energy)), 0.0, 1.0)
-	age_seconds = max(float(data.get("age_seconds", age_seconds)), 0.0)
-	plant_consumption_rate = float(data.get("plant_consumption_rate", plant_consumption_rate))
-	plant_diet = float(data.get("plant_diet", plant_diet))
-	meat_diet = float(data.get("meat_diet", meat_diet))
-	scavenger_diet = float(data.get("scavenger_diet", scavenger_diet))
+	facing_angle = _safe_float(data, "facing_angle", facing_angle)
+	facing_side = _safe_float(data, "facing_side", facing_side)
+	max_health = max(_safe_float(data, "max_health", max_health), 1.0)
+	health = clamp(_safe_float(data, "health", health), 0.0, max_health)
+	speed = _safe_float(data, "speed", speed)
+	fear = _safe_float(data, "fear", fear)
+	aggression = _safe_float(data, "aggression", aggression)
+	max_hunger = max(_safe_float(data, "max_hunger", max_hunger), 0.01)
+	hunger = clamp(_safe_float(data, "hunger", hunger), 0.0, max_hunger)
+	hunger_growth_rate = _safe_float(data, "hunger_growth_rate", hunger_growth_rate)
+	energy = clamp(_safe_float(data, "energy", energy), 0.0, 1.0)
+	age_seconds = max(_safe_float(data, "age_seconds", age_seconds), 0.0)
+	plant_consumption_rate = _safe_float(data, "plant_consumption_rate", plant_consumption_rate)
+	plant_diet = _safe_float(data, "plant_diet", plant_diet)
+	meat_diet = _safe_float(data, "meat_diet", meat_diet)
+	scavenger_diet = _safe_float(data, "scavenger_diet", scavenger_diet)
 	current_niche = str(data.get("current_niche", current_niche))
-	size = float(data.get("size", size))
-	reproduction_rate = float(data.get("reproduction_rate", reproduction_rate))
-	state = int(data.get("state", State.WANDER))
+	size = _safe_float(data, "size", size)
+	reproduction_rate = _safe_float(data, "reproduction_rate", reproduction_rate)
+	state = _safe_int(data, "state", State.WANDER)
 	if state == State.DEAD:
 		state = State.WANDER
 	biome_id = str(data.get("biome_id", biome_id))
 	home_biome_id = str(data.get("home_biome_id", home_biome_id))
 	population_biome_id = str(data.get("population_biome_id", population_biome_id))
 	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
-	state_time = max(float(data.get("state_time", state_time)), 0.0)
+	state_time = max(_safe_float(data, "state_time", state_time), 0.0)
 	last_food_source = str(data.get("last_food_source", last_food_source))
-	dropped_meat = data.get("dropped_meat", dropped_meat) == true
+	dropped_meat = _safe_bool(data, "dropped_meat", dropped_meat)
 	hunger_diet.configure({
 		"hunger": hunger,
 		"max_hunger": max_hunger,
@@ -232,6 +232,43 @@ func restore_from_data(data: Dictionary) -> void:
 	})
 	_sync_hunger_fields()
 	queue_redraw()
+
+
+func _safe_float(data: Dictionary, key: String, fallback: float) -> float:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+		return float(value)
+	if typeof(value) == TYPE_STRING and str(value).is_valid_float():
+		return float(value)
+	return fallback
+
+
+func _safe_int(data: Dictionary, key: String, fallback: int) -> int:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+		return int(value)
+	if typeof(value) == TYPE_STRING and str(value).is_valid_int():
+		return int(value)
+	return fallback
+
+
+func _safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_BOOL:
+		return bool(value)
+	if typeof(value) == TYPE_STRING:
+		var normalized := str(value).to_lower()
+		if normalized == "true":
+			return true
+		if normalized == "false":
+			return false
+	return fallback
 
 
 func take_damage(amount: float, source: String = "unknown") -> void:

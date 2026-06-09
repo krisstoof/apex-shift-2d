@@ -81,6 +81,7 @@ func run() -> Array[String]:
 	_test_grazer_can_eat_meat_when_desperate(failures)
 	_test_grazer_skips_freed_meat_drop_targets(failures)
 	_test_grazer_hunger_restored_after_eating(failures)
+	_test_grazer_restore_from_data_handles_null_fields(failures)
 	_test_grazer_returns_to_wandering_after_eating(failures)
 	_test_grazer_takes_damage(failures)
 	_test_grazer_dies_at_zero_health(failures)
@@ -342,6 +343,20 @@ func _test_grazer_hunger_restored_after_eating(failures: Array[String]) -> void:
 	grazer.call("_consume_plants")
 	TEST_UTILS.expect(grazer.hunger_diet.hunger < 0.10, failures, "Eating should reduce hunger")
 	resource.queue_free()
+	grazer.queue_free()
+
+
+func _test_grazer_restore_from_data_handles_null_fields(failures: Array[String]) -> void:
+	var grazer := _make_grazer()
+	var before_health: float = grazer.health
+	grazer.restore_from_data({
+		"facing_angle": null,
+		"health": null,
+		"speed": null,
+		"dropped_meat": null
+	})
+	TEST_UTILS.expect_close(grazer.health, before_health, failures, "Grazer restore should ignore null health values")
+	TEST_UTILS.expect(grazer.facing_angle == grazer.facing_angle, failures, "Grazer restore should not produce an invalid facing angle")
 	grazer.queue_free()
 
 

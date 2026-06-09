@@ -121,6 +121,7 @@ func run() -> Array[String]:
 	_test_varnak_eats_meat_or_dead_prey(failures)
 	_test_varnak_skips_freed_meat_drop_targets(failures)
 	_test_varnak_hunger_restored_after_eating(failures)
+	_test_varnak_restore_from_data_handles_null_fields(failures)
 	_test_varnak_returns_to_wandering_after_eating(failures)
 	_test_varnak_takes_damage(failures)
 	_test_varnak_dies_at_zero_health(failures)
@@ -444,6 +445,21 @@ func _test_varnak_hunger_restored_after_eating(failures: Array[String]) -> void:
 	TEST_UTILS.expect(varnak.hunger < before_hunger, failures, "Eating meat should reduce hunger")
 	TEST_UTILS.expect_equal(varnak.last_food_source, "meat_drop", failures, "Meat eating should be recorded")
 	meat.queue_free()
+	varnak.queue_free()
+
+
+func _test_varnak_restore_from_data_handles_null_fields(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	var before_health: float = varnak.health
+	varnak.restore_from_data({
+		"facing_angle": null,
+		"rotation": null,
+		"health": null,
+		"attack_cooldown": null,
+		"dropped_meat": null
+	})
+	TEST_UTILS.expect_close(varnak.health, before_health, failures, "Varnak restore should ignore null health values")
+	TEST_UTILS.expect(varnak.facing_angle == varnak.facing_angle, failures, "Varnak restore should not produce an invalid facing angle")
 	varnak.queue_free()
 
 
