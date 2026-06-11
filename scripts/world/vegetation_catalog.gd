@@ -5,19 +5,17 @@ const CLASS_DECORATIVE := "decorative"
 const CLASS_EDIBLE_NODE := "edible_node"
 const CLASS_INTERACTIVE := "interactive"
 
-const DECORATIVE_KINDS := [
-	"grass_patch",
-	"dense_grass"
-]
+const DECORATIVE_KINDS := {
+	"grass_patch": true,
+	"dense_grass": true
+}
 
-const EDIBLE_NODE_KINDS := [
-	"bush",
-	"dry_bush",
-	"small_bush",
-	"berry_bush",
-	"grass_patch",
-	"dense_grass"
-]
+const EDIBLE_NODE_KINDS := {
+	"bush": true,
+	"dry_bush": true,
+	"small_bush": true,
+	"berry_bush": true
+}
 
 const INTERACTIVE_KINDS := [
 	"conifer_tree",
@@ -34,11 +32,19 @@ const INTERACTIVE_KINDS := [
 
 
 static func is_decorative_kind(kind: String) -> bool:
-	return kind in DECORATIVE_KINDS
+	return DECORATIVE_KINDS.has(kind)
 
 
 static func is_edible_node_kind(kind: String) -> bool:
-	return kind in EDIBLE_NODE_KINDS
+	return EDIBLE_NODE_KINDS.has(kind)
+
+
+static func is_food_target_kind(kind: String) -> bool:
+	return is_edible_node_kind(kind)
+
+
+static func is_visual_only_kind(kind: String) -> bool:
+	return is_decorative_kind(kind)
 
 
 static func is_interactive_kind(kind: String) -> bool:

@@ -732,6 +732,78 @@ func get_vegetation_visual_debug() -> Dictionary:
 	}
 
 
+func get_edible_vegetation_near(origin: Vector2, radius: float, preferred_biome_id: String = "") -> Array[Node2D]:
+	var result: Array[Node2D] = []
+	var radius_squared := radius * radius
+	for node in get_tree().get_nodes_in_group("resources"):
+		var node_2d := node as Node2D
+		if node_2d == null or not is_instance_valid(node_2d):
+			continue
+		if not _is_valid_edible_vegetation_target(node_2d):
+			continue
+		if origin.distance_squared_to(node_2d.global_position) > radius_squared:
+			continue
+		result.append(node_2d)
+	result.sort_custom(func(a: Node2D, b: Node2D) -> bool:
+		var a_biome := _get_node_biome_id(a)
+		var b_biome := _get_node_biome_id(b)
+		if preferred_biome_id != "":
+			if a_biome == preferred_biome_id and b_biome != preferred_biome_id:
+				return true
+			if b_biome == preferred_biome_id and a_biome != preferred_biome_id:
+				return false
+		return origin.distance_squared_to(a.global_position) < origin.distance_squared_to(b.global_position)
+	)
+	return result
+
+
+func consume_edible_vegetation(target: Node, consumer: Node, amount: float) -> float:
+	if not _is_valid_edible_vegetation_target(target):
+		return 0.0
+	if target.has_method("consume_by_creature"):
+		return float(target.call("consume_by_creature", consumer, amount))
+	if target.has_method("consume"):
+		return float(target.call("consume", amount))
+	return 0.0
+
+
+func _get_node_biome_id(node: Node) -> String:
+	if not is_instance_valid(node):
+		return ""
+	if node.has_method("get_biome_id"):
+		return str(node.call("get_biome_id"))
+	var biome_value: Variant = node.get("biome_id") if node.has_method("get") else null
+	if biome_value != null:
+		return str(biome_value)
+	return ""
+
+
+func _get_resource_kind(node: Node) -> String:
+	if not is_instance_valid(node):
+		return ""
+	if node.has_method("get_resource_kind"):
+		return str(node.call("get_resource_kind"))
+	var kind_value: Variant = node.get("resource_kind") if node.has_method("get") else null
+	if kind_value != null and str(kind_value) != "":
+		return str(kind_value)
+	return str(node.get("kind")) if node.has_method("get") else ""
+
+
+func _is_valid_edible_vegetation_target(node: Node) -> bool:
+	if not is_instance_valid(node):
+		return false
+	var kind := _get_resource_kind(node)
+	if VEGETATION_CATALOG.is_visual_only_kind(kind):
+		return false
+	if node.has_method("is_depleted") and bool(node.call("is_depleted")):
+		return false
+	if node.get("is_depleted") == true:
+		return false
+	if VEGETATION_CATALOG.is_edible_node_kind(kind):
+		return true
+	return node.is_in_group("edible_vegetation")
+
+
 func get_decorative_vegetation_debug() -> Dictionary:
 	var visual_debug := get_vegetation_visual_debug()
 	return {
@@ -997,59 +1069,6 @@ func get_creatures_near(world_position: Vector2, radius: float, creature_type_fi
 
 func get_meat_near(world_position: Vector2, radius: float) -> Array:
 	return _ensure_registry().get_meat_near(world_position, radius)
-
-
-func get_edible_vegetation_near(position: Vector2, radius: float, preferred_biome_id: String = "") -> Array[Node2D]:
-	var result: Array[Node2D] = []
-	var candidates: Array = []
-	if has_method("get_resources_near"):
-		candidates = get_resources_near(position, radius, [
-			"bush",
-			"dry_bush",
-			"small_bush",
-			"berry_bush",
-			"grass_patch",
-			"dense_grass"
-		])
-	else:
-		candidates = get_tree().get_nodes_in_group("edible_vegetation")
-	for candidate_value in candidates:
-		var candidate := candidate_value as Node2D
-		if not is_instance_valid(candidate):
-			continue
-		if not candidate.is_in_group("edible_vegetation"):
-			continue
-		if candidate.get("is_edible_by_herbivores") != true:
-			continue
-		if candidate.global_position.distance_to(position) > radius:
-			continue
-		result.append(candidate)
-	result.sort_custom(func(a: Node2D, b: Node2D) -> bool:
-		var distance_a := position.distance_to(a.global_position)
-		var distance_b := position.distance_to(b.global_position)
-		if preferred_biome_id != "":
-			if _get_biome_id_for_position(a.global_position) != preferred_biome_id:
-				distance_a *= 1.6
-			if _get_biome_id_for_position(b.global_position) != preferred_biome_id:
-				distance_b *= 1.6
-		if a.is_in_group("pond_vegetation"):
-			distance_a *= 0.72
-		if b.is_in_group("pond_vegetation"):
-			distance_b *= 0.72
-		return distance_a < distance_b
-	)
-	return result
-
-
-func consume_edible_vegetation(target: Variant, consumer: Node, amount: float) -> float:
-	if not is_instance_valid(target):
-		return 0.0
-	var target_node := target as Node
-	if target_node == null:
-		return 0.0
-	if not target_node.has_method("consume_by_creature"):
-		return 0.0
-	return float(target_node.consume_by_creature(consumer, amount))
 
 
 func get_resources_in_rect(rect: Rect2, kind_filter: Variant = null) -> Array:
