@@ -146,6 +146,21 @@ static func find_player(main: Node) -> Node:
 	return main.get_node_or_null("Player")
 
 
+static func find_button_by_text_recursive(root: Node, text: String) -> Button:
+	if root == null:
+		return null
+
+	if root is Button and root.text == text:
+		return root
+
+	for child in root.get_children():
+		var result := find_button_by_text_recursive(child, text)
+		if result != null:
+			return result
+
+	return null
+
+
 static func assert_node_exists(node: Node, message: String) -> String:
 	if node == null or not is_instance_valid(node):
 		return message
@@ -186,6 +201,22 @@ static func load_or_continue_from_menu(menu: Node, tree: SceneTree) -> String:
 		load_button_direct.emit_signal("pressed")
 		return ""
 	return "Continue button was not found"
+
+
+static func click_continue_from_menu(menu: Node, tree: SceneTree) -> String:
+	if menu == null:
+		return "Start menu node missing"
+
+	var continue_button := find_button_by_text_recursive(menu, "Continue")
+	if continue_button == null:
+		return "Continue button was not found"
+
+	if continue_button.disabled:
+		return "Continue button is disabled even though save should exist"
+
+	continue_button.emit_signal("pressed")
+	await wait_frames(tree, 2)
+	return ""
 
 
 static func _find_save_system(main: Node) -> Node:
