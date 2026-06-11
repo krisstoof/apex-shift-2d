@@ -41,6 +41,7 @@ var benchmark_button: Button
 var god_mode_button: Button
 var regenerate_landmarks_button: Button
 var island_world_validation_button: Button
+var pool_test_button: Button
 var landmark_overlay_button: Button
 var rebuild_biome_cache_button: Button
 var biome_texture_toggle_button: Button
@@ -298,6 +299,7 @@ func _create_future_tool_buttons() -> void:
 	_add_tool_button("Teleport OOB creatures", _on_teleport_out_of_bounds_pressed, "Creatures")
 	regenerate_landmarks_button = _add_tool_button("Regenerate landmarks", _on_regenerate_landmarks_pressed, "World")
 	island_world_validation_button = _add_tool_button("Validate island world", _on_validate_island_world_pressed, "World")
+	pool_test_button = _add_tool_button("Test object pool", _on_test_object_pool_pressed, "Tools")
 	landmark_overlay_button = _add_tool_button("Landmark overlay: OFF", _on_toggle_landmark_overlay_pressed, "World")
 	rebuild_biome_cache_button = _add_tool_button("Rebuild biome texture cache", _on_rebuild_biome_texture_cache_pressed, "World")
 	biome_texture_toggle_button = _add_tool_button("Biome textures: ON", _on_toggle_biome_textures_pressed, "World")
@@ -574,6 +576,7 @@ func _build_tools_text() -> String:
 	var lines: Array[String] = []
 	lines.append("Tools")
 	lines.append("God mode %s" % _get_god_mode_state_text())
+	lines.append("Object pools: %s" % _get_pool_debug_text())
 	lines.append("Player actions: Player tab")
 	lines.append("Time and regrowth: World tab")
 	lines.append("Biomass and ecosystem ticks: Ecosystem tab")
@@ -1560,6 +1563,17 @@ func _on_toggle_biome_textures_pressed() -> void:
 	_set_state_text(_build_state_text(), true)
 
 
+func _on_test_object_pool_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_test_resource_drop_pool"):
+		_post_debug_message("Object pool test is not available yet")
+		return
+	var result: Dictionary = world.debug_test_resource_drop_pool()
+	_post_debug_message("Object pool test: %s" % str(result.get("summary", "done")))
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
 func _on_run_benchmark_pressed() -> void:
 	_start_benchmark()
 
@@ -1651,6 +1665,13 @@ func _post_debug_message(message: String) -> void:
 		event_bus.post_message(message)
 	else:
 		print(message)
+
+
+func _get_pool_debug_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_pool_debug_text"):
+		return "unavailable"
+	return str(world.get_pool_debug_text())
 
 
 func _get_island_world_validation_summary_text(report: Dictionary = {}) -> String:

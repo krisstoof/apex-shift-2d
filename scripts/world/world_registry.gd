@@ -228,7 +228,9 @@ func _register_node(node: Node, category: String, type_name: String) -> void:
 		if category == "resource" and type_name == "meat_drop":
 			spatial_category = "meat"
 		spatial_index.register_entity(node, spatial_category, spatial_type)
-	node.tree_exited.connect(_on_registered_node_tree_exited.bind(instance_id), CONNECT_ONE_SHOT)
+	var tree_exited_callback := _on_registered_node_tree_exited.bind(instance_id)
+	if not node.tree_exited.is_connected(tree_exited_callback):
+		node.tree_exited.connect(tree_exited_callback, CONNECT_ONE_SHOT)
 
 
 func _unregister_node(node: Node) -> void:

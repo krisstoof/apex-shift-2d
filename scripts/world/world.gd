@@ -12,6 +12,7 @@ const WORLD_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_query_ser
 const LANDMARK_SERVICE_SCRIPT := preload("res://scripts/world/landmark_service.gd")
 const RESOURCE_SERVICE_SCRIPT := preload("res://scripts/world/resource_service.gd")
 const ISLAND_WORLD_VALIDATOR_SCRIPT := preload("res://scripts/world/island_world_validator.gd")
+const POOL_MANAGER_SCRIPT := preload("res://scripts/systems/pool_manager.gd")
 const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 
@@ -110,6 +111,9 @@ const WATER_ZONE_HIGHLAND := "highland"
 const WATER_ZONE_SHORE := "shore"
 const WATER_ZONE_SHALLOW := "shallow_water"
 const WATER_ZONE_DEEP := "deep_ocean"
+const RESOURCE_DROP_POOL_KEY := "resource_drop"
+const RESOURCE_DROP_POOL_MAX_SIZE := 48
+const POOLED_RESOURCE_KINDS := ["meat_drop", "bone_drop"]
 
 var evolution_director: Node
 var day_night_system: Node
@@ -150,6 +154,7 @@ var debug_landmark_overlay_enabled: bool = false
 var biome_textures_enabled: bool = true
 var biome_terrain_accents_enabled: bool = false
 var visibility_culling_enabled: bool = true
+var pool_manager: PoolManager
 var graphics_settings: Node = GRAPHICS_SETTINGS_SCRIPT.new()
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
@@ -201,6 +206,7 @@ func _ready() -> void:
 	_set_boot_progress("Preparing world systems...", 0.08)
 	_ensure_query_service()
 	_ensure_registry()
+	_ensure_pool_manager()
 	resource_rng.randomize()
 	varnak_rng.randomize()
 	small_prey_rng.randomize()
@@ -645,6 +651,18 @@ func get_visibility_culling_debug() -> Dictionary:
 	}
 
 
+func get_pool_debug_snapshot() -> Dictionary:
+	if not is_instance_valid(pool_manager):
+		return {}
+	return pool_manager.get_debug_snapshot()
+
+
+func get_pool_debug_text() -> String:
+	if not is_instance_valid(pool_manager):
+		return "pool unavailable"
+	return pool_manager.get_debug_text()
+
+
 func get_landmark_save_data() -> Array[Dictionary]:
 	return _ensure_landmark_service().get_landmark_save_data()
 
@@ -758,6 +776,20 @@ func _ensure_registry():
 		registry = WORLD_REGISTRY_SCRIPT.new()
 	registry.set_biome_id_resolver(Callable(self, "_get_biome_id_for_position"))
 	return registry
+
+
+func _ensure_pool_manager() -> PoolManager:
+	if is_instance_valid(pool_manager):
+		return pool_manager
+	pool_manager = POOL_MANAGER_SCRIPT.new()
+	pool_manager.name = "PoolManager"
+	add_child(pool_manager)
+	pool_manager.configure_pool(RESOURCE_DROP_POOL_KEY, RESOURCE_DROP_POOL_MAX_SIZE)
+	return pool_manager
+
+
+func _is_poolable_resource_kind(resource_kind: String) -> bool:
+	return resource_kind in POOLED_RESOURCE_KINDS
 
 
 func update_spatial_entity_cell(node: Node) -> void:
@@ -1452,11 +1484,27 @@ func _get_hill_peak_elevation_factor() -> float:
 
 
 func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
+	if _is_poolable_resource_kind(resource_kind):
+		return _spawn_pooled_resource_at(resource_kind, pos)
 	var node := RESOURCE_SCENE.instantiate()
 	node.position = pos
 	node.setup(resource_kind)
 	add_child(node)
 	call_deferred("_finalize_spawned_resource_node", node)
+	return node
+
+
+func _spawn_pooled_resource_at(resource_kind: String, pos: Vector2, loot_amount: int = 1) -> Node:
+	var data := {
+		"resource_kind": resource_kind,
+		"position": pos,
+		"loot_amount": loot_amount,
+		"release_callback": Callable(self, "_release_pooled_resource_node")
+	}
+	var node := _ensure_pool_manager().acquire(RESOURCE_DROP_POOL_KEY, RESOURCE_SCENE, self, data)
+	if node == null:
+		return null
+	_finalize_spawned_resource_node(node)
 	return node
 
 
@@ -1466,6 +1514,20 @@ func _finalize_spawned_resource_node(node: Node) -> void:
 	register_resource_node(node)
 	if node is Node2D:
 		(node as Node2D).visible = true
+
+
+func _release_pooled_resource_node(node: Node) -> void:
+	if not is_instance_valid(node):
+		return
+	_ensure_registry().unregister_resource(node)
+	if node is Node2D:
+		(node as Node2D).visible = false
+	clear_cached_group_nodes()
+	var released := _ensure_pool_manager().release(RESOURCE_DROP_POOL_KEY, node)
+	if not released:
+		return
+	if visibility_culling_enabled:
+		_update_world_object_visibility()
 
 
 func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
@@ -1480,11 +1542,11 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	)
 	if is_resource_position_blocked_by_water("meat_drop", safe_position):
 		push_warning("Meat drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
-	var node: Node = _spawn_resource_at("meat_drop", safe_position)
+	var node: Node = _spawn_pooled_resource_at("meat_drop", safe_position, amount)
+	if node == null:
+		return null
 	if node is Node2D:
 		(node as Node2D).visible = true
-	if node.has_method("set_loot_amount"):
-		node.set_loot_amount(amount)
 	if visibility_culling_enabled:
 		_update_world_object_visibility()
 	var event_bus := _get_event_bus()
@@ -1508,11 +1570,11 @@ func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	)
 	if is_resource_position_blocked_by_water("bone_drop", safe_position):
 		push_warning("Bone drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
-	var node: Node = _spawn_resource_at("bone_drop", safe_position)
+	var node: Node = _spawn_pooled_resource_at("bone_drop", safe_position, amount)
+	if node == null:
+		return null
 	if node is Node2D:
 		(node as Node2D).visible = true
-	if node.has_method("set_loot_amount"):
-		node.set_loot_amount(amount)
 	if visibility_culling_enabled:
 		_update_world_object_visibility()
 	var event_bus := _get_event_bus()
@@ -1736,6 +1798,38 @@ func debug_reset_resource_growth() -> void:
 	var event_bus := _get_event_bus()
 	if event_bus:
 		event_bus.post_message("Reset growth state on %d resources" % changed_count)
+
+
+func debug_test_resource_drop_pool() -> Dictionary:
+	var before := get_pool_debug_snapshot()
+	var spawned: Array[Node] = []
+	var base_position := _get_player_position()
+	for i in range(12):
+		var offset := Vector2(float(i % 4) * 18.0, (float(i) / 4.0) * 18.0)
+		var node := _spawn_pooled_resource_at("meat_drop", base_position + offset, 1)
+		if node != null:
+			spawned.append(node)
+	for node in spawned:
+		if is_instance_valid(node):
+			_release_pooled_resource_node(node)
+	var reused: Array[Node] = []
+	for i in range(6):
+		var offset := Vector2(float(i) * 18.0, 72.0)
+		var node := _spawn_pooled_resource_at("meat_drop", base_position + offset, 1)
+		if node != null:
+			reused.append(node)
+	var after := get_pool_debug_snapshot()
+	for node in reused:
+		if is_instance_valid(node):
+			_release_pooled_resource_node(node)
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message("Pool test finished: %s" % get_pool_debug_text())
+	return {
+		"before": before,
+		"after": after,
+		"summary": get_pool_debug_text()
+	}
 
 
 func get_resource_growth_debug_summary() -> Dictionary:

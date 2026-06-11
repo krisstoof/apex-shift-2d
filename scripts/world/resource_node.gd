@@ -45,6 +45,9 @@ var food_bonus_multiplier := 1.0
 var pond_visual_multiplier := 1.0
 var biome_id := ""
 var is_visibility_culled := false
+var is_pooled := false
+var pool_key := ""
+var pool_release_callback := Callable()
 
 
 func _get_event_bus() -> Node:
@@ -199,7 +202,7 @@ func interact(player: Node) -> void:
 	if _uses_regrowth():
 		_mark_harvested()
 	else:
-		queue_free()
+		_release_or_free()
 
 
 func get_prompt() -> String:
@@ -431,10 +434,86 @@ func _consume_meat_by_creature(consumer: Node) -> float:
 		"position": global_position
 	})
 	if amount <= 0:
-		queue_free()
+		_release_or_free()
 	else:
 		queue_redraw()
 	return consumed_value
+
+
+func activate_from_pool(data: Dictionary) -> void:
+	is_pooled = true
+	pool_key = str(data.get("pool_key", pool_key))
+	pool_release_callback = data.get("release_callback", Callable())
+
+	var spawn_position := Vector2(data.get("position", global_position))
+	global_position = spawn_position
+
+	var kind := str(data.get("resource_kind", data.get("kind", resource_kind)))
+	setup(kind)
+
+	if data.has("loot_amount"):
+		set_loot_amount(int(data.get("loot_amount", 1)))
+
+	if not is_in_group("resources"):
+		add_to_group("resources")
+
+	visible = true
+	set_process(true)
+	set_physics_process(true)
+	_set_collision_state_safe(true)
+	is_visibility_culled = false
+	queue_redraw()
+
+
+func reset_for_pool() -> void:
+	visible = false
+	set_process(false)
+	set_physics_process(false)
+	_set_collision_state_safe(false)
+	_remove_resource_pool_groups()
+
+	amount = 0
+	mature_amount = 0
+	growth_stage = max_growth_stage
+	growth_progress = 0.0
+	days_since_harvested = 0.0
+	is_harvested = false
+	can_be_harvested = false
+	player_harvestable = false
+	is_edible_by_herbivores = false
+	food_value = 0.0
+	render_only = false
+	is_pond_vegetation = false
+	pond_id = ""
+	food_bonus_multiplier = 1.0
+	pond_visual_multiplier = 1.0
+	biome_id = ""
+	is_visibility_culled = true
+	pool_release_callback = Callable()
+	queue_redraw()
+
+
+func _remove_resource_pool_groups() -> void:
+	for group_name in [
+		"resources",
+		"trees",
+		"bushes",
+		"grass",
+		"rocks",
+		"vegetation",
+		"edible_vegetation",
+		"pond_vegetation",
+		"meat_drops"
+	]:
+		if is_in_group(group_name):
+			remove_from_group(group_name)
+
+
+func _release_or_free() -> void:
+	if is_pooled and pool_release_callback.is_valid():
+		pool_release_callback.call(self)
+	else:
+		queue_free()
 
 
 func _get_stage_yield() -> int:
