@@ -42,6 +42,8 @@ const DEBUG_SMALL_PREY_SPAWN_RADIUS := 180.0
 const DEBUG_GRAZER_SPAWN_RADIUS := 240.0
 const VISIBILITY_CULL_INTERVAL_SECONDS := 0.35
 const VISIBILITY_CULL_MARGIN := 384.0
+const DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS := 0.20
+const DECORATIVE_VEGETATION_VISIBILITY_MARGIN := 640.0
 const VISIBILITY_CULL_GROUPS := ["resources", "small_prey", "grazer", "varnak"]
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
 const BIOME_DETAIL_CHUNK_WORLD_SIZE := 768.0
@@ -190,6 +192,7 @@ var hitch_log_sequence: Dictionary = {}
 var world_biome_texture_build_count: int = 0
 var world_biome_texture_last_build_ms: float = 0.0
 var visibility_cull_timer := 0.0
+var decorative_vegetation_visibility_timer := 0.0
 var visibility_cull_last_visible_resources: int = 0
 var visibility_cull_last_hidden_resources: int = 0
 var visibility_cull_last_visible_creatures: int = 0
@@ -272,8 +275,10 @@ func _ready() -> void:
 	boot_ready = true
 	_set_boot_progress("World ready", 1.0)
 	_update_world_object_visibility()
+	_update_decorative_vegetation_visible_rect()
 	_rebuild_chunk_assignments()
 	visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
+	decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
 	_sync_biome_blend_background()
 	_update_biome_detail_overlay(true)
 	world_initialized.emit()
@@ -319,6 +324,10 @@ func _process(delta: float) -> void:
 		if visibility_cull_timer <= 0.0:
 			visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
 			_update_world_object_visibility()
+	decorative_vegetation_visibility_timer -= delta
+	if decorative_vegetation_visibility_timer <= 0.0:
+		decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
+		_update_decorative_vegetation_visible_rect()
 	_update_biome_detail_overlay()
 	_build_pending_biome_detail_overlay_chunks()
 	_update_night_overlay(current_night_amount)
@@ -349,6 +358,15 @@ func _update_world_object_visibility() -> void:
 	if not boot_ready or not visibility_culling_enabled:
 		return
 	_set_world_object_visibility_by_rect(get_camera_visible_world_rect(VISIBILITY_CULL_MARGIN))
+
+
+func _update_decorative_vegetation_visible_rect() -> void:
+	if not is_instance_valid(vegetation_visual_layer):
+		return
+	if not vegetation_visual_layer.has_method("set_visible_world_rect"):
+		return
+	var visible_rect := get_camera_visible_world_rect(DECORATIVE_VEGETATION_VISIBILITY_MARGIN)
+	vegetation_visual_layer.set_visible_world_rect(visible_rect)
 
 
 func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2, margin := VISIBILITY_CULL_MARGIN) -> Rect2:
@@ -687,6 +705,10 @@ func get_vegetation_visual_debug() -> Dictionary:
 		return vegetation_visual_layer.get_debug_stats()
 	return {
 		"visual_instance_count": 0,
+		"total_instance_count": 0,
+		"drawn_instance_count": 0,
+		"visible_chunk_count": 0,
+		"total_chunk_count": 0,
 		"count_by_kind": {}
 	}
 
