@@ -990,11 +990,11 @@ func _get_bounded_flee_target(away: Vector2) -> Vector2:
 	return _clamp_to_world(global_position + direction * 90.0)
 
 
-func _clamp_to_world(position: Vector2) -> Vector2:
-	var rect := _get_world_rect()
+func _clamp_to_world(target_position: Vector2) -> Vector2:
+	var rect: Rect2 = _get_world_rect()
 	return Vector2(
-		clamp(position.x, rect.position.x, rect.end.x),
-		clamp(position.y, rect.position.y, rect.end.y)
+		clamp(target_position.x, rect.position.x, rect.end.x),
+		clamp(target_position.y, rect.position.y, rect.end.y)
 	)
 
 

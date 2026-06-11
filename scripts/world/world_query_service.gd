@@ -256,21 +256,21 @@ func _get_hill_shape_scale(hill: Dictionary, angle: float) -> float:
 	var irregularity := _get_hill_shape_irregularity()
 	if irregularity <= 0.0:
 		return 1.0
-	var seed := _get_hill_shape_seed(hill)
+	var shape_seed := _get_hill_shape_seed(hill)
 	var wave := (
-		sin(angle * 2.0 + seed) * 0.50
-		+ sin(angle * 4.0 - seed * 1.35) * 0.28
-		+ sin(angle * 6.0 + seed * 0.4) * 0.16
+		sin(angle * 2.0 + shape_seed) * 0.50
+		+ sin(angle * 4.0 - shape_seed * 1.35) * 0.28
+		+ sin(angle * 6.0 + shape_seed * 0.4) * 0.16
 	) / 0.94
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.15, 1.0 + irregularity * 1.15)
 
 
 func _get_hill_shape_seed(hill: Dictionary) -> float:
 	var hill_id := str(hill.get("id", "hill"))
-	var seed := 0
+	var raw_seed := 0
 	for i in hill_id.length():
-		seed = (seed + hill_id.unicode_at(i) * (i + 5)) % 997
-	return float(seed) / 997.0 * TAU
+		raw_seed = (raw_seed + hill_id.unicode_at(i) * (i + 5)) % 997
+	return float(raw_seed) / 997.0 * TAU
 
 
 func _get_hill_shape_irregularity() -> float:

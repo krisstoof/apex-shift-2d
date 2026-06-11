@@ -465,16 +465,16 @@ func spawn_resource_for_tests(resource_kind: String, world_position: Vector2) ->
 	return _spawn_resource_at(resource_kind, world_position)
 
 
-func spawn_small_prey_for_tests(position: Vector2, biome_id: String) -> Node:
-	return _spawn_small_prey_at(position, biome_id)
+func spawn_small_prey_for_tests(spawn_position: Vector2, biome_id: String) -> Node:
+	return _spawn_small_prey_at(spawn_position, biome_id)
 
 
-func spawn_grazer_for_tests(position: Vector2, biome_id: String) -> Node:
-	return _spawn_grazer_at(position, biome_id)
+func spawn_grazer_for_tests(spawn_position: Vector2, biome_id: String) -> Node:
+	return _spawn_grazer_at(spawn_position, biome_id)
 
 
-func spawn_varnak_for_tests(position: Vector2) -> Node:
-	return _spawn_varnak_at(position)
+func spawn_varnak_for_tests(spawn_position: Vector2) -> Node:
+	return _spawn_varnak_at(spawn_position)
 
 
 func force_spawn_small_prey_for_tests(count: int, center: Vector2 = Vector2.INF) -> Array[Node]:
@@ -553,12 +553,12 @@ func get_landmark_counts() -> Dictionary:
 	return _ensure_landmark_service().get_landmark_counts()
 
 
-func get_nearest_landmark_data(position: Vector2) -> Dictionary:
-	return _ensure_landmark_service().get_nearest_landmark_data(position)
+func get_nearest_landmark_data(world_position: Vector2) -> Dictionary:
+	return _ensure_landmark_service().get_nearest_landmark_data(world_position)
 
 
-func get_current_biome_texture_id(position: Vector2) -> String:
-	var biome := _get_biome_for_position(position)
+func get_current_biome_texture_id(world_position: Vector2) -> String:
+	var biome := _get_biome_for_position(world_position)
 	if biome.is_empty():
 		return "none"
 	return _get_biome_terrain_texture_key(biome)
@@ -732,16 +732,16 @@ func update_spatial_entity_cell(node: Node) -> void:
 	_ensure_registry().update_entity_cell(node)
 
 
-func get_resources_near(position: Vector2, radius: float, kind_filter: Variant = null) -> Array:
-	return _ensure_registry().get_resources_near(position, radius, kind_filter)
+func get_resources_near(world_position: Vector2, radius: float, kind_filter: Variant = null) -> Array:
+	return _ensure_registry().get_resources_near(world_position, radius, kind_filter)
 
 
-func get_creatures_near(position: Vector2, radius: float, creature_type_filter: Variant = null) -> Array:
-	return _ensure_registry().get_creatures_near(position, radius, creature_type_filter)
+func get_creatures_near(world_position: Vector2, radius: float, creature_type_filter: Variant = null) -> Array:
+	return _ensure_registry().get_creatures_near(world_position, radius, creature_type_filter)
 
 
-func get_meat_near(position: Vector2, radius: float) -> Array:
-	return _ensure_registry().get_meat_near(position, radius)
+func get_meat_near(world_position: Vector2, radius: float) -> Array:
+	return _ensure_registry().get_meat_near(world_position, radius)
 
 
 func get_resources_in_rect(rect: Rect2, kind_filter: Variant = null) -> Array:
@@ -893,32 +893,32 @@ func _yield_initial_boot_step() -> void:
 		await get_tree().process_frame
 
 
-func get_terrain_speed_multiplier(position: Vector2) -> float:
-	return float(_ensure_query_service().get_terrain_speed_multiplier(position))
+func get_terrain_speed_multiplier(world_position: Vector2) -> float:
+	return float(_ensure_query_service().get_terrain_speed_multiplier(world_position))
 
 
-func get_water_zone(position: Vector2) -> String:
-	return str(_ensure_query_service().get_water_zone(position))
+func get_water_zone(world_position: Vector2) -> String:
+	return str(_ensure_query_service().get_water_zone(world_position))
 
 
-func is_position_in_water(position: Vector2) -> bool:
-	return _ensure_query_service().is_position_in_water(position)
+func is_position_in_water(world_position: Vector2) -> bool:
+	return _ensure_query_service().is_position_in_water(world_position)
 
 
-func is_position_in_deep_water(position: Vector2) -> bool:
-	return _ensure_query_service().is_position_in_deep_water(position)
+func is_position_in_deep_water(world_position: Vector2) -> bool:
+	return _ensure_query_service().is_position_in_deep_water(world_position)
 
 
-func is_resource_position_blocked_by_water(resource_kind: String, position: Vector2) -> bool:
-	return _ensure_query_service().is_resource_position_blocked_by_water(resource_kind, position)
+func is_resource_position_blocked_by_water(resource_kind: String, world_position: Vector2) -> bool:
+	return _ensure_query_service().is_resource_position_blocked_by_water(resource_kind, world_position)
 
 
-func is_creature_navigation_blocked(position: Vector2) -> bool:
-	return _ensure_query_service().is_creature_navigation_blocked(position)
+func is_creature_navigation_blocked(world_position: Vector2) -> bool:
+	return _ensure_query_service().is_creature_navigation_blocked(world_position)
 
 
-func is_creature_spawn_blocked_by_water(position: Vector2) -> bool:
-	return _ensure_query_service().is_creature_spawn_blocked_by_water(position)
+func is_creature_spawn_blocked_by_water(world_position: Vector2) -> bool:
+	return _ensure_query_service().is_creature_spawn_blocked_by_water(world_position)
 
 
 func get_creatures_out_of_bounds_count() -> int:
@@ -1261,8 +1261,8 @@ func _get_pond_vegetation_player_safe_distance() -> float:
 	return float(GAME_BALANCE.LANDMARKS.get("pond_vegetation_player_safe_distance", 36.0))
 
 
-func _is_position_in_pond_water(position: Vector2, pond: Dictionary, margin_multiplier: float = 1.0) -> bool:
-	return _get_pond_water_ratio(position, pond) <= margin_multiplier
+func _is_position_in_pond_water(world_position: Vector2, pond: Dictionary, margin_multiplier: float = 1.0) -> bool:
+	return _get_pond_water_ratio(world_position, pond) <= margin_multiplier
 
 
 func _get_pond_shape_position(pond: Dictionary, angle: float, radius_factor: float) -> Vector2:
@@ -1275,12 +1275,12 @@ func _get_pond_shape_position(pond: Dictionary, angle: float, radius_factor: flo
 	)
 
 
-func _get_pond_water_ratio(position: Vector2, pond: Dictionary) -> float:
+func _get_pond_water_ratio(world_position: Vector2, pond: Dictionary) -> float:
 	var center := Vector2(pond.get("position", Vector2.ZERO))
 	var radius := float(pond.get("radius", 0.0))
 	if radius <= 0.0:
 		return INF
-	var offset := position - center
+	var offset := world_position - center
 	var normalized := Vector2(offset.x / radius, offset.y / (radius * POND_VISUAL_Y_SCALE))
 	var shape_scale := _get_pond_shape_scale(pond, normalized.angle())
 	return normalized.length() / max(shape_scale, 0.1)
@@ -1290,21 +1290,21 @@ func _get_pond_shape_scale(pond: Dictionary, angle: float) -> float:
 	var irregularity: float = _get_pond_shape_irregularity()
 	if irregularity <= 0.0:
 		return 1.0
-	var seed: float = _get_pond_shape_seed(pond)
+	var seed_value: float = _get_pond_shape_seed(pond)
 	var wave: float = (
-		sin(angle * 2.0 + seed) * 0.55
-		+ sin(angle * 3.0 - seed * 1.7) * 0.32
-		+ sin(angle * 5.0 + seed * 0.6) * 0.18
+		sin(angle * 2.0 + seed_value) * 0.55
+		+ sin(angle * 3.0 - seed_value * 1.7) * 0.32
+		+ sin(angle * 5.0 + seed_value * 0.6) * 0.18
 	) / 1.05
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.25, 1.0 + irregularity * 1.25)
 
 
 func _get_pond_shape_seed(pond: Dictionary) -> float:
 	var pond_id := str(pond.get("id", "pond"))
-	var seed := 0
+	var seed_value := 0
 	for i in pond_id.length():
-		seed = (seed + pond_id.unicode_at(i) * (i + 3)) % 997
-	return float(seed) / 997.0 * TAU
+		seed_value = (seed_value + pond_id.unicode_at(i) * (i + 3)) % 997
+	return float(seed_value) / 997.0 * TAU
 
 
 func _get_pond_shape_irregularity() -> float:
@@ -1315,8 +1315,8 @@ func _get_pond_shape_sample_count() -> int:
 	return max(16, int(GAME_BALANCE.LANDMARKS.get("pond_shape_sample_count", 48)))
 
 
-func _get_pond_water_zone(position: Vector2, pond: Dictionary) -> String:
-	var ratio := _get_pond_water_ratio(position, pond)
+func _get_pond_water_zone(world_position: Vector2, pond: Dictionary) -> String:
+	var ratio := _get_pond_water_ratio(world_position, pond)
 	if ratio <= _get_pond_deep_water_radius_factor():
 		return WATER_ZONE_DEEP
 	if ratio <= _get_pond_shallow_water_radius_factor():
@@ -1357,8 +1357,8 @@ func _get_resource_water_margin_multiplier(resource_kind: String) -> float:
 	return 1.0
 
 
-func _is_position_in_hill_obstacle(position: Vector2, hill: Dictionary) -> bool:
-	return _get_hill_shape_ratio(position, hill) <= HILL_RESOURCE_BLOCK_RADIUS_FACTOR
+func _is_position_in_hill_obstacle(world_position: Vector2, hill: Dictionary) -> bool:
+	return _get_hill_shape_ratio(world_position, hill) <= HILL_RESOURCE_BLOCK_RADIUS_FACTOR
 
 
 func _get_hill_shape_position(hill: Dictionary, angle: float, radius_factor: float, offset: Vector2 = Vector2.ZERO) -> Vector2:
@@ -1371,12 +1371,12 @@ func _get_hill_shape_position(hill: Dictionary, angle: float, radius_factor: flo
 	)
 
 
-func _get_hill_shape_ratio(position: Vector2, hill: Dictionary) -> float:
+func _get_hill_shape_ratio(world_position: Vector2, hill: Dictionary) -> float:
 	var center := Vector2(hill.get("position", Vector2.ZERO))
 	var radius := float(hill.get("radius", 0.0))
 	if radius <= 0.0:
 		return INF
-	var offset := position - center
+	var offset := world_position - center
 	var normalized := Vector2(offset.x / radius, offset.y / (radius * HILL_VISUAL_Y_SCALE))
 	var shape_scale := _get_hill_shape_scale(hill, normalized.angle())
 	return normalized.length() / max(shape_scale, 0.1)
@@ -1386,21 +1386,21 @@ func _get_hill_shape_scale(hill: Dictionary, angle: float) -> float:
 	var irregularity: float = _get_hill_shape_irregularity()
 	if irregularity <= 0.0:
 		return 1.0
-	var seed: float = _get_hill_shape_seed(hill)
+	var hill_seed: float = _get_hill_shape_seed(hill)
 	var wave: float = (
-		sin(angle * 2.0 + seed) * 0.50
-		+ sin(angle * 4.0 - seed * 1.35) * 0.28
-		+ sin(angle * 6.0 + seed * 0.4) * 0.16
+		sin(angle * 2.0 + hill_seed) * 0.50
+		+ sin(angle * 4.0 - hill_seed * 1.35) * 0.28
+		+ sin(angle * 6.0 + hill_seed * 0.4) * 0.16
 	) / 0.94
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.15, 1.0 + irregularity * 1.15)
 
 
 func _get_hill_shape_seed(hill: Dictionary) -> float:
 	var hill_id := str(hill.get("id", "hill"))
-	var seed := 0
+	var hash_seed := 0
 	for i in hill_id.length():
-		seed = (seed + hill_id.unicode_at(i) * (i + 5)) % 997
-	return float(seed) / 997.0 * TAU
+		hash_seed = (hash_seed + hill_id.unicode_at(i) * (i + 5)) % 997
+	return float(hash_seed) / 997.0 * TAU
 
 
 func _get_hill_shape_irregularity() -> float:
@@ -1526,10 +1526,10 @@ func _find_safe_drop_position(resource_kind: String, origin: Vector2, radius: fl
 	return origin
 
 
-func _is_valid_drop_position(position: Vector2, radius: float = 18.0, resource_kind: String = "") -> bool:
-	if not WORLD_CONFIG.WORLD_RECT.has_point(position):
+func _is_valid_drop_position(drop_position: Vector2, radius: float = 18.0, resource_kind: String = "") -> bool:
+	if not WORLD_CONFIG.WORLD_RECT.has_point(drop_position):
 		return false
-	if resource_kind != "" and is_resource_position_blocked_by_water(resource_kind, position):
+	if resource_kind != "" and is_resource_position_blocked_by_water(resource_kind, drop_position):
 		return false
 	for landmark in get_tree().get_nodes_in_group("landmarks"):
 		if not is_instance_valid(landmark):
@@ -1541,7 +1541,7 @@ func _is_valid_drop_position(position: Vector2, radius: float = 18.0, resource_k
 		var custom_radius: Variant = landmark.get("radius") if landmark.has_method("get") else null
 		if custom_radius != null:
 			safe_distance = maxf(float(custom_radius), safe_distance)
-		if landmark_node.global_position.distance_to(position) < safe_distance + radius:
+		if landmark_node.global_position.distance_to(drop_position) < safe_distance + radius:
 			return false
 	return true
 
@@ -1746,8 +1746,8 @@ func _get_safe_restored_resource_position(resource_kind: String, requested_posit
 		)
 	else:
 		requested_vector = Vector2.ZERO
-	var position := _clamp_position_to_world(requested_vector)
-	if not is_resource_position_blocked_by_water(resource_kind, position) and not _is_resource_blocked_by_hill(resource_kind, position):
+	var safe_position := _clamp_position_to_world(requested_vector)
+	if not is_resource_position_blocked_by_water(resource_kind, safe_position) and not _is_resource_blocked_by_hill(resource_kind, safe_position):
 		return position
 	var pond := _get_nearest_pond_landmark(position)
 	if pond.is_empty():
@@ -1779,14 +1779,14 @@ func _get_safe_restored_resource_position(resource_kind: String, requested_posit
 		var candidate := _clamp_position_to_world(_get_pond_shape_position(pond, angle, radius_factor))
 		if not is_resource_position_blocked_by_water(resource_kind, candidate) and not _is_resource_blocked_by_hill(resource_kind, candidate) and not _get_biome_for_position(candidate).is_empty():
 			return candidate
-	return position
+	return safe_position
 
 
 func _apply_restored_resource_data(resource_node: Variant, resource_data: Dictionary) -> bool:
 	var data := Dictionary(resource_data).duplicate(true)
-	var position := _data_to_vector(data.get("position", {}))
-	data["position"] = _vector_to_data(position)
-	data["biome_id"] = _get_biome_id_for_position(position)
+	var restored_position := _data_to_vector(data.get("position", {}))
+	data["position"] = _vector_to_data(restored_position)
+	data["biome_id"] = _get_biome_id_for_position(restored_position)
 	return _ensure_resource_service().apply_restore_data(resource_node, data)
 
 
@@ -1798,12 +1798,12 @@ func _spawn_restored_resource_at(resource_kind: String, position_data: Variant) 
 	return _spawn_resource_at(resource_kind, Vector2.ZERO)
 
 
-func _get_nearest_pond_landmark(position: Vector2) -> Dictionary:
+func _get_nearest_pond_landmark(search_position: Vector2) -> Dictionary:
 	var nearest: Dictionary = {}
 	var nearest_distance := INF
 	for pond in pond_landmarks:
 		var center := Vector2(pond.get("position", Vector2.ZERO))
-		var distance := position.distance_squared_to(center)
+		var distance := search_position.distance_squared_to(center)
 		if distance < nearest_distance:
 			nearest_distance = distance
 			nearest = pond
@@ -1945,9 +1945,9 @@ func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vec
 	)
 
 
-func _get_biome_for_position(position: Vector2) -> Dictionary:
+func _get_biome_for_position(target_position: Vector2) -> Dictionary:
 	for biome in WORLD_CONFIG.get_biome_zones():
-		if _is_point_in_biome(position, biome):
+		if _is_point_in_biome(target_position, biome):
 			return biome
 	return {}
 
@@ -1972,8 +1972,8 @@ func _get_biome_id(biome: Dictionary) -> String:
 	return str(biome.get("name", "biome")).to_snake_case()
 
 
-func _get_biome_id_for_position(position: Vector2) -> String:
-	var biome := _get_biome_for_position(position)
+func _get_biome_id_for_position(target_position: Vector2) -> String:
+	var biome := _get_biome_for_position(target_position)
 	if biome.is_empty():
 		return ""
 	return _get_biome_id(biome)
@@ -2686,11 +2686,11 @@ func _get_out_of_bounds_creatures() -> Array[Node2D]:
 	return creatures
 
 
-func _clamp_position_to_world(position: Vector2) -> Vector2:
+func _clamp_position_to_world(target_position: Vector2) -> Vector2:
 	var rect := WORLD_CONFIG.WORLD_RECT.grow(-CREATURE_BOUND_TELEPORT_PADDING)
 	return Vector2(
-		clamp(position.x, rect.position.x, rect.end.x),
-		clamp(position.y, rect.position.y, rect.end.y)
+		clamp(target_position.x, rect.position.x, rect.end.x),
+		clamp(target_position.y, rect.position.y, rect.end.y)
 	)
 
 
@@ -2919,7 +2919,7 @@ func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2, u
 	return true
 
 
-func _is_position_inside_camera_view(position: Vector2, margin: float = 0.0) -> bool:
+func _is_position_inside_camera_view(target_position: Vector2, margin: float = 0.0) -> bool:
 	var player := get_tree().get_first_node_in_group("player") as Node2D
 	if player == null:
 		return false
@@ -2931,7 +2931,7 @@ func _is_position_inside_camera_view(position: Vector2, margin: float = 0.0) -> 
 	var safe_zoom := Vector2(maxf(absf(zoom.x), 0.01), maxf(absf(zoom.y), 0.01))
 	var visible_world_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y)
 	var rect := Rect2(camera.global_position - visible_world_size * 0.5, visible_world_size).grow(margin)
-	return rect.has_point(position)
+	return rect.has_point(target_position)
 
 
 func _get_current_day() -> int:
@@ -3226,7 +3226,7 @@ func _sample_biome_detail_texture_color(terrain_pattern: Dictionary, world_posit
 	var texture_image := _get_biome_texture_image(terrain_pattern)
 	if texture_image.is_empty():
 		return Color.BLACK
-	var seed := float(terrain_pattern.get("seed", 0.0))
+	var pattern_seed: float = float(terrain_pattern.get("seed", 0.0))
 	var density_multiplier := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)), 0.1)
 	density_multiplier *= maxf(float(terrain_pattern.get("density_scale", 1.0)), 0.1)
 	var tile_world_size := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_tile_world_size", BIOME_DETAIL_WORLD_TILE_SIZE)), 1.0)
@@ -3235,8 +3235,8 @@ func _sample_biome_detail_texture_color(terrain_pattern: Dictionary, world_posit
 		world_position.y / tile_world_size
 	)
 	var tiled_uv := Vector2(
-		fposmod(world_uv.x * density_multiplier + seed * 0.013, 1.0),
-		fposmod(world_uv.y * density_multiplier + seed * 0.007, 1.0)
+		fposmod(world_uv.x * density_multiplier + pattern_seed * 0.013, 1.0),
+		fposmod(world_uv.y * density_multiplier + pattern_seed * 0.007, 1.0)
 	)
 	var sample_position := Vector2(
 		tiled_uv.x * float(texture_image.get_width() - 1),
@@ -3254,7 +3254,7 @@ func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
 	for accent_value in accents:
 		var accent := Dictionary(accent_value)
 		var accent_position := Vector2(accent.get("position", Vector2.ZERO))
-		var rotation := float(accent.get("rotation", 0.0))
+		var accent_rotation := float(accent.get("rotation", 0.0))
 		var accent_scale := float(accent.get("scale", 1.0))
 		var tint := float(accent.get("tint", 0.0))
 		var is_secondary: bool = accent.get("secondary", false) == true
@@ -3267,18 +3267,18 @@ func _draw_biome_terrain_accents(biome: Dictionary, base_color: Color) -> void:
 		var dark_color := Color(colors.get("dark", base_color.darkened(0.18)))
 		match str(accent.get("kind", "")):
 			"grass":
-				_draw_biome_grass_accent(accent_position, rotation, accent_scale, light_color, dark_color)
+				_draw_biome_grass_accent(accent_position, accent_rotation, accent_scale, light_color, dark_color)
 			"leaf":
-				_draw_biome_leaf_accent(accent_position, rotation, accent_scale, light_color, dark_color)
+				_draw_biome_leaf_accent(accent_position, accent_rotation, accent_scale, light_color, dark_color)
 			"plate":
-				_draw_biome_plate_accent(accent_position, rotation, accent_scale, light_color, dark_color)
+				_draw_biome_plate_accent(accent_position, accent_rotation, accent_scale, light_color, dark_color)
 			"thicket":
-				_draw_biome_thicket_accent(accent_position, rotation, accent_scale, light_color, dark_color)
+				_draw_biome_thicket_accent(accent_position, accent_rotation, accent_scale, light_color, dark_color)
 			"crack":
-				_draw_biome_crack_accent(accent_position, rotation, accent_scale, light_color, dark_color)
+				_draw_biome_crack_accent(accent_position, accent_rotation, accent_scale, light_color, dark_color)
 			_:
 				if biome_id == "hearth_meadow":
-					_draw_biome_grass_accent(accent_position, rotation, accent_scale, light_color, dark_color)
+					_draw_biome_grass_accent(accent_position, accent_rotation, accent_scale, light_color, dark_color)
 
 
 func _draw_world_boundary() -> void:
@@ -3430,26 +3430,26 @@ func _pick_biome_accent_kind(biome_id: String, roll: float) -> String:
 	return "leaf"
 
 
-func _draw_biome_grass_accent(position: Vector2, rotation: float, scale: float, light_color: Color, dark_color: Color) -> void:
+func _draw_biome_grass_accent(accent_position: Vector2, accent_rotation: float, accent_scale: float, light_color: Color, dark_color: Color) -> void:
 	for i in 6:
 		var offset := -6.0 + float(i) * 2.4
 		var height := 8.0 + float(i % 3) * 2.0
-		var start := _transform_biome_accent_point(Vector2(offset, 7.0), position, rotation, scale)
-		var end := _transform_biome_accent_point(Vector2(offset + sin(float(i)) * 3.0, 7.0 - height), position, rotation, scale)
-		draw_line(start, end, light_color, max(1.0, 1.6 * scale))
-	draw_circle(position, 8.0 * scale, _color_with_alpha(dark_color, dark_color.a * 0.38))
+		var start := _transform_biome_accent_point(Vector2(offset, 7.0), accent_position, accent_rotation, accent_scale)
+		var end := _transform_biome_accent_point(Vector2(offset + sin(float(i)) * 3.0, 7.0 - height), accent_position, accent_rotation, accent_scale)
+		draw_line(start, end, light_color, max(1.0, 1.6 * accent_scale))
+	draw_circle(accent_position, 8.0 * accent_scale, _color_with_alpha(dark_color, dark_color.a * 0.38))
 
 
-func _draw_biome_leaf_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
-	draw_circle(_transform_biome_accent_point(Vector2(-6.0, 3.0), position, rotation, scale), 8.0 * scale, fill_color.darkened(0.08))
-	draw_circle(_transform_biome_accent_point(Vector2(3.0, -3.0), position, rotation, scale), 9.0 * scale, fill_color)
-	draw_circle(_transform_biome_accent_point(Vector2(8.0, 5.0), position, rotation, scale), 7.0 * scale, fill_color.darkened(0.14))
-	var stem_start := _transform_biome_accent_point(Vector2(-10.0, 7.0), position, rotation, scale)
-	var stem_end := _transform_biome_accent_point(Vector2(10.0, 7.0), position, rotation, scale)
-	draw_line(stem_start, stem_end, outline_color, max(1.0, 1.5 * scale))
+func _draw_biome_leaf_accent(accent_position: Vector2, accent_rotation: float, accent_scale: float, fill_color: Color, outline_color: Color) -> void:
+	draw_circle(_transform_biome_accent_point(Vector2(-6.0, 3.0), accent_position, accent_rotation, accent_scale), 8.0 * accent_scale, fill_color.darkened(0.08))
+	draw_circle(_transform_biome_accent_point(Vector2(3.0, -3.0), accent_position, accent_rotation, accent_scale), 9.0 * accent_scale, fill_color)
+	draw_circle(_transform_biome_accent_point(Vector2(8.0, 5.0), accent_position, accent_rotation, accent_scale), 7.0 * accent_scale, fill_color.darkened(0.14))
+	var stem_start := _transform_biome_accent_point(Vector2(-10.0, 7.0), accent_position, accent_rotation, accent_scale)
+	var stem_end := _transform_biome_accent_point(Vector2(10.0, 7.0), accent_position, accent_rotation, accent_scale)
+	draw_line(stem_start, stem_end, outline_color, max(1.0, 1.5 * accent_scale))
 
 
-func _draw_biome_plate_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
+func _draw_biome_plate_accent(accent_position: Vector2, accent_rotation: float, accent_scale: float, fill_color: Color, outline_color: Color) -> void:
 	var plate := PackedVector2Array([
 		Vector2(-17.0, 8.0),
 		Vector2(-9.0, -13.0),
@@ -3457,7 +3457,7 @@ func _draw_biome_plate_accent(position: Vector2, rotation: float, scale: float, 
 		Vector2(18.0, 5.0),
 		Vector2(3.0, 16.0)
 	])
-	var transformed := _transform_biome_accent_points(plate, position, rotation, scale)
+	var transformed := _transform_biome_accent_points(plate, accent_position, accent_rotation, accent_scale)
 	draw_colored_polygon(transformed, fill_color.darkened(0.12))
 	var highlight := PackedVector2Array([
 		Vector2(-9.0, -13.0),
@@ -3465,23 +3465,23 @@ func _draw_biome_plate_accent(position: Vector2, rotation: float, scale: float, 
 		Vector2(3.0, 1.0),
 		Vector2(-14.0, 4.0)
 	])
-	draw_colored_polygon(_transform_biome_accent_points(highlight, position, rotation, scale), fill_color)
-	var crack_start := _transform_biome_accent_point(Vector2(-5.0, -8.0), position, rotation, scale)
-	var crack_end := _transform_biome_accent_point(Vector2(4.0, 10.0), position, rotation, scale)
-	draw_line(crack_start, crack_end, outline_color, max(1.0, 2.0 * scale))
+	draw_colored_polygon(_transform_biome_accent_points(highlight, accent_position, accent_rotation, accent_scale), fill_color)
+	var crack_start := _transform_biome_accent_point(Vector2(-5.0, -8.0), accent_position, accent_rotation, accent_scale)
+	var crack_end := _transform_biome_accent_point(Vector2(4.0, 10.0), accent_position, accent_rotation, accent_scale)
+	draw_line(crack_start, crack_end, outline_color, max(1.0, 2.0 * accent_scale))
 
 
-func _draw_biome_thicket_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
-	draw_circle(_transform_biome_accent_point(Vector2(-10.0, 4.0), position, rotation, scale), 12.0 * scale, fill_color.darkened(0.10))
-	draw_circle(_transform_biome_accent_point(Vector2(2.0, -4.0), position, rotation, scale), 14.0 * scale, fill_color)
-	draw_circle(_transform_biome_accent_point(Vector2(13.0, 5.0), position, rotation, scale), 11.0 * scale, fill_color.darkened(0.16))
-	draw_circle(_transform_biome_accent_point(Vector2(2.0, 9.0), position, rotation, scale), 11.0 * scale, fill_color.darkened(0.06))
-	var base_start := _transform_biome_accent_point(Vector2(-16.0, 8.0), position, rotation, scale)
-	var base_end := _transform_biome_accent_point(Vector2(16.0, 8.0), position, rotation, scale)
-	draw_line(base_start, base_end, outline_color, max(1.0, 2.0 * scale))
+func _draw_biome_thicket_accent(accent_position: Vector2, accent_rotation: float, accent_scale: float, fill_color: Color, outline_color: Color) -> void:
+	draw_circle(_transform_biome_accent_point(Vector2(-10.0, 4.0), accent_position, accent_rotation, accent_scale), 12.0 * accent_scale, fill_color.darkened(0.10))
+	draw_circle(_transform_biome_accent_point(Vector2(2.0, -4.0), accent_position, accent_rotation, accent_scale), 14.0 * accent_scale, fill_color)
+	draw_circle(_transform_biome_accent_point(Vector2(13.0, 5.0), accent_position, accent_rotation, accent_scale), 11.0 * accent_scale, fill_color.darkened(0.16))
+	draw_circle(_transform_biome_accent_point(Vector2(2.0, 9.0), accent_position, accent_rotation, accent_scale), 11.0 * accent_scale, fill_color.darkened(0.06))
+	var base_start := _transform_biome_accent_point(Vector2(-16.0, 8.0), accent_position, accent_rotation, accent_scale)
+	var base_end := _transform_biome_accent_point(Vector2(16.0, 8.0), accent_position, accent_rotation, accent_scale)
+	draw_line(base_start, base_end, outline_color, max(1.0, 2.0 * accent_scale))
 
 
-func _draw_biome_crack_accent(position: Vector2, rotation: float, scale: float, fill_color: Color, outline_color: Color) -> void:
+func _draw_biome_crack_accent(accent_position: Vector2, accent_rotation: float, accent_scale: float, fill_color: Color, outline_color: Color) -> void:
 	var branches := [
 		[Vector2(0.0, 12.0), Vector2(-18.0, -8.0)],
 		[Vector2(0.0, 12.0), Vector2(18.0, -9.0)],
@@ -3490,20 +3490,20 @@ func _draw_biome_crack_accent(position: Vector2, rotation: float, scale: float, 
 		[Vector2(7.0, 1.0), Vector2(19.0, 5.0)]
 	]
 	for branch in branches:
-		var start := _transform_biome_accent_point(branch[0], position, rotation, scale)
-		var end := _transform_biome_accent_point(branch[1], position, rotation, scale)
-		draw_line(start, end, fill_color, max(1.0, 2.0 * scale))
-	draw_circle(position, 15.0 * scale, _color_with_alpha(outline_color, outline_color.a * 0.24))
+		var start := _transform_biome_accent_point(branch[0], accent_position, accent_rotation, accent_scale)
+		var end := _transform_biome_accent_point(branch[1], accent_position, accent_rotation, accent_scale)
+		draw_line(start, end, fill_color, max(1.0, 2.0 * accent_scale))
+	draw_circle(accent_position, 15.0 * accent_scale, _color_with_alpha(outline_color, outline_color.a * 0.24))
 
 
-func _transform_biome_accent_point(point: Vector2, position: Vector2, rotation: float, scale: float) -> Vector2:
-	return position + point.rotated(rotation) * scale
+func _transform_biome_accent_point(point: Vector2, accent_position: Vector2, accent_rotation: float, accent_scale: float) -> Vector2:
+	return accent_position + point.rotated(accent_rotation) * accent_scale
 
 
-func _transform_biome_accent_points(points: PackedVector2Array, position: Vector2, rotation: float, scale: float) -> PackedVector2Array:
+func _transform_biome_accent_points(points: PackedVector2Array, accent_position: Vector2, accent_rotation: float, accent_scale: float) -> PackedVector2Array:
 	var transformed := PackedVector2Array()
 	for point in points:
-		transformed.append(_transform_biome_accent_point(point, position, rotation, scale))
+		transformed.append(_transform_biome_accent_point(point, accent_position, accent_rotation, accent_scale))
 	return transformed
 
 
@@ -3539,10 +3539,10 @@ func _get_polygon_area(points: PackedVector2Array) -> float:
 
 
 func _get_string_seed(text: String) -> int:
-	var seed := 17
+	var pattern_seed := 17
 	for character in text:
-		seed = int((seed * 31 + character.unicode_at(0)) % 2147483647)
-	return seed
+		pattern_seed = int((pattern_seed * 31 + character.unicode_at(0)) % 2147483647)
+	return pattern_seed
 
 
 func _draw_biome_blend_texture() -> void:
@@ -3571,8 +3571,8 @@ func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> vo
 	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
-func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color:
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+func _get_biome_surface_color_at(surface_position: Vector2, biome_zones: Array) -> Color:
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(surface_position)
 	match terrain_zone:
 		"deep_ocean":
 			return WORLD_CONFIG.OCEAN_COLOR
@@ -3583,21 +3583,21 @@ func _get_biome_surface_color_at(position: Vector2, biome_zones: Array) -> Color
 	for i in biome_zones.size():
 		var biome: Dictionary = biome_zones[i]
 		var bounds := Rect2(biome.get("bounds", Rect2()))
-		if not bounds.has_point(position):
+		if not bounds.has_point(surface_position):
 			continue
-		if _is_point_in_biome(position, biome):
+		if _is_point_in_biome(surface_position, biome):
 			var visual_color := _get_biome_visual_color(biome)
-			return _get_biome_terrain_color(biome, position, visual_color)
-	return _get_nearest_biome_visual_color(position, biome_zones)
+			return _get_biome_terrain_color(biome, surface_position, visual_color)
+	return _get_nearest_biome_visual_color(surface_position, biome_zones)
 
 
-func _get_nearest_biome_visual_color(position: Vector2, biome_zones: Array) -> Color:
+func _get_nearest_biome_visual_color(search_position: Vector2, biome_zones: Array) -> Color:
 	var best_color := Color(0.18, 0.28, 0.13)
 	var best_distance := INF
 	for biome_value in biome_zones:
 		var biome: Dictionary = biome_value
 		var center := Vector2(biome.get("center", Rect2(biome.get("bounds", Rect2())).get_center()))
-		var distance := position.distance_squared_to(center)
+		var distance := search_position.distance_squared_to(center)
 		if distance < best_distance:
 			best_distance = distance
 			best_color = _get_biome_visual_color(biome)
@@ -3660,8 +3660,8 @@ func _get_biome_terrain_color(biome: Dictionary, world_position: Vector2, base_c
 	var variation_strength: float = minf(float(GAME_BALANCE.BIOME_TEXTURES.get("variation_noise_strength", 0.08)), 0.16)
 	if variation_strength <= 0.0:
 		return base_color
-	var seed := float(_get_string_seed(_get_biome_id(biome)) % 1000) * 0.013
-	var noise := sin(world_position.x * 0.004 + seed) * 0.5 + sin(world_position.y * 0.0037 - seed) * 0.5
+	var variation_seed := float(_get_string_seed(_get_biome_id(biome)) % 1000) * 0.013
+	var noise := sin(world_position.x * 0.004 + variation_seed) * 0.5 + sin(world_position.y * 0.0037 - variation_seed) * 0.5
 	var amount := clampf((noise + 1.0) * 0.5, 0.0, 1.0)
 	var darker := base_color.darkened(variation_strength)
 	var lighter := base_color.lightened(variation_strength * 0.35)
@@ -3685,66 +3685,66 @@ func _sample_biome_texture_luminance(terrain_pattern: Dictionary, world_position
 	return clamp(texture_color.get_luminance(), 0.0, 1.0)
 
 
-func _sample_forest_floor_pattern(local_position: Vector2, seed: float) -> float:
-	var leaf_a: float = _sample_jagged_shape(local_position, seed, 0.86, 0.34, 0.56, 5, 0.22, 0.055, 0.60, 0.20, 0.14)
-	var leaf_b: float = _sample_jagged_shape(local_position + Vector2(0.28, 0.18), seed + 1.7, 0.78, 0.28, 0.48, 5, 0.20, 0.050, 0.56, 0.18, 0.12)
-	var twig: float = _get_line_mask(sin((local_position.x - local_position.y) * 2.15 + seed * 4.9), 0.06, 0.05)
-	var litter_edges: float = max(_get_cell_edge_mask(local_position.x * 0.84 + seed * 1.4, 0.08), _get_cell_edge_mask(local_position.y * 0.73 - seed * 1.1, 0.08))
+func _sample_forest_floor_pattern(local_position: Vector2, seed_value: float) -> float:
+	var leaf_a: float = _sample_jagged_shape(local_position, seed_value, 0.86, 0.34, 0.56, 5, 0.22, 0.055, 0.60, 0.20, 0.14)
+	var leaf_b: float = _sample_jagged_shape(local_position + Vector2(0.28, 0.18), seed_value + 1.7, 0.78, 0.28, 0.48, 5, 0.20, 0.050, 0.56, 0.18, 0.12)
+	var twig: float = _get_line_mask(sin((local_position.x - local_position.y) * 2.15 + seed_value * 4.9), 0.06, 0.05)
+	var litter_edges: float = max(_get_cell_edge_mask(local_position.x * 0.84 + seed_value * 1.4, 0.08), _get_cell_edge_mask(local_position.y * 0.73 - seed_value * 1.1, 0.08))
 	return clamp(leaf_a * 0.56 + leaf_b * 0.42 + twig * 0.18 + litter_edges * 0.18, 0.0, 1.0)
 
 
-func _sample_rock_noise_pattern(local_position: Vector2, seed: float) -> float:
-	var plate_a: float = _sample_jagged_shape(local_position, seed, 1.08, 0.72, 0.52, 7, 0.28, 0.045, 0.72, 0.22, 0.20)
-	var plate_b: float = _sample_jagged_shape(local_position + Vector2(0.34, -0.18), seed + 2.4, 0.84, 0.54, 0.40, 6, 0.24, 0.040, 0.60, 0.18, 0.16)
-	var seam: float = _get_line_mask(sin((local_position.x + local_position.y) * 1.75 + seed * 7.3), 0.08, 0.06)
-	var shard_edges: float = max(_get_cell_edge_mask(local_position.x * 0.66 + seed * 0.8, 0.06), _get_cell_edge_mask(local_position.y * 0.70 - seed * 0.5, 0.06))
+func _sample_rock_noise_pattern(local_position: Vector2, seed_value: float) -> float:
+	var plate_a: float = _sample_jagged_shape(local_position, seed_value, 1.08, 0.72, 0.52, 7, 0.28, 0.045, 0.72, 0.22, 0.20)
+	var plate_b: float = _sample_jagged_shape(local_position + Vector2(0.34, -0.18), seed_value + 2.4, 0.84, 0.54, 0.40, 6, 0.24, 0.040, 0.60, 0.18, 0.16)
+	var seam: float = _get_line_mask(sin((local_position.x + local_position.y) * 1.75 + seed_value * 7.3), 0.08, 0.06)
+	var shard_edges: float = max(_get_cell_edge_mask(local_position.x * 0.66 + seed_value * 0.8, 0.06), _get_cell_edge_mask(local_position.y * 0.70 - seed_value * 0.5, 0.06))
 	return clamp(plate_a * 0.54 + plate_b * 0.34 + seam * 0.24 + shard_edges * 0.16, 0.0, 1.0)
 
 
-func _sample_grass_streak_pattern(local_position: Vector2, seed: float) -> float:
+func _sample_grass_streak_pattern(local_position: Vector2, seed_value: float) -> float:
 	var cluster_cell := Vector2(floor(local_position.x * 0.85), floor(local_position.y * 0.85))
-	var cluster_density: float = _get_pattern_hash(cluster_cell, seed * 4.9)
+	var cluster_density: float = _get_pattern_hash(cluster_cell, seed_value * 4.9)
 	if cluster_density < 0.30:
 		return 0.0
-	var blade_a: float = _sample_jagged_shape(local_position, seed, 0.66, 0.16, 0.86, 4, 0.16, 0.040, 0.78, 0.14, 0.12)
-	var blade_b: float = _sample_jagged_shape(local_position + Vector2(0.16, 0.20), seed + 1.2, 0.58, 0.14, 0.78, 4, 0.14, 0.036, 0.72, 0.12, 0.10)
-	var blade_c: float = _sample_jagged_shape(local_position + Vector2(-0.22, 0.08), seed + 2.1, 0.50, 0.12, 0.72, 4, 0.12, 0.032, 0.66, 0.12, 0.10)
-	var dark_blades: float = _get_line_mask(sin((local_position.x * 0.65 - local_position.y * 1.45) * 3.7 + seed * 2.8), 0.05, 0.05)
+	var blade_a: float = _sample_jagged_shape(local_position, seed_value, 0.66, 0.16, 0.86, 4, 0.16, 0.040, 0.78, 0.14, 0.12)
+	var blade_b: float = _sample_jagged_shape(local_position + Vector2(0.16, 0.20), seed_value + 1.2, 0.58, 0.14, 0.78, 4, 0.14, 0.036, 0.72, 0.12, 0.10)
+	var blade_c: float = _sample_jagged_shape(local_position + Vector2(-0.22, 0.08), seed_value + 2.1, 0.50, 0.12, 0.72, 4, 0.12, 0.032, 0.66, 0.12, 0.10)
+	var dark_blades: float = _get_line_mask(sin((local_position.x * 0.65 - local_position.y * 1.45) * 3.7 + seed_value * 2.8), 0.05, 0.05)
 	return clamp(cluster_density * 0.22 + blade_a * 0.44 + blade_b * 0.34 + blade_c * 0.26 + dark_blades * 0.18, 0.0, 1.0)
 
 
-func _sample_dense_thicket_pattern(local_position: Vector2, seed: float) -> float:
-	var canopy: float = _sample_jagged_shape(local_position, seed, 0.74, 0.30, 0.62, 5, 0.20, 0.050, 0.72, 0.18, 0.16)
-	var clusters: float = _sample_jagged_shape(local_position + Vector2(0.18, -0.14), seed + 2.4, 0.58, 0.22, 0.50, 5, 0.16, 0.040, 0.60, 0.16, 0.12)
-	var stalks: float = _get_line_mask(sin((local_position.x - local_position.y) * 4.05 + seed * 4.7), 0.06, 0.05)
-	var thicket_edges: float = max(_get_cell_edge_mask(local_position.x * 0.66 + seed * 0.6, 0.08), _get_cell_edge_mask(local_position.y * 0.69 - seed * 0.8, 0.08))
+func _sample_dense_thicket_pattern(local_position: Vector2, seed_value: float) -> float:
+	var canopy: float = _sample_jagged_shape(local_position, seed_value, 0.74, 0.30, 0.62, 5, 0.20, 0.050, 0.72, 0.18, 0.16)
+	var clusters: float = _sample_jagged_shape(local_position + Vector2(0.18, -0.14), seed_value + 2.4, 0.58, 0.22, 0.50, 5, 0.16, 0.040, 0.60, 0.16, 0.12)
+	var stalks: float = _get_line_mask(sin((local_position.x - local_position.y) * 4.05 + seed_value * 4.7), 0.06, 0.05)
+	var thicket_edges: float = max(_get_cell_edge_mask(local_position.x * 0.66 + seed_value * 0.6, 0.08), _get_cell_edge_mask(local_position.y * 0.69 - seed_value * 0.8, 0.08))
 	return clamp(canopy * 0.42 + clusters * 0.26 + stalks * 0.18 + thicket_edges * 0.18, 0.0, 1.0)
 
 
-func _sample_dry_cracked_earth_pattern(local_position: Vector2, seed: float) -> float:
-	var crack_plate_a: float = _sample_jagged_shape(local_position, seed, 2.28, 0.98, 0.82, 7, 0.34, 0.080, 0.96, 0.28, 0.18)
-	var crack_plate_b: float = _sample_jagged_shape(local_position + Vector2(-0.36, 0.24), seed + 1.8, 1.72, 0.74, 0.60, 6, 0.28, 0.070, 0.82, 0.20, 0.14)
-	var crack_plate_c: float = _sample_jagged_shape(local_position + Vector2(0.22, -0.30), seed + 3.1, 1.18, 0.58, 0.48, 5, 0.22, 0.060, 0.66, 0.14, 0.11)
-	var crack_lines: float = _get_line_mask(sin((local_position.x * 0.94 + local_position.y * 0.48) * 3.65 + seed * 8.0), 0.11, 0.06)
-	var cross_cracks: float = _get_line_mask(sin((local_position.x * 0.42 - local_position.y * 1.16) * 2.78 - seed * 5.3), 0.10, 0.06)
+func _sample_dry_cracked_earth_pattern(local_position: Vector2, seed_value: float) -> float:
+	var crack_plate_a: float = _sample_jagged_shape(local_position, seed_value, 2.28, 0.98, 0.82, 7, 0.34, 0.080, 0.96, 0.28, 0.18)
+	var crack_plate_b: float = _sample_jagged_shape(local_position + Vector2(-0.36, 0.24), seed_value + 1.8, 1.72, 0.74, 0.60, 6, 0.28, 0.070, 0.82, 0.20, 0.14)
+	var crack_plate_c: float = _sample_jagged_shape(local_position + Vector2(0.22, -0.30), seed_value + 3.1, 1.18, 0.58, 0.48, 5, 0.22, 0.060, 0.66, 0.14, 0.11)
+	var crack_lines: float = _get_line_mask(sin((local_position.x * 0.94 + local_position.y * 0.48) * 3.65 + seed_value * 8.0), 0.11, 0.06)
+	var cross_cracks: float = _get_line_mask(sin((local_position.x * 0.42 - local_position.y * 1.16) * 2.78 - seed_value * 5.3), 0.10, 0.06)
 	var cell_edges: float = max(
-		_get_cell_edge_mask(local_position.x * 0.40 + seed * 1.7, 0.14),
-		_get_cell_edge_mask(local_position.y * 0.33 - seed * 0.9, 0.14)
+		_get_cell_edge_mask(local_position.x * 0.40 + seed_value * 1.7, 0.14),
+		_get_cell_edge_mask(local_position.y * 0.33 - seed_value * 0.9, 0.14)
 	)
 	var plate_map: float = max(crack_plate_a, max(crack_plate_b * 0.92, crack_plate_c * 0.82))
 	var crack_map: float = max(crack_lines, max(cross_cracks, cell_edges))
-	var chip_scatter: float = _get_cell_edge_mask(local_position.x * 0.61 + local_position.y * 0.19 + seed * 1.2, 0.05) * 0.10
+	var chip_scatter: float = _get_cell_edge_mask(local_position.x * 0.61 + local_position.y * 0.19 + seed_value * 1.2, 0.05) * 0.10
 	return clamp(plate_map * 2.0 - crack_map * 0.48 + chip_scatter + 0.02, 0.0, 1.0)
 
 
-func _get_pattern_hash(grid_position: Vector2, seed: float) -> float:
-	var value: float = sin(grid_position.x * 127.1 + grid_position.y * 311.7 + seed * 913.7) * 43758.5453
+func _get_pattern_hash(grid_position: Vector2, seed_value: float) -> float:
+	var value: float = sin(grid_position.x * 127.1 + grid_position.y * 311.7 + seed_value * 913.7) * 43758.5453
 	return value - floor(value)
 
 
 func _sample_jagged_shape(
 	local_position: Vector2,
-	seed: float,
+	seed_value: float,
 	cell_size: float,
 	radius_x: float,
 	radius_y: float,
@@ -3759,7 +3759,7 @@ func _sample_jagged_shape(
 		floor(local_position.x / cell_size),
 		floor(local_position.y / cell_size)
 	)
-	var cell_seed: float = seed + cell_position.x * 17.31 + cell_position.y * 29.77
+	var cell_seed: float = seed_value + cell_position.x * 17.31 + cell_position.y * 29.77
 	var center := (cell_position + Vector2(0.5, 0.5)) * cell_size
 	var offset := Vector2(
 		(_get_pattern_hash(cell_position, cell_seed * 1.3) - 0.5) * cell_size * offset_strength,
@@ -3778,15 +3778,15 @@ func _sample_jagged_shape(
 	return 0.0
 
 
-func _build_jagged_polygon(center: Vector2, seed: float, radius_x: float, radius_y: float, vertex_count: int, jitter: float) -> PackedVector2Array:
+func _build_jagged_polygon(center: Vector2, seed_value: float, radius_x: float, radius_y: float, vertex_count: int, jitter: float) -> PackedVector2Array:
 	var points := PackedVector2Array()
-	var rotation: float = _get_pattern_hash(center.floor(), seed * 0.87) * TAU
+	var base_rotation: float = _get_pattern_hash(center.floor(), seed_value * 0.87) * TAU
 	for i in range(vertex_count):
 		var vertex_index := float(i)
 		var count := float(max(vertex_count, 1))
-		var angle_variation: float = (_get_pattern_hash(Vector2(vertex_index, count), seed * 2.3) - 0.5) * 0.38
-		var radius_noise: float = 1.0 + (_get_pattern_hash(Vector2(vertex_index * 2.0, count * 3.0), seed * 3.7) - 0.5) * jitter
-		var angle: float = rotation + TAU * vertex_index / count + angle_variation
+		var angle_variation: float = (_get_pattern_hash(Vector2(vertex_index, count), seed_value * 2.3) - 0.5) * 0.38
+		var radius_noise: float = 1.0 + (_get_pattern_hash(Vector2(vertex_index * 2.0, count * 3.0), seed_value * 3.7) - 0.5) * jitter
+		var angle: float = base_rotation + TAU * vertex_index / count + angle_variation
 		points.append(center + Vector2(cos(angle) * radius_x * radius_noise, sin(angle) * radius_y * radius_noise))
 	return points
 
@@ -3990,10 +3990,10 @@ func _draw_pond_shoreline_details(pond: Dictionary) -> void:
 	for i in range(detail_count):
 		var angle := TAU * (float(i) / float(detail_count)) + (_get_pond_detail_noise(pond, i, 1) - 0.5) * 0.34
 		var radius_factor := 1.01 + _get_pond_detail_noise(pond, i, 2) * 0.12
-		var position := _get_pond_shape_position(pond, angle, radius_factor)
+		var detail_position := _get_pond_shape_position(pond, angle, radius_factor)
 		var size := 8.0 + _get_pond_detail_noise(pond, i, 3) * 10.0
 		var color := Color(0.22, 0.32, 0.20, 0.34).lerp(Color(0.31, 0.26, 0.15, 0.38), _get_pond_detail_noise(pond, i, 4))
-		_draw_filled_ellipse(Rect2(position - Vector2(size, size * 0.34), Vector2(size * 2.0, size * 0.68)), color)
+		_draw_filled_ellipse(Rect2(detail_position - Vector2(size, size * 0.34), Vector2(size * 2.0, size * 0.68)), color)
 
 
 func _draw_pond_aquatic_vegetation(pond: Dictionary) -> void:
@@ -4027,8 +4027,8 @@ func _draw_lily_pad(lily_position: Vector2, angle: float) -> void:
 
 
 func _get_pond_detail_noise(pond: Dictionary, index: int, salt: int) -> float:
-	var seed: float = _get_pond_shape_seed(pond)
-	var value: float = sin(seed * float(salt + 1) + float(index) * 12.9898 + float(salt) * 78.233) * 43758.5453
+	var seed_value: float = _get_pond_shape_seed(pond)
+	var value: float = sin(seed_value * float(salt + 1) + float(index) * 12.9898 + float(salt) * 78.233) * 43758.5453
 	return value - floor(value)
 
 
