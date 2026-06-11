@@ -48,6 +48,8 @@ var last_reported_second := -1
 
 var scene: Node
 var world: Node
+var minimap: Node
+var map_screen: Node
 var player: Node2D
 var evolution_director: Node
 var day_night_system: Node
@@ -128,15 +130,34 @@ func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
 
 
 func _capture_context() -> bool:
-	scene = get_tree().current_scene
+	var tree := get_tree()
+	if tree == null:
+		return false
+	scene = tree.current_scene
+	if not is_instance_valid(scene):
+		scene = _find_active_scene(tree.root)
 	if not is_instance_valid(scene):
 		return false
 	world = scene.get_node_or_null("World")
+	minimap = scene.get_node_or_null("HUD/Minimap")
+	map_screen = scene.get_node_or_null("HUD/MapScreen")
 	player = scene.get_node_or_null("Player") as Node2D
 	evolution_director = scene.get_node_or_null("EvolutionDirector")
 	day_night_system = scene.get_node_or_null("DayNightSystem")
 	ecosystem_director = scene.get_node_or_null("EcosystemDirector")
 	return is_instance_valid(world) and is_instance_valid(player) and is_instance_valid(evolution_director) and is_instance_valid(day_night_system) and is_instance_valid(ecosystem_director)
+
+
+func _find_active_scene(root: Node) -> Node:
+	if root == null:
+		return null
+	for child in root.get_children():
+		var child_node := child as Node
+		if child_node == null:
+			continue
+		if child_node.get_node_or_null("World") != null and child_node.get_node_or_null("HUD") != null:
+			return child_node
+	return root.get_child(0) if root.get_child_count() > 0 else null
 
 
 func _record_sample() -> void:
@@ -167,8 +188,11 @@ func _capture_sample() -> Dictionary:
 	sample["time_label"] = _format_time(elapsed_seconds)
 	sample["performance"] = _capture_performance_stats()
 	sample["world"] = _capture_world_stats()
+	sample["minimap"] = _capture_minimap_stats()
+	sample["map_screen"] = _capture_map_screen_stats()
 	sample["player"] = _capture_player_stats()
 	sample["ecosystem"] = _capture_ecosystem_stats()
+	sample["ai_decisions"] = _capture_ai_decision_stats()
 	sample["driver_scores"] = _calculate_driver_scores(sample)
 	sample["likely_driver"] = _pick_likely_driver(Dictionary(sample.get("driver_scores", {})))
 	sample["load_score"] = _calculate_load_score(sample)
@@ -233,6 +257,49 @@ func _capture_world_stats() -> Dictionary:
 	stats["total_creatures"] = _sum_group_counts(stats["creature_counts"])
 	stats["total_resources"] = _sum_group_counts(stats["resource_counts"])
 	return stats
+
+
+func _capture_minimap_stats() -> Dictionary:
+	if not is_instance_valid(minimap) or not minimap.has_method("get_minimap_performance_debug"):
+		return {}
+	return Dictionary(minimap.call("get_minimap_performance_debug"))
+
+
+func _capture_map_screen_stats() -> Dictionary:
+	if not is_instance_valid(map_screen) or not map_screen.has_method("get_map_screen_performance_debug"):
+		return {}
+	return Dictionary(map_screen.call("get_map_screen_performance_debug"))
+
+
+func _capture_ai_decision_stats() -> Dictionary:
+	return {
+		"small_prey": _capture_ai_decision_stats_for_group("small_prey"),
+		"grazer": _capture_ai_decision_stats_for_group("grazer"),
+		"varnak": _capture_ai_decision_stats_for_group("varnak")
+	}
+
+
+func _capture_ai_decision_stats_for_group(group_name: String) -> Dictionary:
+	var creatures: Array = _get_group_nodes(group_name)
+	var total_decisions := 0
+	var count := 0
+	for creature_value in creatures:
+		var creature := creature_value as Node
+		if creature == null or not is_instance_valid(creature):
+			continue
+		count += 1
+		if creature.has_method("get_ai_performance_debug"):
+			var ai_debug := Dictionary(creature.call("get_ai_performance_debug"))
+			total_decisions += int(ai_debug.get("decision_count", 0))
+		elif creature.has_method("get_debug_data"):
+			var data := Dictionary(creature.call("get_debug_data"))
+			total_decisions += int(data.get("ai_decision_count", data.get("decision_count", 0)))
+	var average := float(total_decisions) / float(count) if count > 0 else 0.0
+	return {
+		"count": count,
+		"total_decisions": total_decisions,
+		"average_decisions_per_entity": average
+	}
 
 
 func _capture_world_boot_stats() -> Dictionary:
@@ -714,6 +781,10 @@ func _format_report_text(report: Dictionary) -> String:
 		var sample := Dictionary(sample_value)
 		lines.append(_format_sample_line(sample))
 		lines.append(_format_sample_diagnostics(sample))
+	lines.append("")
+	lines.append("Suspected cost drivers:")
+	for item in _build_suspected_cost_driver_lines(report):
+		lines.append("- %s" % item)
 	return "\n".join(lines)
 
 
@@ -764,6 +835,9 @@ func _format_driver_scores(sample: Dictionary) -> String:
 
 func _format_sample_diagnostics(sample: Dictionary) -> String:
 	var world_stats: Dictionary = Dictionary(sample.get("world", {}))
+	var minimap_stats: Dictionary = Dictionary(sample.get("minimap", {}))
+	var map_screen_stats: Dictionary = Dictionary(sample.get("map_screen", {}))
+	var ai_decisions: Dictionary = Dictionary(sample.get("ai_decisions", {}))
 	var boot_stats: Dictionary = Dictionary(world_stats.get("boot", {}))
 	var texture_cache: Dictionary = Dictionary(world_stats.get("biome_texture_cache", {}))
 	var landmark_debug: Dictionary = Dictionary(world_stats.get("landmark_debug", {}))
@@ -829,7 +903,98 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			int(vegetation_stats.get("edible_vegetation_node_count", 0)),
 			int(vegetation_stats.get("interactive_resource_node_count", 0))
 		])
+	if not minimap_stats.is_empty():
+		diagnostics.append("minimap redraw=%d marker_cache=%d landmark_cache=%d texture_builds=%d last_build_ms=%.2f" % [
+			int(minimap_stats.get("redraw_count", 0)),
+			int(minimap_stats.get("marker_cache_rebuild_count", 0)),
+			int(minimap_stats.get("landmark_cache_rebuild_count", 0)),
+			int(minimap_stats.get("texture_build_count", 0)),
+			float(minimap_stats.get("texture_last_build_ms", 0.0))
+		])
+	if not map_screen_stats.is_empty():
+		diagnostics.append("map_screen redraw=%d cache=%d skipped_hidden=%d texture_builds=%d last_build_ms=%.2f" % [
+			int(map_screen_stats.get("redraw_count", 0)),
+			int(map_screen_stats.get("cache_rebuild_count", 0)),
+			int(map_screen_stats.get("skipped_update_hidden_count", 0)),
+			int(map_screen_stats.get("texture_build_count", 0)),
+			float(map_screen_stats.get("texture_last_build_ms", 0.0))
+		])
+	if not ai_decisions.is_empty():
+		diagnostics.append("ai small_prey=%d/%d avg=%.1f grazer=%d/%d avg=%.1f varnak=%d/%d avg=%.1f" % [
+			int(Dictionary(ai_decisions.get("small_prey", {})).get("count", 0)),
+			int(Dictionary(ai_decisions.get("small_prey", {})).get("total_decisions", 0)),
+			float(Dictionary(ai_decisions.get("small_prey", {})).get("average_decisions_per_entity", 0.0)),
+			int(Dictionary(ai_decisions.get("grazer", {})).get("count", 0)),
+			int(Dictionary(ai_decisions.get("grazer", {})).get("total_decisions", 0)),
+			float(Dictionary(ai_decisions.get("grazer", {})).get("average_decisions_per_entity", 0.0)),
+			int(Dictionary(ai_decisions.get("varnak", {})).get("count", 0)),
+			int(Dictionary(ai_decisions.get("varnak", {})).get("total_decisions", 0)),
+			float(Dictionary(ai_decisions.get("varnak", {})).get("average_decisions_per_entity", 0.0))
+		])
+	var current_biome := str(world_stats.get("current_biome", "unknown"))
+	var world_rect := str(world_stats.get("world_rect", "unknown"))
+	diagnostics.append("world biome=%s rect=%s total_resources=%d total_creatures=%d oob=%d" % [
+		current_biome,
+		world_rect,
+		int(world_stats.get("total_resources", 0)),
+		int(world_stats.get("total_creatures", 0)),
+		int(world_stats.get("creatures_out_of_bounds_count", 0))
+	])
 	return "  diagnostics %s" % " | ".join(diagnostics)
+
+
+func _build_suspected_cost_driver_lines(report: Dictionary) -> Array[String]:
+	var lines: Array[String] = []
+	var heaviest_sample: Dictionary = Dictionary(report.get("heaviest_sample", {}))
+	var performance: Dictionary = Dictionary(heaviest_sample.get("performance", {}))
+	var world_stats: Dictionary = Dictionary(heaviest_sample.get("world", {}))
+	var vegetation_stats: Dictionary = Dictionary(world_stats.get("vegetation", {}))
+	var resource_render_mode: Dictionary = Dictionary(world_stats.get("resource_render_mode", {}))
+	var visibility_culling: Dictionary = Dictionary(world_stats.get("visibility_culling", {}))
+	var minimap_stats: Dictionary = Dictionary(heaviest_sample.get("minimap", {}))
+	var map_screen_stats: Dictionary = Dictionary(heaviest_sample.get("map_screen", {}))
+	var ai_decisions: Dictionary = Dictionary(heaviest_sample.get("ai_decisions", {}))
+	var draw_calls := float(performance.get("draw_calls", 0))
+	var render_primitives := float(performance.get("render_primitives", 0))
+	var frame_time_ms := float(performance.get("frame_time_s", 0.0)) * 1000.0
+	var physics_time_ms := float(performance.get("physics_time_s", 0.0)) * 1000.0
+	var node_count := float(performance.get("node_count", 0))
+	var total_resources := float(world_stats.get("total_resources", 0))
+	var total_creatures := float(world_stats.get("total_creatures", 0))
+	var active_collisions := float(resource_render_mode.get("active_resource_collisions", 0))
+	var visible_resources := float(visibility_culling.get("visible_resources", 0))
+	var hidden_resources := float(visibility_culling.get("hidden_resources", 0))
+	var visible_creatures := float(visibility_culling.get("visible_creatures", 0))
+	var hidden_creatures := float(visibility_culling.get("hidden_creatures", 0))
+	var minimap_texture_builds := float(minimap_stats.get("texture_build_count", 0))
+	var map_screen_texture_builds := float(map_screen_stats.get("texture_build_count", 0))
+	var world_texture_builds := float(Dictionary(world_stats.get("biome_texture_cache", {})).get("world_biome_texture_build_count", 0))
+	var small_prey_ai := Dictionary(ai_decisions.get("small_prey", {}))
+	var grazer_ai := Dictionary(ai_decisions.get("grazer", {}))
+	var varnak_ai := Dictionary(ai_decisions.get("varnak", {}))
+	if draw_calls >= 700 or render_primitives >= 20000:
+		lines.append("Rendering pressure looks high: draw calls and/or render primitives are elevated.")
+	if physics_time_ms >= 5.0 or active_collisions >= 20.0:
+		lines.append("Physics/resource collision pressure looks high: active resource collisions may be contributing.")
+	if frame_time_ms >= 20.0 and (minimap_texture_builds > 0.0 or map_screen_texture_builds > 0.0 or world_texture_builds > 0.0):
+		lines.append("Texture/cache rebuilds may be contributing to frame spikes.")
+	if node_count >= 1000 or total_resources >= 200.0 or total_creatures >= 50.0:
+		lines.append("Scene pressure looks elevated from node/resource/creature counts.")
+	if int(visible_resources + hidden_resources + visible_creatures + hidden_creatures) == 0:
+		lines.append("Visibility culling debug is empty, so culling instrumentation may not be wired correctly.")
+	if int(minimap_texture_builds) > 0 or int(map_screen_texture_builds) > 0 or int(world_texture_builds) > 0:
+		lines.append("Cache rebuild counts are present, so repeated rebuild spikes should be checked if hitching persists.")
+	if int(small_prey_ai.get("total_decisions", 0)) > 0 or int(grazer_ai.get("total_decisions", 0)) > 0 or int(varnak_ai.get("total_decisions", 0)) > 0:
+		lines.append("AI decision pressure is measurable; compare total decisions against entity counts for hotspots.")
+	if lines.is_empty():
+		lines.append("No obvious dominant driver from the current heuristics.")
+	return lines
+
+
+func _get_group_nodes(group_name: String) -> Array:
+	if is_instance_valid(world) and world.has_method("get_cached_group_nodes"):
+		return Array(world.call("get_cached_group_nodes", group_name))
+	return get_tree().get_nodes_in_group(group_name)
 
 
 func _capture_group_counts(group_names: Array[String]) -> Dictionary:
