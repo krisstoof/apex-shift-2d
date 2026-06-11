@@ -16,6 +16,7 @@ const CONTINUE_RESTORES_SAVED_WORLD_BOOTSTRAP_TEST := preload("res://tests/regre
 const BASIC_SURVIVAL_LOOP_FROM_EMPTY_INVENTORY_TEST := preload("res://tests/regression/test_basic_survival_loop_from_empty_inventory.gd")
 const FULL_PLAYER_STATE_SAVE_LOAD_TEST := preload("res://tests/regression/test_full_player_state_save_load.gd")
 const GAME_OVER_RESTART_LOAD_MAIN_MENU_TEST := preload("res://tests/regression/test_game_over_restart_load_main_menu.gd")
+const MULTI_DAY_WORLD_PERSISTENCE_TEST := preload("res://tests/regression/test_multi_day_world_persistence.gd")
 const TORCH_LIFECYCLE_SAVE_LOAD_UI_TEST := preload("res://tests/regression/test_torch_lifecycle_save_load_ui.gd")
 const STORAGE_BOX_TRANSFER_SAVE_LOAD_TEST := preload("res://tests/regression/test_storage_box_transfer_save_load.gd")
 const UI_MODAL_STACK_TEST := preload("res://tests/regression/test_ui_modal_stack_inventory_map_pause_storage.gd")
@@ -33,6 +34,7 @@ func _run_all() -> void:
 		{"name": "StorageBox_Transfer_SaveLoad", "method": "_scenario_storage_box_transfer_save_load"},
 		{"name": "FullPlayerState_SaveLoad", "method": "_scenario_full_player_state_save_load"},
 		{"name": "GameOver_Restart_Load_MainMenu", "method": "_scenario_game_over_restart_load_main_menu"},
+		{"name": "MultiDay_WorldPersistence", "method": "_scenario_multi_day_world_persistence"},
 		{"name": "Torch_Lifecycle_SaveLoad_UI", "method": "_scenario_torch_lifecycle_save_load_ui"},
 		{"name": "BasicSurvivalLoop_FromEmptyInventory", "method": "_scenario_basic_survival_loop_from_empty_inventory"},
 		{"name": "StartMenu_Continue_RestoresSavedWorldBootstrap", "method": "_scenario_continue_restores_saved_world_bootstrap"},
@@ -169,6 +171,14 @@ func _scenario_full_player_state_save_load() -> Dictionary:
 
 func _scenario_game_over_restart_load_main_menu() -> Dictionary:
 	var suite := GAME_OVER_RESTART_LOAD_MAIN_MENU_TEST.new()
+	var failures: Array[String] = await suite.run(self)
+	if failures.is_empty():
+		return {"ok": true}
+	return {"ok": false, "reason": failures[0]}
+
+
+func _scenario_multi_day_world_persistence() -> Dictionary:
+	var suite := MULTI_DAY_WORLD_PERSISTENCE_TEST.new()
 	var failures: Array[String] = await suite.run(self)
 	if failures.is_empty():
 		return {"ok": true}
