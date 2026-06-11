@@ -7,6 +7,13 @@ const PANEL_GAP := 20.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(160, 98)
 const POND_MARKER_Y_SCALE := 0.62
 const HILL_MARKER_Y_SCALE := 0.58
+const TERRAIN_ZONE_COLORS := {
+	"deep_ocean": Color(0.05, 0.14, 0.28),
+	"shallow_water": Color(0.11, 0.30, 0.50),
+	"shore": Color(0.64, 0.60, 0.38),
+	"land": Color(0.28, 0.46, 0.24),
+	"highland": Color(0.48, 0.44, 0.26)
+}
 const MAP_STATE_REFRESH_INTERVAL := 0.25
 const MAP_REDRAW_POSITION_THRESHOLD := 16.0
 
@@ -430,15 +437,20 @@ func _get_landmark_label(landmark: Dictionary) -> String:
 
 
 func _draw_map_legend(map_rect: Rect2) -> void:
-	var legend_rect := Rect2(map_rect.position + Vector2(14.0, 14.0), Vector2(154.0, 118.0))
+	var legend_rect := Rect2(map_rect.position + Vector2(14.0, 14.0), Vector2(178.0, 162.0))
 	draw_rect(legend_rect, Color(0.025, 0.032, 0.028, 0.78), true)
 	draw_rect(legend_rect, Color(0.70, 0.74, 0.66, 0.34), false, 1.0)
 	var font := get_theme_default_font()
 	draw_string(font, legend_rect.position + Vector2(10.0, 20.0), "Legend", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color(0.95, 0.92, 0.78))
-	_draw_legend_entry(legend_rect.position + Vector2(12.0, 40.0), "Pond", Color(0.12, 0.47, 0.56))
-	_draw_legend_entry(legend_rect.position + Vector2(12.0, 60.0), "Hill", Color(0.48, 0.45, 0.28))
-	_draw_legend_entry(legend_rect.position + Vector2(12.0, 80.0), "Resource", Color(0.67, 0.95, 0.34))
-	_draw_legend_entry(legend_rect.position + Vector2(12.0, 100.0), "Varnak", Color(0.88, 0.22, 0.16))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 40.0), "Deep ocean", TERRAIN_ZONE_COLORS["deep_ocean"])
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 60.0), "Shallow water", TERRAIN_ZONE_COLORS["shallow_water"])
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 80.0), "Shore", TERRAIN_ZONE_COLORS["shore"])
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 100.0), "Land", TERRAIN_ZONE_COLORS["land"])
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 120.0), "Highland", TERRAIN_ZONE_COLORS["highland"])
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 140.0), "Pond", Color(0.12, 0.47, 0.56))
+	_draw_legend_entry(legend_rect.position + Vector2(92.0, 140.0), "Hill", Color(0.48, 0.45, 0.28))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 158.0), "Resource", Color(0.67, 0.95, 0.34))
+	_draw_legend_entry(legend_rect.position + Vector2(92.0, 158.0), "Varnak", Color(0.88, 0.22, 0.16))
 
 
 func _draw_legend_entry(legend_position: Vector2, label: String, color: Color) -> void:
@@ -497,26 +509,31 @@ func _ensure_biome_texture() -> void:
 
 func _get_direct_biome_color_at(world_position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
 	var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
+	var terrain_color := Color(0.0, 0.0, 0.0)
 	match terrain_zone:
 		"deep_ocean":
-			return WORLD_CONFIG.OCEAN_COLOR
+			terrain_color = TERRAIN_ZONE_COLORS["deep_ocean"]
 		"shallow_water":
-			return Color(0.11, 0.30, 0.50)
+			terrain_color = TERRAIN_ZONE_COLORS["shallow_water"]
 		"shore":
-			return Color(0.64, 0.60, 0.38)
+			terrain_color = TERRAIN_ZONE_COLORS["shore"]
+		"land":
+			terrain_color = TERRAIN_ZONE_COLORS["land"]
+		"highland":
+			terrain_color = TERRAIN_ZONE_COLORS["highland"]
 	var nearest_index := -1
 	var nearest_distance := INF
 	for i in zones.size():
 		var points := PackedVector2Array(zones[i]["points"])
 		if Geometry2D.is_point_in_polygon(world_position, points):
-			return colors[i]
+			return colors[i].lerp(terrain_color, 0.20)
 		var edge_distance := _get_point_polygon_edge_distance(world_position, points)
 		if edge_distance < nearest_distance:
 			nearest_distance = edge_distance
 			nearest_index = i
 	if nearest_index >= 0:
-		return colors[nearest_index]
-	return Color.BLACK
+		return colors[nearest_index].lerp(terrain_color, 0.20)
+	return terrain_color
 
 
 func _get_point_polygon_edge_distance(point: Vector2, points: PackedVector2Array) -> float:
