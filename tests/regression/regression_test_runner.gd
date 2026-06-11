@@ -11,6 +11,7 @@
 extends Node
 
 const Utils := preload("res://tests/regression/regression_test_utils.gd")
+const START_MENU_NEW_GAME_BOOTS_PLAYABLE_SESSION_TEST := preload("res://tests/regression/test_start_menu_new_game_boots_playable_session.gd")
 
 var _failures: Array[String] = []
 
@@ -21,6 +22,7 @@ func _ready() -> void:
 
 func _run_all() -> void:
 	var scenarios := [
+		{"name": "StartMenu_NewGame_BootsPlayableSession", "method": "_scenario_start_menu_new_game_boots_playable_session"},
 		{"name": "StartMenu_NewGame_WorldBoot", "method": "_scenario_start_menu_new_game_world_boot"},
 		{"name": "DirectMain_WorldBoot_GameplaySmoke", "method": "_scenario_direct_main_world_boot_gameplay_smoke"},
 		{"name": "Save_Load_Continue_Flow", "method": "_scenario_save_load_continue_flow"}
@@ -109,6 +111,14 @@ func _scenario_start_menu_new_game_world_boot() -> Dictionary:
 			return {"ok": false, "reason": "Player spawned outside world bounds"}
 	await Utils.cleanup_context({"tree": tree, "nodes": [menu, main]})
 	return {"ok": true}
+
+
+func _scenario_start_menu_new_game_boots_playable_session() -> Dictionary:
+	var suite := START_MENU_NEW_GAME_BOOTS_PLAYABLE_SESSION_TEST.new()
+	var failures: Array[String] = await suite.run(get_tree() as SceneTree)
+	if failures.is_empty():
+		return {"ok": true}
+	return {"ok": false, "reason": failures[0]}
 
 
 func _scenario_direct_main_world_boot_gameplay_smoke() -> Dictionary:
