@@ -31,10 +31,13 @@ func run() -> Array[String]:
 
 	INTEGRATION.clear_nodes_in_group_near_position(tree, "edible_vegetation", grazer.global_position, 260.0)
 	INTEGRATION.refresh_world_cache(world)
-	var food_position := grazer.global_position + Vector2(18.0, 0.0)
-	var plant := INTEGRATION.spawn_resource(world, "grass_patch", food_position)
+	var near_food_position := grazer.global_position + Vector2(18.0, 0.0)
+	var far_food_position := grazer.global_position + Vector2(220.0, 0.0)
+	var plant := INTEGRATION.spawn_resource(world, "berry_bush", near_food_position)
+	var far_plant := INTEGRATION.spawn_resource(world, "small_bush", far_food_position)
 	TEST_UTILS.expect(plant != null, failures, "The test should spawn a control plant resource")
-	if plant == null:
+	TEST_UTILS.expect(far_plant != null, failures, "The test should spawn a farther control plant resource")
+	if plant == null or far_plant == null:
 		await INTEGRATION.shutdown_main(context)
 		return failures
 

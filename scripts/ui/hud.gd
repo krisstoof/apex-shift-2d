@@ -206,33 +206,16 @@ func _build_player_stats_text_from_snapshot(snapshot: Dictionary) -> String:
 	var day := int(time_snapshot.get("day", 1))
 	var time_label := str(time_snapshot.get("time_label", ""))
 	var rest_label := "Rest" if player_snapshot.has("rest") else "Fatigue"
-	var hunger_status := _get_hunger_status_label(hunger)
-	var hunger_text := "Hunger: %d%%" % int(round(hunger))
-	if not hunger_status.is_empty():
-		hunger_text += " (%s)" % hunger_status
-	return "\n".join([
-		"HP: %d / %d  %s  Stamina: %d%%" % [
-			int(round(health)),
-			int(round(max_health)),
-			hunger_text,
-			int(round(stamina))
-		],
-		"%s: %d%%  Day: %d  Time: %s" % [
-			rest_label,
-			int(round(rest)),
-			day,
-			time_label if not time_label.is_empty() else "--"
-		],
-		"Torch: %s  Bow: %s  Spear: %s  Wood: %d  Stone: %d  Fiber: %d  Meat: %d" % [
-			_get_torch_status_text_from_snapshot(player_snapshot),
-			"Yes" if player_snapshot.get("has_bow", false) == true else "No",
-			"Yes" if player_snapshot.get("has_spear", false) == true else "No",
-			int(inventory.get("wood", 0)),
-			int(inventory.get("stone", 0)),
-			int(inventory.get("fiber", 0)),
-			int(inventory.get("meat", 0))
-		]
-	])
+	return "HP: %d/%d   |   Hunger: %d%%   |   %s: %d%%   |   Stamina: %d%%   |   Day: %d   |   Time: %s" % [
+		int(round(health)),
+		int(round(max_health)),
+		int(round(hunger)),
+		rest_label,
+		int(round(rest)),
+		int(round(stamina)),
+		day,
+		time_label if not time_label.is_empty() else "--"
+	]
 
 
 func _get_player_max_health_value_from_snapshot(player_snapshot: Dictionary) -> float:

@@ -698,9 +698,7 @@ func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
 		"bush",
 		"dry_bush",
 		"small_bush",
-		"berry_bush",
-		"grass_patch",
-		"dense_grass"
+		"berry_bush"
 	])
 	for vegetation in candidates:
 		if not _is_edible_vegetation_target(vegetation):

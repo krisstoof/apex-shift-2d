@@ -98,6 +98,7 @@ func run() -> Array[String]:
 	TEST_UTILS.expect_close(float(ecosystem.get_biome_state(biome_id).get("small_prey_daily_recovery", 0.0)), expected_small_prey_recovery, failures, "SmallPrey recovery diagnostics should be restored from save")
 	TEST_UTILS.expect_close(float(ecosystem.get_biome_state(biome_id).get("grazer_daily_recovery", 0.0)), expected_grazer_recovery, failures, "Grazer recovery diagnostics should be restored from save")
 	INTEGRATION.assert_tree_unpaused(failures, tree, "SaveLoadRestoresEcosystemState")
+	TEST_UTILS.expect_equal(_count_save_relevant_resources(world), world.call("get_registered_resources").size() - world.call("get_registered_resources_by_kind", "grass_patch").size() - world.call("get_registered_resources_by_kind", "dense_grass").size(), failures, "Save relevant resource count should exclude decorative grass")
 
 	var save_path := ProjectSettings.globalize_path("user://savegame.json")
 	if FileAccess.file_exists("user://savegame.json"):
@@ -105,5 +106,21 @@ func run() -> Array[String]:
 
 	await INTEGRATION.shutdown_main(context)
 	return failures
+
+
+func _count_save_relevant_resources(world: Node) -> int:
+	var count := 0
+	for node in world.get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(node):
+			continue
+		var kind := ""
+		if node.has_method("get_resource_kind"):
+			kind = str(node.get_resource_kind())
+		elif node.has_method("get"):
+			kind = str(node.get("resource_kind"))
+		if kind in ["grass_patch", "dense_grass"]:
+			continue
+		count += 1
+	return count
 
 

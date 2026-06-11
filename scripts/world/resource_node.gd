@@ -2,6 +2,7 @@ extends StaticBody2D
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const VEGETATION_CATALOG := preload("res://scripts/world/vegetation_catalog.gd")
 const RESOURCE_ATLAS_PATH := "res://assets/textures/resources/resource_atlas.svg"
 const RESOURCE_ATLAS_CELL_SIZE := Vector2(80.0, 80.0)
 const RESOURCE_ATLAS_COLUMNS := {
@@ -406,6 +407,8 @@ func _get_visual_sprite() -> Sprite2D:
 
 
 func consume_by_creature(_consumer: Node, _consumption_rate: float = 1.0) -> float:
+	if not is_edible_vegetation():
+		return 0.0
 	if resource_kind == "meat_drop":
 		return _consume_meat_by_creature(_consumer)
 	if not is_edible_by_herbivores:
@@ -606,7 +609,27 @@ func set_visibility_culled(should_be_visible: bool) -> void:
 
 
 func _is_render_only_kind() -> bool:
-	return resource_kind in ["grass_patch", "dense_grass"]
+	return VEGETATION_CATALOG.is_visual_only_kind(resource_kind)
+
+
+func get_resource_kind() -> String:
+	return str(resource_kind)
+
+
+func get_biome_id() -> String:
+	return str(biome_id)
+
+
+func is_depleted() -> bool:
+	return float(amount) <= 0.0
+
+
+func is_edible_vegetation() -> bool:
+	if VEGETATION_CATALOG.is_visual_only_kind(resource_kind):
+		return false
+	if VEGETATION_CATALOG.is_edible_node_kind(resource_kind):
+		return true
+	return is_in_group("edible_vegetation")
 
 
 func _sync_resource_groups() -> void:

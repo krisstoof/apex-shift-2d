@@ -39,8 +39,8 @@ func run() -> Array[String]:
 		spawn_point = world.call("get_world_rect").get_center()
 
 	INTEGRATION.clear_nodes_in_group_near_position(tree, "edible_vegetation", spawn_point, 180.0)
-	var resource := INTEGRATION.spawn_resource(world, "grass_patch", spawn_point) as Node2D
-	TEST_UTILS.expect(resource != null, failures, "The test should spawn a controllable grass patch")
+	var resource := INTEGRATION.spawn_resource(world, "berry_bush", spawn_point) as Node2D
+	TEST_UTILS.expect(resource != null, failures, "The test should spawn a controllable edible bush")
 	if resource == null:
 		await INTEGRATION.shutdown_main(context)
 		return failures
