@@ -5,12 +5,17 @@ const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
+const WORLD_BOOT_TIMEOUT_FRAMES := 600
 
 
 static func boot_main() -> Dictionary:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null:
-		return {}
+		return {
+			"ok": false,
+			"reason": "SceneTree is not available."
+		}
+	tree.paused = false
 	var main := MAIN_SCENE.instantiate()
 	var world := main.get_node_or_null("World")
 	if world != null and world.has_method("enable_integration_test_mode"):
@@ -19,9 +24,21 @@ static func boot_main() -> Dictionary:
 	tree.root.call_deferred("add_child", main)
 	tree.call_deferred("set_current_scene", main)
 	await main.ready
-	await _wait_for_world_boot(main)
+	var boot_result := await _wait_for_world_boot(main, WORLD_BOOT_TIMEOUT_FRAMES)
+	if not bool(boot_result.get("ok", false)):
+		if is_instance_valid(main):
+			main.queue_free()
+			await tree.process_frame
+		return {
+			"ok": false,
+			"reason": String(boot_result.get("reason", "World boot failed.")),
+			"tree": tree,
+			"main": null,
+			"original_scene": original_scene
+		}
 	await tree.process_frame
 	return {
+		"ok": true,
 		"tree": tree,
 		"main": main,
 		"original_scene": original_scene
@@ -34,6 +51,7 @@ static func shutdown_main(context: Dictionary) -> void:
 	var original_scene := context.get("original_scene") as Node
 	if tree == null:
 		return
+	tree.paused = false
 	if is_instance_valid(original_scene):
 		tree.current_scene = original_scene
 	if is_instance_valid(main):
@@ -44,18 +62,46 @@ static func shutdown_main(context: Dictionary) -> void:
 		await tree.process_frame
 	if is_instance_valid(original_scene):
 		tree.current_scene = original_scene
+	else:
+		tree.current_scene = null
+	if FileAccess.file_exists("user://savegame.json"):
+		var save_path := ProjectSettings.globalize_path("user://savegame.json")
+		DirAccess.remove_absolute(save_path)
+	tree.paused = false
 
 
-static func _wait_for_world_boot(main: Node) -> void:
+static func _wait_for_world_boot(main: Node, timeout_frames := WORLD_BOOT_TIMEOUT_FRAMES) -> Dictionary:
 	if main == null:
-		return
+		return {
+			"ok": false,
+			"reason": "Main scene is null while waiting for world boot."
+		}
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return {
+			"ok": false,
+			"reason": "SceneTree is null while waiting for world boot."
+		}
 	var world := main.get_node_or_null("World")
-	if world == null or not world.has_method("is_boot_ready"):
-		return
+	if world == null:
+		return {"ok": false, "reason": "World node missing while waiting for boot."}
+	if not world.has_method("is_boot_ready"):
+		return {"ok": false, "reason": "World does not expose is_boot_ready()."}
 	if bool(world.call("is_boot_ready")):
-		return
-	if world.has_signal("world_initialized"):
-		await world.world_initialized
+		return {"ok": true}
+	for _i in range(timeout_frames):
+		await tree.process_frame
+		if not is_instance_valid(world):
+			return {"ok": false, "reason": "World was freed while waiting for boot."}
+		if bool(world.call("is_boot_ready")):
+			return {"ok": true}
+	var boot_state := {}
+	if world.has_method("get_boot_progress_state"):
+		boot_state = Dictionary(world.call("get_boot_progress_state"))
+	return {
+		"ok": false,
+		"reason": "World boot timeout after %d frames. boot_state=%s" % [timeout_frames, JSON.stringify(boot_state)]
+	}
 
 
 static func refresh_world_cache(world: Node) -> void:
