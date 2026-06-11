@@ -23,10 +23,12 @@ func run() -> Array[String]:
 	_test_hud_toggles_inventory_screen_with_i_and_escape(failures)
 	_test_hud_inventory_screen_lists_inventory_items(failures)
 	_test_hud_filters_world_messages_from_message_history(failures)
+	_test_hud_expires_messages_after_ten_seconds(failures)
 	_test_hud_reads_hunger_from_player_stats_object(failures)
 	_test_hud_reads_stamina_from_player_stats_object(failures)
 	_test_hud_reads_rest_from_player_stats_object(failures)
 	_test_hud_creates_critical_health_overlay(failures)
+	_test_hud_highlights_low_player_stats_text(failures)
 	_test_hud_activates_warning_when_health_is_low(failures)
 	_test_hud_warns_about_nearby_varnak_threat(failures)
 	_test_game_over_scene_is_root_full_rect(failures)
@@ -117,6 +119,19 @@ func _test_hud_filters_world_messages_from_message_history(failures: Array[Strin
 	TEST_UTILS.expect_equal(message_history[0], "Crafted torch", failures, "HUD should preserve player action messages")
 	TEST_UTILS.expect_equal(message_history[1], "Collected wood x1", failures, "HUD should preserve collection messages")
 	TEST_UTILS.expect_equal(message_history[2], "Ate meat", failures, "HUD should preserve eating messages")
+	hud.queue_free()
+
+
+func _test_hud_expires_messages_after_ten_seconds(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	hud.call("_on_message", "Crafted torch")
+	hud.call("_on_message", "Collected wood x1")
+	hud.set("message_history_timestamps", [0.0, 0.0])
+	hud.call("_prune_message_history")
+	var message_history: Array[String] = Array(hud.get("message_history"))
+	TEST_UTILS.expect_equal(message_history.size(), 0, failures, "HUD messages should disappear after 10 seconds")
+	var message_label: Label = hud.get_node("Panel/MessageLabel")
+	TEST_UTILS.expect_equal(message_label.visible, false, failures, "HUD message label should hide once all messages expire")
 	hud.queue_free()
 
 
@@ -334,6 +349,76 @@ func _test_hud_creates_critical_health_overlay(failures: Array[String]) -> void:
 	var debug_state: Dictionary = hud.call("get_critical_health_debug")
 	TEST_UTILS.expect_equal(debug_state.get("overlay_visible", false), false, failures, "Critical health overlay should start hidden")
 	TEST_UTILS.expect_equal(debug_state.get("overlay_alpha", 1.0), 0.0, failures, "Critical health overlay should start transparent")
+	hud.queue_free()
+
+
+func _test_hud_highlights_low_player_stats_text(failures: Array[String]) -> void:
+	var hud := _make_hud()
+	var player := TestPlayer.new()
+	player.stats.health = 100.0
+	player.stats.MAX_HEALTH = 100.0
+	player.stats.hunger = 19.0
+	player.stats.stamina = 100.0
+	player.stats.rest = 100.0
+	hud.player = player
+	hud.evolution_director = Node.new()
+	hud.day_night_system = Node.new()
+	hud.call("_apply_snapshot", {
+		"time": {
+			"clock_time": "09:30",
+			"day": 2,
+			"time_label": "Morning"
+		},
+		"player": {
+			"health": 100.0,
+			"max_health": 100.0,
+			"hunger": 19.0,
+			"stamina": 100.0,
+			"rest": 100.0
+		}
+	})
+	var stats_label: RichTextLabel = hud.get_node("Panel/StatsLabel")
+	TEST_UTILS.expect(stats_label is RichTextLabel, failures, "HUD should render stats with RichTextLabel so it can color individual stats")
+	TEST_UTILS.expect(stats_label.text.contains("[color=#"), failures, "HUD should use rich text color tags for low stats")
+	TEST_UTILS.expect(stats_label.text.contains("[color=#ff"), failures, "HUD should tint low stats in red")
+	TEST_UTILS.expect(stats_label.text.contains("Hunger: 19%"), failures, "HUD should keep the hunger value visible inside the colored segment")
+	TEST_UTILS.expect(not stats_label.text.contains("[color=#ff3838]HP"), failures, "HUD should not color healthy stats red")
+	hud.call("_update_low_stat_warning", 0.5)
+	TEST_UTILS.expect(stats_label.text.contains("Day: 2"), failures, "HUD should keep the day value stable while pulsing a low stat")
+	TEST_UTILS.expect(stats_label.text.contains("Hunger: 19%"), failures, "HUD should keep the low stat text visible while pulsing")
+	player.stats.hunger = 0.0
+	hud.call("_apply_snapshot", {
+		"time": {
+			"clock_time": "09:32",
+			"day": 2,
+			"time_label": "Morning"
+		},
+		"player": {
+			"health": 100.0,
+			"max_health": 100.0,
+			"hunger": 0.0,
+			"stamina": 100.0,
+			"rest": 100.0
+		}
+	})
+	TEST_UTILS.expect(stats_label.text.contains("Hunger: 0%"), failures, "HUD should show zero hunger clearly")
+	TEST_UTILS.expect(stats_label.text.contains("[color=#"), failures, "HUD should keep zero-value low stats in the warning color")
+	player.stats.hunger = 80.0
+	hud.call("_apply_snapshot", {
+		"time": {
+			"clock_time": "09:31",
+			"day": 2,
+			"time_label": "Morning"
+		},
+		"player": {
+			"health": 100.0,
+			"max_health": 100.0,
+			"hunger": 80.0,
+			"stamina": 100.0,
+			"rest": 100.0
+		}
+	})
+	TEST_UTILS.expect(not stats_label.text.contains("[color=#ff"), failures, "HUD should restore the default stats text color once the low stat recovers")
 	hud.queue_free()
 
 
