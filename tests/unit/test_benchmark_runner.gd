@@ -184,6 +184,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_benchmark_runner_captures_world_diagnostics(failures)
 	_test_benchmark_runner_formats_diagnostics_into_text_log(failures)
+	_test_benchmark_runner_formats_threshold_validation_into_text_log(failures)
 	_test_benchmark_runner_records_at_most_one_sample_per_frame(failures)
 	_test_benchmark_runner_captures_realtime_hitch_summary(failures)
 	_test_benchmark_runner_defaults_realtime_hitch_count_to_zero(failures)
@@ -369,6 +370,72 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 	TEST_UTILS.expect(line.contains("ai small_prey=2/12 avg=6.0 grazer=1/6 avg=6.0 varnak=1/9 avg=9.0"), failures, "Benchmark runner diagnostics should include AI decision counts")
 	TEST_UTILS.expect(line.contains("world biome=Westwood rect=Rect2(0, 0, 100, 100) total_resources=10 total_creatures=3 oob=0"), failures, "Benchmark runner diagnostics should include world summary metrics")
 	TEST_UTILS.expect(sample_line.contains("focused=true"), failures, "Benchmark runner sample lines should report whether the game window had focus")
+
+
+func _test_benchmark_runner_formats_threshold_validation_into_text_log(failures: Array[String]) -> void:
+	var runner := BENCHMARK_RUNNER.new()
+	var report := {
+		"average_fps": 99.72,
+		"max_frame_time_ms": 18.5,
+		"realtime_hitch_count": 0,
+		"max_realtime_delta_ms": 0,
+		"heaviest_sample": {},
+		"top_samples": [],
+		"samples": [
+			{
+				"performance": {
+					"node_count": 1022
+				},
+				"world": {
+					"resource_render_mode": {
+						"active_resource_collisions": 28
+					},
+					"biome_texture_cache": {
+						"world_biome_texture_build_count": 1
+					}
+				},
+				"minimap": {
+					"texture_build_count": 0
+				},
+				"map_screen": {
+					"texture_build_count": 1
+				}
+			}
+		],
+		"threshold_validation": {
+			"status": "passed",
+			"fail_on_regression": false,
+			"metrics": {
+				"average_fps": 99.72,
+				"max_frame_time_ms": 18.5,
+				"realtime_hitch_count": 0,
+				"max_realtime_delta_ms": 0,
+				"minimap_texture_build_count": 0,
+				"map_screen_texture_build_count": 1,
+				"world_biome_texture_build_count": 1,
+				"active_resource_collisions": 28,
+				"node_count": 1022
+			},
+			"thresholds": {
+				"average_fps_min": 50,
+				"max_frame_time_ms_max": 80,
+				"realtime_hitch_count_max": 3,
+				"max_realtime_delta_ms_max": 250,
+				"minimap_texture_build_count_max": 2,
+				"map_screen_texture_build_count_max": 2,
+				"world_biome_texture_build_count_max": 2,
+				"active_resource_collisions_max": 80,
+				"node_count_max": 2500
+			},
+			"violations": [],
+			"warnings": [],
+			"missing_metrics": []
+		}
+	}
+	var text := str(runner.call("_format_threshold_validation_text", report))
+	TEST_UTILS.expect(text.contains("Threshold validation: PASSED"), failures, "Benchmark runner should report a passed threshold validation state")
+	TEST_UTILS.expect(text.contains("- average_fps: 99.72 >= 50 OK"), failures, "Benchmark runner should include threshold comparison lines")
+	TEST_UTILS.expect(text.contains("Fail on regression: false"), failures, "Benchmark runner should include the fail-on-regression flag")
 
 
 func _test_benchmark_runner_records_at_most_one_sample_per_frame(failures: Array[String]) -> void:
