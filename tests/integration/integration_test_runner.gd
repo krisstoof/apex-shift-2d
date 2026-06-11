@@ -15,6 +15,57 @@ const MINIMAP_RENDERS_WITH_LANDMARKS_TESTS := preload("res://tests/integration/t
 const VISIBILITY_CULLING_REGISTRY_SAFETY_TESTS := preload("res://tests/integration/test_visibility_culling_registry_safety.gd")
 const HUD_SAVE_LOAD_REFRESH_TESTS := preload("res://tests/integration/test_hud_save_load_refresh.gd")
 const STORAGE_BOX_SAVE_DATA_TESTS := preload("res://tests/integration/test_storage_box_save_data.gd")
+const ERROR_DRAIN_MAX_FRAMES := 8
+const ERROR_DRAIN_STABLE_FRAMES := 2
+
+
+var _integration_test_error_logger: IntegrationTestErrorLogger
+var _integration_test_error_cursor := 0
+
+
+class IntegrationTestErrorLogger:
+	extends Logger
+
+	var _mutex := Mutex.new()
+	var _errors: Array[Dictionary] = []
+
+	func _log_error(function: String, file: String, line: int, code: String, rationale: String, _editor_notify: bool, error_type: int, _script_backtraces) -> void:
+		if error_type != Logger.ERROR_TYPE_ERROR and error_type != Logger.ERROR_TYPE_SCRIPT:
+			return
+		_mutex.lock()
+		_errors.append({
+			"function": function,
+			"file": file,
+			"line": line,
+			"code": code,
+			"rationale": rationale,
+			"error_type": error_type
+		})
+		_mutex.unlock()
+
+	func get_error_count() -> int:
+		_mutex.lock()
+		var count := _errors.size()
+		_mutex.unlock()
+		return count
+
+	func get_errors_since(index: int) -> Array[Dictionary]:
+		_mutex.lock()
+		var collected: Array[Dictionary] = []
+		var start_index := maxi(index, 0)
+		for i in range(start_index, _errors.size()):
+			collected.append(Dictionary(_errors[i]).duplicate(true))
+		_mutex.unlock()
+		return collected
+
+
+func _enter_tree() -> void:
+	_integration_test_error_logger = IntegrationTestErrorLogger.new()
+	OS.add_logger(_integration_test_error_logger)
+
+
+func _exit_tree() -> void:
+	_remove_integration_test_error_logger()
 
 
 func _ready() -> void:
@@ -38,6 +89,9 @@ func _run_tests() -> void:
 	await _run_suite("VisibilityCullingRegistrySafety", VISIBILITY_CULLING_REGISTRY_SAFETY_TESTS, failures)
 	await _run_suite("HUDSaveLoadRefresh", HUD_SAVE_LOAD_REFRESH_TESTS, failures)
 	await _run_suite("StorageBoxSaveData", STORAGE_BOX_SAVE_DATA_TESTS, failures)
+	await _drain_runtime_errors()
+	_append_logged_errors(failures, "", _integration_test_error_cursor)
+	_remove_integration_test_error_logger()
 	if failures.is_empty():
 		_cleanup_autoloads()
 		var tree := get_tree()
@@ -87,13 +141,114 @@ func _run_suite(name: String, suite_script: GDScript, failures: Array[String]) -
 	if not suite.has_method("run"):
 		failures.append("%s suite does not implement run()" % name)
 		suite = null
+		await _cleanup_after_suite(name, failures)
 		return
+	var error_start_index := _integration_test_error_cursor
 	var suite_result: Variant = await suite.call("run")
+	await _drain_runtime_errors()
 	var suite_failures: Array[String] = Array(suite_result)
+	var runtime_failures := _collect_logged_errors(name, error_start_index)
+	for runtime_failure in runtime_failures:
+		suite_failures.append(runtime_failure)
+	_integration_test_error_cursor = _get_logged_error_count()
 	suite = null
 	if suite_failures.is_empty():
 		print("[IntegrationTests] %s: OK" % name)
+		await _cleanup_after_suite(name, failures)
 		return
 	print("[IntegrationTests] %s: %d failure(s)" % [name, suite_failures.size()])
 	for failure in suite_failures:
 		failures.append("%s: %s" % [name, failure])
+	await _cleanup_after_suite(name, failures)
+
+
+func _cleanup_after_suite(name: String, failures: Array[String]) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	if tree.paused:
+		failures.append("%s left SceneTree.paused=true" % name)
+		tree.paused = false
+	_cleanup_save_file()
+	await tree.process_frame
+	await tree.process_frame
+
+
+func _cleanup_save_file() -> void:
+	if FileAccess.file_exists("user://savegame.json"):
+		var save_path := ProjectSettings.globalize_path("user://savegame.json")
+		DirAccess.remove_absolute(save_path)
+
+
+func _drain_runtime_errors() -> void:
+	if _integration_test_error_logger == null:
+		return
+	var stable_frames := 0
+	var previous_count := _integration_test_error_logger.get_error_count()
+	for _i in range(ERROR_DRAIN_MAX_FRAMES):
+		await get_tree().process_frame
+		var current_count := _integration_test_error_logger.get_error_count()
+		if current_count == previous_count:
+			stable_frames += 1
+			if stable_frames >= ERROR_DRAIN_STABLE_FRAMES:
+				return
+		else:
+			stable_frames = 0
+			previous_count = current_count
+
+
+func _append_logged_errors(failures: Array[String], suite_name: String = "", start_index: int = 0) -> void:
+	var runtime_failures := _collect_logged_errors(suite_name, start_index)
+	for runtime_failure in runtime_failures:
+		failures.append(runtime_failure)
+
+
+func _collect_logged_errors(suite_name: String = "", start_index: int = 0) -> Array[String]:
+	if _integration_test_error_logger == null:
+		return []
+	var errors := _integration_test_error_logger.get_errors_since(start_index)
+	var failures: Array[String] = []
+	for error_value in errors:
+		failures.append(_format_logged_error(suite_name, Dictionary(error_value)))
+	return failures
+
+
+func _format_logged_error(suite_name: String, error_data: Dictionary) -> String:
+	var error_type := int(error_data.get("error_type", Logger.ERROR_TYPE_ERROR))
+	var error_type_label := _get_error_type_label(error_type)
+	var location := "%s:%d" % [str(error_data.get("file", "unknown")), int(error_data.get("line", 0))]
+	var function_name := str(error_data.get("function", ""))
+	var rationale := str(error_data.get("rationale", ""))
+	var code := str(error_data.get("code", ""))
+	var message := rationale if not rationale.is_empty() else code
+	message = message.replace("\n", " ").strip_edges()
+	if not function_name.is_empty():
+		message = "%s (%s)" % [message, function_name]
+	if not suite_name.is_empty():
+		return "%s runtime %s: %s - %s" % [suite_name, error_type_label, location, message]
+	return "runtime %s: %s - %s" % [error_type_label, location, message]
+
+
+func _get_error_type_label(error_type: int) -> String:
+	match error_type:
+		Logger.ERROR_TYPE_SCRIPT:
+			return "SCRIPT ERROR"
+		Logger.ERROR_TYPE_SHADER:
+			return "SHADER ERROR"
+		Logger.ERROR_TYPE_WARNING:
+			return "WARNING"
+		_:
+			return "ERROR"
+
+
+func _get_logged_error_count() -> int:
+	if _integration_test_error_logger == null:
+		return 0
+	return _integration_test_error_logger.get_error_count()
+
+
+func _remove_integration_test_error_logger() -> void:
+	if _integration_test_error_logger == null:
+		return
+	OS.remove_logger(_integration_test_error_logger)
+	_integration_test_error_logger = null

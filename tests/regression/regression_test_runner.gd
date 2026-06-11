@@ -21,11 +21,53 @@ const VISIBILITY_CULLING_TEST := preload("res://tests/regression/test_visibility
 const TORCH_LIFECYCLE_SAVE_LOAD_UI_TEST := preload("res://tests/regression/test_torch_lifecycle_save_load_ui.gd")
 const STORAGE_BOX_TRANSFER_SAVE_LOAD_TEST := preload("res://tests/regression/test_storage_box_transfer_save_load.gd")
 const UI_MODAL_STACK_TEST := preload("res://tests/regression/test_ui_modal_stack_inventory_map_pause_storage.gd")
+const ERROR_DRAIN_MAX_FRAMES := 8
+const ERROR_DRAIN_STABLE_FRAMES := 2
 
 var _failures: Array[String] = []
+var _regression_test_error_logger: RegressionTestErrorLogger
+var _regression_test_error_cursor := 0
+
+
+class RegressionTestErrorLogger:
+	extends Logger
+
+	var _mutex := Mutex.new()
+	var _errors: Array[Dictionary] = []
+
+	func _log_error(function: String, file: String, line: int, code: String, rationale: String, _editor_notify: bool, error_type: int, _script_backtraces) -> void:
+		if error_type != Logger.ERROR_TYPE_ERROR and error_type != Logger.ERROR_TYPE_SCRIPT:
+			return
+		_mutex.lock()
+		_errors.append({
+			"function": function,
+			"file": file,
+			"line": line,
+			"code": code,
+			"rationale": rationale,
+			"error_type": error_type
+		})
+		_mutex.unlock()
+
+	func get_error_count() -> int:
+		_mutex.lock()
+		var count := _errors.size()
+		_mutex.unlock()
+		return count
+
+	func get_errors_since(index: int) -> Array[Dictionary]:
+		_mutex.lock()
+		var collected: Array[Dictionary] = []
+		var start_index := maxi(index, 0)
+		for i in range(start_index, _errors.size()):
+			collected.append(Dictionary(_errors[i]).duplicate(true))
+		_mutex.unlock()
+		return collected
 
 
 func _initialize() -> void:
+	_regression_test_error_logger = RegressionTestErrorLogger.new()
+	OS.add_logger(_regression_test_error_logger)
 	call_deferred("_run_all")
 
 
@@ -49,6 +91,10 @@ func _run_all() -> void:
 	for scenario in scenarios:
 		await _run_scenario(scenario)
 
+	await _drain_runtime_errors()
+	_append_logged_errors("", _regression_test_error_cursor)
+	_remove_regression_test_error_logger()
+
 	if _failures.is_empty():
 		print("[RegressionTests] All regression tests passed.")
 		quit(0)
@@ -63,6 +109,7 @@ func _run_all() -> void:
 func _run_scenario(scenario: Dictionary) -> void:
 	var name := String(scenario.get("name", "UnnamedScenario"))
 	var method_name := String(scenario.get("method", ""))
+	var error_start_index := _regression_test_error_cursor
 	print("[RegressionTests] Running %s..." % name)
 	Utils.cleanup_save_file()
 
@@ -77,6 +124,17 @@ func _run_scenario(scenario: Dictionary) -> void:
 	var result: Dictionary = await call(method_name)
 	Utils.cleanup_save_file()
 	await Utils.wait_frames(self, 4)
+	await _drain_runtime_errors()
+	var runtime_failures := _collect_logged_errors(name, error_start_index)
+	for runtime_failure in runtime_failures:
+		_failures.append(runtime_failure)
+	_regression_test_error_cursor = _get_logged_error_count()
+	if self.paused:
+		_failures.append("%s left SceneTree.paused=true" % name)
+		self.paused = false
+	if not runtime_failures.is_empty():
+		push_error("[RegressionTests] %s: FAILED - runtime errors detected" % name)
+		return
 
 	if bool(result.get("ok", false)):
 		print("[RegressionTests] %s: OK" % name)
@@ -85,6 +143,80 @@ func _run_scenario(scenario: Dictionary) -> void:
 	var reason := String(result.get("reason", "Unknown failure"))
 	_failures.append("%s: %s" % [name, reason])
 	push_error("[RegressionTests] %s: FAILED - %s" % [name, reason])
+
+
+func _drain_runtime_errors() -> void:
+	if _regression_test_error_logger == null:
+		return
+	var stable_frames := 0
+	var previous_count := _regression_test_error_logger.get_error_count()
+	for _i in range(ERROR_DRAIN_MAX_FRAMES):
+		await process_frame
+		var current_count := _regression_test_error_logger.get_error_count()
+		if current_count == previous_count:
+			stable_frames += 1
+			if stable_frames >= ERROR_DRAIN_STABLE_FRAMES:
+				return
+		else:
+			stable_frames = 0
+			previous_count = current_count
+
+
+func _append_logged_errors(scenario_name: String = "", start_index: int = 0) -> void:
+	var runtime_failures := _collect_logged_errors(scenario_name, start_index)
+	for runtime_failure in runtime_failures:
+		_failures.append(runtime_failure)
+
+
+func _collect_logged_errors(scenario_name: String = "", start_index: int = 0) -> Array[String]:
+	if _regression_test_error_logger == null:
+		return []
+	var errors := _regression_test_error_logger.get_errors_since(start_index)
+	var failures: Array[String] = []
+	for error_value in errors:
+		failures.append(_format_logged_error(scenario_name, Dictionary(error_value)))
+	return failures
+
+
+func _format_logged_error(scenario_name: String, error_data: Dictionary) -> String:
+	var error_type := int(error_data.get("error_type", Logger.ERROR_TYPE_ERROR))
+	var error_type_label := _get_error_type_label(error_type)
+	var location := "%s:%d" % [str(error_data.get("file", "unknown")), int(error_data.get("line", 0))]
+	var function_name := str(error_data.get("function", ""))
+	var rationale := str(error_data.get("rationale", ""))
+	var code := str(error_data.get("code", ""))
+	var message := rationale if not rationale.is_empty() else code
+	message = message.replace("\n", " ").strip_edges()
+	if not function_name.is_empty():
+		message = "%s (%s)" % [message, function_name]
+	if not scenario_name.is_empty():
+		return "%s runtime %s: %s - %s" % [scenario_name, error_type_label, location, message]
+	return "runtime %s: %s - %s" % [error_type_label, location, message]
+
+
+func _get_error_type_label(error_type: int) -> String:
+	match error_type:
+		Logger.ERROR_TYPE_SCRIPT:
+			return "SCRIPT ERROR"
+		Logger.ERROR_TYPE_SHADER:
+			return "SHADER ERROR"
+		Logger.ERROR_TYPE_WARNING:
+			return "WARNING"
+		_:
+			return "ERROR"
+
+
+func _get_logged_error_count() -> int:
+	if _regression_test_error_logger == null:
+		return 0
+	return _regression_test_error_logger.get_error_count()
+
+
+func _remove_regression_test_error_logger() -> void:
+	if _regression_test_error_logger == null:
+		return
+	OS.remove_logger(_regression_test_error_logger)
+	_regression_test_error_logger = null
 
 
 func _scenario_start_menu_new_game_world_boot() -> Dictionary:
