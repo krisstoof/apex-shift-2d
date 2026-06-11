@@ -7,6 +7,10 @@ const ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS := 30.0
 const HUD_REFRESH_INTERVAL := 0.10
 const CRITICAL_HEALTH_THRESHOLD := 0.20
 const CRITICAL_HEALTH_WARNING_INTERVAL_SECONDS := 8.0
+const LOW_STAT_WARNING_THRESHOLD := 0.20
+const LOW_STAT_PULSE_SPEED := 4.5
+const LOW_STAT_PULSE_MIN := 0.96
+const LOW_STAT_PULSE_MAX := 1.0
 const LOW_HUNGER_THRESHOLD := 25.0
 const LOW_STAMINA_THRESHOLD := 20.0
 const LOW_REST_THRESHOLD := 25.0
@@ -15,6 +19,7 @@ const HUNGER_WARNING_COOLDOWN_SECONDS := 12.0
 const STARVING_WARNING_COOLDOWN_SECONDS := 10.0
 const EXHAUSTION_WARNING_COOLDOWN_SECONDS := 14.0
 const CAMPFIRE_HINT_COOLDOWN_SECONDS := 18.0
+const HUD_MESSAGE_LIFETIME_SECONDS := 10.0
 const CAMPFIRE_HINT_RADIUS := 180.0
 const NEARBY_THREAT_CHECK_INTERVAL_SECONDS := 0.5
 const NEARBY_THREAT_WARNING_COOLDOWN_SECONDS := 8.0
@@ -26,6 +31,7 @@ var day_night_system: Node
 var ecosystem_director: Node
 var message := ""
 var message_history: Array[String] = []
+var message_history_timestamps: Array[float] = []
 var map_screen_open := false
 var pause_menu_open := false
 var center_notification_time := 0.0
@@ -36,6 +42,9 @@ var critical_health_overlay: ColorRect
 var critical_health_pulse_time := 0.0
 var critical_health_warning_timer := 0.0
 var critical_health_active := false
+var low_stat_warning_active := false
+var low_stat_pulse_time := 0.0
+var last_stats_snapshot: Dictionary = {}
 var hunger_warning_timer := 0.0
 var starving_warning_timer := 0.0
 var exhaustion_warning_timer := 0.0
@@ -49,7 +58,7 @@ var current_storage_box: Node = null
 var current_storage_inventory: Variant = null
 var current_storage_player_inventory: Variant = null
 
-@onready var stats_label: Label = $Panel/StatsLabel
+@onready var stats_label: RichTextLabel = $Panel/StatsLabel
 @onready var prompt_label: Label = $Panel/PromptLabel
 @onready var message_label: Label = $Panel/MessageLabel
 @onready var resource_panel: Control = $ResourcePanel
@@ -145,6 +154,7 @@ func _process(delta: float) -> void:
 	if not player or not evolution_director or not day_night_system:
 		return
 	_update_critical_health_warning(delta)
+	_update_low_stat_warning(delta)
 	_update_survival_warning_messages(delta)
 	_update_nearby_threat_warning(delta)
 	_log_hitch(delta, "HUD", {
@@ -155,6 +165,7 @@ func _process(delta: float) -> void:
 	if center_notification_time > 0.0:
 		center_notification_time = max(center_notification_time - delta, 0.0)
 		center_notification_label.visible = center_notification_time > 0.0
+	_prune_message_history()
 	hud_refresh_timer += delta
 	if hud_refresh_timer < HUD_REFRESH_INTERVAL:
 		return
@@ -178,9 +189,11 @@ func _refresh_hud_text() -> void:
 
 
 func _apply_snapshot(snapshot: Dictionary) -> void:
+	last_stats_snapshot = snapshot.duplicate(true)
 	clock_label.text = _build_clock_text_from_snapshot(snapshot)
 	fps_label.text = "FPS: %d" % Engine.get_frames_per_second()
-	stats_label.text = _build_player_stats_text_from_snapshot(snapshot)
+	_render_player_stats_text_from_snapshot(snapshot, 1.0)
+	_update_low_stat_warning_style_from_snapshot(snapshot)
 	prompt_label.text = _get_prompt_text_from_snapshot(snapshot)
 	_refresh_message_label()
 	_refresh_resource_panel()
@@ -195,9 +208,12 @@ func _build_clock_text_from_snapshot(snapshot: Dictionary) -> String:
 
 
 func _build_player_stats_text_from_snapshot(snapshot: Dictionary) -> String:
+	return _build_player_stats_markup_from_snapshot(snapshot, 1.0)
+
+
+func _build_player_stats_markup_from_snapshot(snapshot: Dictionary, pulse_strength: float = 1.0) -> String:
 	var player_snapshot := Dictionary(snapshot.get("player", {}))
 	var time_snapshot := Dictionary(snapshot.get("time", {}))
-	var inventory := Dictionary(player_snapshot.get("inventory", {}))
 	var health := float(player_snapshot.get("health", 0.0))
 	var max_health := float(_get_player_max_health_value_from_snapshot(player_snapshot))
 	var hunger := float(_get_snapshot_stat_percent(player_snapshot, "hunger", 100.0))
@@ -206,16 +222,96 @@ func _build_player_stats_text_from_snapshot(snapshot: Dictionary) -> String:
 	var day := int(time_snapshot.get("day", 1))
 	var time_label := str(time_snapshot.get("time_label", ""))
 	var rest_label := "Rest" if player_snapshot.has("rest") else "Fatigue"
-	return "HP: %d/%d   |   Hunger: %d%%   |   %s: %d%%   |   Stamina: %d%%   |   Day: %d   |   Time: %s" % [
-		int(round(health)),
-		int(round(max_health)),
-		int(round(hunger)),
-		rest_label,
-		int(round(rest)),
-		int(round(stamina)),
+	var health_text := _format_player_stat_segment("HP: %d/%d" % [int(round(health)), int(round(max_health))], health / max_health if max_health > 0.0 else 0.0, pulse_strength)
+	var hunger_text := _format_player_stat_segment("Hunger: %d%%" % int(round(hunger)), hunger / 100.0, pulse_strength)
+	var rest_text := _format_player_stat_segment("%s: %d%%" % [rest_label, int(round(rest))], rest / 100.0, pulse_strength)
+	var stamina_text := _format_player_stat_segment("Stamina: %d%%" % int(round(stamina)), stamina / 100.0, pulse_strength)
+	return "%s   |   %s   |   %s   |   %s   |   Day: %d   |   Time: %s" % [
+		health_text,
+		hunger_text,
+		rest_text,
+		stamina_text,
 		day,
 		time_label if not time_label.is_empty() else "--"
 	]
+
+
+func _render_player_stats_text_from_snapshot(snapshot: Dictionary, pulse_strength: float = 1.0) -> void:
+	if stats_label == null:
+		return
+	stats_label.clear()
+	stats_label.append_text(_build_player_stats_markup_from_snapshot(snapshot, pulse_strength))
+
+
+func _format_player_stat_segment(segment_text: String, ratio: float, pulse_strength: float) -> String:
+	if ratio >= 0.0 and ratio <= LOW_STAT_WARNING_THRESHOLD:
+		var pulse_color := Color(1.0, lerpf(0.18, 0.42, pulse_strength), lerpf(0.18, 0.42, pulse_strength), 1.0)
+		return "[color=#%s]%s[/color]" % [pulse_color.to_html(false), segment_text]
+	return segment_text
+
+
+func _update_low_stat_warning(delta: float) -> void:
+	if stats_label == null:
+		return
+	var player_node := _get_player_for_hud()
+	if player_node == null or _is_game_over_active():
+		_set_low_stat_warning_active(false)
+		low_stat_pulse_time = 0.0
+		_render_player_stats_text_from_snapshot(last_stats_snapshot, 1.0)
+		return
+	var should_be_active := _has_low_player_stat(player_node)
+	_set_low_stat_warning_active(should_be_active)
+	if not should_be_active:
+		low_stat_pulse_time = 0.0
+		_render_player_stats_text_from_snapshot(last_stats_snapshot, 1.0)
+		return
+	low_stat_pulse_time += delta
+	var pulse := 0.5 + sin(low_stat_pulse_time * LOW_STAT_PULSE_SPEED) * 0.5
+	var pulse_strength := lerpf(LOW_STAT_PULSE_MIN, LOW_STAT_PULSE_MAX, pulse)
+	_render_player_stats_text_from_snapshot(last_stats_snapshot, pulse_strength)
+
+
+func _update_low_stat_warning_style_from_snapshot(snapshot: Dictionary) -> void:
+	if stats_label == null:
+		return
+	var player_snapshot := Dictionary(snapshot.get("player", {}))
+	_set_low_stat_warning_active(_has_low_player_stat_from_snapshot(player_snapshot))
+
+
+func _has_low_player_stat(player_node: Node) -> bool:
+	var health := _get_player_health_value(player_node)
+	var max_health := _get_player_max_health_value(player_node)
+	var hunger := _get_player_stat_value(player_node, "hunger", 100.0)
+	var stamina := _get_player_stat_value(player_node, "stamina", 100.0)
+	var rest := _get_player_stat_value(player_node, "rest", 100.0)
+	return _has_low_player_stat_values(health, max_health, hunger, stamina, rest)
+
+
+func _has_low_player_stat_from_snapshot(player_snapshot: Dictionary) -> bool:
+	var health := float(player_snapshot.get("health", 0.0))
+	var max_health := float(_get_player_max_health_value_from_snapshot(player_snapshot))
+	var hunger := float(_get_snapshot_stat_percent(player_snapshot, "hunger", 100.0))
+	var stamina := float(_get_snapshot_stat_percent(player_snapshot, "stamina", 100.0))
+	var rest := float(_get_snapshot_stat_percent(player_snapshot, "rest", 100.0))
+	return _has_low_player_stat_values(health, max_health, hunger, stamina, rest)
+
+
+func _has_low_player_stat_values(health: float, max_health: float, hunger_percent: float, stamina_percent: float, rest_percent: float) -> bool:
+	if max_health <= 0.0:
+		return false
+	var health_ratio := clampf(health / max_health, 0.0, 1.0)
+	var hunger_ratio := clampf(hunger_percent / 100.0, 0.0, 1.0)
+	var stamina_ratio := clampf(stamina_percent / 100.0, 0.0, 1.0)
+	var rest_ratio := clampf(rest_percent / 100.0, 0.0, 1.0)
+	return health_ratio <= LOW_STAT_WARNING_THRESHOLD or hunger_ratio <= LOW_STAT_WARNING_THRESHOLD or stamina_ratio <= LOW_STAT_WARNING_THRESHOLD or rest_ratio <= LOW_STAT_WARNING_THRESHOLD
+
+
+func _set_low_stat_warning_active(active: bool) -> void:
+	low_stat_warning_active = active
+	if stats_label == null:
+		return
+	if not active:
+		stats_label.self_modulate = Color(1.0, 1.0, 1.0, 1.0)
 
 
 func _get_player_max_health_value_from_snapshot(player_snapshot: Dictionary) -> float:
@@ -250,6 +346,24 @@ func _refresh_message_label() -> void:
 		return
 	message_label.text = "\n".join(message_history)
 	message_label.visible = message_history.size() > 0
+
+
+func _prune_message_history() -> void:
+	if message_history.is_empty():
+		message_history_timestamps.clear()
+		_refresh_message_label()
+		return
+	var now_seconds := Time.get_ticks_msec() / 1000.0
+	var kept_messages: Array[String] = []
+	var kept_timestamps: Array[float] = []
+	for i in range(message_history.size()):
+		var timestamp := float(message_history_timestamps[i]) if i < message_history_timestamps.size() else now_seconds
+		if now_seconds - timestamp <= HUD_MESSAGE_LIFETIME_SECONDS:
+			kept_messages.append(message_history[i])
+			kept_timestamps.append(timestamp)
+	message_history = kept_messages
+	message_history_timestamps = kept_timestamps
+	_refresh_message_label()
 
 
 func _connect_inventory_changed() -> void:
@@ -384,8 +498,11 @@ func _on_message(new_message: String) -> void:
 		return
 	message = new_message
 	message_history.append(new_message)
+	message_history_timestamps.append(Time.get_ticks_msec() / 1000.0)
 	if message_history.size() > 4:
 		message_history.pop_front()
+		if not message_history_timestamps.is_empty():
+			message_history_timestamps.pop_front()
 	_refresh_message_label()
 
 

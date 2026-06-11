@@ -865,6 +865,23 @@ func end_save_restore() -> void:
 	queue_redraw()
 
 
+func rebuild_runtime_indexes_after_load() -> void:
+	for resource in get_registered_resources():
+		if is_instance_valid(resource):
+			update_spatial_entity_cell(resource)
+	for creature in get_registered_creatures_by_type(""):
+		if is_instance_valid(creature):
+			update_spatial_entity_cell(creature)
+	for building in get_registered_buildings():
+		if is_instance_valid(building):
+			update_spatial_entity_cell(building)
+	clear_cached_group_nodes()
+	_rebuild_chunk_assignments()
+	if visibility_culling_enabled:
+		_update_world_object_visibility()
+	queue_redraw()
+
+
 func is_boot_ready() -> bool:
 	return boot_ready
 

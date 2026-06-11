@@ -195,6 +195,18 @@ func get_spatial_index_debug_data() -> Dictionary:
 	return spatial_index.get_debug_counts()
 
 
+func clear_runtime() -> void:
+	_resource_nodes.clear()
+	_creature_nodes_by_type.clear()
+	_building_nodes_by_type.clear()
+	_tracked_entries.clear()
+	resource_version = 0
+	creature_version = 0
+	building_version = 0
+	if spatial_index != null and spatial_index.has_method("clear"):
+		spatial_index.clear()
+
+
 func get_all_registered_resources() -> Array:
 	return get_resources()
 
