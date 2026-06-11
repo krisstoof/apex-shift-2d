@@ -11,6 +11,7 @@ const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
 const WORLD_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_query_service.gd")
 const LANDMARK_SERVICE_SCRIPT := preload("res://scripts/world/landmark_service.gd")
 const RESOURCE_SERVICE_SCRIPT := preload("res://scripts/world/resource_service.gd")
+const ISLAND_WORLD_VALIDATOR_SCRIPT := preload("res://scripts/world/island_world_validator.gd")
 const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 
@@ -175,6 +176,7 @@ var visibility_cull_last_visible_creatures: int = 0
 var visibility_cull_last_hidden_creatures: int = 0
 var visibility_cull_last_visible_nodes: Dictionary = {}
 var is_restoring_save: bool = false
+var island_world_validation_last_report: Dictionary = {}
 var night_overlay_polygon: Polygon2D
 var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
@@ -439,6 +441,32 @@ func get_boot_progress_state() -> Dictionary:
 		"progress": boot_status_progress,
 		"boot_ready": boot_ready
 	}
+
+
+func run_island_world_validation() -> Dictionary:
+	var validator := ISLAND_WORLD_VALIDATOR_SCRIPT.new()
+	var report: Dictionary = validator.run(self)
+	island_world_validation_last_report = report.duplicate(true)
+	return report
+
+
+func get_island_world_validation_report() -> Dictionary:
+	if island_world_validation_last_report.is_empty():
+		return run_island_world_validation()
+	return island_world_validation_last_report.duplicate(true)
+
+
+func get_island_world_validation_summary() -> String:
+	var report := get_island_world_validation_report()
+	var status := "PASS" if bool(report.get("passed", false)) else "FAIL"
+	var errors := Array(report.get("errors", []))
+	var warnings := Array(report.get("warnings", []))
+	return "%s | errors %d | warnings %d" % [status, errors.size(), warnings.size()]
+
+
+func get_island_world_validation_text() -> String:
+	var validator := ISLAND_WORLD_VALIDATOR_SCRIPT.new()
+	return validator.report_to_text(get_island_world_validation_report())
 
 
 func enable_integration_test_mode() -> void:

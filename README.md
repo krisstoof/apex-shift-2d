@@ -80,6 +80,7 @@ This is a lightweight adaptation system for prototype testing, not a full specie
 - [Application overview](docs/application-overview.md)
 - [Creature AI priorities](docs/creature-ai-priorities.md)
 - [Torch manual test](docs/torch-manual-test.md)
+- [Island world validation](docs/island-world-validation.md)
 - [Debug panel manual test](docs/debug-panel-manual-test.md)
 
 ## Known Limitations

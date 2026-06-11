@@ -40,6 +40,7 @@ var benchmark_runner: Node
 var benchmark_button: Button
 var god_mode_button: Button
 var regenerate_landmarks_button: Button
+var island_world_validation_button: Button
 var landmark_overlay_button: Button
 var rebuild_biome_cache_button: Button
 var biome_texture_toggle_button: Button
@@ -296,6 +297,7 @@ func _create_future_tool_buttons() -> void:
 	_add_tool_button("Reset resource growth", _on_reset_resource_growth_pressed, "World")
 	_add_tool_button("Teleport OOB creatures", _on_teleport_out_of_bounds_pressed, "Creatures")
 	regenerate_landmarks_button = _add_tool_button("Regenerate landmarks", _on_regenerate_landmarks_pressed, "World")
+	island_world_validation_button = _add_tool_button("Validate island world", _on_validate_island_world_pressed, "World")
 	landmark_overlay_button = _add_tool_button("Landmark overlay: OFF", _on_toggle_landmark_overlay_pressed, "World")
 	rebuild_biome_cache_button = _add_tool_button("Rebuild biome texture cache", _on_rebuild_biome_texture_cache_pressed, "World")
 	biome_texture_toggle_button = _add_tool_button("Biome textures: ON", _on_toggle_biome_textures_pressed, "World")
@@ -448,6 +450,7 @@ func _build_world_text() -> String:
 		int(landmark_counts.get("hill", 0)),
 		_get_nearest_landmark_text()
 	])
+	lines.append("Island validation: %s" % _get_island_world_validation_summary_text())
 	lines.append("Hill markers: %d" % _get_cached_group_nodes("hill_landmarks").size())
 	lines.append("Pond markers: %d | Water sources: %d" % [
 		_get_cached_group_nodes("pond_landmarks").size(),
@@ -1511,6 +1514,17 @@ func _on_regenerate_landmarks_pressed() -> void:
 	_set_state_text(_build_state_text(), true)
 
 
+func _on_validate_island_world_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("run_island_world_validation"):
+		_post_debug_message("Island world validation is not available yet")
+		return
+	var report: Dictionary = world.run_island_world_validation()
+	_post_debug_message(_get_island_world_validation_summary_text(report))
+	if not bool(report.get("passed", false)) and world.has_method("get_island_world_validation_text"):
+		print(world.get_island_world_validation_text())
+
+
 func _on_toggle_landmark_overlay_pressed() -> void:
 	var world := _get_world_node()
 	if not world or not world.has_method("debug_toggle_landmark_overlay"):
@@ -1633,6 +1647,24 @@ func _post_debug_message(message: String) -> void:
 	var event_bus := get_node_or_null("/root/EventBus")
 	if event_bus and event_bus.has_method("post_message"):
 		event_bus.post_message(message)
+
+
+func _get_island_world_validation_summary_text(report: Dictionary = {}) -> String:
+	var validation_report: Dictionary = report
+	if validation_report.is_empty():
+		var world := _get_world_node()
+		if world and world.has_method("get_island_world_validation_report"):
+			validation_report = world.get_island_world_validation_report()
+	if validation_report.is_empty():
+		return "pending"
+	var passed := bool(validation_report.get("passed", false))
+	var errors := Array(validation_report.get("errors", []))
+	var warnings := Array(validation_report.get("warnings", []))
+	return "%s | errors %d | warnings %d" % [
+		"PASS" if passed else "FAIL",
+		errors.size(),
+		warnings.size()
+	]
 
 
 func _on_damage_player_pressed() -> void:
