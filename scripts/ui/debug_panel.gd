@@ -495,11 +495,14 @@ func _build_creatures_text() -> String:
 		_get_cached_group_nodes("small_prey").size(),
 		_get_creature_state_summary("small_prey")
 	])
+	lines.append("SmallPrey LOD %s" % _get_simulation_level_counts_text("small_prey"))
 	lines.append("Grazers visible %d | %s" % [
 		_get_cached_group_nodes("grazer").size(),
 		_get_grazer_state_summary()
 	])
+	lines.append("Grazer LOD %s" % _get_simulation_level_counts_text("grazer"))
 	lines.append("Avg Varnak HP %s" % _get_average_varnak_health_text(varnaks))
+	lines.append("Varnak LOD %s" % _get_simulation_level_counts_text("varnak"))
 	lines.append_array(_get_creature_debug_stat_lines("varnak", "Varnak stats"))
 	lines.append_array(_get_creature_debug_stat_lines("small_prey", "SmallPrey stats"))
 	lines.append_array(_get_creature_debug_stat_lines("grazer", "Grazer stats"))
@@ -1202,6 +1205,12 @@ func _get_creature_debug_stat_lines(group_name: String, label: String) -> Array[
 			_get_debug_percent(data, "rest"),
 			_get_debug_percent(data, "fitness_score")
 		],
+		"  sim %s | dist %.0f | lod changes %d | culled %s" % [
+			_get_debug_text(data, "simulation_level"),
+			_get_debug_float(data, "simulation_distance_to_player"),
+			int(data.get("simulation_lod_change_count", 0)),
+			_get_debug_text(data, "is_visibility_culled")
+		],
 		"  diet plant %.2f | meat %.2f | scav %.2f" % [
 			_get_debug_float(data, "plant_diet"),
 			_get_debug_float(data, "meat_diet"),
@@ -1233,6 +1242,34 @@ func _get_debug_hunger_percent(data: Dictionary) -> float:
 	if data.has("hunger_ratio"):
 		return _get_debug_percent(data, "hunger_ratio")
 	return _get_debug_percent(data, "hunger")
+
+
+func _get_simulation_level_counts_text(group_name: String) -> String:
+	var counts := _get_simulation_level_counts(group_name)
+	return "near %d | medium %d | far %d | unknown %d" % [
+		int(counts.get("near", 0)),
+		int(counts.get("medium", 0)),
+		int(counts.get("far", 0)),
+		int(counts.get("unknown", 0))
+	]
+
+
+func _get_simulation_level_counts(group_name: String) -> Dictionary:
+	var counts := {
+		"near": 0,
+		"medium": 0,
+		"far": 0,
+		"unknown": 0
+	}
+	for creature in _get_cached_group_nodes(group_name):
+		if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
+			continue
+		var data: Dictionary = creature.get_debug_data()
+		var level := str(data.get("simulation_level", "unknown"))
+		if not counts.has(level):
+			level = "unknown"
+		counts[level] = int(counts.get(level, 0)) + 1
+	return counts
 
 
 func _get_debug_satiety_ratio(data: Dictionary) -> float:

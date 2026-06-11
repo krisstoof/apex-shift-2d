@@ -3,6 +3,7 @@ extends CharacterBody2D
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
+const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 const SPECIES_PATH := "res://data/species/grazer.json"
 const AI_DECISION_INTERVAL_SECONDS := 0.14
 const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
@@ -79,6 +80,13 @@ var hunger_diet := HUNGER_DIET.new()
 var is_visibility_culled := false
 var stored_collision_layer := 0
 var stored_collision_mask := 0
+var simulation_level := SIMULATION_LOD.Level.NEAR
+var simulation_level_name := "near"
+var simulation_distance_to_player := 0.0
+var simulation_lod_timer := 0.0
+var far_simulation_timer := 0.0
+var simulation_lod_change_count := 0
+var last_simulation_level := SIMULATION_LOD.Level.NEAR
 
 
 func _get_event_bus() -> Node:
@@ -164,7 +172,12 @@ func get_debug_data() -> Dictionary:
 		"current_niche": current_niche,
 		"reproduction_rate": reproduction_rate,
 		"home_biome_id": home_biome_id,
-		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
+		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0,
+		"simulation_level": simulation_level_name,
+		"simulation_distance_to_player": simulation_distance_to_player,
+		"simulation_lod_change_count": simulation_lod_change_count,
+		"is_visibility_culled": is_visibility_culled,
+		"ai_decision_interval_effective": _get_effective_ai_decision_interval()
 	}
 	data.merge(hunger_diet.get_debug_data(), true)
 	return data
@@ -244,6 +257,10 @@ func restore_from_data(data: Dictionary) -> void:
 	state_time = max(_safe_float(data, "state_time", state_time), 0.0)
 	last_food_source = str(data.get("last_food_source", last_food_source))
 	dropped_meat = _safe_bool(data, "dropped_meat", dropped_meat)
+	velocity = Vector2.ZERO
+	simulation_level = SIMULATION_LOD.Level.NEAR
+	simulation_level_name = "near"
+	far_simulation_timer = 0.0
 	hunger_diet.configure({
 		"hunger": hunger,
 		"max_hunger": max_hunger,
@@ -312,6 +329,10 @@ func _physics_process(delta: float) -> void:
 		return
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
+	_update_simulation_level()
+	if simulation_level == SIMULATION_LOD.Level.FAR:
+		_tick_far_simulation(delta)
+		return
 	state_time = max(state_time - delta, 0.0)
 	target_lock_time = max(target_lock_time - delta, 0.0)
 	if eat_visual_time > 0.0:
@@ -322,7 +343,7 @@ func _physics_process(delta: float) -> void:
 	_sync_hunger_fields()
 	ai_decision_timer -= delta
 	if ai_decision_timer <= 0.0:
-		ai_decision_timer = ai_decision_interval
+		ai_decision_timer = _get_effective_ai_decision_interval()
 		ai_decision_count += 1
 		_update_state()
 	_act(delta)
@@ -338,6 +359,86 @@ func force_ai_decision_for_tests() -> void:
 
 func _should_update_ai_decision(delta: float) -> bool:
 	return ai_decision_timer - delta <= 0.0
+
+
+func _get_effective_ai_decision_interval() -> float:
+	if simulation_level == SIMULATION_LOD.Level.MEDIUM:
+		return SIMULATION_LOD.get_medium_ai_interval(ai_decision_interval, _get_simulation_lod_config())
+	return ai_decision_interval
+
+
+func _get_simulation_lod_config() -> Dictionary:
+	return GAME_BALANCE.CREATURE_SIMULATION_LOD
+
+
+func _update_simulation_level() -> void:
+	if not is_instance_valid(player):
+		player = get_tree().get_first_node_in_group("player")
+	if not is_instance_valid(player):
+		_set_simulation_level(SIMULATION_LOD.Level.NEAR)
+		return
+	simulation_distance_to_player = global_position.distance_to(player.global_position)
+	var creature_type := species_id if species_id != "" else name.to_snake_case()
+	var next_level := SIMULATION_LOD.resolve_level(simulation_distance_to_player, _get_simulation_lod_config(), creature_type)
+	_set_simulation_level(next_level)
+
+
+func _set_simulation_level(next_level: int) -> void:
+	if simulation_level == next_level:
+		return
+	last_simulation_level = simulation_level
+	simulation_level = next_level
+	simulation_level_name = SIMULATION_LOD.get_level_name(simulation_level)
+	simulation_lod_change_count += 1
+	match simulation_level:
+		SIMULATION_LOD.Level.NEAR:
+			_restore_full_simulation()
+		SIMULATION_LOD.Level.MEDIUM:
+			_apply_medium_simulation()
+		SIMULATION_LOD.Level.FAR:
+			_apply_far_simulation()
+
+
+func _restore_full_simulation() -> void:
+	visible = true
+	collision_layer = stored_collision_layer
+	collision_mask = stored_collision_mask
+	set_physics_process(true)
+	set_process(true)
+	velocity = Vector2.ZERO
+	queue_redraw()
+
+
+func _apply_medium_simulation() -> void:
+	visible = true
+	collision_layer = stored_collision_layer
+	collision_mask = stored_collision_mask
+	set_physics_process(true)
+	set_process(true)
+
+
+func _apply_far_simulation() -> void:
+	velocity = Vector2.ZERO
+	collision_layer = 0
+	collision_mask = 0
+	set_process(false)
+	set_physics_process(true)
+
+
+func _tick_far_simulation(delta: float) -> void:
+	far_simulation_timer += delta
+	var interval := SIMULATION_LOD.get_far_update_interval(_get_simulation_lod_config())
+	if far_simulation_timer < interval:
+		return
+	var tick_delta := far_simulation_timer
+	far_simulation_timer = 0.0
+	age_seconds += tick_delta
+	hunger_diet.tick(tick_delta, 0.0)
+	_sync_hunger_fields()
+	state_time = max(state_time - tick_delta, 0.0)
+	target_lock_time = max(target_lock_time - tick_delta, 0.0)
+	velocity = Vector2.ZERO
+	_update_spatial_cell_tick(tick_delta)
 
 
 func force_consume_plants_for_tests() -> void:
