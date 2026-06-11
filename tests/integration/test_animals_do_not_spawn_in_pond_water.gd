@@ -32,6 +32,7 @@ func run() -> Array[String]:
 	_assert_group_not_in_water(tree, world, "small_prey", failures)
 	_assert_group_not_in_water(tree, world, "grazer", failures)
 	_assert_group_not_in_water(tree, world, "varnak", failures)
+	INTEGRATION.assert_tree_unpaused(failures, tree, "AnimalsDoNotSpawnInPondWater")
 
 	await INTEGRATION.shutdown_main(context)
 	return failures
@@ -44,5 +45,7 @@ func _assert_group_not_in_water(tree: SceneTree, world: Node, group_name: String
 		var creature := node as Node2D
 		if creature == null:
 			continue
+		INTEGRATION.assert_valid_node2d_position(failures, creature, "%s creature" % group_name)
+		INTEGRATION.assert_creature_registered(failures, world, creature, group_name, "%s creature" % group_name)
 		TEST_UTILS.expect(world.call("get_world_rect").has_point(creature.global_position), failures, "%s should start inside world bounds" % group_name)
 		TEST_UTILS.expect(not world.call("is_position_in_water", creature.global_position), failures, "%s spawned in water at %s" % [group_name, str(creature.global_position)])

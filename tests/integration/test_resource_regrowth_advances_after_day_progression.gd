@@ -51,6 +51,7 @@ func run() -> Array[String]:
 	TEST_UTILS.expect(harvested_stage < initial_stage, failures, "Harvesting should reduce the growth stage")
 	TEST_UTILS.expect_equal(harvested_stage, 0, failures, "The test should deplete the resource to stage 0 before regrowth")
 	TEST_UTILS.expect_equal(bool(resource.get("is_edible_by_herbivores")), false, failures, "Depleted vegetation should not be edible")
+	TEST_UTILS.expect_equal(bool(resource.get("can_be_harvested")), false, failures, "Depleted vegetation should not be harvestable")
 
 	var initial_day: int = int(day_night.get("day"))
 	day_night.call("debug_next_day")
@@ -62,6 +63,8 @@ func run() -> Array[String]:
 	TEST_UTILS.expect(regrown_stage > harvested_stage, failures, "Advancing the day should regrow the resource")
 	TEST_UTILS.expect_equal(bool(resource.get("is_edible_by_herbivores")), true, failures, "Regrown vegetation should become edible again")
 	TEST_UTILS.expect_equal(int(day_night.get("day")), initial_day + 1, failures, "Debug next day should advance the calendar by one day")
+	TEST_UTILS.expect_equal(bool(resource.get("can_be_harvested")), true, failures, "Regrown resource should become harvestable again")
+	INTEGRATION.assert_resource_registered(failures, world, resource, str(resource.get("resource_kind")), "Regrowth resource")
 
 	await INTEGRATION.shutdown_main(context)
 	return failures

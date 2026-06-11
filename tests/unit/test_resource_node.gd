@@ -36,6 +36,12 @@ func run() -> Array[String]:
 	_test_resource_node_syncs_collision_radius_with_growth(failures)
 	_test_resource_node_uses_shared_atlas_and_depleted_region(failures)
 	_test_resource_node_renders_and_regrows_dry_tree(failures)
+	_test_resource_node_harvest_tree_marks_as_regrowing(failures)
+	_test_resource_node_advance_growth_days_restores_harvestable_tree(failures)
+	_test_resource_node_force_full_regrowth_restores_mature_state(failures)
+	_test_resource_node_meat_drop_does_not_use_regrowth(failures)
+	_test_resource_node_grass_patch_is_not_player_harvestable(failures)
+	_test_resource_node_save_load_round_trip_preserves_growth_state(failures)
 	_test_resource_node_renders_bone_drop_through_custom_draw(failures)
 	_test_resource_node_emits_bone_collected_for_bone_drop(failures)
 	_test_resource_node_reports_inventory_full_when_pickup_does_not_fit(failures)
@@ -220,6 +226,96 @@ func _test_resource_node_renders_and_regrows_dry_tree(failures: Array[String]) -
 		TEST_UTILS.expect_equal(int(atlas_texture.region.position.x), 880, failures, "Dry trees should use the dry-tree atlas column")
 		TEST_UTILS.expect_equal(int(atlas_texture.region.position.y), 0, failures, "Dry trees should use the mature atlas row before depletion")
 	resource.free()
+
+
+func _test_resource_node_harvest_tree_marks_as_regrowing(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.current_scene.add_child(resource)
+	resource.call("setup", "conifer_tree")
+	var player := TestPlayer.new()
+	tree.current_scene.add_child(player)
+	resource.call("interact", player)
+	TEST_UTILS.expect(resource.get("growth_stage") == 0, failures, "Harvested trees should drop to depleted growth")
+	TEST_UTILS.expect_equal(resource.get("is_harvested"), true, failures, "Harvested trees should mark themselves as harvested")
+	TEST_UTILS.expect_equal(resource.get("can_be_harvested"), false, failures, "Harvested trees should stop being harvestable")
+	resource.queue_free()
+	player.queue_free()
+
+
+func _test_resource_node_advance_growth_days_restores_harvestable_tree(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.current_scene.add_child(resource)
+	resource.call("setup", "bush")
+	var player := TestPlayer.new()
+	tree.current_scene.add_child(player)
+	resource.call("interact", player)
+	resource.call("advance_growth_days", 3.0)
+	TEST_UTILS.expect_equal(resource.get("growth_stage"), resource.get("max_growth_stage"), failures, "Growth days should restore the mature growth stage")
+	TEST_UTILS.expect_equal(resource.get("is_harvested"), false, failures, "Regrown trees should clear harvested state")
+	TEST_UTILS.expect_equal(resource.get("can_be_harvested"), true, failures, "Regrown trees should be harvestable again")
+	TEST_UTILS.expect(resource.get("amount") > 0, failures, "Regrown trees should regain a positive yield")
+	TEST_UTILS.expect(resource.call("is_player_interactable"), failures, "Regrown trees should be interactable again")
+	resource.queue_free()
+	player.queue_free()
+
+
+func _test_resource_node_force_full_regrowth_restores_mature_state(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.current_scene.add_child(resource)
+	resource.call("setup", "bush")
+	var player := TestPlayer.new()
+	tree.current_scene.add_child(player)
+	resource.call("interact", player)
+	resource.call("force_full_regrowth")
+	TEST_UTILS.expect_equal(resource.get("growth_stage"), resource.get("max_growth_stage"), failures, "Force regrowth should restore the mature stage")
+	TEST_UTILS.expect_equal(resource.get("growth_progress"), 0.0, failures, "Force regrowth should clear progress")
+	TEST_UTILS.expect_equal(resource.get("days_since_harvested"), 0.0, failures, "Force regrowth should clear harvested days")
+	TEST_UTILS.expect_equal(resource.get("is_harvested"), false, failures, "Force regrowth should clear harvested state")
+	resource.queue_free()
+	player.queue_free()
+
+
+func _test_resource_node_meat_drop_does_not_use_regrowth(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	resource.call("setup", "meat_drop")
+	TEST_UTILS.expect_equal(resource.call("advance_growth_days", 3.0), false, failures, "Meat drops should not use regrowth")
+	TEST_UTILS.expect_equal(resource.get("can_be_harvested"), true, failures, "Meat drops should stay harvestable until empty")
+	TEST_UTILS.expect_equal(resource.get("is_harvested"), false, failures, "Meat drops should not be treated as harvested plants")
+	resource.free()
+
+
+func _test_resource_node_grass_patch_is_not_player_harvestable(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	resource.call("setup", "grass_patch")
+	TEST_UTILS.expect_equal(resource.get("player_harvestable"), false, failures, "Grass patches should not be player harvestable")
+	TEST_UTILS.expect_equal(resource.is_player_interactable(), false, failures, "Grass patches should not be interactable by the player")
+	resource.free()
+
+
+func _test_resource_node_save_load_round_trip_preserves_growth_state(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.current_scene.add_child(resource)
+	resource.call("setup", "bush")
+	var player := TestPlayer.new()
+	tree.current_scene.add_child(player)
+	resource.call("interact", player)
+	resource.call("advance_growth_days", 0.5)
+	var save_data: Dictionary = resource.call("get_save_data")
+	var restored := RESOURCE_NODE_SCENE.instantiate()
+	tree.current_scene.add_child(restored)
+	restored.call("setup", "bush")
+	restored.call("restore_from_data", save_data)
+	TEST_UTILS.expect_equal(restored.get("growth_stage"), save_data.get("growth_stage"), failures, "Restore should keep the growth stage")
+	TEST_UTILS.expect_equal(restored.get("is_harvested"), save_data.get("is_harvested"), failures, "Restore should keep harvested state")
+	TEST_UTILS.expect_equal(restored.get("can_be_harvested"), save_data.get("can_be_harvested"), failures, "Restore should keep harvestable state")
+	TEST_UTILS.expect_equal(restored.get("amount"), save_data.get("amount"), failures, "Restore should keep current amount")
+	resource.queue_free()
+	restored.queue_free()
+	player.queue_free()
 
 
 func _test_resource_node_emits_bone_collected_for_bone_drop(failures: Array[String]) -> void:

@@ -8,6 +8,7 @@ const LANDMARK_SERVICE_TESTS := preload("res://tests/unit/test_landmark_service.
 const RESOURCE_SERVICE_TESTS := preload("res://tests/unit/test_resource_service.gd")
 const BENCHMARK_RUNNER_TESTS := preload("res://tests/unit/test_benchmark_runner.gd")
 const GAME_SESSION_TESTS := preload("res://tests/unit/test_game_session.gd")
+const DAY_NIGHT_SYSTEM_TESTS := preload("res://tests/unit/test_day_night_system.gd")
 const HUNGER_DIET_TESTS := preload("res://tests/unit/test_hunger_diet.gd")
 const RESOURCE_NODE_TESTS := preload("res://tests/unit/test_resource_node.gd")
 const WORLD_SPATIAL_INDEX_TESTS := preload("res://tests/unit/test_world_spatial_index.gd")
@@ -29,6 +30,7 @@ const SMALL_PREY_TESTS := preload("res://tests/unit/test_small_prey.gd")
 const GRAZER_TESTS := preload("res://tests/unit/test_grazer.gd")
 const VARNAK_TESTS := preload("res://tests/unit/test_varnak.gd")
 const SAVE_SYSTEM_TESTS := preload("res://tests/unit/test_save_system.gd")
+const PLAYER_STATS_TESTS := preload("res://tests/unit/test_player_stats.gd")
 const ERROR_DRAIN_MAX_FRAMES := 8
 const ERROR_DRAIN_STABLE_FRAMES := 2
 
@@ -121,6 +123,7 @@ func _run_tests() -> void:
 	await _run_suite("ResourceService", RESOURCE_SERVICE_TESTS.new(), failures)
 	await _run_suite("BenchmarkRunner", BENCHMARK_RUNNER_TESTS.new(), failures)
 	await _run_suite("GameSession", GAME_SESSION_TESTS.new(), failures)
+	await _run_suite("DayNightSystem", DAY_NIGHT_SYSTEM_TESTS.new(), failures)
 	await _run_suite("HungerDiet", HUNGER_DIET_TESTS.new(), failures)
 	await _run_suite("ResourceNode", RESOURCE_NODE_TESTS.new(), failures)
 	await _run_suite("WorldSpatialIndex", WORLD_SPATIAL_INDEX_TESTS.new(), failures)
@@ -142,6 +145,7 @@ func _run_tests() -> void:
 	await _run_suite("Grazer", GRAZER_TESTS.new(), failures)
 	await _run_suite("Varnak", VARNAK_TESTS.new(), failures)
 	await _run_suite("SaveSystem", SAVE_SYSTEM_TESTS.new(), failures)
+	await _run_suite("PlayerStats", PLAYER_STATS_TESTS.new(), failures)
 	await _drain_runtime_errors()
 	_append_logged_errors(failures, "", _unit_test_error_cursor)
 	_remove_unit_test_error_logger()

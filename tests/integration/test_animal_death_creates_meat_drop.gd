@@ -60,6 +60,11 @@ func run() -> Array[String]:
 			TEST_UTILS.expect_equal(str(meat_drop.get("resource_kind")), "meat_drop", failures, "Spawned drop should be a meat_drop resource")
 			TEST_UTILS.expect(int(meat_drop.get("amount")) > 0, failures, "Spawned meat drop should have a positive amount")
 			TEST_UTILS.expect(meat_drop.global_position.distance_to(spawn_point) < 32.0, failures, "Meat drop should appear where the animal died")
+			INTEGRATION.assert_resource_registered(failures, world, meat_drop, "meat_drop", "Meat drop")
+			INTEGRATION.assert_valid_node2d_position(failures, meat_drop, "Meat drop")
+			INTEGRATION.assert_node_inside_world_rect(failures, world, meat_drop, "Meat drop")
+			var save_data: Dictionary = meat_drop.call("get_save_data")
+			TEST_UTILS.expect_equal(str(save_data.get("resource_kind", "")), "meat_drop", failures, "Meat drop save data should use resource_kind=meat_drop")
 	TEST_UTILS.expect(not is_instance_valid(prey), failures, "Dead prey should be freed from the scene")
 
 	await INTEGRATION.shutdown_main(context)

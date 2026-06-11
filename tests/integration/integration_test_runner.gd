@@ -12,6 +12,9 @@ const RESOURCE_REGROWTH_ADVANCES_AFTER_DAY_PROGRESSION_TESTS := preload("res://t
 const SAVE_LOAD_RESTORES_ECOSYSTEM_STATE_TESTS := preload("res://tests/integration/test_save_load_restores_ecosystem_state.gd")
 const SAVE_LOAD_ECOSYSTEM_AFTER_DAYS_TESTS := preload("res://tests/integration/test_save_load_ecosystem_after_days.gd")
 const MINIMAP_RENDERS_WITH_LANDMARKS_TESTS := preload("res://tests/integration/test_minimap_renders_with_landmarks.gd")
+const VISIBILITY_CULLING_REGISTRY_SAFETY_TESTS := preload("res://tests/integration/test_visibility_culling_registry_safety.gd")
+const HUD_SAVE_LOAD_REFRESH_TESTS := preload("res://tests/integration/test_hud_save_load_refresh.gd")
+const STORAGE_BOX_SAVE_DATA_TESTS := preload("res://tests/integration/test_storage_box_save_data.gd")
 
 
 func _ready() -> void:
@@ -32,6 +35,9 @@ func _run_tests() -> void:
 	await _run_suite("SaveLoadRestoresEcosystemState", SAVE_LOAD_RESTORES_ECOSYSTEM_STATE_TESTS, failures)
 	await _run_suite("SaveLoadEcosystemAfterDays", SAVE_LOAD_ECOSYSTEM_AFTER_DAYS_TESTS, failures)
 	await _run_suite("MinimapRendersWithLandmarks", MINIMAP_RENDERS_WITH_LANDMARKS_TESTS, failures)
+	await _run_suite("VisibilityCullingRegistrySafety", VISIBILITY_CULLING_REGISTRY_SAFETY_TESTS, failures)
+	await _run_suite("HUDSaveLoadRefresh", HUD_SAVE_LOAD_REFRESH_TESTS, failures)
+	await _run_suite("StorageBoxSaveData", STORAGE_BOX_SAVE_DATA_TESTS, failures)
 	if failures.is_empty():
 		_cleanup_autoloads()
 		var tree := get_tree()
