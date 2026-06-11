@@ -82,7 +82,7 @@ func _new_report() -> Dictionary:
 	}
 
 
-func _check_player_start(report: Dictionary, world: Node, player_position: Vector2, landmarks: Array[Dictionary], world_rect: Rect2) -> void:
+func _check_player_start(report: Dictionary, world: Node, player_position: Vector2, _landmarks: Array[Dictionary], world_rect: Rect2) -> void:
 	if player_position == Vector2.INF:
 		_collect_error(report, "Player start position could not be read.")
 		return
@@ -98,13 +98,13 @@ func _check_player_start(report: Dictionary, world: Node, player_position: Vecto
 		_collect_error(report, "Player start is too close to deep ocean: %.1f px" % distance_to_deep_ocean)
 	elif distance_to_deep_ocean <= PLAYER_DEEP_OCEAN_WARNING_DISTANCE:
 		_collect_warning(report, "Player start is close to deep ocean: %.1f px" % distance_to_deep_ocean)
-	for seed in DEFAULT_TEST_SEEDS:
-		var generated_landmarks := _generate_landmarks_for_seed(seed)
-		var safe_start: Vector2 = world.get_safe_player_start_position(generated_landmarks) if world.has_method("get_safe_player_start_position") else player_position
+	for test_seed in DEFAULT_TEST_SEEDS:
+		var generated_landmarks := _generate_landmarks_for_seed(test_seed)
+		var safe_start: Vector2 = WORLD_CONFIG.get_safe_player_start_position(generated_landmarks)
 		if not world_rect.has_point(safe_start):
-			_collect_error(report, "Seed %d safe start is outside the world rect: %s" % [seed, _format_position(safe_start)])
+			_collect_error(report, "Seed %d safe start is outside the world rect: %s" % [test_seed, _format_position(safe_start)])
 		elif not PLAYABLE_ZONES.has(str(world.get_water_zone(safe_start))):
-			_collect_error(report, "Seed %d safe start is not on playable terrain: %s" % [seed, _format_position(safe_start)])
+			_collect_error(report, "Seed %d safe start is not on playable terrain: %s" % [test_seed, _format_position(safe_start)])
 
 
 func _check_edge_water(report: Dictionary, world_rect: Rect2) -> void:
@@ -211,11 +211,13 @@ func _check_registered_nodes(report: Dictionary, world: Node) -> void:
 			var resource := resource_value as Node2D
 			if resource == null:
 				continue
-			if world.has_method("is_resource_position_blocked_by_water") and bool(world.is_resource_position_blocked_by_water(str(resource.get("kind")), resource.global_position)):
+			var resource_kind := str(resource.get("resource_kind"))
+			if world.has_method("is_resource_position_blocked_by_water") and bool(world.is_resource_position_blocked_by_water(resource_kind, resource.global_position)):
 				blocked_water_nodes += 1
 	if blocked_water_nodes > 0:
 		_collect_error(report, "Registered resources violate water blocking rules: %d" % blocked_water_nodes)
 	report["checks"]["resource_water_blocked"] = blocked_water_nodes
+	_check_water_rule_sampling(report, world)
 
 
 func _check_pond_dominance(report: Dictionary, landmarks: Array[Dictionary], world_rect: Rect2) -> void:
@@ -232,11 +234,10 @@ func _check_pond_dominance(report: Dictionary, landmarks: Array[Dictionary], wor
 	report["checks"]["hill_count"] = hill_count
 	var dominance_ratio := float(pond_count) / float(max(pond_count + hill_count, 1))
 	report["checks"]["pond_dominance_ratio"] = "%.2f" % dominance_ratio
-	if dominance_ratio >= POND_DOMINANCE_ERROR_RATIO:
-		_collect_error(report, "Pond landmarks dominate the map: %.2f" % dominance_ratio)
-	elif dominance_ratio >= POND_DOMINANCE_WARNING_RATIO:
+	if dominance_ratio >= POND_DOMINANCE_WARNING_RATIO:
 		_collect_warning(report, "Pond landmarks are unusually frequent: %.2f" % dominance_ratio)
 	var water_points := 0
+	var pond_points := 0
 	var total_points := 0
 	for y in range(ZONE_SCAN_STEPS + 1):
 		for x in range(ZONE_SCAN_STEPS + 1):
@@ -247,11 +248,19 @@ func _check_pond_dominance(report: Dictionary, landmarks: Array[Dictionary], wor
 			total_points += 1
 			if WATER_ZONES.has(WORLD_CONFIG.get_terrain_zone(sample)):
 				water_points += 1
+			if _is_inside_landmark(sample, landmarks, "pond"):
+				pond_points += 1
 	report["checks"]["map_water_ratio"] = "%.2f" % (float(water_points) / float(max(total_points, 1)))
+	var pond_surface_ratio := float(pond_points) / float(max(total_points, 1))
+	report["checks"]["pond_surface_ratio"] = "%.2f" % pond_surface_ratio
+	if pond_surface_ratio >= POND_DOMINANCE_ERROR_RATIO:
+		_collect_error(report, "Pond coverage dominates the map sample: %.2f" % pond_surface_ratio)
+	elif pond_surface_ratio >= POND_DOMINANCE_WARNING_RATIO:
+		_collect_warning(report, "Pond coverage is high in the map sample: %.2f" % pond_surface_ratio)
 
 
-func _generate_landmarks_for_seed(seed: int) -> Array[Dictionary]:
-	return Array(WORLD_CONFIG.generate_landmarks(seed))
+func _generate_landmarks_for_seed(test_seed: int) -> Array[Dictionary]:
+	return Array(WORLD_CONFIG.generate_landmarks(test_seed))
 
 
 func _get_player_position(world: Node) -> Vector2:
@@ -267,6 +276,65 @@ func _is_blocked_zone(world: Node, world_position: Vector2) -> bool:
 	if not world.has_method("get_water_zone"):
 		return false
 	return BLOCKED_CREATURE_SPAWN_ZONES.has(str(world.get_water_zone(world_position)))
+
+
+func _check_water_rule_sampling(report: Dictionary, world: Node) -> void:
+	var sample_points := _build_water_rule_sample_points()
+	var blocked_spawn_hits := 0
+	var blocked_navigation_hits := 0
+	var blocked_resource_hits := 0
+	var resource_kind := "conifer_tree"
+	for sample in sample_points:
+		if world.has_method("is_creature_spawn_blocked_by_water") and bool(world.is_creature_spawn_blocked_by_water(sample)):
+			blocked_spawn_hits += 1
+		if world.has_method("is_creature_navigation_blocked") and bool(world.is_creature_navigation_blocked(sample)):
+			blocked_navigation_hits += 1
+		if world.has_method("is_resource_position_blocked_by_water") and bool(world.is_resource_position_blocked_by_water(resource_kind, sample)):
+			blocked_resource_hits += 1
+	report["checks"]["sample_spawn_blocked"] = blocked_spawn_hits
+	report["checks"]["sample_navigation_blocked"] = blocked_navigation_hits
+	report["checks"]["sample_resource_blocked"] = blocked_resource_hits
+	if blocked_spawn_hits == 0:
+		_collect_error(report, "No sampled positions were blocked for creature spawn in deep/shallow/shore water.")
+	if blocked_navigation_hits == 0:
+		_collect_error(report, "No sampled positions were blocked for creature navigation in deep/shallow/shore water.")
+	if blocked_resource_hits == 0:
+		_collect_error(report, "No sampled positions were blocked for resource placement in deep/shallow/shore water.")
+
+
+func _build_water_rule_sample_points() -> Array[Vector2]:
+	var sample_points: Array[Vector2] = []
+	var zones := ["deep_ocean", "shallow_water", "shore"]
+	for zone in zones:
+		var point := _find_sample_point_for_zone(zone)
+		if point != Vector2.INF:
+			sample_points.append(point)
+	return sample_points
+
+
+func _find_sample_point_for_zone(target_zone: String) -> Vector2:
+	var world_rect := WORLD_CONFIG.WORLD_RECT
+	for y in range(ZONE_SCAN_STEPS + 1):
+		for x in range(ZONE_SCAN_STEPS + 1):
+			var sample := world_rect.position + Vector2(
+				world_rect.size.x * float(x) / float(max(ZONE_SCAN_STEPS, 1)),
+				world_rect.size.y * float(y) / float(max(ZONE_SCAN_STEPS, 1))
+			)
+			if WORLD_CONFIG.get_terrain_zone(sample) == target_zone:
+				return sample
+	return Vector2.INF
+
+
+func _is_inside_landmark(sample: Vector2, landmarks: Array[Dictionary], landmark_type: String) -> bool:
+	for landmark_value in landmarks:
+		var landmark := Dictionary(landmark_value)
+		if str(landmark.get("type", "")) != landmark_type:
+			continue
+		var landmark_position := Vector2(landmark.get("position", Vector2.ZERO))
+		var radius := float(landmark.get("radius", 0.0))
+		if sample.distance_to(landmark_position) <= radius:
+			return true
+	return false
 
 
 func _distance_to_zone(world_position: Vector2, target_zone: String, world_rect: Rect2) -> float:
