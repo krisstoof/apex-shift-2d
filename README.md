@@ -143,6 +143,11 @@ When validating persistence, pay special attention to:
 
 Release notes and known issues will be added in future documentation passes.
 
+## Release Documentation
+
+- [Changelog](CHANGELOG.md)
+- [Known Issues](KNOWN_ISSUES.md)
+
 ## Next focus
 
 - Keep validating the current prototype loop with save/load, inventory, storage, and creature behavior.
