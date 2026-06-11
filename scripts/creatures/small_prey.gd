@@ -216,7 +216,7 @@ func restore_from_data(data: Dictionary) -> void:
 	scavenger_diet = _safe_float(data, "scavenger_diet", scavenger_diet)
 	plant_consumption_rate = _safe_float(data, "plant_consumption_rate", plant_consumption_rate)
 	reproduction_value = _safe_float(data, "reproduction_value", reproduction_value)
-	state = _safe_int(data, "state", State.WANDER)
+	state = _safe_int(data, "state", State.WANDER) as State
 	if state == State.DEAD:
 		state = State.WANDER
 	biome_id = str(data.get("biome_id", biome_id))
@@ -629,16 +629,16 @@ func _get_preferred_wander_biome_id() -> String:
 	return home_biome_id
 
 
-func _is_navigation_position_valid(position: Vector2) -> bool:
-	var clamped_position := _clamp_to_world(position)
-	if clamped_position.distance_squared_to(position) > 0.01:
+func _is_navigation_position_valid(nav_position: Vector2) -> bool:
+	var clamped_position := _clamp_to_world(nav_position)
+	if clamped_position.distance_squared_to(nav_position) > 0.01:
 		return false
 	var world_query: Variant = _get_world_query()
-	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(position) == true:
+	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(nav_position) == true:
 		return false
 	for wall in _get_cached_group_nodes("walls"):
 		var wall_node := wall as Node2D
-		if is_instance_valid(wall_node) and position.distance_to(wall_node.global_position) < wall_avoid_radius * 0.72:
+		if is_instance_valid(wall_node) and nav_position.distance_to(wall_node.global_position) < wall_avoid_radius * 0.72:
 			return false
 	return true
 
@@ -678,11 +678,11 @@ func _get_bounded_flee_target(away: Vector2) -> Vector2:
 	return _clamp_to_world(global_position + direction * wander_radius * 0.45)
 
 
-func _clamp_to_world(position: Vector2) -> Vector2:
+func _clamp_to_world(world_point: Vector2) -> Vector2:
 	var rect := _get_world_rect()
 	return Vector2(
-		clamp(position.x, rect.position.x, rect.end.x),
-		clamp(position.y, rect.position.y, rect.end.y)
+		clamp(world_point.x, rect.position.x, rect.end.x),
+		clamp(world_point.y, rect.position.y, rect.end.y)
 	)
 
 
@@ -839,19 +839,19 @@ func _get_current_biome_id() -> String:
 	return biome_id
 
 
-func _get_biome_id_for_position(position: Vector2) -> String:
+func _get_biome_id_for_position(pos: Vector2) -> String:
 	for biome in WORLD_CONFIG.get_biome_zones():
-		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
+		if Geometry2D.is_point_in_polygon(pos, PackedVector2Array(biome["points"])):
 			return _get_biome_id(biome)
 	return ""
 
 
-func _is_position_in_biome(position: Vector2, target_biome_id: String) -> bool:
+func _is_position_in_biome(pos: Vector2, target_biome_id: String) -> bool:
 	if target_biome_id.is_empty():
-		return WORLD_CONFIG.WORLD_RECT.has_point(position)
+		return WORLD_CONFIG.WORLD_RECT.has_point(pos)
 	for biome in WORLD_CONFIG.get_biome_zones():
 		if _get_biome_id(biome) == target_biome_id:
-			return Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"]))
+			return Geometry2D.is_point_in_polygon(pos, PackedVector2Array(biome["points"]))
 	return false
 
 

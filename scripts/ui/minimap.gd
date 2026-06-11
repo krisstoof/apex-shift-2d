@@ -309,21 +309,21 @@ func _get_pond_shape_scale(landmark: Dictionary, angle: float) -> float:
 	var irregularity: float = float(clamp(float(GAME_BALANCE.LANDMARKS.get("pond_shape_irregularity", 0.16)), 0.0, 0.45))
 	if irregularity <= 0.0:
 		return 1.0
-	var seed: float = _get_pond_shape_seed(landmark)
+	var pond_shape_seed: float = _get_pond_shape_seed(landmark)
 	var wave: float = (
-		sin(angle * 2.0 + seed) * 0.55
-		+ sin(angle * 3.0 - seed * 1.7) * 0.32
-		+ sin(angle * 5.0 + seed * 0.6) * 0.18
+		sin(angle * 2.0 + pond_shape_seed) * 0.55
+		+ sin(angle * 3.0 - pond_shape_seed * 1.7) * 0.32
+		+ sin(angle * 5.0 + pond_shape_seed * 0.6) * 0.18
 	) / 1.05
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.25, 1.0 + irregularity * 1.25)
 
 
 func _get_pond_shape_seed(landmark: Dictionary) -> float:
 	var pond_id := str(landmark.get("id", "pond"))
-	var seed := 0
+	var raw_seed: int = 0
 	for i in pond_id.length():
-		seed = (seed + pond_id.unicode_at(i) * (i + 3)) % 997
-	return float(seed) / 997.0 * TAU
+		raw_seed = (raw_seed + pond_id.unicode_at(i) * (i + 3)) % 997
+	return float(raw_seed) / 997.0 * TAU
 
 
 func _get_pond_shape_sample_count() -> int:
