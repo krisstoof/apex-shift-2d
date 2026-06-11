@@ -7,12 +7,13 @@ const PANEL_GAP := 20.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(160, 98)
 const POND_MARKER_Y_SCALE := 0.62
 const HILL_MARKER_Y_SCALE := 0.58
+const TERRAIN_PALETTE_VERSION := "terrain_palette_v2"
 const TERRAIN_ZONE_COLORS := {
-	"deep_ocean": Color(0.05, 0.14, 0.28),
-	"shallow_water": Color(0.11, 0.30, 0.50),
-	"shore": Color(0.64, 0.60, 0.38),
-	"land": Color(0.28, 0.46, 0.24),
-	"highland": Color(0.48, 0.44, 0.26)
+	"deep_ocean": Color(0.07, 0.22, 0.42),
+	"shallow_water": Color(0.12, 0.34, 0.56),
+	"shore": Color(0.64, 0.61, 0.38),
+	"land": Color(0.31, 0.40, 0.22),
+	"highland": Color(0.28, 0.25, 0.16)
 }
 const MAP_STATE_REFRESH_INTERVAL := 0.25
 const MAP_REDRAW_POSITION_THRESHOLD := 16.0
@@ -509,36 +510,42 @@ func _ensure_biome_texture() -> void:
 
 func _get_direct_biome_color_at(world_position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
 	var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
-	var terrain_color := Color(0.0, 0.0, 0.0)
 	match terrain_zone:
 		"deep_ocean":
-			terrain_color = TERRAIN_ZONE_COLORS["deep_ocean"]
+			return TERRAIN_ZONE_COLORS["deep_ocean"]
 		"shallow_water":
-			terrain_color = TERRAIN_ZONE_COLORS["shallow_water"]
+			return TERRAIN_ZONE_COLORS["shallow_water"]
 		"shore":
-			terrain_color = TERRAIN_ZONE_COLORS["shore"]
-		"land":
-			terrain_color = TERRAIN_ZONE_COLORS["land"]
-		"highland":
-			terrain_color = TERRAIN_ZONE_COLORS["highland"]
+			return TERRAIN_ZONE_COLORS["shore"]
+	var terrain_color := Color(TERRAIN_ZONE_COLORS.get(terrain_zone, TERRAIN_ZONE_COLORS["land"]))
 	var nearest_index := -1
 	var nearest_distance := INF
-	for i in zones.size():
+	for i in range(zones.size()):
 		var points := PackedVector2Array(zones[i]["points"])
 		if Geometry2D.is_point_in_polygon(world_position, points):
-			return colors[i].lerp(terrain_color, 0.20)
+			return _get_land_biome_map_color(colors[i], terrain_color, terrain_zone)
 		var edge_distance := _get_point_polygon_edge_distance(world_position, points)
 		if edge_distance < nearest_distance:
 			nearest_distance = edge_distance
 			nearest_index = i
 	if nearest_index >= 0:
-		return colors[nearest_index].lerp(terrain_color, 0.20)
+		return _get_land_biome_map_color(colors[nearest_index], terrain_color, terrain_zone)
 	return terrain_color
+
+
+func _get_land_biome_map_color(biome_color: Color, terrain_color: Color, terrain_zone: String) -> Color:
+	match terrain_zone:
+		"highland":
+			return biome_color.darkened(0.28).lerp(terrain_color, 0.45)
+		"land":
+			return biome_color.darkened(0.10).lerp(terrain_color, 0.30)
+		_:
+			return terrain_color
 
 
 func _get_point_polygon_edge_distance(point: Vector2, points: PackedVector2Array) -> float:
 	var nearest_distance := INF
-	for i in points.size():
+	for i in range(points.size()):
 		nearest_distance = min(nearest_distance, _get_distance_to_segment(point, points[i], points[(i + 1) % points.size()]))
 	return nearest_distance
 
@@ -553,7 +560,10 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 
 func _get_biome_colors_key() -> String:
-	var parts: Array[String] = []
+	var parts: Array[String] = [TERRAIN_PALETTE_VERSION]
+	for zone_name in TERRAIN_ZONE_COLORS.keys():
+		var color := Color(TERRAIN_ZONE_COLORS[zone_name])
+		parts.append("%s=%.3f:%.3f:%.3f" % [str(zone_name), color.r, color.g, color.b])
 	for biome in biome_zones:
 		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
