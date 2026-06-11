@@ -13,6 +13,7 @@ extends Node
 const Utils := preload("res://tests/regression/regression_test_utils.gd")
 const START_MENU_NEW_GAME_BOOTS_PLAYABLE_SESSION_TEST := preload("res://tests/regression/test_start_menu_new_game_boots_playable_session.gd")
 const CONTINUE_RESTORES_SAVED_WORLD_BOOTSTRAP_TEST := preload("res://tests/regression/test_continue_restores_saved_world_bootstrap.gd")
+const BASIC_SURVIVAL_LOOP_FROM_EMPTY_INVENTORY_TEST := preload("res://tests/regression/test_basic_survival_loop_from_empty_inventory.gd")
 
 var _failures: Array[String] = []
 
@@ -23,6 +24,7 @@ func _ready() -> void:
 
 func _run_all() -> void:
 	var scenarios := [
+		{"name": "BasicSurvivalLoop_FromEmptyInventory", "method": "_scenario_basic_survival_loop_from_empty_inventory"},
 		{"name": "StartMenu_Continue_RestoresSavedWorldBootstrap", "method": "_scenario_continue_restores_saved_world_bootstrap"},
 		{"name": "StartMenu_NewGame_BootsPlayableSession", "method": "_scenario_start_menu_new_game_boots_playable_session"},
 		{"name": "StartMenu_NewGame_WorldBoot", "method": "_scenario_start_menu_new_game_world_boot"},
@@ -125,6 +127,14 @@ func _scenario_start_menu_new_game_boots_playable_session() -> Dictionary:
 
 func _scenario_continue_restores_saved_world_bootstrap() -> Dictionary:
 	var suite := CONTINUE_RESTORES_SAVED_WORLD_BOOTSTRAP_TEST.new()
+	var failures: Array[String] = await suite.run(get_tree() as SceneTree)
+	if failures.is_empty():
+		return {"ok": true}
+	return {"ok": false, "reason": failures[0]}
+
+
+func _scenario_basic_survival_loop_from_empty_inventory() -> Dictionary:
+	var suite := BASIC_SURVIVAL_LOOP_FROM_EMPTY_INVENTORY_TEST.new()
 	var failures: Array[String] = await suite.run(get_tree() as SceneTree)
 	if failures.is_empty():
 		return {"ok": true}
