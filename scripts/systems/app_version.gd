@@ -1,7 +1,7 @@
 extends Node
 
-const VERSION := "0.1.1"
-const VERSION_NAME := "v0.1.1"
+const VERSION := "0.1.2"
+const VERSION_NAME := "v0.1.2"
 const APP_NAME := "Apex Shift 2D"
 
 
