@@ -161,6 +161,18 @@ static func find_button_by_text_recursive(root: Node, text: String) -> Button:
 	return null
 
 
+static func find_node_by_name_recursive(root: Node, node_name: String) -> Node:
+	if root == null:
+		return null
+	if root.name == node_name:
+		return root
+	for child in root.get_children():
+		var result := find_node_by_name_recursive(child, node_name)
+		if result != null:
+			return result
+	return null
+
+
 static func assert_node_exists(node: Node, message: String) -> String:
 	if node == null or not is_instance_valid(node):
 		return message

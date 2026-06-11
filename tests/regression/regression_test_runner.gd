@@ -8,22 +8,26 @@
 #   0 - all regression scenarios passed
 #   1 - at least one regression scenario failed
 
-extends Node
+extends SceneTree
 
 const Utils := preload("res://tests/regression/regression_test_utils.gd")
 const START_MENU_NEW_GAME_BOOTS_PLAYABLE_SESSION_TEST := preload("res://tests/regression/test_start_menu_new_game_boots_playable_session.gd")
 const CONTINUE_RESTORES_SAVED_WORLD_BOOTSTRAP_TEST := preload("res://tests/regression/test_continue_restores_saved_world_bootstrap.gd")
 const BASIC_SURVIVAL_LOOP_FROM_EMPTY_INVENTORY_TEST := preload("res://tests/regression/test_basic_survival_loop_from_empty_inventory.gd")
+const STORAGE_BOX_TRANSFER_SAVE_LOAD_TEST := preload("res://tests/regression/test_storage_box_transfer_save_load.gd")
+const UI_MODAL_STACK_TEST := preload("res://tests/regression/test_ui_modal_stack_inventory_map_pause_storage.gd")
 
 var _failures: Array[String] = []
 
 
-func _ready() -> void:
+func _initialize() -> void:
 	call_deferred("_run_all")
 
 
 func _run_all() -> void:
 	var scenarios := [
+		{"name": "UI_ModalStack_Inventory_Map_Pause_Storage", "method": "_scenario_ui_modal_stack_inventory_map_pause_storage"},
+		{"name": "StorageBox_Transfer_SaveLoad", "method": "_scenario_storage_box_transfer_save_load"},
 		{"name": "BasicSurvivalLoop_FromEmptyInventory", "method": "_scenario_basic_survival_loop_from_empty_inventory"},
 		{"name": "StartMenu_Continue_RestoresSavedWorldBootstrap", "method": "_scenario_continue_restores_saved_world_bootstrap"},
 		{"name": "StartMenu_NewGame_BootsPlayableSession", "method": "_scenario_start_menu_new_game_boots_playable_session"},
@@ -37,13 +41,13 @@ func _run_all() -> void:
 
 	if _failures.is_empty():
 		print("[RegressionTests] All regression tests passed.")
-		get_tree().quit(0)
+		quit(0)
 		return
 
 	push_error("[RegressionTests] %d failure(s):" % _failures.size())
 	for failure in _failures:
 		push_error(failure)
-	get_tree().quit(1)
+	quit(1)
 
 
 func _run_scenario(scenario: Dictionary) -> void:
@@ -57,12 +61,12 @@ func _run_scenario(scenario: Dictionary) -> void:
 		_failures.append(missing_method)
 		push_error("[RegressionTests] %s: FAILED - %s" % [name, missing_method])
 		Utils.cleanup_save_file()
-		await Utils.wait_frames(get_tree() as SceneTree, 4)
+		await Utils.wait_frames(self, 4)
 		return
 
 	var result: Dictionary = await call(method_name)
 	Utils.cleanup_save_file()
-	await Utils.wait_frames(get_tree() as SceneTree, 4)
+	await Utils.wait_frames(self, 4)
 
 	if bool(result.get("ok", false)):
 		print("[RegressionTests] %s: OK" % name)
@@ -74,7 +78,7 @@ func _run_scenario(scenario: Dictionary) -> void:
 
 
 func _scenario_start_menu_new_game_world_boot() -> Dictionary:
-	var tree := get_tree() as SceneTree
+	var tree: SceneTree = self
 	var menu_result := await Utils.boot_start_menu(tree)
 	if not bool(menu_result.get("ok", false)):
 		return menu_result
@@ -119,7 +123,7 @@ func _scenario_start_menu_new_game_world_boot() -> Dictionary:
 
 func _scenario_start_menu_new_game_boots_playable_session() -> Dictionary:
 	var suite := START_MENU_NEW_GAME_BOOTS_PLAYABLE_SESSION_TEST.new()
-	var failures: Array[String] = await suite.run(get_tree() as SceneTree)
+	var failures: Array[String] = await suite.run(self)
 	if failures.is_empty():
 		return {"ok": true}
 	return {"ok": false, "reason": failures[0]}
@@ -127,7 +131,7 @@ func _scenario_start_menu_new_game_boots_playable_session() -> Dictionary:
 
 func _scenario_continue_restores_saved_world_bootstrap() -> Dictionary:
 	var suite := CONTINUE_RESTORES_SAVED_WORLD_BOOTSTRAP_TEST.new()
-	var failures: Array[String] = await suite.run(get_tree() as SceneTree)
+	var failures: Array[String] = await suite.run(self)
 	if failures.is_empty():
 		return {"ok": true}
 	return {"ok": false, "reason": failures[0]}
@@ -135,14 +139,30 @@ func _scenario_continue_restores_saved_world_bootstrap() -> Dictionary:
 
 func _scenario_basic_survival_loop_from_empty_inventory() -> Dictionary:
 	var suite := BASIC_SURVIVAL_LOOP_FROM_EMPTY_INVENTORY_TEST.new()
-	var failures: Array[String] = await suite.run(get_tree() as SceneTree)
+	var failures: Array[String] = await suite.run(self)
+	if failures.is_empty():
+		return {"ok": true}
+	return {"ok": false, "reason": failures[0]}
+
+
+func _scenario_storage_box_transfer_save_load() -> Dictionary:
+	var suite := STORAGE_BOX_TRANSFER_SAVE_LOAD_TEST.new()
+	var failures: Array[String] = await suite.run(self)
+	if failures.is_empty():
+		return {"ok": true}
+	return {"ok": false, "reason": failures[0]}
+
+
+func _scenario_ui_modal_stack_inventory_map_pause_storage() -> Dictionary:
+	var suite := UI_MODAL_STACK_TEST.new()
+	var failures: Array[String] = await suite.run(self)
 	if failures.is_empty():
 		return {"ok": true}
 	return {"ok": false, "reason": failures[0]}
 
 
 func _scenario_direct_main_world_boot_gameplay_smoke() -> Dictionary:
-	var tree := get_tree() as SceneTree
+	var tree: SceneTree = self
 	var main_result := await Utils.boot_main(tree, {"integration_test_mode": false})
 	if not bool(main_result.get("ok", false)):
 		return main_result
@@ -172,7 +192,7 @@ func _scenario_direct_main_world_boot_gameplay_smoke() -> Dictionary:
 
 
 func _scenario_save_load_continue_flow() -> Dictionary:
-	var tree := get_tree() as SceneTree
+	var tree: SceneTree = self
 	var menu_result := await Utils.boot_start_menu(tree)
 	if not bool(menu_result.get("ok", false)):
 		return menu_result
