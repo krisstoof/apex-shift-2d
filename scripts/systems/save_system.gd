@@ -162,6 +162,8 @@ func _restore_save_data(data: Dictionary) -> void:
 		await world.restore_grazers(Array(data.get("grazers", [])))
 	if world and world.has_method("end_save_restore"):
 		world.end_save_restore()
+	if world and world.has_method("rebuild_runtime_indexes_after_load"):
+		world.rebuild_runtime_indexes_after_load()
 
 
 func _restore_player_data(player: Node, data: Dictionary) -> void:

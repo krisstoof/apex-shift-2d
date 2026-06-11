@@ -19,13 +19,15 @@ offset_top = 12.0
 offset_right = 790.0
 offset_bottom = 185.0
 
-[node name="StatsLabel" type="Label" parent="Panel"]
+[node name="StatsLabel" type="RichTextLabel" parent="Panel"]
 offset_left = 12.0
 offset_top = 8.0
 offset_right = 766.0
 offset_bottom = 40.0
 theme_override_font_sizes/font_size = 22
 theme_override_colors/font_color = Color(0.78, 1, 0.68, 1)
+bbcode_enabled = true
+fit_content = true
 text = "Loading..."
 
 [node name="PromptLabel" type="Label" parent="Panel"]
