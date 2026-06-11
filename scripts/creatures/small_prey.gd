@@ -118,16 +118,17 @@ func _ready() -> void:
 func set_visibility_culled(should_be_visible: bool) -> void:
 	is_visibility_culled = not should_be_visible
 	visible = should_be_visible
+	_update_simulation_level()
 	if should_be_visible:
+		_restore_full_simulation() if simulation_level == SIMULATION_LOD.Level.NEAR else _apply_medium_simulation() if simulation_level == SIMULATION_LOD.Level.MEDIUM else _apply_far_simulation()
+		queue_redraw()
+		return
+	if simulation_level == SIMULATION_LOD.Level.FAR:
+		_apply_far_simulation()
+	else:
 		collision_layer = stored_collision_layer
 		collision_mask = stored_collision_mask
 		set_physics_process(true)
-		set_process(true)
-		queue_redraw()
-	else:
-		collision_layer = 0
-		collision_mask = 0
-		set_physics_process(false)
 		set_process(false)
 
 
@@ -306,8 +307,6 @@ func take_damage(amount: float, source: String = "unknown") -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if is_visibility_culled:
-		return
 	if state == State.DEAD:
 		return
 	if not is_instance_valid(player):
@@ -315,6 +314,8 @@ func _physics_process(delta: float) -> void:
 	_update_simulation_level()
 	if simulation_level == SIMULATION_LOD.Level.FAR:
 		_tick_far_simulation(delta)
+		return
+	if is_visibility_culled:
 		return
 	state_time = max(state_time - delta, 0.0)
 	eat_cooldown = max(eat_cooldown - delta, 0.0)

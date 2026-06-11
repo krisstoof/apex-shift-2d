@@ -148,7 +148,7 @@ func _ensure_biome_texture() -> void:
 	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
 	var colors: Array[Color] = []
 	for biome in biome_zones:
-		colors.append(Color(biome["color"]).lerp(Color.BLACK, 0.15))
+		colors.append(Color(biome["color"]))
 	for y in range(BIOME_BLEND_TEXTURE_SIZE.y):
 		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
 			var uv := Vector2(
