@@ -1523,6 +1523,8 @@ func _on_validate_island_world_pressed() -> void:
 	_post_debug_message(_get_island_world_validation_summary_text(report))
 	if not bool(report.get("passed", false)) and world.has_method("get_island_world_validation_text"):
 		print(world.get_island_world_validation_text())
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
 
 
 func _on_toggle_landmark_overlay_pressed() -> void:
@@ -1647,6 +1649,8 @@ func _post_debug_message(message: String) -> void:
 	var event_bus := get_node_or_null("/root/EventBus")
 	if event_bus and event_bus.has_method("post_message"):
 		event_bus.post_message(message)
+	else:
+		print(message)
 
 
 func _get_island_world_validation_summary_text(report: Dictionary = {}) -> String:
@@ -1656,7 +1660,10 @@ func _get_island_world_validation_summary_text(report: Dictionary = {}) -> Strin
 		if world and world.has_method("get_island_world_validation_report"):
 			validation_report = world.get_island_world_validation_report()
 	if validation_report.is_empty():
-		return "pending"
+		var fallback_world := _get_world_node()
+		if fallback_world == null or not fallback_world.has_method("get_island_world_validation_summary"):
+			return "unavailable"
+		return str(fallback_world.get_island_world_validation_summary())
 	var passed := bool(validation_report.get("passed", false))
 	var errors := Array(validation_report.get("errors", []))
 	var warnings := Array(validation_report.get("warnings", []))
