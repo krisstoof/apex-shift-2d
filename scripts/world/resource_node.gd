@@ -45,6 +45,7 @@ var food_bonus_multiplier := 1.0
 var pond_visual_multiplier := 1.0
 var biome_id := ""
 var is_visibility_culled := false
+# Pool state stays set while the node lives in the pool so release/acquire can reuse it safely.
 var is_pooled := false
 var pool_key := ""
 var pool_release_callback := Callable()
