@@ -49,6 +49,7 @@ func run() -> Array[String]:
 	ecosystem.call("debug_reduce_plant_biomass", biome_point)
 	await tree.process_frame
 	await tree.process_frame
+	TEST_UTILS.expect(world.call("get_world_rect").has_point(player.global_position), failures, "Player should stay inside the world bounds before save")
 
 	var expected_day: int = int(day_night.get("day"))
 	var expected_health: float = float(player.stats.health)
@@ -60,6 +61,8 @@ func run() -> Array[String]:
 	var expected_grazer_population: float = float(expected_ecosystem_state.get("grazer_population", 0.0))
 	var expected_small_prey_recovery: float = float(expected_ecosystem_state.get("small_prey_daily_recovery", 0.0))
 	var expected_grazer_recovery: float = float(expected_ecosystem_state.get("grazer_daily_recovery", 0.0))
+	TEST_UTILS.expect(world.call("get_registered_resources").size() > 0, failures, "World should still have registered resources before save")
+	TEST_UTILS.expect(world.call("get_registered_creatures_by_type", "small_prey").size() > 0, failures, "World should still have registered small prey before save")
 
 	save_system.call("save_game")
 	await tree.process_frame
@@ -93,6 +96,7 @@ func run() -> Array[String]:
 	TEST_UTILS.expect_close(float(ecosystem.get_biome_state(biome_id).get("grazer_population", 0.0)), expected_grazer_population, failures, "Grazer population should be restored from save")
 	TEST_UTILS.expect_close(float(ecosystem.get_biome_state(biome_id).get("small_prey_daily_recovery", 0.0)), expected_small_prey_recovery, failures, "SmallPrey recovery diagnostics should be restored from save")
 	TEST_UTILS.expect_close(float(ecosystem.get_biome_state(biome_id).get("grazer_daily_recovery", 0.0)), expected_grazer_recovery, failures, "Grazer recovery diagnostics should be restored from save")
+	INTEGRATION.assert_tree_unpaused(failures, tree, "SaveLoadRestoresEcosystemState")
 
 	var save_path := ProjectSettings.globalize_path("user://savegame.json")
 	if FileAccess.file_exists("user://savegame.json"):

@@ -43,6 +43,8 @@ func run() -> Array[String]:
 	TEST_UTILS.expect_equal(grazer.state, grazer.State.SEEK_FOOD, failures, "Hungry grazer should seek food")
 	TEST_UTILS.expect(is_instance_valid(grazer.plant_target), failures, "Hungry grazer should lock a plant target")
 	TEST_UTILS.expect(grazer.plant_target == plant, failures, "Hungry grazer should choose the closest plant")
+	INTEGRATION.assert_valid_node2d_position(failures, grazer, "Hungry grazer")
+	INTEGRATION.assert_creature_registered(failures, world, grazer, "grazer", "Hungry grazer")
 	grazer.call("_act", 0.0)
 	TEST_UTILS.expect(grazer.velocity.length() > 0.0 or grazer.state == grazer.State.EAT_PLANTS, failures, "Hungry grazer should either move toward or start eating the plant")
 	var hunger_before: float = float(grazer.hunger)

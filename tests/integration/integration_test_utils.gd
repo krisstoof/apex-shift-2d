@@ -211,3 +211,79 @@ static func clear_nodes_in_group(tree: SceneTree, group_name: String) -> int:
 		node_2d.queue_free()
 		removed += 1
 	return removed
+
+
+static func assert_node_exists(failures: Array[String], node: Node, label: String) -> void:
+	if node == null or not is_instance_valid(node):
+		failures.append("%s missing or invalid." % label)
+
+
+static func assert_true(failures: Array[String], condition: bool, message: String) -> void:
+	if not condition:
+		failures.append(message)
+
+
+static func assert_false(failures: Array[String], condition: bool, message: String) -> void:
+	if condition:
+		failures.append(message)
+
+
+static func assert_valid_node2d_position(failures: Array[String], node: Node, label: String) -> void:
+	if node == null or not is_instance_valid(node):
+		failures.append("%s missing or invalid." % label)
+		return
+	var node_2d := node as Node2D
+	if node_2d == null:
+		failures.append("%s is not Node2D." % label)
+		return
+	var pos := node_2d.global_position
+	if is_nan(pos.x) or is_nan(pos.y):
+		failures.append("%s position contains NaN: %s" % [label, pos])
+	if is_inf(pos.x) or is_inf(pos.y):
+		failures.append("%s position contains INF: %s" % [label, pos])
+
+
+static func assert_node_inside_world_rect(failures: Array[String], world: Node, node: Node, label: String) -> void:
+	if world == null or not world.has_method("get_world_rect"):
+		failures.append("World missing get_world_rect while checking %s." % label)
+		return
+	var node_2d := node as Node2D
+	if node_2d == null:
+		failures.append("%s is not Node2D." % label)
+		return
+	var world_rect: Rect2 = world.call("get_world_rect")
+	if not world_rect.has_point(node_2d.global_position):
+		failures.append("%s outside world rect: %s rect=%s" % [label, node_2d.global_position, world_rect])
+
+
+static func assert_resource_registered(failures: Array[String], world: Node, resource: Node, expected_kind: String, label: String) -> void:
+	if resource == null or not is_instance_valid(resource):
+		failures.append("%s resource missing." % label)
+		return
+	if not resource.is_in_group("resources"):
+		failures.append("%s resource is not in resources group." % label)
+	if world.has_method("get_registered_resources"):
+		var resources: Array = world.call("get_registered_resources")
+		if not resources.has(resource):
+			failures.append("%s resource is not in world resource registry." % label)
+	if expected_kind != "" and world.has_method("get_registered_resources_by_kind"):
+		var by_kind: Array = world.call("get_registered_resources_by_kind", expected_kind)
+		if not by_kind.has(resource):
+			failures.append("%s resource is not returned by get_registered_resources_by_kind(%s)." % [label, expected_kind])
+
+
+static func assert_creature_registered(failures: Array[String], world: Node, creature: Node, creature_type: String, label: String) -> void:
+	if creature == null or not is_instance_valid(creature):
+		failures.append("%s creature missing." % label)
+		return
+	if not creature.is_in_group(creature_type):
+		failures.append("%s creature is not in expected group: %s." % [label, creature_type])
+	if world.has_method("get_registered_creatures_by_type"):
+		var registered: Array = world.call("get_registered_creatures_by_type", creature_type)
+		if not registered.has(creature):
+			failures.append("%s creature is not in world registry for type %s." % [label, creature_type])
+
+
+static func assert_tree_unpaused(failures: Array[String], tree: SceneTree, label: String) -> void:
+	if tree.paused:
+		failures.append("%s left SceneTree.paused=true." % label)

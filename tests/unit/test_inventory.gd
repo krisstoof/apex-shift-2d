@@ -20,15 +20,20 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_starts_empty(failures)
 	_test_add_item_adds_to_empty_slot(failures)
+	_test_add_item_unknown_does_not_mutate(failures)
+	_test_add_item_zero_or_negative_does_not_mutate(failures)
 	_test_add_item_stacks_existing_stack(failures)
 	_test_add_item_splits_over_multiple_slots(failures)
 	_test_add_item_returns_leftover_when_full(failures)
 	_test_remove_item_removes_across_stacks(failures)
 	_test_remove_item_fails_when_not_enough_items(failures)
+	_test_remove_item_unknown_does_not_mutate(failures)
+	_test_remove_item_zero_or_negative_is_noop(failures)
 	_test_has_item_sums_all_stacks(failures)
 	_test_get_amount_sums_all_stacks(failures)
 	_test_inventory_never_goes_below_zero(failures)
 	_test_unknown_item_is_safe(failures)
+	_test_torch_respects_max_stack_one(failures)
 	_test_inventory_accepts_bone(failures)
 	_test_storage_box_inventory_uses_twelve_slots(failures)
 	_test_storage_box_prompt_mentions_open(failures)
@@ -37,9 +42,12 @@ func run() -> Array[String]:
 	_test_storage_box_screen_transfers_items_between_inventories(failures)
 	_test_storage_box_screen_posts_transfer_messages_to_hud(failures)
 	_test_save_load_restores_slots(failures)
+	_test_save_load_round_trip(failures)
 	_test_save_load_accepts_items_alias(failures)
 	_test_save_load_ignores_empty_and_unknown_items(failures)
+	_test_legacy_inventory_migration(failures)
 	_test_save_load_ignores_invalid_items(failures)
+	_test_clear_removes_all_slots(failures)
 	return failures
 
 
@@ -55,6 +63,24 @@ func _test_add_item_adds_to_empty_slot(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(leftover, 0, failures, "Adding to an empty slot should not leave leftovers")
 	TEST_UTILS.expect_equal(inventory.get_amount("wood"), 7, failures, "Inventory should store added items")
 	TEST_UTILS.expect_equal(int(inventory.get_slots()[0].get("amount", 0)), 7, failures, "First slot should receive the items")
+
+
+func _test_add_item_unknown_does_not_mutate(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new(2)
+	inventory.add_item("wood", 3)
+	var before := inventory.to_save_data().duplicate(true)
+	var leftover := inventory.add_item("unknown_item", 4)
+	TEST_UTILS.expect_equal(leftover, 4, failures, "Unknown items should be returned as leftover")
+	TEST_UTILS.expect_equal(inventory.to_save_data(), before, failures, "Unknown items should not mutate inventory state")
+
+
+func _test_add_item_zero_or_negative_does_not_mutate(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new(2)
+	inventory.add_item("wood", 3)
+	var before := inventory.to_save_data().duplicate(true)
+	TEST_UTILS.expect_equal(inventory.add_item("wood", 0), 0, failures, "Adding zero items should do nothing")
+	TEST_UTILS.expect_equal(inventory.add_item("wood", -5), 0, failures, "Adding negative items should do nothing")
+	TEST_UTILS.expect_equal(inventory.to_save_data(), before, failures, "Zero or negative additions should not mutate inventory")
 
 
 func _test_add_item_stacks_existing_stack(failures: Array[String]) -> void:
@@ -101,6 +127,24 @@ func _test_remove_item_fails_when_not_enough_items(failures: Array[String]) -> v
 	TEST_UTILS.expect_equal(inventory.get_amount("wood"), 3, failures, "Failed removal should not change inventory")
 
 
+func _test_remove_item_unknown_does_not_mutate(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new(2)
+	inventory.add_item("wood", 3)
+	inventory.add_item("stone", 2)
+	var before := inventory.to_save_data().duplicate(true)
+	TEST_UTILS.expect(not inventory.remove_item("unknown_item", 1), failures, "Unknown item removal should fail safely")
+	TEST_UTILS.expect_equal(inventory.to_save_data(), before, failures, "Unknown item removal should not mutate inventory")
+
+
+func _test_remove_item_zero_or_negative_is_noop(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new(2)
+	inventory.add_item("wood", 3)
+	var before := inventory.to_save_data().duplicate(true)
+	TEST_UTILS.expect(inventory.remove_item("wood", 0), failures, "Removing zero items should succeed")
+	TEST_UTILS.expect(inventory.remove_item("wood", -2), failures, "Removing negative items should be a no-op")
+	TEST_UTILS.expect_equal(inventory.to_save_data(), before, failures, "No-op removals should not mutate inventory")
+
+
 func _test_has_item_sums_all_stacks(failures: Array[String]) -> void:
 	var inventory := INVENTORY.new()
 	inventory.add_item("wood", 20)
@@ -130,6 +174,13 @@ func _test_unknown_item_is_safe(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(inventory.add_item("unknown", 4), 4, failures, "Unknown items should be rejected as leftovers")
 	TEST_UTILS.expect(not inventory.remove_item("unknown", 1), failures, "Unknown item removal should fail safely")
 	TEST_UTILS.expect_equal(inventory.get_amount("unknown"), 0, failures, "Unknown items should not be stored")
+
+
+func _test_torch_respects_max_stack_one(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new(2)
+	var leftover := inventory.add_item("torch", 3)
+	TEST_UTILS.expect_equal(leftover, 1, failures, "Torches should stop at one per slot")
+	TEST_UTILS.expect_equal(inventory.get_amount("torch"), 2, failures, "Two slots should hold at most two torches")
 
 
 func _test_inventory_accepts_bone(failures: Array[String]) -> void:
@@ -220,6 +271,20 @@ func _test_save_load_restores_slots(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(restored.get_slots().size(), 9, failures, "Save/load should preserve slot count")
 
 
+func _test_save_load_round_trip(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new(4)
+	inventory.add_item("wood", 7)
+	inventory.add_item("stone", 3)
+	inventory.add_item("torch", 1)
+	var save_data := inventory.to_save_data()
+	var restored := INVENTORY.new(4)
+	restored.load_from_save_data(save_data)
+	TEST_UTILS.expect_equal(restored.to_save_data(), save_data, failures, "Inventory save/load should round-trip cleanly")
+	TEST_UTILS.expect_equal(restored.get_amount("wood"), 7, failures, "Inventory save/load should restore wood")
+	TEST_UTILS.expect_equal(restored.get_amount("stone"), 3, failures, "Inventory save/load should restore stone")
+	TEST_UTILS.expect_equal(restored.get_amount("torch"), 1, failures, "Inventory save/load should restore torches")
+
+
 func _test_save_load_ignores_invalid_items(failures: Array[String]) -> void:
 	var inventory := INVENTORY.new()
 	inventory.load_from_save_data({
@@ -256,3 +321,24 @@ func _test_save_load_ignores_empty_and_unknown_items(failures: Array[String]) ->
 	})
 	TEST_UTILS.expect_equal(inventory.get_amount("bone"), 2, failures, "Load should keep valid items")
 	TEST_UTILS.expect_equal(inventory.get_amount("unknown"), 0, failures, "Load should ignore unknown items")
+
+
+func _test_legacy_inventory_migration(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new()
+	inventory.load_from_save_data({
+		"wood": 5,
+		"stone": 2,
+		"torch": 1
+	})
+	TEST_UTILS.expect_equal(inventory.get_amount("wood"), 5, failures, "Legacy inventory data should migrate wood")
+	TEST_UTILS.expect_equal(inventory.get_amount("stone"), 2, failures, "Legacy inventory data should migrate stone")
+	TEST_UTILS.expect_equal(inventory.get_amount("torch"), 1, failures, "Legacy inventory data should migrate torches")
+
+
+func _test_clear_removes_all_slots(failures: Array[String]) -> void:
+	var inventory := INVENTORY.new()
+	inventory.add_item("wood", 7)
+	inventory.add_item("stone", 3)
+	inventory.clear()
+	TEST_UTILS.expect_equal(inventory.get_all_items().is_empty(), true, failures, "Clear should remove all items")
+	TEST_UTILS.expect_equal(inventory.get_slots().size(), 9, failures, "Clear should preserve the slot count")

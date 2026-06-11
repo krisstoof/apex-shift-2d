@@ -60,6 +60,8 @@ func run() -> Array[String]:
 	TEST_UTILS.expect_equal(varnak.state, varnak.State.HUNT_ECOSYSTEM, failures, "Hungry Varnak should switch to ecosystem hunting")
 	TEST_UTILS.expect_equal(varnak.ecosystem_target, prey, failures, "Hungry Varnak should lock onto the spawned prey")
 	TEST_UTILS.expect_equal(varnak.decision_reason, "hunt_drive_ecosystem_prey", failures, "Varnak should explain that it is hunting ecosystem prey")
+	INTEGRATION.assert_valid_node2d_position(failures, varnak, "Hungry Varnak")
+	INTEGRATION.assert_creature_registered(failures, world, varnak, "varnak", "Hungry Varnak")
 	var distance_before: float = varnak.global_position.distance_to(prey.global_position)
 	varnak.call("_act", 0.0)
 	TEST_UTILS.expect(varnak.velocity.length() > 0.0, failures, "Hunting Varnak should start moving toward prey")

@@ -45,6 +45,8 @@ func run() -> Array[String]:
 	TEST_UTILS.expect_equal(prey.state, prey.State.SEEK_FOOD, failures, "Hungry small prey should switch to SEEK_FOOD")
 	TEST_UTILS.expect(is_instance_valid(prey.plant_target), failures, "Hungry small prey should lock a plant target")
 	TEST_UTILS.expect(prey.plant_target == resource, failures, "Hungry small prey should choose the closest spawned food source")
+	INTEGRATION.assert_valid_node2d_position(failures, prey, "Hungry small prey")
+	INTEGRATION.assert_creature_registered(failures, world, prey, "small_prey", "Hungry small prey")
 	prey.call("_act", 0.0)
 	TEST_UTILS.expect(prey.velocity.length() > 0.0, failures, "Hungry small prey should move toward food")
 	var distance_before := prey.global_position.distance_to(resource.global_position)

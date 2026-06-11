@@ -61,6 +61,9 @@ func run() -> Array[String]:
 			var position: Vector2 = (creature as Node2D).global_position
 			TEST_UTILS.expect(is_finite(position.x) and is_finite(position.y), failures, "%s position should remain finite" % creature.name)
 			TEST_UTILS.expect(world_rect.has_point(position), failures, "%s should stay inside world bounds" % creature.name)
+	if world.has_method("get_creatures_out_of_bounds_count"):
+		TEST_UTILS.expect_equal(int(world.call("get_creatures_out_of_bounds_count")), 0, failures, "World should report no out-of-bounds creatures")
+	INTEGRATION.assert_tree_unpaused(failures, tree, "AnimalsRemainInsideWorldBounds")
 
 	await INTEGRATION.shutdown_main(context)
 	return failures

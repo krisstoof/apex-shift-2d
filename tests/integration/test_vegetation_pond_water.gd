@@ -1,5 +1,6 @@
 extends RefCounted
 
+const INTEGRATION := preload("res://tests/integration/integration_test_utils.gd")
 const MAIN_SCENE := preload("res://scenes/main.tscn")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
@@ -63,8 +64,13 @@ func run() -> Array[String]:
 		if resource_kind not in PLANT_RESOURCE_KINDS:
 			continue
 		plant_resource_count += 1
+		INTEGRATION.assert_valid_node2d_position(failures, resource, "Vegetation %s" % resource_kind)
+		INTEGRATION.assert_node_inside_world_rect(failures, world, resource, "Vegetation %s" % resource_kind)
+		INTEGRATION.assert_resource_registered(failures, world, resource, resource_kind, "Vegetation %s" % resource_kind)
 		var water_zone := str(world.call("get_water_zone", resource.global_position))
 		TEST_UTILS.expect(not world.call("is_position_in_water", resource.global_position), failures, "Plant resource %s spawned in water zone %s at %s" % [resource_kind, water_zone, str(resource.global_position)])
+		if bool(resource.get("is_pond_vegetation")):
+			continue
 
 	TEST_UTILS.expect(plant_resource_count > 0, failures, "Fresh world should spawn plant resources to validate pond placement")
 
