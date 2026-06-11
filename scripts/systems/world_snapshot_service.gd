@@ -231,10 +231,33 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 func _build_marker_snapshot() -> Dictionary:
 	return {
 		"resources": _build_resource_markers(),
+		"campfires": _build_campfire_markers(),
 		"varnaks": _build_creature_markers("varnak"),
 		"small_prey": _build_creature_markers("small_prey"),
 		"grazers": _build_creature_markers("grazer")
 	}
+
+
+func _build_campfire_markers() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return markers
+
+	for campfire_value in tree.get_nodes_in_group("campfires"):
+		var campfire := campfire_value as Node2D
+		if campfire == null or not is_instance_valid(campfire):
+			continue
+		if campfire.is_queued_for_deletion():
+			continue
+
+		markers.append({
+			"position": campfire.global_position,
+			"type": "campfire",
+			"active": _read_campfire_active(campfire)
+		})
+
+	return markers
 
 
 func _build_resource_markers() -> Array[Dictionary]:
@@ -263,11 +286,52 @@ func _build_creature_markers(creature_type: String) -> Array[Dictionary]:
 		var creature := creature_value as Node2D
 		if creature == null or not is_instance_valid(creature):
 			continue
+		if creature.is_queued_for_deletion():
+			continue
+		if _is_creature_dead_for_marker(creature):
+			continue
 		markers.append({
 			"position": creature.global_position,
 			"type": creature_type
 		})
 	return markers
+
+
+func _read_campfire_active(campfire: Node) -> bool:
+	if campfire == null:
+		return false
+	if campfire.has_method("is_active"):
+		return campfire.call("is_active") == true
+	if campfire.has_method("is_lit"):
+		return campfire.call("is_lit") == true
+	var active_value: Variant = campfire.get("active")
+	if active_value != null:
+		return active_value == true
+	var lit_value: Variant = campfire.get("lit")
+	if lit_value != null:
+		return lit_value == true
+	return true
+
+
+func _is_creature_dead_for_marker(creature: Node) -> bool:
+	if creature == null:
+		return true
+	if creature.has_method("is_dead"):
+		return creature.call("is_dead") == true
+	if creature.has_method("is_alive"):
+		return creature.call("is_alive") != true
+	if creature.has_method("get_health"):
+		return float(creature.call("get_health")) <= 0.0
+	var dead_value: Variant = creature.get("dead")
+	if dead_value != null:
+		return dead_value == true
+	var is_dead_value: Variant = creature.get("is_dead")
+	if is_dead_value != null:
+		return is_dead_value == true
+	var health_value: Variant = creature.get("health")
+	if health_value != null:
+		return float(health_value) <= 0.0
+	return false
 
 
 func _get_world_creatures_from_world(active_world: Node, creature_type: String) -> Array:

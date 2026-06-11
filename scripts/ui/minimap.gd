@@ -35,8 +35,10 @@ var minimap_texture_last_build_ms: float = 0.0
 var _is_drawing_biomes := false
 var minimap_redraw_timer := 0.0
 var cached_resources: Array[Dictionary] = []
+var cached_campfires: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
 var cached_resources_signature := ""
+var cached_campfires_signature := ""
 var cached_varnaks_signature := ""
 var markers_cache_timer := 0.0
 var landmarks_signature := ""
@@ -97,6 +99,7 @@ func _draw() -> void:
 	_draw_landmarks(content_rect, view_world_rect)
 	_draw_grid(content_rect, view_world_rect)
 	_draw_resources(content_rect, view_world_rect)
+	_draw_campfires(content_rect, view_world_rect)
 	_draw_varnaks(content_rect, view_world_rect)
 	_draw_player(content_rect, view_world_rect)
 	_draw_zone_label(map_rect)
@@ -419,6 +422,20 @@ func _draw_resources(content_rect: Rect2, view_world_rect: Rect2) -> void:
 		draw_circle(_world_to_map(marker_position, content_rect, view_world_rect), 3.3, color)
 
 
+func _draw_campfires(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	for campfire_marker_value in cached_campfires:
+		var campfire_marker := Dictionary(campfire_marker_value)
+		var marker_position := Vector2(campfire_marker.get("position", Vector2.ZERO))
+		if not view_world_rect.has_point(marker_position):
+			continue
+		var pos := _world_to_map(marker_position, content_rect, view_world_rect)
+		var active: bool = campfire_marker.get("active", true) == true
+		var outer_color := Color(1.0, 0.46, 0.10) if active else Color(0.48, 0.36, 0.22)
+		var inner_color := Color(1.0, 0.88, 0.28) if active else Color(0.68, 0.58, 0.42)
+		draw_circle(pos, 5.0, outer_color)
+		draw_circle(pos, 2.2, inner_color)
+
+
 func _draw_varnaks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for varnak_marker_value in cached_varnaks:
 		var varnak_marker := Dictionary(varnak_marker_value)
@@ -605,18 +622,22 @@ func _get_resource_marker_color(resource_marker: Dictionary) -> Color:
 
 
 func _update_marker_cache() -> bool:
-	var snapshot := _get_snapshot()
+	var snapshot := _get_snapshot(true)
 	var markers := Dictionary(snapshot.get("markers", {}))
 	if not markers.is_empty():
 		cached_resources = _to_dictionary_array(Array(markers.get("resources", [])))
+		cached_campfires = _to_dictionary_array(Array(markers.get("campfires", [])))
 		cached_varnaks = _to_dictionary_array(Array(markers.get("varnaks", [])))
 	else:
 		cached_resources = _build_resource_markers_from_world()
+		cached_campfires = _build_campfire_markers_from_world()
 		cached_varnaks = _build_varnak_markers_from_world()
 	var resource_signature := _build_resources_signature()
+	var campfire_signature := _build_campfires_signature()
 	var varnak_signature := _build_varnaks_signature()
-	var changed := resource_signature != cached_resources_signature or varnak_signature != cached_varnaks_signature
+	var changed := resource_signature != cached_resources_signature or campfire_signature != cached_campfires_signature or varnak_signature != cached_varnaks_signature
 	cached_resources_signature = resource_signature
+	cached_campfires_signature = campfire_signature
 	cached_varnaks_signature = varnak_signature
 	return changed
 
@@ -644,6 +665,37 @@ func _build_resources_signature() -> String:
 			int(round(Vector2(resource.get("position", Vector2.ZERO)).y)),
 			str(resource.get("resource_kind")),
 			"1" if resource.get("player_harvestable", true) != false else "0"
+	])
+	return "|".join(parts)
+
+
+func _build_campfire_markers_from_world() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	var active_world := _get_world()
+	if active_world == null or not active_world.has_method("get_cached_group_nodes"):
+		return markers
+	for campfire_value in active_world.get_cached_group_nodes("campfires"):
+		var campfire := campfire_value as Node2D
+		if campfire == null or not is_instance_valid(campfire):
+			continue
+		if campfire.is_queued_for_deletion():
+			continue
+		markers.append({
+			"position": campfire.global_position,
+			"type": "campfire",
+			"active": true
+		})
+	return markers
+
+
+func _build_campfires_signature() -> String:
+	var parts: Array[String] = []
+	for campfire_value in cached_campfires:
+		var campfire_marker := Dictionary(campfire_value)
+		parts.append("%d:%d:%s" % [
+			int(round(Vector2(campfire_marker.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(campfire_marker.get("position", Vector2.ZERO)).y)),
+			"1" if campfire_marker.get("active", true) == true else "0"
 		])
 	return "|".join(parts)
 
@@ -675,12 +727,15 @@ func _get_world() -> Node:
 	return world
 
 
-func _get_snapshot() -> Dictionary:
-	if snapshot_service != null and snapshot_service.has_method("get_snapshot"):
-		var snapshot: Dictionary = snapshot_service.get_snapshot()
-		if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+func _get_snapshot(force_refresh := false) -> Dictionary:
+	if snapshot_service != null:
+		if force_refresh and snapshot_service.has_method("refresh"):
 			return snapshot_service.refresh(true)
-		return snapshot
+		if snapshot_service.has_method("get_snapshot"):
+			var snapshot: Dictionary = snapshot_service.get_snapshot()
+			if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+				return snapshot_service.refresh(true)
+			return snapshot
 	return {}
 
 
