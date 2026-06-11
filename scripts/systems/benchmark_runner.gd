@@ -7,6 +7,7 @@ signal benchmark_progress(elapsed_seconds: float, remaining_seconds: float)
 const BENCHMARK_DURATION_SECONDS := 60.0
 const SAMPLE_INTERVAL_SECONDS := 1.0
 const LOG_DIRECTORY := "user://benchmark_logs"
+const BENCHMARK_THRESHOLDS_PATH := "res://config/benchmark_thresholds.json"
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 
 const PERFORMANCE_MONITORS := {
@@ -712,7 +713,7 @@ func _build_report() -> Dictionary:
 		max_fps = max(max_fps, fps)
 		max_frame_time_ms = max(max_frame_time_ms, frame_time_ms)
 		max_physics_time_ms = max(max_physics_time_ms, physics_time_ms)
-	return {
+	var report := {
 		"benchmark_name": "apex_shift_60_second_debug_benchmark",
 		"duration_target_seconds": BENCHMARK_DURATION_SECONDS,
 		"actual_duration_seconds": elapsed_seconds,
@@ -731,6 +732,8 @@ func _build_report() -> Dictionary:
 		"top_samples": top_samples,
 		"samples": samples
 	}
+	report["threshold_validation"] = _validate_benchmark_thresholds(report)
+	return report
 
 
 func _get_top_samples(limit: int) -> Array[Dictionary]:
@@ -761,6 +764,8 @@ func _format_report_text(report: Dictionary) -> String:
 	lines.append("Max physics time: %.2f ms" % float(report.get("max_physics_time_ms", 0.0)))
 	lines.append("Realtime hitch count: %d" % int(report.get("realtime_hitch_count", 0)))
 	lines.append("Max realtime delta: %d ms" % int(report.get("max_realtime_delta_ms", 0)))
+	lines.append("")
+	lines.append(_format_threshold_validation_text(report))
 	var heaviest_sample: Dictionary = Dictionary(report.get("heaviest_sample", {}))
 	if not heaviest_sample.is_empty():
 		lines.append("")
@@ -786,6 +791,249 @@ func _format_report_text(report: Dictionary) -> String:
 	for item in _build_suspected_cost_driver_lines(report):
 		lines.append("- %s" % item)
 	return "\n".join(lines)
+
+
+func _load_benchmark_thresholds() -> Dictionary:
+	var defaults := {
+		"enabled": true,
+		"fail_on_regression_by_default": false,
+		"thresholds": {
+			"average_fps_min": 50,
+			"max_frame_time_ms_max": 80,
+			"realtime_hitch_count_max": 3,
+			"max_realtime_delta_ms_max": 250,
+			"minimap_texture_build_count_max": 2,
+			"map_screen_texture_build_count_max": 2,
+			"world_biome_texture_build_count_max": 2,
+			"active_resource_collisions_max": 80,
+			"node_count_max": 2500
+		}
+	}
+	if not FileAccess.file_exists(BENCHMARK_THRESHOLDS_PATH):
+		return defaults
+	var file := FileAccess.open(BENCHMARK_THRESHOLDS_PATH, FileAccess.READ)
+	if file == null:
+		return defaults
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary:
+		var parsed_dict := Dictionary(parsed)
+		if not parsed_dict.has("thresholds"):
+			parsed_dict["thresholds"] = defaults["thresholds"]
+		return parsed_dict
+	return defaults
+
+
+func _should_fail_on_regression(threshold_config: Dictionary) -> bool:
+	var env_value := ""
+	if OS.has_environment("APEX_BENCHMARK_FAIL_ON_REGRESSION"):
+		env_value = OS.get_environment("APEX_BENCHMARK_FAIL_ON_REGRESSION")
+		var normalized := env_value.to_lower()
+		if normalized in ["1", "true", "yes"]:
+			return true
+		if normalized in ["0", "false", "no"]:
+			return false
+	if "--benchmark-fail-on-regression" in OS.get_cmdline_args():
+		return true
+	return bool(threshold_config.get("fail_on_regression_by_default", false))
+
+
+func _extract_regression_metrics(report: Dictionary) -> Dictionary:
+	var metrics := {
+		"average_fps": float(report.get("average_fps", 0.0)),
+		"max_frame_time_ms": float(report.get("max_frame_time_ms", 0.0)),
+		"realtime_hitch_count": int(report.get("realtime_hitch_count", 0)),
+		"max_realtime_delta_ms": int(report.get("max_realtime_delta_ms", 0)),
+		"minimap_texture_build_count": 0,
+		"map_screen_texture_build_count": 0,
+		"world_biome_texture_build_count": 0,
+		"active_resource_collisions": 0,
+		"node_count": 0
+	}
+	var missing_metrics: Array[String] = []
+	var samples_array := Array(report.get("samples", []))
+	if samples_array.is_empty():
+		metrics["missing_metrics"] = [
+			"minimap_texture_build_count",
+			"map_screen_texture_build_count",
+			"world_biome_texture_build_count",
+			"active_resource_collisions",
+			"node_count"
+		]
+		return metrics
+	for sample_value in samples_array:
+		var sample: Dictionary = Dictionary(sample_value)
+		var performance: Dictionary = Dictionary(sample.get("performance", {}))
+		var world_stats: Dictionary = Dictionary(sample.get("world", {}))
+		var minimap_stats: Dictionary = Dictionary(sample.get("minimap", {}))
+		var map_screen_stats: Dictionary = Dictionary(sample.get("map_screen", {}))
+		var resource_render_mode: Dictionary = Dictionary(world_stats.get("resource_render_mode", {}))
+		if performance.has("node_count"):
+			metrics["node_count"] = maxi(int(metrics["node_count"]), int(performance.get("node_count", 0)))
+		else:
+			missing_metrics.append("node_count")
+		if resource_render_mode.has("active_resource_collisions"):
+			metrics["active_resource_collisions"] = maxi(int(metrics["active_resource_collisions"]), int(resource_render_mode.get("active_resource_collisions", 0)))
+		else:
+			missing_metrics.append("active_resource_collisions")
+		if minimap_stats.has("texture_build_count"):
+			metrics["minimap_texture_build_count"] = maxi(int(metrics["minimap_texture_build_count"]), int(minimap_stats.get("texture_build_count", 0)))
+		else:
+			missing_metrics.append("minimap_texture_build_count")
+		if map_screen_stats.has("texture_build_count"):
+			metrics["map_screen_texture_build_count"] = maxi(int(metrics["map_screen_texture_build_count"]), int(map_screen_stats.get("texture_build_count", 0)))
+		else:
+			missing_metrics.append("map_screen_texture_build_count")
+		var biome_cache: Dictionary = Dictionary(world_stats.get("biome_texture_cache", {}))
+		if biome_cache.has("world_biome_texture_build_count"):
+			metrics["world_biome_texture_build_count"] = maxi(int(metrics["world_biome_texture_build_count"]), int(biome_cache.get("world_biome_texture_build_count", 0)))
+		else:
+			missing_metrics.append("world_biome_texture_build_count")
+	if not missing_metrics.is_empty():
+		metrics["missing_metrics"] = missing_metrics
+	return metrics
+
+
+func _validate_benchmark_thresholds(report: Dictionary) -> Dictionary:
+	var threshold_config := _load_benchmark_thresholds()
+	var enabled := bool(threshold_config.get("enabled", true))
+	var thresholds := Dictionary(threshold_config.get("thresholds", {}))
+	var fail_on_regression := _should_fail_on_regression(threshold_config)
+	var metrics := _extract_regression_metrics(report)
+	var violations: Array[Dictionary] = []
+	var warnings: Array[Dictionary] = []
+	var missing_metrics: Array = Array(metrics.get("missing_metrics", []))
+	if not enabled:
+		return {
+			"status": "passed",
+			"fail_on_regression": fail_on_regression,
+			"thresholds_path": BENCHMARK_THRESHOLDS_PATH,
+			"metrics": metrics,
+			"thresholds": thresholds,
+			"violations": violations,
+			"warnings": warnings,
+			"missing_metrics": missing_metrics
+		}
+	_check_threshold_min(metrics, thresholds, violations, warnings, "average_fps", "average_fps_min", ">=", "average_fps %s is below required minimum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, "max_frame_time_ms", "max_frame_time_ms_max", "<=", "max_frame_time_ms %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, "realtime_hitch_count", "realtime_hitch_count_max", "<=", "realtime_hitch_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, "max_realtime_delta_ms", "max_realtime_delta_ms_max", "<=", "max_realtime_delta_ms %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, "minimap_texture_build_count", "minimap_texture_build_count_max", "<=", "minimap_texture_build_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, "map_screen_texture_build_count", "map_screen_texture_build_count_max", "<=", "map_screen_texture_build_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, "world_biome_texture_build_count", "world_biome_texture_build_count_max", "<=", "world_biome_texture_build_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, "active_resource_collisions", "active_resource_collisions_max", "<=", "active_resource_collisions %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, "node_count", "node_count_max", "<=", "node_count %s exceeds maximum %s")
+	var status := "passed"
+	if not violations.is_empty():
+		status = "failed" if fail_on_regression else "warning"
+	elif not warnings.is_empty() or not missing_metrics.is_empty():
+		status = "warning"
+	return {
+		"status": status,
+		"fail_on_regression": fail_on_regression,
+		"thresholds_path": BENCHMARK_THRESHOLDS_PATH,
+		"metrics": metrics,
+		"thresholds": thresholds,
+		"violations": violations,
+		"warnings": warnings,
+		"missing_metrics": missing_metrics
+	}
+
+
+func _check_threshold_min(metrics: Dictionary, thresholds: Dictionary, violations: Array[Dictionary], warnings: Array[Dictionary], metric_name: String, threshold_name: String, operator_text: String, message_template: String) -> void:
+	if not metrics.has(metric_name):
+		warnings.append({
+			"metric": metric_name,
+			"message": "Metric missing from benchmark report"
+		})
+		return
+	if not thresholds.has(threshold_name):
+		return
+	var actual := float(metrics.get(metric_name, 0.0))
+	var threshold := float(thresholds.get(threshold_name, 0.0))
+	if actual < threshold:
+		violations.append(_build_threshold_violation(metric_name, operator_text, threshold, actual, "warning", message_template))
+
+
+func _check_threshold_max(metrics: Dictionary, thresholds: Dictionary, violations: Array[Dictionary], warnings: Array[Dictionary], metric_name: String, threshold_name: String, operator_text: String, message_template: String) -> void:
+	if not metrics.has(metric_name):
+		warnings.append({
+			"metric": metric_name,
+			"message": "Metric missing from benchmark report"
+		})
+		return
+	if not thresholds.has(threshold_name):
+		return
+	var actual := float(metrics.get(metric_name, 0.0))
+	var threshold := float(thresholds.get(threshold_name, 0.0))
+	if actual > threshold:
+		violations.append(_build_threshold_violation(metric_name, operator_text, threshold, actual, "warning", message_template))
+
+
+func _build_threshold_violation(metric_name: String, operator_text: String, threshold: float, actual: float, severity: String, message_template: String) -> Dictionary:
+	return {
+		"metric": metric_name,
+		"operator": operator_text,
+		"threshold": threshold,
+		"actual": actual,
+		"severity": severity,
+		"message": message_template % [actual, threshold]
+	}
+
+
+func _format_threshold_validation_text(report: Dictionary) -> String:
+	var validation := Dictionary(report.get("threshold_validation", {}))
+	if validation.is_empty():
+		return "Threshold validation: unavailable"
+	var status := str(validation.get("status", "warning")).to_upper()
+	var fail_on_regression := bool(validation.get("fail_on_regression", false))
+	var lines: Array[String] = []
+	lines.append("Threshold validation: %s" % status)
+	lines.append("Regression metrics:")
+	var metrics := Dictionary(validation.get("metrics", {}))
+	var thresholds := Dictionary(validation.get("thresholds", {}))
+	_append_threshold_metric_line(lines, metrics, thresholds, "average_fps", "average_fps_min", ">=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "max_frame_time_ms", "max_frame_time_ms_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "realtime_hitch_count", "realtime_hitch_count_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "max_realtime_delta_ms", "max_realtime_delta_ms_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "minimap_texture_build_count", "minimap_texture_build_count_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "map_screen_texture_build_count", "map_screen_texture_build_count_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "world_biome_texture_build_count", "world_biome_texture_build_count_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "active_resource_collisions", "active_resource_collisions_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "node_count", "node_count_max", "<=")
+	if Array(validation.get("missing_metrics", [])).size() > 0:
+		lines.append("Missing metrics:")
+		for metric_name in Array(validation.get("missing_metrics", [])):
+			lines.append("- %s: Metric missing from benchmark report" % str(metric_name))
+	if not Array(validation.get("violations", [])).is_empty():
+		lines.append("Violations:")
+		for violation_value in Array(validation.get("violations", [])):
+			var violation := Dictionary(violation_value)
+			lines.append("- %s" % str(violation.get("message", violation.get("metric", "violation"))))
+	if not Array(validation.get("warnings", [])).is_empty():
+		lines.append("Warnings:")
+		for warning_value in Array(validation.get("warnings", [])):
+			var warning := Dictionary(warning_value)
+			lines.append("- %s: %s" % [str(warning.get("metric", "metric")), str(warning.get("message", "warning"))])
+	lines.append("Fail on regression: %s" % ("true" if fail_on_regression else "false"))
+	return "\n".join(lines)
+
+
+func _append_threshold_metric_line(lines: Array[String], metrics: Dictionary, thresholds: Dictionary, metric_name: String, threshold_name: String, operator_text: String) -> void:
+	if not metrics.has(metric_name) or not thresholds.has(threshold_name):
+		return
+	var actual := float(metrics.get(metric_name, 0.0))
+	var threshold := float(thresholds.get(threshold_name, 0.0))
+	var status := "OK"
+	var comparison_ok := actual >= threshold if operator_text == ">=" else actual <= threshold
+	if not comparison_ok:
+		status = "VIOLATION"
+	lines.append("- %s: %s %s %s %s" % [metric_name, _format_metric_value(actual), operator_text, _format_metric_value(threshold), status])
+
+
+func _format_metric_value(value: float) -> String:
+	if absf(value - round(value)) < 0.001:
+		return str(int(round(value)))
+	return "%.2f" % value
 
 
 func _format_sample_line(sample: Dictionary) -> String:
