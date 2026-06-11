@@ -1428,8 +1428,16 @@ func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
 	node.position = pos
 	node.setup(resource_kind)
 	add_child(node)
-	register_resource_node(node)
+	call_deferred("_finalize_spawned_resource_node", node)
 	return node
+
+
+func _finalize_spawned_resource_node(node: Node) -> void:
+	if not is_instance_valid(node):
+		return
+	register_resource_node(node)
+	if node is Node2D:
+		(node as Node2D).visible = true
 
 
 func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
