@@ -95,6 +95,17 @@ const ANIMAL_LOOT := {
 		"bone_max": 2
 	}
 }
+const CREATURE_SIMULATION_LOD := {
+	"near_distance": 900.0,
+	"medium_distance": 1800.0,
+	"far_update_interval_seconds": 1.0,
+	"medium_ai_interval_multiplier": 3.0,
+	"medium_spatial_update_multiplier": 2.0,
+	"far_hunger_time_scale": 1.0,
+	"far_energy_time_scale": 0.35,
+	"force_varnak_near_distance": 700.0,
+	"debug_enabled": true
+}
 
 # Larger-world generation values. These are used or reserved for world scale,
 # vegetation density, spawn spacing, and biome content distribution.
