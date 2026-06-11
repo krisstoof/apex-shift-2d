@@ -111,7 +111,13 @@ func set_visibility_culled(should_be_visible: bool) -> void:
 	visible = should_be_visible
 	_update_simulation_level()
 	if should_be_visible:
-		_restore_full_simulation() if simulation_level == SIMULATION_LOD.Level.NEAR else _apply_medium_simulation() if simulation_level == SIMULATION_LOD.Level.MEDIUM else _apply_far_simulation()
+		match simulation_level:
+			SIMULATION_LOD.Level.NEAR:
+				_restore_full_simulation()
+			SIMULATION_LOD.Level.MEDIUM:
+				_apply_medium_simulation()
+			_:
+				_apply_far_simulation()
 		queue_redraw()
 		return
 	if simulation_level == SIMULATION_LOD.Level.FAR:
@@ -350,11 +356,15 @@ func _update_simulation_level() -> void:
 		return
 	simulation_distance_to_player = global_position.distance_to(player.global_position)
 	var creature_type := species_id if species_id != "" else name.to_snake_case()
-	var next_level := SIMULATION_LOD.resolve_level(simulation_distance_to_player, _get_simulation_lod_config(), creature_type)
+	var next_level: CreatureSimulationLOD.Level = SIMULATION_LOD.resolve_level(
+		simulation_distance_to_player,
+		_get_simulation_lod_config(),
+		creature_type
+	) as CreatureSimulationLOD.Level
 	_set_simulation_level(next_level)
 
 
-func _set_simulation_level(next_level: int) -> void:
+func _set_simulation_level(next_level: CreatureSimulationLOD.Level) -> void:
 	if simulation_level == next_level:
 		return
 	last_simulation_level = simulation_level

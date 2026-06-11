@@ -187,6 +187,10 @@ func get_debug_counts() -> Dictionary:
 	}
 
 
+func get_debug_data() -> Dictionary:
+	return get_debug_counts()
+
+
 func _is_supported_category(category: String) -> bool:
 	return category == "resource" or category == "creature" or category == "meat"
 

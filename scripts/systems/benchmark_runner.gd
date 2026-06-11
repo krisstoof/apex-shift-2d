@@ -228,6 +228,7 @@ func _capture_world_stats() -> Dictionary:
 		"pond_vegetation",
 		"edible_vegetation"
 	])
+	stats["vegetation"] = _capture_world_vegetation_stats()
 	stats["resource_render_mode"] = _capture_world_resource_render_mode_stats()
 	stats["total_creatures"] = _sum_group_counts(stats["creature_counts"])
 	stats["total_resources"] = _sum_group_counts(stats["resource_counts"])
@@ -377,6 +378,48 @@ func _capture_world_resource_render_mode_stats() -> Dictionary:
 	}
 
 
+func _capture_world_vegetation_stats() -> Dictionary:
+	var result := {
+		"grass_patch_node_count": 0,
+		"dense_grass_node_count": 0,
+		"decorative_grass_node_count": 0,
+		"decorative_vegetation_visual_instance_count": 0,
+		"decorative_vegetation_visual_count_by_kind": {},
+		"edible_vegetation_node_count": 0,
+		"interactive_resource_node_count": 0,
+		"total_resource_node_count": 0
+	}
+	var resources: Array = []
+	if is_instance_valid(world) and world.has_method("get_cached_group_nodes"):
+		resources = Array(world.call("get_cached_group_nodes", "resources"))
+	else:
+		resources = get_tree().get_nodes_in_group("resources")
+	for resource_value in resources:
+		var resource := resource_value as Node
+		if resource == null:
+			continue
+		result["total_resource_node_count"] = int(result["total_resource_node_count"]) + 1
+		var resource_kind := ""
+		if resource.has_method("get"):
+			resource_kind = str(resource.get("resource_kind"))
+		match resource_kind:
+			"grass_patch":
+				result["grass_patch_node_count"] = int(result["grass_patch_node_count"]) + 1
+				result["decorative_grass_node_count"] = int(result["decorative_grass_node_count"]) + 1
+			"dense_grass":
+				result["dense_grass_node_count"] = int(result["dense_grass_node_count"]) + 1
+				result["decorative_grass_node_count"] = int(result["decorative_grass_node_count"]) + 1
+			_:
+				result["interactive_resource_node_count"] = int(result["interactive_resource_node_count"]) + 1
+		if resource.is_in_group("edible_vegetation"):
+			result["edible_vegetation_node_count"] = int(result["edible_vegetation_node_count"]) + 1
+	if is_instance_valid(world) and world.has_method("get_vegetation_visual_debug"):
+		var visual_debug := Dictionary(world.call("get_vegetation_visual_debug"))
+		result["decorative_vegetation_visual_instance_count"] = int(visual_debug.get("visual_instance_count", 0))
+		result["decorative_vegetation_visual_count_by_kind"] = Dictionary(visual_debug.get("count_by_kind", {}))
+	return result
+
+
 func _capture_player_stats() -> Dictionary:
 	var stats: Dictionary = {}
 	if not is_instance_valid(player):
@@ -459,6 +502,7 @@ func _calculate_driver_scores(sample: Dictionary) -> Dictionary:
 	var special_resource_counts: Dictionary = Dictionary(world_stats.get("special_resource_counts", {}))
 	var total_creatures := float(world_stats.get("total_creatures", 0.0))
 	var total_resources := float(world_stats.get("total_resources", 0.0))
+	var vegetation_stats: Dictionary = Dictionary(world_stats.get("vegetation", {}))
 	var draw_calls := float(performance.get("draw_calls", 0))
 	var render_primitives := float(performance.get("render_primitives", 0))
 	var render_objects := float(performance.get("render_objects", 0))
@@ -468,7 +512,11 @@ func _calculate_driver_scores(sample: Dictionary) -> Dictionary:
 	var physics_pairs := float(performance.get("physics_2d_collision_pairs", 0))
 	var physics_active := float(performance.get("physics_2d_active", 0))
 	var creature_pressure := total_creatures * 1.8 + float(creature_counts.get("varnak", 0)) * 1.4
+	var decorative_grass_nodes := float(vegetation_stats.get("decorative_grass_node_count", 0))
+	var visual_grass_instances := float(vegetation_stats.get("decorative_vegetation_visual_instance_count", 0))
 	var resource_pressure := total_resources * 0.8 + float(resource_counts.get("pond_vegetation", 0)) * 0.6 + float(special_resource_counts.get("edible_vegetation", 0)) * 0.4
+	resource_pressure += visual_grass_instances * 0.03
+	resource_pressure += decorative_grass_nodes * 0.5
 	var render_pressure := draw_calls * 1.9 + render_primitives * 0.02 + render_objects * 0.8
 	var physics_pressure := physics_time_ms * 8.0 + physics_pairs * 0.06 + physics_active * 0.08
 	var scene_pressure := node_count * 0.02
@@ -505,10 +553,13 @@ func _calculate_load_score(sample: Dictionary) -> float:
 	var node_count := float(performance.get("node_count", 0))
 	var total_creatures := float(world_stats.get("total_creatures", 0))
 	var total_resources := float(world_stats.get("total_resources", 0))
+	var vegetation_stats: Dictionary = Dictionary(world_stats.get("vegetation", {}))
 	var out_of_bounds := float(world_stats.get("creatures_out_of_bounds_count", 0))
 	var biome_count := float(ecosystem_stats.get("biome_count", 0))
 	var food_stress := float(ecosystem_stats.get("highest_food_stress", 0.0))
-	return frame_time_ms + physics_time_ms * 0.8 + draw_calls * 0.08 + render_primitives * 0.001 + node_count * 0.01 + total_creatures * 0.06 + total_resources * 0.02 + out_of_bounds * 2.0 + biome_count * 0.4 + food_stress * 5.0
+	var decorative_grass_nodes := float(vegetation_stats.get("decorative_grass_node_count", 0))
+	var visual_grass_instances := float(vegetation_stats.get("decorative_vegetation_visual_instance_count", 0))
+	return frame_time_ms + physics_time_ms * 0.8 + draw_calls * 0.08 + render_primitives * 0.001 + node_count * 0.01 + total_creatures * 0.06 + total_resources * 0.02 + decorative_grass_nodes * 0.05 + visual_grass_instances * 0.02 + out_of_bounds * 2.0 + biome_count * 0.4 + food_stress * 5.0
 
 
 func _finish() -> void:
@@ -748,6 +799,14 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			int(resource_render_mode.get("render_only_resources", 0)),
 			int(resource_render_mode.get("render_only_grass", 0)),
 			int(resource_render_mode.get("active_resource_collisions", 0))
+		])
+	var vegetation_stats: Dictionary = Dictionary(world_stats.get("vegetation", {}))
+	if not vegetation_stats.is_empty():
+		diagnostics.append("vegetation grass_nodes=%d visuals=%d edible_nodes=%d interactive=%d" % [
+			int(vegetation_stats.get("decorative_grass_node_count", 0)),
+			int(vegetation_stats.get("decorative_vegetation_visual_instance_count", 0)),
+			int(vegetation_stats.get("edible_vegetation_node_count", 0)),
+			int(vegetation_stats.get("interactive_resource_node_count", 0))
 		])
 	return "  diagnostics %s" % " | ".join(diagnostics)
 

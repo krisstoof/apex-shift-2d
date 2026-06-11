@@ -189,6 +189,24 @@ func get_meat_in_rect(rect: Rect2) -> Array:
 	return spatial_index.query_meat_in_rect(rect)
 
 
+func get_spatial_index_debug_data() -> Dictionary:
+	if spatial_index == null:
+		return {}
+	return spatial_index.get_debug_counts()
+
+
+func get_all_registered_resources() -> Array:
+	return get_resources()
+
+
+func get_all_registered_creatures() -> Array:
+	return get_creatures_by_type("")
+
+
+func get_all_registered_decorations() -> Array:
+	return get_buildings()
+
+
 func _register_node(node: Node, category: String, type_name: String) -> void:
 	if not is_instance_valid(node):
 		return

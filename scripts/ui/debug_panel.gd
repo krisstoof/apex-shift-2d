@@ -436,6 +436,8 @@ func _build_world_text() -> String:
 	lines.append("Player position: %s" % _get_position_text(Vector2(Dictionary(snapshot.get("player", {})).get("position", player.global_position if player else Vector2.ZERO))))
 	lines.append("World bounds: %s" % str(WORLD_CONFIG.WORLD_RECT))
 	lines.append("creatures_out_of_bounds_count = %d" % int(world_snapshot.get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))
+	lines.append("Chunks: %s" % _get_chunk_debug_text())
+	lines.append("Spatial index: %s" % _get_spatial_index_debug_text())
 	lines.append("Campfires: %d | Traps: %d" % [
 		int(building_counts.get("campfires", _get_cached_group_nodes("campfires").size())),
 		int(building_counts.get("traps", _get_cached_group_nodes("traps").size()))
@@ -459,6 +461,7 @@ func _build_world_text() -> String:
 		_get_cached_group_nodes("water_sources").size()
 	])
 	lines.append("Pond vegetation: %d" % _get_cached_group_nodes("pond_vegetation").size())
+	lines.append("Decorative vegetation: %s" % _get_decorative_vegetation_text())
 	lines.append("Biome texture cache: %s" % _get_biome_texture_cache_status_text())
 	lines.append("Landmark overlay %s | Biome textures %s" % [
 		_get_landmark_overlay_state_text(),
@@ -810,6 +813,21 @@ func _get_biome_texture_state_text() -> String:
 	if world and world.has_method("are_biome_textures_enabled"):
 		return "ON" if world.are_biome_textures_enabled() else "OFF"
 	return "unknown"
+
+
+func _get_decorative_vegetation_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_decorative_vegetation_debug"):
+		return "unavailable"
+	var decorative_debug: Dictionary = world.get_decorative_vegetation_debug()
+	var visual_debug: Dictionary = Dictionary(decorative_debug.get("visual_layer", {}))
+	var count_by_kind: Dictionary = Dictionary(visual_debug.get("count_by_kind", {}))
+	return "visuals %d | grass_patch nodes %d | dense_grass nodes %d | edible nodes %d" % [
+		int(decorative_debug.get("visual_instance_count", 0)),
+		int(count_by_kind.get("grass_patch", 0)),
+		int(count_by_kind.get("dense_grass", 0)),
+		int(decorative_debug.get("edible_grass_node_spawn_count", 0))
+	]
 
 
 func _get_adaptation_pressure(profile: Dictionary) -> float:
@@ -1709,6 +1727,38 @@ func _get_pool_debug_text() -> String:
 	if not world or not world.has_method("get_pool_debug_text"):
 		return "unavailable"
 	return str(world.get_pool_debug_text())
+
+
+func _get_chunk_debug_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_chunk_debug_data"):
+		return "unavailable"
+	var chunk_data: Dictionary = world.get_chunk_debug_data()
+	if chunk_data.is_empty():
+		return "unavailable"
+	return "current %s | active %d / %d | changes %d | activations %d | deactivations %d" % [
+		str(chunk_data.get("current_player_chunk", "n/a")),
+		int(chunk_data.get("active_chunk_count", 0)),
+		int(chunk_data.get("total_chunk_count", 0)),
+		int(chunk_data.get("chunk_change_count", 0)),
+		int(chunk_data.get("chunk_activation_count", 0)),
+		int(chunk_data.get("chunk_deactivation_count", 0))
+	]
+
+
+func _get_spatial_index_debug_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_spatial_index_debug_data"):
+		return "unavailable"
+	var spatial_data: Dictionary = world.get_spatial_index_debug_data()
+	if spatial_data.is_empty():
+		return "unavailable"
+	return "resources %d | creatures %d | meat %d | tracked %d" % [
+		int(spatial_data.get("resource_cells", 0)),
+		int(spatial_data.get("creature_cells", 0)),
+		int(spatial_data.get("meat_cells", 0)),
+		int(spatial_data.get("tracked_entities", 0))
+	]
 
 
 func _get_island_world_validation_summary_text(report: Dictionary = {}) -> String:
