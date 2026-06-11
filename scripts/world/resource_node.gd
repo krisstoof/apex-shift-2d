@@ -170,9 +170,13 @@ func setup(kind: String) -> void:
 
 func interact(player: Node) -> void:
 	if not player_harvestable:
+		_post_event_message("%s cannot be gathered" % _get_resource_label())
 		return
 	if not can_be_harvested:
 		_post_event_message("%s is still regrowing" % _get_resource_label())
+		return
+	if amount <= 0:
+		_post_event_message("%s is empty" % _get_resource_label())
 		return
 	var collected_amount := amount
 	var leftover: int = player.inventory.add_item(item_name, collected_amount)
@@ -204,6 +208,18 @@ func get_prompt() -> String:
 	if not can_be_harvested:
 		return "Regrowing: %s" % get_growth_debug_text()
 	return "E: gather %s x%s" % [item_name, amount]
+
+
+func is_player_interactable() -> bool:
+	if not player_harvestable:
+		return false
+	if not can_be_harvested:
+		return false
+	if amount <= 0:
+		return false
+	if not visible:
+		return false
+	return true
 
 
 func get_save_data() -> Dictionary:

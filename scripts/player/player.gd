@@ -472,21 +472,26 @@ func _interact() -> void:
 	if is_dead:
 		return
 	_refresh_nearby_interactables_from_area()
-	for node in nearby_interactables.duplicate():
-		if is_instance_valid(node) and node.has_method("interact"):
-			node.interact(self)
-			return
+	var target := _get_best_interactable()
+	if target != null and is_instance_valid(target) and target.has_method("interact"):
+		target.interact(self)
+		return
 	_post_event_message("Nothing to interact with")
 
 
 func get_interaction_prompt() -> String:
 	if is_dead:
 		return ""
-	for node in nearby_interactables:
-		if is_instance_valid(node) and node.has_method("get_prompt"):
-			return node.get_prompt()
-		if is_instance_valid(node) and node.has_method("interact"):
-			return "E: interact"
+	_refresh_nearby_interactables_from_area()
+	var target := _get_best_interactable()
+	if target == null or not is_instance_valid(target):
+		return ""
+	if target.has_method("get_prompt"):
+		var prompt := str(target.get_prompt())
+		if not prompt.is_empty():
+			return prompt
+	if target.has_method("interact"):
+		return "E: interact"
 	return ""
 
 
@@ -755,6 +760,77 @@ func _refresh_nearby_interactables_from_area() -> void:
 	for area in interaction_area.get_overlapping_areas():
 		if area.has_method("interact") and not nearby_interactables.has(area):
 			nearby_interactables.append(area)
+
+
+func _get_best_interactable() -> Node:
+	var candidates := _get_interactable_candidates()
+	var best_node: Node = null
+	var best_distance := INF
+	for candidate in candidates:
+		if not is_instance_valid(candidate):
+			continue
+		if not candidate.has_method("interact"):
+			continue
+		if not _is_candidate_player_interactable(candidate):
+			continue
+		var candidate_2d := candidate as Node2D
+		if candidate_2d == null:
+			continue
+		var distance := global_position.distance_to(candidate_2d.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best_node = candidate
+	return best_node
+
+
+func _get_interactable_candidates() -> Array[Node]:
+	var candidates: Array[Node] = []
+	for node in nearby_interactables:
+		_add_unique_interactable_candidate(candidates, node)
+	for body in interaction_area.get_overlapping_bodies():
+		_add_unique_interactable_candidate(candidates, body)
+	for area in interaction_area.get_overlapping_areas():
+		_add_unique_interactable_candidate(candidates, area)
+	_add_nearby_resource_candidates(candidates)
+	return candidates
+
+
+func _add_unique_interactable_candidate(candidates: Array[Node], node: Node) -> void:
+	if node == null:
+		return
+	if not is_instance_valid(node):
+		return
+	if not node.has_method("interact"):
+		return
+	if candidates.has(node):
+		return
+	candidates.append(node)
+
+
+func _add_nearby_resource_candidates(candidates: Array[Node]) -> void:
+	var world := _get_world_node()
+	if world == null:
+		return
+	if world.has_method("get_resources_near"):
+		for resource in world.get_resources_near(global_position, 96.0):
+			_add_unique_interactable_candidate(candidates, resource)
+		return
+	for resource in get_tree().get_nodes_in_group("resources"):
+		var resource_2d := resource as Node2D
+		if resource_2d == null:
+			continue
+		if global_position.distance_to(resource_2d.global_position) <= 96.0:
+			_add_unique_interactable_candidate(candidates, resource)
+
+
+func _is_candidate_player_interactable(candidate: Node) -> bool:
+	if candidate.has_method("is_player_interactable"):
+		return candidate.is_player_interactable() == true
+	if candidate.has_method("get_prompt"):
+		var prompt := str(candidate.get_prompt())
+		if prompt.is_empty():
+			return false
+	return true
 
 
 func _load_recipes() -> Dictionary:

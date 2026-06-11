@@ -1,6 +1,7 @@
 extends RefCounted
 
 const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
+const RESOURCE_NODE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const PLAYER_STATS := preload("res://scripts/player/player_stats.gd")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
@@ -28,6 +29,7 @@ class TestWorld:
 	extends Node2D
 	var cached_group_call_count := 0
 	var campfires: Array = []
+	var resources: Array = []
 	var query_service
 
 	func get_cached_group_nodes(group_name: String) -> Array:
@@ -44,6 +46,9 @@ class TestWorld:
 
 	func get_query_service():
 		return query_service
+
+	func get_resources_near(_position: Vector2, _radius: float, _kind_filter: Variant = null) -> Array:
+		return resources.duplicate()
 
 
 class TestEventBus:
@@ -80,6 +85,7 @@ func run() -> Array[String]:
 	_test_player_craft_bow_requires_bone_and_consumes_it(failures)
 	_test_player_craft_torch_rolls_back_costs_when_inventory_is_full(failures)
 	_test_player_eat_meat_consumes_inventory_and_restores_hunger(failures)
+	_test_player_interact_prefers_nearest_real_resource(failures)
 	return failures
 
 
@@ -470,6 +476,31 @@ func _test_player_eat_meat_consumes_inventory_and_restores_hunger(failures: Arra
 	player.queue_free()
 
 
+func _test_player_interact_prefers_nearest_real_resource(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var world := TestWorld.new()
+	world.name = "World"
+	tree.current_scene.add_child(world)
+	var player := _make_player()
+	player.global_position = Vector2.ZERO
+	var blocked := _make_resource_node(Vector2(24.0, 0.0), "grass_patch")
+	blocked.set("player_harvestable", false)
+	var meat := _make_resource_node(Vector2(40.0, 0.0), "meat_drop")
+	var tree_resource := _make_resource_node(Vector2(64.0, 0.0), "tree")
+	world.add_child(blocked)
+	world.add_child(meat)
+	world.add_child(tree_resource)
+	player.call("_on_interactable_entered", blocked)
+	player.call("_on_interactable_entered", meat)
+	player.call("_on_interactable_entered", tree_resource)
+	var prompt := str(player.get_interaction_prompt())
+	TEST_UTILS.expect(prompt.contains("meat") or prompt.contains("wood"), failures, "Player should show the prompt for the nearest real interactable resource")
+	player.call("_interact")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("meat"), 1, failures, "Player should interact with the nearest real resource instead of a blocked one")
+	player.queue_free()
+	world.queue_free()
+
+
 func _make_player() -> Node:
 	var player := PLAYER_SCENE.instantiate()
 	var tree := Engine.get_main_loop() as SceneTree
@@ -498,3 +529,10 @@ func _get_polygon_max_y(points: PackedVector2Array) -> float:
 	for point in points:
 		max_y = max(max_y, point.y)
 	return max_y
+
+
+func _make_resource_node(position: Vector2, kind: String) -> Node:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	resource.global_position = position
+	resource.call("setup", kind)
+	return resource
