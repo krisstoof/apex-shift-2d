@@ -1805,7 +1805,7 @@ func debug_test_resource_drop_pool() -> Dictionary:
 	var spawned: Array[Node] = []
 	var base_position := _get_player_position()
 	for i in range(12):
-		var offset := Vector2(float(i % 4) * 18.0, (float(i) / 4.0) * 18.0)
+		var offset := Vector2(float(i % 4) * 18.0, floor(float(i) / 4.0) * 18.0)
 		var node := _spawn_pooled_resource_at("meat_drop", base_position + offset, 1)
 		if node != null:
 			spawned.append(node)
@@ -1818,17 +1818,20 @@ func debug_test_resource_drop_pool() -> Dictionary:
 		var node := _spawn_pooled_resource_at("meat_drop", base_position + offset, 1)
 		if node != null:
 			reused.append(node)
-	var after := get_pool_debug_snapshot()
+	var after_reuse := get_pool_debug_snapshot()
 	for node in reused:
 		if is_instance_valid(node):
 			_release_pooled_resource_node(node)
+	var final_snapshot := get_pool_debug_snapshot()
+	var summary := get_pool_debug_text()
 	var event_bus := _get_event_bus()
 	if event_bus and event_bus.has_method("post_message"):
-		event_bus.post_message("Pool test finished: %s" % get_pool_debug_text())
+		event_bus.post_message("Pool test finished: %s" % summary)
 	return {
 		"before": before,
-		"after": after,
-		"summary": get_pool_debug_text()
+		"after_reuse": after_reuse,
+		"final": final_snapshot,
+		"summary": summary
 	}
 
 
