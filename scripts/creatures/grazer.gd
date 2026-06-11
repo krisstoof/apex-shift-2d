@@ -132,7 +132,13 @@ func set_visibility_culled(should_be_visible: bool) -> void:
 	visible = should_be_visible
 	_update_simulation_level()
 	if should_be_visible:
-		_restore_full_simulation() if simulation_level == SIMULATION_LOD.Level.NEAR else _apply_medium_simulation() if simulation_level == SIMULATION_LOD.Level.MEDIUM else _apply_far_simulation()
+		match simulation_level:
+			SIMULATION_LOD.Level.NEAR:
+				_restore_full_simulation()
+			SIMULATION_LOD.Level.MEDIUM:
+				_apply_medium_simulation()
+			_:
+				_apply_far_simulation()
 		queue_redraw()
 		return
 	if simulation_level == SIMULATION_LOD.Level.FAR:
@@ -380,11 +386,15 @@ func _update_simulation_level() -> void:
 		return
 	simulation_distance_to_player = global_position.distance_to(player.global_position)
 	var creature_type := species_id if species_id != "" else name.to_snake_case()
-	var next_level := SIMULATION_LOD.resolve_level(simulation_distance_to_player, _get_simulation_lod_config(), creature_type)
+	var next_level: CreatureSimulationLOD.Level = SIMULATION_LOD.resolve_level(
+		simulation_distance_to_player,
+		_get_simulation_lod_config(),
+		creature_type
+	) as CreatureSimulationLOD.Level
 	_set_simulation_level(next_level)
 
 
-func _set_simulation_level(next_level: int) -> void:
+func _set_simulation_level(next_level: CreatureSimulationLOD.Level) -> void:
 	if simulation_level == next_level:
 		return
 	last_simulation_level = simulation_level
@@ -699,6 +709,9 @@ func _consume_target_vegetation() -> float:
 	if is_instance_valid(plant_target) and _is_edible_vegetation_target(plant_target):
 		var distance := global_position.distance_to(plant_target.global_position)
 		if distance <= _get_vegetation_consume_distance(plant_target) and plant_target.has_method("consume_by_creature"):
+			var world_query: Variant = _get_world_query()
+			if world_query and world_query.has_method("consume_edible_vegetation"):
+				return float(world_query.consume_edible_vegetation(plant_target, self, plant_consumption_rate))
 			return float(plant_target.consume_by_creature(self, plant_consumption_rate))
 	return _consume_nearest_vegetation()
 
@@ -707,6 +720,9 @@ func _consume_nearest_vegetation() -> float:
 	var nearest := _find_nearest_consumable_vegetation()
 	if not is_instance_valid(nearest) or not nearest.has_method("consume_by_creature"):
 		return 0.0
+	var world_query: Variant = _get_world_query()
+	if world_query and world_query.has_method("consume_edible_vegetation"):
+		return float(world_query.consume_edible_vegetation(nearest, self, plant_consumption_rate))
 	return float(nearest.consume_by_creature(self, plant_consumption_rate))
 
 
@@ -762,9 +778,17 @@ func _get_food_search_range() -> float:
 
 
 func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
+	var current_biome_id := _get_current_biome_id()
+	var world_query: Variant = _get_world_query()
+	if world_query and world_query.has_method("get_edible_vegetation_near"):
+		var world_targets: Array = world_query.get_edible_vegetation_near(global_position, search_range, current_biome_id)
+		for target_value in world_targets:
+			var target := target_value as Node2D
+			if is_instance_valid(target) and _is_edible_vegetation_target(target):
+				return target
+
 	var nearest: Node2D
 	var nearest_distance := search_range
-	var current_biome_id := _get_current_biome_id()
 	var candidates := _get_nearby_resources(search_range, [
 		"bush",
 		"dry_bush",

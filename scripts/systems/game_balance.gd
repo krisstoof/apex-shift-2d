@@ -107,6 +107,14 @@ const CREATURE_SIMULATION_LOD := {
 	"debug_enabled": true
 }
 
+const WORLD_CHUNKS := {
+	"chunk_size": 1024.0,
+	"active_radius_chunks": 1,
+	"preload_radius_chunks": 2,
+	"update_interval_seconds": 0.25,
+	"debug_enabled": true
+}
+
 # Larger-world generation values. These are used or reserved for world scale,
 # vegetation density, spawn spacing, and biome content distribution.
 const LIVING_WORLD := {

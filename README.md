@@ -82,6 +82,7 @@ This is a lightweight adaptation system for prototype testing, not a full specie
 - [Torch manual test](docs/torch-manual-test.md)
 - [Island world validation](docs/island-world-validation.md)
 - [Object pooling](docs/object-pooling.md)
+- [Chunk manager](docs/chunk-manager.md)
 - [Creature simulation LOD](docs/creature-simulation-lod.md)
 - [Debug panel manual test](docs/debug-panel-manual-test.md)
 

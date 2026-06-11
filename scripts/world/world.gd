@@ -12,6 +12,9 @@ const WORLD_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_query_ser
 const LANDMARK_SERVICE_SCRIPT := preload("res://scripts/world/landmark_service.gd")
 const RESOURCE_SERVICE_SCRIPT := preload("res://scripts/world/resource_service.gd")
 const ISLAND_WORLD_VALIDATOR_SCRIPT := preload("res://scripts/world/island_world_validator.gd")
+const CHUNK_MANAGER_SCRIPT := preload("res://scripts/world/chunk_manager.gd")
+const VEGETATION_VISUAL_LAYER_SCRIPT := preload("res://scripts/world/vegetation_visual_layer.gd")
+const VEGETATION_CATALOG := preload("res://scripts/world/vegetation_catalog.gd")
 const POOL_MANAGER_SCRIPT := preload("res://scripts/systems/pool_manager.gd")
 const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
@@ -103,6 +106,13 @@ const POND_VEGETATION_RING_MIN_FACTOR := 0.82
 const POND_VEGETATION_RING_MAX_FACTOR := 1.35
 const POND_VEGETATION_RING_JITTER := 0.16
 const POND_VEGETATION_ANGLE_JITTER_FACTOR := 0.38
+const EDIBLE_GRASS_NODE_BUDGET_TOTAL := 32
+const EDIBLE_GRASS_NODE_BUDGET_PER_KIND := {
+	"grass_patch": 18,
+	"dense_grass": 14
+}
+const EDIBLE_POND_GRASS_NODE_BUDGET_TOTAL := 12
+const DECORATIVE_GRASS_VISUAL_Z_INDEX := -2
 const INITIAL_SPAWN_BATCH_SIZE := 4
 const INITIAL_BOOT_STEP_FRAME_BREAKS := 1
 const BIOME_TERRAIN_ACCENT_BUILD_BATCH_SIZE := 1
@@ -155,6 +165,11 @@ var biome_textures_enabled: bool = true
 var biome_terrain_accents_enabled: bool = false
 var visibility_culling_enabled: bool = true
 var pool_manager: PoolManager
+var chunk_manager: Node
+var vegetation_visual_layer: VegetationVisualLayer
+var edible_grass_node_spawn_count := 0
+var decorative_grass_visual_spawn_count := 0
+var edible_pond_grass_node_spawn_count := 0
 var graphics_settings: Node = GRAPHICS_SETTINGS_SCRIPT.new()
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
@@ -207,6 +222,8 @@ func _ready() -> void:
 	_ensure_query_service()
 	_ensure_registry()
 	_ensure_pool_manager()
+	_ensure_vegetation_visual_layer()
+	_ensure_chunk_manager()
 	resource_rng.randomize()
 	varnak_rng.randomize()
 	small_prey_rng.randomize()
@@ -225,6 +242,7 @@ func _ready() -> void:
 	_set_boot_progress("Generating landmarks...", 0.18)
 	_create_landmarks()
 	_place_player_on_safe_start()
+	_bind_chunk_manager()
 	_queue_biome_terrain_accent_cache_rebuild()
 	_set_boot_progress("Growing vegetation...", 0.40)
 	await _spawn_resources()
@@ -254,6 +272,7 @@ func _ready() -> void:
 	boot_ready = true
 	_set_boot_progress("World ready", 1.0)
 	_update_world_object_visibility()
+	_rebuild_chunk_assignments()
 	visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
 	_sync_biome_blend_background()
 	_update_biome_detail_overlay(true)
@@ -663,6 +682,51 @@ func get_pool_debug_text() -> String:
 	return pool_manager.get_debug_text()
 
 
+func get_vegetation_visual_debug() -> Dictionary:
+	if is_instance_valid(vegetation_visual_layer) and vegetation_visual_layer.has_method("get_debug_stats"):
+		return vegetation_visual_layer.get_debug_stats()
+	return {
+		"visual_instance_count": 0,
+		"count_by_kind": {}
+	}
+
+
+func get_decorative_vegetation_debug() -> Dictionary:
+	var visual_debug := get_vegetation_visual_debug()
+	return {
+		"visual_layer": visual_debug,
+		"visual_instance_count": int(visual_debug.get("visual_instance_count", 0)),
+		"count_by_kind": Dictionary(visual_debug.get("count_by_kind", {})),
+		"edible_grass_node_spawn_count": edible_grass_node_spawn_count,
+		"decorative_grass_visual_spawn_count": decorative_grass_visual_spawn_count
+	}
+
+
+func get_chunk_debug_data() -> Dictionary:
+	if not is_instance_valid(chunk_manager):
+		return {}
+	return chunk_manager.get_debug_data()
+
+
+func get_spatial_index_debug_data() -> Dictionary:
+	var world_registry = _ensure_registry()
+	if world_registry == null or not world_registry.has_method("get_spatial_index_debug_data"):
+		return {}
+	return Dictionary(world_registry.get_spatial_index_debug_data())
+
+
+func get_all_registered_resources() -> Array:
+	return _ensure_registry().get_all_registered_resources()
+
+
+func get_all_registered_creatures() -> Array:
+	return _ensure_registry().get_all_registered_creatures()
+
+
+func get_all_registered_decorations() -> Array:
+	return _ensure_registry().get_all_registered_decorations()
+
+
 func get_landmark_save_data() -> Array[Dictionary]:
 	return _ensure_landmark_service().get_landmark_save_data()
 
@@ -676,11 +740,13 @@ func get_save_data() -> Dictionary:
 
 func begin_save_restore() -> void:
 	is_restoring_save = true
+	_clear_decorative_vegetation_visuals()
 
 
 func end_save_restore() -> void:
 	is_restoring_save = false
 	clear_cached_group_nodes()
+	_rebuild_chunk_assignments()
 	if visibility_culling_enabled:
 		_update_world_object_visibility()
 	queue_redraw()
@@ -788,8 +854,100 @@ func _ensure_pool_manager() -> PoolManager:
 	return pool_manager
 
 
+func _ensure_vegetation_visual_layer() -> VegetationVisualLayer:
+	if is_instance_valid(vegetation_visual_layer):
+		return vegetation_visual_layer
+	vegetation_visual_layer = VEGETATION_VISUAL_LAYER_SCRIPT.new()
+	vegetation_visual_layer.name = "VegetationVisualLayer"
+	vegetation_visual_layer.z_index = DECORATIVE_GRASS_VISUAL_Z_INDEX
+	add_child(vegetation_visual_layer)
+	return vegetation_visual_layer
+
+
+func _ensure_chunk_manager() -> Node:
+	if is_instance_valid(chunk_manager):
+		return chunk_manager
+	chunk_manager = CHUNK_MANAGER_SCRIPT.new()
+	chunk_manager.name = "ChunkManager"
+	add_child(chunk_manager)
+	return chunk_manager
+
+
+func _bind_chunk_manager() -> void:
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null or not (player is Node2D):
+		return
+	_ensure_chunk_manager().bind(self, player, WORLD_CONFIG.WORLD_RECT)
+
+
+func _rebuild_chunk_assignments() -> void:
+	if not is_instance_valid(chunk_manager):
+		return
+	chunk_manager.rebuild_entity_assignments()
+	chunk_manager.update_player_chunk(true)
+
+
 func _is_poolable_resource_kind(resource_kind: String) -> bool:
 	return resource_kind in POOLED_RESOURCE_KINDS
+
+
+func _get_decorative_vegetation_radius(kind: String) -> float:
+	match kind:
+		"dense_grass":
+			return 8.0
+		"grass_patch":
+			return 5.0
+	return 5.0
+
+
+func _get_kind_budget_count(kind: String, total_count: int) -> int:
+	var max_for_kind := int(EDIBLE_GRASS_NODE_BUDGET_PER_KIND.get(kind, 0))
+	if max_for_kind <= 0:
+		return 0
+	return mini(total_count, max_for_kind)
+
+
+func _should_keep_edible_grass_node(kind: String) -> bool:
+	if not kind in ["grass_patch", "dense_grass"]:
+		return false
+	if edible_grass_node_spawn_count >= EDIBLE_GRASS_NODE_BUDGET_TOTAL:
+		return false
+	return true
+
+
+func _should_keep_edible_pond_grass_node(kind: String) -> bool:
+	if not kind in ["grass_patch", "dense_grass"]:
+		return false
+	if edible_pond_grass_node_spawn_count >= EDIBLE_POND_GRASS_NODE_BUDGET_TOTAL:
+		return false
+	return true
+
+
+func _spawn_decorative_vegetation_visual(kind: String, world_position: Vector2, biome_id: String = "", visual_scale: float = 1.0) -> void:
+	var layer := _ensure_vegetation_visual_layer()
+	layer.add_instance(kind, world_position, _get_decorative_vegetation_radius(kind), biome_id, visual_scale)
+	decorative_grass_visual_spawn_count += 1
+
+
+func _clear_decorative_vegetation_visuals() -> void:
+	_ensure_vegetation_visual_layer().clear_instances()
+	decorative_grass_visual_spawn_count = 0
+
+
+func _try_spawn_decorative_grass_visual(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+		var candidate := _get_random_resource_position(resource_kind)
+		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			continue
+		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			continue
+		if not _is_valid_resource_position(candidate, used_positions, player_position):
+			continue
+		used_positions.append(candidate)
+		var biome_id := _get_biome_id_for_position(candidate)
+		_spawn_decorative_vegetation_visual(resource_kind, candidate, biome_id, 1.0)
+		return true
+	return false
 
 
 func update_spatial_entity_cell(node: Node) -> void:
@@ -806,6 +964,59 @@ func get_creatures_near(world_position: Vector2, radius: float, creature_type_fi
 
 func get_meat_near(world_position: Vector2, radius: float) -> Array:
 	return _ensure_registry().get_meat_near(world_position, radius)
+
+
+func get_edible_vegetation_near(position: Vector2, radius: float, preferred_biome_id: String = "") -> Array[Node2D]:
+	var result: Array[Node2D] = []
+	var candidates: Array = []
+	if has_method("get_resources_near"):
+		candidates = get_resources_near(position, radius, [
+			"bush",
+			"dry_bush",
+			"small_bush",
+			"berry_bush",
+			"grass_patch",
+			"dense_grass"
+		])
+	else:
+		candidates = get_tree().get_nodes_in_group("edible_vegetation")
+	for candidate_value in candidates:
+		var candidate := candidate_value as Node2D
+		if not is_instance_valid(candidate):
+			continue
+		if not candidate.is_in_group("edible_vegetation"):
+			continue
+		if candidate.get("is_edible_by_herbivores") != true:
+			continue
+		if candidate.global_position.distance_to(position) > radius:
+			continue
+		result.append(candidate)
+	result.sort_custom(func(a: Node2D, b: Node2D) -> bool:
+		var distance_a := position.distance_to(a.global_position)
+		var distance_b := position.distance_to(b.global_position)
+		if preferred_biome_id != "":
+			if _get_biome_id_for_position(a.global_position) != preferred_biome_id:
+				distance_a *= 1.6
+			if _get_biome_id_for_position(b.global_position) != preferred_biome_id:
+				distance_b *= 1.6
+		if a.is_in_group("pond_vegetation"):
+			distance_a *= 0.72
+		if b.is_in_group("pond_vegetation"):
+			distance_b *= 0.72
+		return distance_a < distance_b
+	)
+	return result
+
+
+func consume_edible_vegetation(target: Variant, consumer: Node, amount: float) -> float:
+	if not is_instance_valid(target):
+		return 0.0
+	var target_node := target as Node
+	if target_node == null:
+		return 0.0
+	if not target_node.has_method("consume_by_creature"):
+		return 0.0
+	return float(target_node.consume_by_creature(consumer, amount))
 
 
 func get_resources_in_rect(rect: Rect2, kind_filter: Variant = null) -> Array:
@@ -1108,6 +1319,7 @@ func debug_regenerate_landmarks() -> void:
 	var new_seed: int = max(rng.randi(), 1)
 	await _clear_landmark_areas()
 	_clear_pond_vegetation_resources()
+	_clear_decorative_vegetation_visuals()
 	world_seed = new_seed
 	landmarks = WORLD_CONFIG.generate_landmarks(world_seed)
 	_rebuild_landmark_runtime_state()
@@ -1121,6 +1333,11 @@ func debug_regenerate_landmarks() -> void:
 	var event_bus: Node = get_node_or_null("/root/EventBus")
 	if event_bus and event_bus.has_method("post_message"):
 		event_bus.post_message("Regenerated landmarks with seed %d" % world_seed)
+
+
+func _regenerate_decorative_vegetation_visuals_for_loaded_world() -> void:
+	_clear_decorative_vegetation_visuals()
+	_spawn_decorative_vegetation_visuals_for_loaded_world()
 
 
 func _deserialize_landmark_save_data(landmark_data: Array) -> Array[Dictionary]:
@@ -1197,8 +1414,8 @@ func _spawn_resources() -> void:
 	await _spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
 	await _spawn_resource_kind("small_bush", WORLD_CONFIG.SMALL_BUSH_COUNT, used_positions, player_position)
 	await _spawn_resource_kind("berry_bush", WORLD_CONFIG.BERRY_BUSH_COUNT, used_positions, player_position)
-	await _spawn_resource_kind("grass_patch", WORLD_CONFIG.GRASS_PATCH_COUNT, used_positions, player_position)
-	await _spawn_resource_kind("dense_grass", WORLD_CONFIG.DENSE_GRASS_COUNT, used_positions, player_position)
+	await _spawn_grass_kind_mixed("grass_patch", WORLD_CONFIG.GRASS_PATCH_COUNT, used_positions, player_position)
+	await _spawn_grass_kind_mixed("dense_grass", WORLD_CONFIG.DENSE_GRASS_COUNT, used_positions, player_position)
 	await _spawn_pond_vegetation(used_positions, player_position)
 	call_deferred("_sync_all_biome_vegetation")
 
@@ -1212,6 +1429,37 @@ func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Arr
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
 			await get_tree().process_frame
+
+
+func _spawn_grass_kind_mixed(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
+	var edible_budget := _get_kind_budget_count(resource_kind, count)
+	var spawned_edible_nodes := 0
+	var spawned_since_yield := 0
+	for _i in count:
+		if spawned_edible_nodes < edible_budget and _should_keep_edible_grass_node(resource_kind):
+			if _try_spawn_resource(resource_kind, used_positions, player_position):
+				spawned_edible_nodes += 1
+				edible_grass_node_spawn_count += 1
+			else:
+				push_warning("Could not find a valid edible grass node position for %s" % resource_kind)
+		else:
+			if not _try_spawn_decorative_grass_visual(resource_kind, used_positions, player_position):
+				push_warning("Could not find a valid decorative vegetation position for %s" % resource_kind)
+		spawned_since_yield += 1
+		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
+			spawned_since_yield = 0
+			await get_tree().process_frame
+
+
+func _get_random_resource_position(resource_kind: String = "") -> Vector2:
+	var biome := _pick_resource_biome(resource_kind)
+	if biome.is_empty():
+		return _clamp_position_to_world(_get_player_position())
+	var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+	return Vector2(
+		resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
+		resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
+	)
 
 
 func _spawn_resource_kind_in_biome(
@@ -1266,7 +1514,39 @@ func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vec
 				await get_tree().process_frame
 
 
-func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, slot_index: int, slot_count: int, angle_phase: float) -> bool:
+func _spawn_decorative_vegetation_visuals_for_loaded_world() -> void:
+	var used_positions: Array[Vector2] = []
+	var player_position := _get_player_position()
+	for kind in ["grass_patch", "dense_grass"]:
+		for _i in range(max(WORLD_CONFIG.GRASS_PATCH_COUNT, WORLD_CONFIG.DENSE_GRASS_COUNT)):
+			if not _try_spawn_decorative_grass_visual(kind, used_positions, player_position):
+				break
+	for pond in pond_landmarks:
+		var biome := _get_biome_for_id(str(pond.get("biome_id", "")))
+		if biome.is_empty():
+			continue
+		var pond_kinds := [
+			"dense_grass",
+			"grass_patch",
+			"dense_grass",
+			"grass_patch",
+			"small_bush",
+			"dense_grass",
+			"grass_patch",
+			"berry_bush",
+			"dense_grass",
+			"grass_patch",
+			"small_bush",
+			"grass_patch"
+		]
+		var vegetation_count := _get_pond_vegetation_count()
+		var angle_phase := resource_rng.randf_range(0.0, TAU)
+		for i in vegetation_count:
+			var kind := str(pond_kinds[i % pond_kinds.size()])
+			_try_spawn_resource_near_pond(kind, pond, biome, used_positions, player_position, i, vegetation_count, angle_phase, true)
+
+
+func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, slot_index: int, slot_count: int, angle_phase: float, visual_only: bool = false) -> bool:
 	var slot_angle: float = TAU / float(max(slot_count, 1))
 	var base_angle: float = angle_phase + slot_angle * float(slot_index)
 	var ring_factor := _get_pond_vegetation_ring_factor(slot_index, slot_count)
@@ -1285,7 +1565,14 @@ func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biom
 		if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, _get_pond_vegetation_min_distance(), _get_pond_vegetation_player_safe_distance()):
 			continue
 		used_positions.append(candidate)
+		if resource_kind in ["grass_patch", "dense_grass"] and (visual_only or not _should_keep_edible_pond_grass_node(resource_kind)):
+			var pond_visual_scale := float(GAME_BALANCE.LANDMARKS.get("pond_vegetation_visual_scale", 1.0))
+			_spawn_decorative_vegetation_visual(resource_kind, candidate, str(pond.get("biome_id", "")), pond_visual_scale)
+			return true
 		var node := _spawn_resource_at(resource_kind, candidate)
+		if resource_kind in ["grass_patch", "dense_grass"]:
+			edible_pond_grass_node_spawn_count += 1
+			edible_grass_node_spawn_count += 1
 		if node.has_method("set_pond_vegetation"):
 			node.set_pond_vegetation(
 				str(pond.get("id", "pond")),
@@ -1666,6 +1953,9 @@ func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], 
 			continue
 		if _is_point_in_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
 			used_positions.append(candidate)
+			if VegetationCatalog.is_decorative_kind(resource_kind):
+				_spawn_decorative_vegetation_visual(resource_kind, candidate, _get_biome_id_for_position(candidate), 1.0)
+				return true
 			_spawn_resource_at(resource_kind, candidate)
 			return true
 	return false
@@ -1873,6 +2163,7 @@ func restore_resources(resources: Array) -> void:
 		Callable(self, "_spawn_restored_resource_at"),
 		Callable(self, "_apply_restored_resource_data")
 	)
+	_regenerate_decorative_vegetation_visuals_for_loaded_world()
 
 
 func _get_safe_restored_resource_position(resource_kind: String, requested_position: Variant) -> Vector2:
@@ -1932,6 +2223,8 @@ func _apply_restored_resource_data(resource_node: Variant, resource_data: Dictio
 
 
 func _spawn_restored_resource_at(resource_kind: String, position_data: Variant) -> Node:
+	if VegetationCatalog.is_decorative_kind(resource_kind):
+		return null
 	if typeof(position_data) == TYPE_VECTOR2:
 		return _spawn_resource_at(resource_kind, position_data)
 	if typeof(position_data) == TYPE_DICTIONARY:
@@ -2304,6 +2597,9 @@ func _try_spawn_resource_in_biome(
 			continue
 
 		used_positions.append(candidate)
+		if VegetationCatalog.is_decorative_kind(resource_kind):
+			_spawn_decorative_vegetation_visual(resource_kind, candidate, _get_biome_id(biome), 1.0)
+			return true
 		_spawn_resource_at(resource_kind, candidate)
 		return true
 
