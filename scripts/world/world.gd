@@ -43,7 +43,7 @@ const DEBUG_GRAZER_SPAWN_RADIUS := 240.0
 const VISIBILITY_CULL_INTERVAL_SECONDS := 0.35
 const VISIBILITY_CULL_MARGIN := 384.0
 const DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS := 0.20
-const DECORATIVE_VEGETATION_VISIBILITY_MARGIN := 640.0
+const DECORATIVE_VEGETATION_VISIBILITY_MARGIN := 256.0
 const VISIBILITY_CULL_GROUPS := ["resources", "small_prey", "grazer", "varnak"]
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
 const BIOME_DETAIL_CHUNK_WORLD_SIZE := 768.0
@@ -367,6 +367,19 @@ func _update_decorative_vegetation_visible_rect() -> void:
 		return
 	var visible_rect := get_camera_visible_world_rect(DECORATIVE_VEGETATION_VISIBILITY_MARGIN)
 	vegetation_visual_layer.set_visible_world_rect(visible_rect)
+	if vegetation_visual_layer.has_method("set_camera_focus_position"):
+		var focus_position := Vector2.ZERO
+		var camera := get_viewport().get_camera_2d() if get_viewport() != null else null
+		var scene_player := get_parent().get_node_or_null("Player") as Node2D if get_parent() != null else null
+		if is_instance_valid(scene_player):
+			focus_position = scene_player.global_position
+		elif is_instance_valid(camera):
+			focus_position = camera.global_position
+		else:
+			focus_position = visible_rect.get_center()
+		vegetation_visual_layer.set_camera_focus_position(focus_position)
+	if vegetation_visual_layer.has_method("set_max_drawn_instances"):
+		vegetation_visual_layer.set_max_drawn_instances(220)
 
 
 func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2, margin := VISIBILITY_CULL_MARGIN) -> Rect2:
@@ -707,9 +720,15 @@ func get_vegetation_visual_debug() -> Dictionary:
 		"visual_instance_count": 0,
 		"total_instance_count": 0,
 		"drawn_instance_count": 0,
+		"skipped_by_cap_count": 0,
+		"skipped_by_far_lod_count": 0,
+		"near_lod_count": 0,
+		"mid_lod_count": 0,
+		"far_lod_count": 0,
 		"visible_chunk_count": 0,
 		"total_chunk_count": 0,
-		"count_by_kind": {}
+		"count_by_kind": {},
+		"max_drawn_instances": 0
 	}
 
 
@@ -930,19 +949,11 @@ func _get_kind_budget_count(kind: String, total_count: int) -> int:
 
 
 func _should_keep_edible_grass_node(kind: String) -> bool:
-	if not kind in ["grass_patch", "dense_grass"]:
-		return false
-	if edible_grass_node_spawn_count >= EDIBLE_GRASS_NODE_BUDGET_TOTAL:
-		return false
-	return true
+	return false
 
 
 func _should_keep_edible_pond_grass_node(kind: String) -> bool:
-	if not kind in ["grass_patch", "dense_grass"]:
-		return false
-	if edible_pond_grass_node_spawn_count >= EDIBLE_POND_GRASS_NODE_BUDGET_TOTAL:
-		return false
-	return true
+	return false
 
 
 func _spawn_decorative_vegetation_visual(kind: String, world_position: Vector2, biome_id: String = "", visual_scale: float = 1.0) -> void:
