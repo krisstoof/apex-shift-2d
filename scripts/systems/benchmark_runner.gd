@@ -384,6 +384,10 @@ func _capture_world_vegetation_stats() -> Dictionary:
 		"dense_grass_node_count": 0,
 		"decorative_grass_node_count": 0,
 		"decorative_vegetation_visual_instance_count": 0,
+		"decorative_vegetation_total_instance_count": 0,
+		"decorative_vegetation_drawn_instance_count": 0,
+		"decorative_vegetation_visible_chunk_count": 0,
+		"decorative_vegetation_total_chunk_count": 0,
 		"decorative_vegetation_visual_count_by_kind": {},
 		"edible_vegetation_node_count": 0,
 		"interactive_resource_node_count": 0,
@@ -416,6 +420,10 @@ func _capture_world_vegetation_stats() -> Dictionary:
 	if is_instance_valid(world) and world.has_method("get_vegetation_visual_debug"):
 		var visual_debug := Dictionary(world.call("get_vegetation_visual_debug"))
 		result["decorative_vegetation_visual_instance_count"] = int(visual_debug.get("visual_instance_count", 0))
+		result["decorative_vegetation_total_instance_count"] = int(visual_debug.get("total_instance_count", visual_debug.get("visual_instance_count", 0)))
+		result["decorative_vegetation_drawn_instance_count"] = int(visual_debug.get("drawn_instance_count", 0))
+		result["decorative_vegetation_visible_chunk_count"] = int(visual_debug.get("visible_chunk_count", 0))
+		result["decorative_vegetation_total_chunk_count"] = int(visual_debug.get("total_chunk_count", 0))
 		result["decorative_vegetation_visual_count_by_kind"] = Dictionary(visual_debug.get("count_by_kind", {}))
 	return result
 
@@ -513,9 +521,10 @@ func _calculate_driver_scores(sample: Dictionary) -> Dictionary:
 	var physics_active := float(performance.get("physics_2d_active", 0))
 	var creature_pressure := total_creatures * 1.8 + float(creature_counts.get("varnak", 0)) * 1.4
 	var decorative_grass_nodes := float(vegetation_stats.get("decorative_grass_node_count", 0))
-	var visual_grass_instances := float(vegetation_stats.get("decorative_vegetation_visual_instance_count", 0))
+	var total_visual_grass_instances := float(vegetation_stats.get("decorative_vegetation_total_instance_count", vegetation_stats.get("decorative_vegetation_visual_instance_count", 0)))
+	var drawn_visual_grass_instances := float(vegetation_stats.get("decorative_vegetation_drawn_instance_count", total_visual_grass_instances))
 	var resource_pressure := total_resources * 0.8 + float(resource_counts.get("pond_vegetation", 0)) * 0.6 + float(special_resource_counts.get("edible_vegetation", 0)) * 0.4
-	resource_pressure += visual_grass_instances * 0.03
+	resource_pressure += drawn_visual_grass_instances * 0.03
 	resource_pressure += decorative_grass_nodes * 0.5
 	var render_pressure := draw_calls * 1.9 + render_primitives * 0.02 + render_objects * 0.8
 	var physics_pressure := physics_time_ms * 8.0 + physics_pairs * 0.06 + physics_active * 0.08
@@ -558,8 +567,9 @@ func _calculate_load_score(sample: Dictionary) -> float:
 	var biome_count := float(ecosystem_stats.get("biome_count", 0))
 	var food_stress := float(ecosystem_stats.get("highest_food_stress", 0.0))
 	var decorative_grass_nodes := float(vegetation_stats.get("decorative_grass_node_count", 0))
-	var visual_grass_instances := float(vegetation_stats.get("decorative_vegetation_visual_instance_count", 0))
-	return frame_time_ms + physics_time_ms * 0.8 + draw_calls * 0.08 + render_primitives * 0.001 + node_count * 0.01 + total_creatures * 0.06 + total_resources * 0.02 + decorative_grass_nodes * 0.05 + visual_grass_instances * 0.02 + out_of_bounds * 2.0 + biome_count * 0.4 + food_stress * 5.0
+	var total_visual_grass_instances := float(vegetation_stats.get("decorative_vegetation_total_instance_count", vegetation_stats.get("decorative_vegetation_visual_instance_count", 0)))
+	var drawn_visual_grass_instances := float(vegetation_stats.get("decorative_vegetation_drawn_instance_count", total_visual_grass_instances))
+	return frame_time_ms + physics_time_ms * 0.8 + draw_calls * 0.08 + render_primitives * 0.001 + node_count * 0.01 + total_creatures * 0.06 + total_resources * 0.02 + decorative_grass_nodes * 0.05 + drawn_visual_grass_instances * 0.02 + out_of_bounds * 2.0 + biome_count * 0.4 + food_stress * 5.0
 
 
 func _finish() -> void:

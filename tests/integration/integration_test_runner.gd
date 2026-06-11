@@ -1,4 +1,4 @@
-extends Node
+extends SceneTree
 
 const NEW_GAME_TESTS := preload("res://tests/integration/test_new_game.gd")
 const VEGETATION_POND_WATER_TESTS := preload("res://tests/integration/test_vegetation_pond_water.gd")
@@ -13,6 +13,7 @@ const SAVE_LOAD_RESTORES_ECOSYSTEM_STATE_TESTS := preload("res://tests/integrati
 const SAVE_LOAD_ECOSYSTEM_AFTER_DAYS_TESTS := preload("res://tests/integration/test_save_load_ecosystem_after_days.gd")
 const MINIMAP_RENDERS_WITH_LANDMARKS_TESTS := preload("res://tests/integration/test_minimap_renders_with_landmarks.gd")
 const DECORATIVE_VEGETATION_NODE_BUDGET_TESTS := preload("res://tests/integration/test_decorative_vegetation_node_budget.gd")
+const DECORATIVE_VEGETATION_VISUAL_CULLING_TESTS := preload("res://tests/integration/test_decorative_vegetation_visual_culling.gd")
 const VISIBILITY_CULLING_REGISTRY_SAFETY_TESTS := preload("res://tests/integration/test_visibility_culling_registry_safety.gd")
 const HUD_SAVE_LOAD_REFRESH_TESTS := preload("res://tests/integration/test_hud_save_load_refresh.gd")
 const STORAGE_BOX_SAVE_DATA_TESTS := preload("res://tests/integration/test_storage_box_save_data.gd")
@@ -60,16 +61,9 @@ class IntegrationTestErrorLogger:
 		return collected
 
 
-func _enter_tree() -> void:
+func _initialize() -> void:
 	_integration_test_error_logger = IntegrationTestErrorLogger.new()
 	OS.add_logger(_integration_test_error_logger)
-
-
-func _exit_tree() -> void:
-	_remove_integration_test_error_logger()
-
-
-func _ready() -> void:
 	call_deferred("_run_tests")
 
 
@@ -88,6 +82,7 @@ func _run_tests() -> void:
 	await _run_suite("SaveLoadEcosystemAfterDays", SAVE_LOAD_ECOSYSTEM_AFTER_DAYS_TESTS, failures)
 	await _run_suite("MinimapRendersWithLandmarks", MINIMAP_RENDERS_WITH_LANDMARKS_TESTS, failures)
 	await _run_suite("DecorativeVegetationNodeBudget", DECORATIVE_VEGETATION_NODE_BUDGET_TESTS, failures)
+	await _run_suite("DecorativeVegetationVisualCulling", DECORATIVE_VEGETATION_VISUAL_CULLING_TESTS, failures)
 	await _run_suite("VisibilityCullingRegistrySafety", VISIBILITY_CULLING_REGISTRY_SAFETY_TESTS, failures)
 	await _run_suite("HUDSaveLoadRefresh", HUD_SAVE_LOAD_REFRESH_TESTS, failures)
 	await _run_suite("StorageBoxSaveData", STORAGE_BOX_SAVE_DATA_TESTS, failures)
@@ -96,44 +91,23 @@ func _run_tests() -> void:
 	_remove_integration_test_error_logger()
 	if failures.is_empty():
 		_cleanup_autoloads()
-		var tree := get_tree()
-		if tree != null:
-			tree.current_scene = null
-		var parent := get_parent()
-		if parent != null:
-			parent.remove_child(self)
-		queue_free()
-		await get_tree().process_frame
-		await get_tree().process_frame
-		await get_tree().process_frame
-		await get_tree().process_frame
+		current_scene = null
+		_integration_test_error_logger = null
 		print("[IntegrationTests] All integration tests passed.")
-		get_tree().quit(0)
+		quit(0)
 		return
 	push_error("[IntegrationTests] %d failure(s):" % failures.size())
 	for failure in failures:
 		push_error(failure)
 	_cleanup_autoloads()
-	var failure_tree := get_tree()
-	if failure_tree != null:
-		failure_tree.current_scene = null
-	var failure_parent := get_parent()
-	if failure_parent != null:
-		failure_parent.remove_child(self)
-	queue_free()
-	await get_tree().process_frame
-	await get_tree().process_frame
-	await get_tree().process_frame
-	await get_tree().process_frame
-	get_tree().quit(1)
+	current_scene = null
+	_integration_test_error_logger = null
+	quit(1)
 
 
 func _cleanup_autoloads() -> void:
-	var tree := get_tree()
-	if tree == null:
-		return
 	for autoload_name in ["GraphicsSettings", "GameSession", "EventBus"]:
-		var autoload := tree.root.get_node_or_null(autoload_name)
+		var autoload := root.get_node_or_null(autoload_name)
 		if autoload != null:
 			autoload.queue_free()
 
@@ -165,15 +139,12 @@ func _run_suite(name: String, suite_script: GDScript, failures: Array[String]) -
 
 
 func _cleanup_after_suite(name: String, failures: Array[String]) -> void:
-	var tree := get_tree()
-	if tree == null:
-		return
-	if tree.paused:
+	if paused:
 		failures.append("%s left SceneTree.paused=true" % name)
-		tree.paused = false
+		paused = false
 	_cleanup_save_file()
-	await tree.process_frame
-	await tree.process_frame
+	await process_frame
+	await process_frame
 
 
 func _cleanup_save_file() -> void:
@@ -188,7 +159,7 @@ func _drain_runtime_errors() -> void:
 	var stable_frames := 0
 	var previous_count := _integration_test_error_logger.get_error_count()
 	for _i in range(ERROR_DRAIN_MAX_FRAMES):
-		await get_tree().process_frame
+		await process_frame
 		var current_count := _integration_test_error_logger.get_error_count()
 		if current_count == previous_count:
 			stable_frames += 1
