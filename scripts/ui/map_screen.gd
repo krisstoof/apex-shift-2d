@@ -35,10 +35,12 @@ var map_screen_texture_build_count: int = 0
 var map_screen_texture_last_build_ms: float = 0.0
 var _is_drawing_biomes := false
 var cached_resources: Array[Dictionary] = []
+var cached_campfires: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
 var resources_cache_timer := 0.0
 var map_state_refresh_timer := 0.0
 var cached_resources_signature := ""
+var cached_campfires_signature := ""
 var cached_varnaks_signature := ""
 var landmarks_signature := ""
 var last_map_player_position := Vector2.INF
@@ -128,6 +130,7 @@ func _draw_map_panel(rect: Rect2) -> void:
 	_draw_grid(map_rect)
 	_draw_landmarks(map_rect)
 	_draw_resources(map_rect)
+	_draw_campfires(map_rect)
 	_draw_varnaks(map_rect)
 	_draw_player(map_rect)
 	_draw_map_legend(map_rect)
@@ -267,6 +270,17 @@ func _draw_resources(map_rect: Rect2) -> void:
 	for resource_marker_value in cached_resources:
 		var resource_marker := Dictionary(resource_marker_value)
 		draw_circle(_world_to_map(Vector2(resource_marker.get("position", Vector2.ZERO)), map_rect), 3.0, _get_resource_color(resource_marker))
+
+
+func _draw_campfires(map_rect: Rect2) -> void:
+	for campfire_marker_value in cached_campfires:
+		var campfire_marker := Dictionary(campfire_marker_value)
+		var pos := _world_to_map(Vector2(campfire_marker.get("position", Vector2.ZERO)), map_rect)
+		var active: bool = campfire_marker.get("active", true) == true
+		var outer_color := Color(1.0, 0.46, 0.10) if active else Color(0.48, 0.36, 0.22)
+		var inner_color := Color(1.0, 0.88, 0.28) if active else Color(0.68, 0.58, 0.42)
+		draw_circle(pos, 5.5, outer_color)
+		draw_circle(pos, 2.4, inner_color)
 
 
 func _draw_landmarks(map_rect: Rect2) -> void:
@@ -438,7 +452,7 @@ func _get_landmark_label(landmark: Dictionary) -> String:
 
 
 func _draw_map_legend(map_rect: Rect2) -> void:
-	var legend_rect := Rect2(map_rect.position + Vector2(14.0, 14.0), Vector2(178.0, 162.0))
+	var legend_rect := Rect2(map_rect.position + Vector2(14.0, 14.0), Vector2(178.0, 196.0))
 	draw_rect(legend_rect, Color(0.025, 0.032, 0.028, 0.78), true)
 	draw_rect(legend_rect, Color(0.70, 0.74, 0.66, 0.34), false, 1.0)
 	var font := get_theme_default_font()
@@ -452,6 +466,7 @@ func _draw_map_legend(map_rect: Rect2) -> void:
 	_draw_legend_entry(legend_rect.position + Vector2(92.0, 140.0), "Hill", Color(0.48, 0.45, 0.28))
 	_draw_legend_entry(legend_rect.position + Vector2(12.0, 158.0), "Resource", Color(0.67, 0.95, 0.34))
 	_draw_legend_entry(legend_rect.position + Vector2(92.0, 158.0), "Varnak", Color(0.88, 0.22, 0.16))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 176.0), "Campfire", Color(1.0, 0.46, 0.10))
 
 
 func _draw_legend_entry(legend_position: Vector2, label: String, color: Color) -> void:
@@ -647,18 +662,22 @@ func _get_resource_color(resource_marker: Dictionary) -> Color:
 
 
 func _update_marker_cache() -> bool:
-	var snapshot := _get_snapshot()
+	var snapshot := _get_snapshot(true)
 	var markers := Dictionary(snapshot.get("markers", {}))
 	if not markers.is_empty():
 		cached_resources = _to_dictionary_array(Array(markers.get("resources", [])))
+		cached_campfires = _to_dictionary_array(Array(markers.get("campfires", [])))
 		cached_varnaks = _to_dictionary_array(Array(markers.get("varnaks", [])))
 	else:
 		cached_resources = _build_resource_markers_from_world()
+		cached_campfires = _build_campfire_markers_from_world()
 		cached_varnaks = _build_varnak_markers_from_world()
 	var resource_signature := _build_resources_signature()
+	var campfire_signature := _build_campfires_signature()
 	var varnak_signature := _build_varnaks_signature()
-	var changed := resource_signature != cached_resources_signature or varnak_signature != cached_varnaks_signature
+	var changed := resource_signature != cached_resources_signature or campfire_signature != cached_campfires_signature or varnak_signature != cached_varnaks_signature
 	cached_resources_signature = resource_signature
+	cached_campfires_signature = campfire_signature
 	cached_varnaks_signature = varnak_signature
 	return changed
 
@@ -718,6 +737,7 @@ func _build_visible_render_state_key(current_player_position: Vector2, current_z
 		"%.2f" % float(profile.get("trap_awareness", 0.0)),
 		"%.2f" % float(profile.get("pack_coordination", 0.0)),
 		cached_resources_signature,
+		cached_campfires_signature,
 		cached_varnaks_signature,
 		landmarks_signature
 	])
@@ -773,6 +793,7 @@ func _build_render_state_key() -> String:
 		"%.2f" % float(profile.get("trap_awareness", 0.0)),
 		"%.2f" % float(profile.get("pack_coordination", 0.0)),
 		cached_resources_signature,
+		cached_campfires_signature,
 		cached_varnaks_signature,
 		landmarks_signature
 	])
@@ -788,6 +809,37 @@ func _build_resources_signature() -> String:
 			int(round(Vector2(resource.get("position", Vector2.ZERO)).y)),
 			str(resource.get("resource_kind")),
 			"1" if resource.get("player_harvestable", true) != false else "0"
+	])
+	return "|".join(parts)
+
+
+func _build_campfire_markers_from_world() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	var active_world := _get_world()
+	if active_world == null or not active_world.has_method("get_cached_group_nodes"):
+		return markers
+	for campfire_value in active_world.get_cached_group_nodes("campfires"):
+		var campfire := campfire_value as Node2D
+		if campfire == null or not is_instance_valid(campfire):
+			continue
+		if campfire.is_queued_for_deletion():
+			continue
+		markers.append({
+			"position": campfire.global_position,
+			"type": "campfire",
+			"active": true
+		})
+	return markers
+
+
+func _build_campfires_signature() -> String:
+	var parts: Array[String] = []
+	for campfire_value in cached_campfires:
+		var campfire_marker := Dictionary(campfire_value)
+		parts.append("%d:%d:%s" % [
+			int(round(Vector2(campfire_marker.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(campfire_marker.get("position", Vector2.ZERO)).y)),
+			"1" if campfire_marker.get("active", true) == true else "0"
 		])
 	return "|".join(parts)
 
@@ -858,12 +910,15 @@ func _get_world() -> Node:
 	return world
 
 
-func _get_snapshot() -> Dictionary:
-	if snapshot_service != null and snapshot_service.has_method("get_snapshot"):
-		var snapshot: Dictionary = snapshot_service.get_snapshot()
-		if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+func _get_snapshot(force_refresh := false) -> Dictionary:
+	if snapshot_service != null:
+		if force_refresh and snapshot_service.has_method("refresh"):
 			return snapshot_service.refresh(true)
-		return snapshot
+		if snapshot_service.has_method("get_snapshot"):
+			var snapshot: Dictionary = snapshot_service.get_snapshot()
+			if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+				return snapshot_service.refresh(true)
+			return snapshot
 	return {}
 
 
