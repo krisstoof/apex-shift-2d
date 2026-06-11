@@ -269,6 +269,7 @@ func run() -> Array[String]:
 	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
 	_test_world_boot_progress_state_tracks_stage_updates(failures)
 	_test_current_biome_texture_id_uses_player_position_biome(failures)
+	_test_safe_restored_resource_position_uses_requested_position(failures)
 	_test_get_camera_visible_world_rect_defaults_to_full_world_without_camera(failures)
 	_test_world_object_visibility_rect_accounts_for_camera_zoom_and_margin(failures)
 	_test_world_object_visibility_culls_and_restores_group_nodes(failures)
@@ -1015,6 +1016,14 @@ func _test_current_biome_texture_id_uses_player_position_biome(failures: Array[S
 		return
 	var texture_id := world.get_current_biome_texture_id(sample_point)
 	TEST_UTILS.expect(texture_id.contains("westwood_sample"), failures, "Current biome texture id should resolve from the biome containing the sampled world position")
+	world.free()
+
+
+func _test_safe_restored_resource_position_uses_requested_position(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var restored_position: Vector2 = world.call("_get_safe_restored_resource_position", "meat_drop", Vector2(500.0, 300.0))
+	TEST_UTILS.expect(restored_position.distance_to(Vector2(500.0, 300.0)) < 1.0, failures, "Safe restored resource position should keep the requested drop position when it is already valid")
+	TEST_UTILS.expect(restored_position != Vector2.ZERO, failures, "Safe restored resource position should not fall back to the world origin")
 	world.free()
 
 

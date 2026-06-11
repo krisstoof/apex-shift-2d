@@ -634,6 +634,10 @@ func begin_save_restore() -> void:
 
 func end_save_restore() -> void:
 	is_restoring_save = false
+	clear_cached_group_nodes()
+	if visibility_culling_enabled:
+		_update_world_object_visibility()
+	queue_redraw()
 
 
 func is_boot_ready() -> bool:
@@ -1441,6 +1445,8 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	if is_resource_position_blocked_by_water("meat_drop", safe_position):
 		push_warning("Meat drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
 	var node: Node = _spawn_resource_at("meat_drop", safe_position)
+	if node is Node2D:
+		(node as Node2D).visible = true
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
 	if visibility_culling_enabled:
@@ -1467,6 +1473,8 @@ func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	if is_resource_position_blocked_by_water("bone_drop", safe_position):
 		push_warning("Bone drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
 	var node: Node = _spawn_resource_at("bone_drop", safe_position)
+	if node is Node2D:
+		(node as Node2D).visible = true
 	if node.has_method("set_loot_amount"):
 		node.set_loot_amount(amount)
 	if visibility_culling_enabled:
@@ -1748,15 +1756,15 @@ func _get_safe_restored_resource_position(resource_kind: String, requested_posit
 		requested_vector = Vector2.ZERO
 	var safe_position := _clamp_position_to_world(requested_vector)
 	if not is_resource_position_blocked_by_water(resource_kind, safe_position) and not _is_resource_blocked_by_hill(resource_kind, safe_position):
-		return position
-	var pond := _get_nearest_pond_landmark(position)
+		return safe_position
+	var pond := _get_nearest_pond_landmark(safe_position)
 	if pond.is_empty():
-		return position
+		return safe_position
 	var center := Vector2(pond.get("position", Vector2.ZERO))
 	var radius := float(pond.get("radius", 0.0))
 	if radius <= 0.0:
-		return position
-	var direction := position - center
+		return safe_position
+	var direction := safe_position - center
 	var base_angle := direction.angle() if direction.length_squared() > 0.001 else 0.0
 	var base_radius_factor: float = max(_get_resource_water_margin_multiplier(resource_kind) + 0.08, 1.16)
 	var used_positions := _get_existing_resource_positions()
