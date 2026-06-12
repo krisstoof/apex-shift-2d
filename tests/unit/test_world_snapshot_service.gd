@@ -120,6 +120,15 @@ class MockCreature:
 	extends Node2D
 
 
+class MockAiCreature:
+	extends Node2D
+
+	var ai_state := "wandering"
+
+	func get_debug_ai_state() -> String:
+		return ai_state
+
+
 class MockWorld:
 	extends Node
 	var resources: Array = []
@@ -274,8 +283,8 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 		_make_resource("bush", "fiber", Vector2(50.0, 50.0), false)
 	]
 	world.varnaks = [_make_creature(Vector2(120.0, 0.0))]
-	world.small_prey = [_make_creature(Vector2(-90.0, 20.0)), _make_creature(Vector2(-60.0, 10.0))]
-	world.grazers = [_make_creature(Vector2(70.0, -40.0))]
+	world.small_prey = [_make_ai_creature(Vector2(-90.0, 20.0), "wandering"), _make_ai_creature(Vector2(-60.0, 10.0), "hungry_wander")]
+	world.grazers = [_make_ai_creature(Vector2(70.0, -40.0), "eating_plants")]
 	service.bind(player, MockEvolutionDirector.new(), MockDayNightSystem.new(), MockEcosystemDirector.new(), world)
 	var snapshot: Dictionary = service.refresh(true)
 	var player_snapshot := Dictionary(snapshot.get("player", {}))
@@ -285,6 +294,7 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	var debug_snapshot := Dictionary(snapshot.get("debug", {}))
 	var varnak_sync := Dictionary(world_snapshot.get("varnak_spawn_sync", {}))
 	var visibility_culling := Dictionary(world_snapshot.get("visibility_culling", {}))
+	var ai_state_counts := Dictionary(world_snapshot.get("creature_ai_state_counts", {}))
 	TEST_UTILS.expect_equal(int(player_snapshot.get("health", 0)), 91, failures, "Snapshot service should capture player health")
 	TEST_UTILS.expect_equal(str(player_snapshot.get("condition_text", "")), "steady", failures, "Snapshot service should capture player condition text")
 	TEST_UTILS.expect_equal(int(Dictionary(player_snapshot.get("inventory", {})).get("torch", 0)), 2, failures, "Snapshot service should capture inventory amounts")
@@ -296,6 +306,9 @@ func _test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures: Arr
 	TEST_UTILS.expect_equal(Array(markers.get("resources", [])).size(), 2, failures, "Snapshot service should expose only minimap/map resource markers that stay visible to the player")
 	TEST_UTILS.expect_equal(Array(markers.get("varnaks", [])).size(), 1, failures, "Snapshot service should expose varnak markers")
 	TEST_UTILS.expect_equal(int(Dictionary(ecosystem_snapshot.get("population_totals", {})).get("small_prey_population", 0)), 5, failures, "Snapshot service should aggregate ecosystem population totals")
+	TEST_UTILS.expect_equal(int(Dictionary(ai_state_counts.get("small_prey", {})).get("wandering", 0)), 1, failures, "Snapshot service should aggregate small prey wandering states")
+	TEST_UTILS.expect_equal(int(Dictionary(ai_state_counts.get("small_prey", {})).get("hungry", 0)), 1, failures, "Snapshot service should aggregate small prey hungry states")
+	TEST_UTILS.expect_equal(int(Dictionary(ai_state_counts.get("grazer", {})).get("eating", 0)), 1, failures, "Snapshot service should aggregate grazer eating states")
 	TEST_UTILS.expect_equal(int(varnak_sync.get("attempt_count", 0)), 1, failures, "Snapshot service should expose Varnak spawn sync diagnostics")
 	TEST_UTILS.expect_equal(int(visibility_culling.get("visible_resources", 0)), 2, failures, "Snapshot service should expose visible resource counts")
 	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_resources", 0)), 5, failures, "Snapshot service should expose hidden resource counts")
@@ -339,4 +352,11 @@ func _make_resource(kind: String, item_name: String, position: Vector2, harvesta
 func _make_creature(position: Vector2) -> MockCreature:
 	var creature := MockCreature.new()
 	creature.global_position = position
+	return creature
+
+
+func _make_ai_creature(position: Vector2, ai_state: String) -> MockAiCreature:
+	var creature := MockAiCreature.new()
+	creature.global_position = position
+	creature.ai_state = ai_state
 	return creature

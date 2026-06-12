@@ -19,6 +19,26 @@ func _population_recovery_value(key: String) -> float:
 	return float(GAME_BALANCE.POPULATION_RECOVERY[key])
 
 
+func _get_current_day() -> int:
+	if not is_inside_tree():
+		return 1
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return 1
+	var scene := tree.current_scene
+	if scene == null:
+		return 1
+	var day_night_system := scene.get_node_or_null("DayNightSystem")
+	if day_night_system and day_night_system.has_method("get_day"):
+		return maxi(int(day_night_system.get_day()), 1)
+	return 1
+
+
+func _get_first_week_difficulty(day: int = -1) -> Dictionary:
+	var effective_day := day if day > 0 else _get_current_day()
+	return GAME_BALANCE.get_first_week_difficulty(effective_day)
+
+
 func _ready() -> void:
 	var event_bus := _get_event_bus()
 	if event_bus and event_bus.has_signal("game_event"):
@@ -618,10 +638,18 @@ func _recover_population_for_day(state: Dictionary, species: String) -> float:
 	var current_population: float = float(state.get(population_key, 0.0))
 	var target_population: float = _population_recovery_value("%s_target_population" % species)
 	var max_population: float = _population_recovery_value("%s_max_population" % species)
+	var difficulty := _get_first_week_difficulty()
+	var population_multiplier_key := "%s_population_multiplier" % species
+	var has_first_week_adjustment := _get_current_day() <= 7 and difficulty.has(population_multiplier_key)
+	if has_first_week_adjustment:
+		target_population *= float(difficulty.get(population_multiplier_key, 1.0))
+		max_population *= float(difficulty.get(population_multiplier_key, 1.0))
 	if current_population >= target_population or current_population >= max_population:
 		return 0.0
 	var biomass_multiplier: float = _get_biomass_recovery_multiplier(float(state.get("plant_biomass_percent", 0.0)))
 	var recovery_per_day: float = _population_recovery_value("%s_recovery_per_day" % species)
+	if has_first_week_adjustment:
+		recovery_per_day *= float(difficulty.get(population_multiplier_key, 1.0))
 	var recovery: float = minf(recovery_per_day * biomass_multiplier, target_population - current_population)
 	var recovered_population: float = clampf(current_population + recovery, 0.0, max_population)
 	state[population_key] = recovered_population

@@ -81,6 +81,8 @@ func run() -> Array[String]:
 	_test_grazer_can_eat_meat_when_desperate(failures)
 	_test_grazer_skips_freed_meat_drop_targets(failures)
 	_test_grazer_hunger_restored_after_eating(failures)
+	_test_grazer_restore_from_data_handles_null_fields(failures)
+	_test_grazer_visibility_culling_sleeps_ai_and_collision(failures)
 	_test_grazer_returns_to_wandering_after_eating(failures)
 	_test_grazer_takes_damage(failures)
 	_test_grazer_dies_at_zero_health(failures)
@@ -342,6 +344,49 @@ func _test_grazer_hunger_restored_after_eating(failures: Array[String]) -> void:
 	grazer.call("_consume_plants")
 	TEST_UTILS.expect(grazer.hunger_diet.hunger < 0.10, failures, "Eating should reduce hunger")
 	resource.queue_free()
+	grazer.queue_free()
+
+
+func _test_grazer_restore_from_data_handles_null_fields(failures: Array[String]) -> void:
+	var grazer := _make_grazer()
+	var before_health: float = grazer.health
+	grazer.restore_from_data({
+		"facing_angle": null,
+		"health": null,
+		"speed": null,
+		"dropped_meat": null
+	})
+	TEST_UTILS.expect_close(grazer.health, before_health, failures, "Grazer restore should ignore null health values")
+	TEST_UTILS.expect(grazer.facing_angle == grazer.facing_angle, failures, "Grazer restore should not produce an invalid facing angle")
+	grazer.queue_free()
+
+
+func _test_grazer_visibility_culling_sleeps_ai_and_collision(failures: Array[String]) -> void:
+	var grazer := _make_grazer()
+	grazer.player = Node2D.new()
+	grazer.player.global_position = Vector2(100000.0, 100000.0)
+	var original_layer: int = grazer.collision_layer
+	var original_mask: int = grazer.collision_mask
+	var before_position: Vector2 = grazer.global_position
+	var before_ai_decisions: int = grazer.ai_decision_count
+	TEST_UTILS.expect(grazer.has_method("set_visibility_culled"), failures, "Grazer should expose visibility culling")
+	grazer.call("set_visibility_culled", false)
+	TEST_UTILS.expect_equal(grazer.visible, false, failures, "Culled grazers should be hidden")
+	TEST_UTILS.expect_equal(bool(grazer.get("is_visibility_culled")), true, failures, "Culled grazers should remember they are sleeping")
+	TEST_UTILS.expect_equal(grazer.collision_layer, 0, failures, "Culled grazers should disable their collision layer")
+	TEST_UTILS.expect_equal(grazer.collision_mask, 0, failures, "Culled grazers should disable their collision mask")
+	TEST_UTILS.expect_equal(grazer.is_physics_processing(), false, failures, "Culled grazers should stop physics processing")
+	TEST_UTILS.expect_equal(grazer.is_processing(), false, failures, "Culled grazers should stop frame processing")
+	grazer.call("_physics_process", 0.2)
+	TEST_UTILS.expect_equal(grazer.ai_decision_count, before_ai_decisions, failures, "Sleeping grazers should not advance AI decisions")
+	TEST_UTILS.expect_equal(grazer.global_position, before_position, failures, "Sleeping grazers should not move")
+	grazer.call("set_visibility_culled", true)
+	TEST_UTILS.expect_equal(grazer.visible, true, failures, "Reactivated grazers should be visible")
+	TEST_UTILS.expect_equal(bool(grazer.get("is_visibility_culled")), false, failures, "Reactivated grazers should clear the sleeping flag")
+	TEST_UTILS.expect_equal(grazer.collision_layer, original_layer, failures, "Reactivated grazers should restore their collision layer")
+	TEST_UTILS.expect_equal(grazer.collision_mask, original_mask, failures, "Reactivated grazers should restore their collision mask")
+	TEST_UTILS.expect_equal(grazer.is_physics_processing(), true, failures, "Reactivated grazers should resume physics")
+	TEST_UTILS.expect_equal(grazer.is_processing(), true, failures, "Reactivated grazers should resume frame processing")
 	grazer.queue_free()
 
 

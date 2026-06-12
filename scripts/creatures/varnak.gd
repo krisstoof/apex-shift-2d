@@ -2,6 +2,7 @@ extends CharacterBody2D
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 
 enum State { IDLE, WANDER, STALK, CHASE, ATTACK, FLEE, HUNT_ECOSYSTEM, EAT_MEAT }
 
@@ -21,6 +22,7 @@ const DEBUG_FRAME_FONT_SIZE := 11
 const BASE_HUNGER_TIME_SCALE := 0.05
 const MOVEMENT_HUNGER_TIME_SCALE := 0.06
 const AI_DECISION_INTERVAL_SECONDS := 0.14
+const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
 
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
@@ -60,16 +62,71 @@ var decision_reason := "spawn"
 var ai_decision_interval := 0.30
 var ai_decision_timer := 0.0
 var ai_decision_count := 0
+var spatial_update_timer := 0.0
 var is_dead := false
 var meat_diet := 1.0
 var scavenger_diet := 0.45
+var is_visibility_culled := false
+var stored_collision_layer := 0
+var stored_collision_mask := 0
+var simulation_level := SIMULATION_LOD.Level.NEAR
+var simulation_level_name := "near"
+var simulation_distance_to_player := 0.0
+var simulation_lod_timer := 0.0
+var far_simulation_timer := 0.0
+var simulation_lod_change_count := 0
+var last_simulation_level := SIMULATION_LOD.Level.NEAR
+
+
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
 
 func _ready() -> void:
 	add_to_group("varnak")
 	player = get_tree().get_first_node_in_group("player")
+	stored_collision_layer = collision_layer
+	stored_collision_mask = collision_mask
 	ai_decision_timer = fmod(float(get_instance_id()), 7.0) / 7.0 * AI_DECISION_INTERVAL_SECONDS
 	_pick_wander_target()
 	queue_redraw()
+
+
+func set_visibility_culled(should_be_visible: bool) -> void:
+	is_visibility_culled = not should_be_visible
+	visible = should_be_visible
+	_update_simulation_level()
+	if should_be_visible:
+		match simulation_level:
+			SIMULATION_LOD.Level.NEAR:
+				_restore_full_simulation()
+			SIMULATION_LOD.Level.MEDIUM:
+				_apply_medium_simulation()
+			_:
+				_apply_far_simulation()
+		queue_redraw()
+		return
+	if simulation_level == SIMULATION_LOD.Level.FAR:
+		_apply_far_simulation()
+	else:
+		collision_layer = stored_collision_layer
+		collision_mask = stored_collision_mask
+		set_physics_process(true)
+		set_process(false)
 
 
 func apply_profile(profile: Dictionary) -> void:
@@ -86,6 +143,7 @@ func apply_profile(profile: Dictionary) -> void:
 	base_curiosity = float(profile.get("base_curiosity", base_curiosity))
 	stalk_tendency = float(profile.get("stalk_tendency", stalk_tendency))
 	speed = 90.0 + aggression * 50.0 + pack_coordination * 20.0
+	_apply_first_week_profile_tuning()
 	queue_redraw()
 
 
@@ -152,37 +210,95 @@ func get_debug_data() -> Dictionary:
 		"attack_cooldown": attack_cooldown,
 		"ecosystem_target": ecosystem_target_kind if is_instance_valid(ecosystem_target) else "",
 		"night_health_bonus_active": night_health_bonus_active,
-		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
+		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0,
+		"simulation_level": simulation_level_name,
+		"simulation_distance_to_player": simulation_distance_to_player,
+		"simulation_lod_change_count": simulation_lod_change_count,
+		"is_visibility_culled": is_visibility_culled,
+		"ai_decision_interval_effective": _get_effective_ai_decision_interval()
 	}
+
+
+func get_debug_ai_state() -> String:
+	return _get_debug_action_label()
 
 
 func restore_from_data(data: Dictionary) -> void:
 	species_id = str(data.get("species_id", species_id))
 	species_name = str(data.get("species_name", species_name))
-	generation = max(int(data.get("generation", generation)), 1)
+	generation = max(_safe_int(data, "generation", generation), 1)
 	population_biome_id = str(data.get("population_biome_id", population_biome_id))
 	global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
-	facing_angle = float(data.get("facing_angle", data.get("rotation", facing_angle)))
-	facing_side = float(data.get("facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0))
-	max_health = max(float(data.get("max_health", max_health)), 1.0)
-	health = clamp(float(data.get("health", health)), 0.0, max_health)
-	hunger = clamp(float(data.get("hunger", hunger)), 0.0, 1.0)
-	energy = clamp(float(data.get("energy", energy)), 0.0, 1.0)
-	age_seconds = max(float(data.get("age_seconds", age_seconds)), 0.0)
-	night_health_bonus_active = data.get("night_health_bonus_active", night_health_bonus_active) == true
-	state = int(data.get("state", State.WANDER))
+	facing_angle = _safe_float(data, "facing_angle", _safe_float(data, "rotation", facing_angle))
+	facing_side = _safe_float(data, "facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0)
+	max_health = max(_safe_float(data, "max_health", max_health), 1.0)
+	health = clamp(_safe_float(data, "health", health), 0.0, max_health)
+	hunger = clamp(_safe_float(data, "hunger", hunger), 0.0, 1.0)
+	energy = clamp(_safe_float(data, "energy", energy), 0.0, 1.0)
+	age_seconds = max(_safe_float(data, "age_seconds", age_seconds), 0.0)
+	night_health_bonus_active = _safe_bool(data, "night_health_bonus_active", night_health_bonus_active)
+	state = _safe_int(data, "state", State.WANDER) as State
 	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
-	attack_cooldown = float(data.get("attack_cooldown", attack_cooldown))
+	attack_cooldown = _safe_float(data, "attack_cooldown", attack_cooldown)
 	last_food_source = str(data.get("last_food_source", last_food_source))
-	meat_diet = float(data.get("meat_diet", meat_diet))
-	scavenger_diet = float(data.get("scavenger_diet", scavenger_diet))
-	dropped_meat = data.get("dropped_meat", dropped_meat) == true
+	meat_diet = _safe_float(data, "meat_diet", meat_diet)
+	scavenger_diet = _safe_float(data, "scavenger_diet", scavenger_diet)
+	dropped_meat = _safe_bool(data, "dropped_meat", dropped_meat)
+	velocity = Vector2.ZERO
+	simulation_level = SIMULATION_LOD.Level.NEAR
+	simulation_level_name = "near"
+	far_simulation_timer = 0.0
 	queue_redraw()
 
 
+func _safe_float(data: Dictionary, key: String, fallback: float) -> float:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+		return float(value)
+	if typeof(value) == TYPE_STRING and str(value).is_valid_float():
+		return float(value)
+	return fallback
+
+
+func _safe_int(data: Dictionary, key: String, fallback: int) -> int:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+		return int(value)
+	if typeof(value) == TYPE_STRING and str(value).is_valid_int():
+		return int(value)
+	return fallback
+
+
+func _safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_BOOL:
+		return bool(value)
+	if typeof(value) == TYPE_STRING:
+		var normalized := str(value).to_lower()
+		if normalized == "true":
+			return true
+		if normalized == "false":
+			return false
+	return fallback
+
+
 func _physics_process(delta: float) -> void:
+	if is_dead:
+		return
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
+		return
+	_update_simulation_level()
+	if simulation_level == SIMULATION_LOD.Level.FAR:
+		_tick_far_simulation(delta)
+		return
+	if is_visibility_culled:
 		return
 	_update_night_health_bonus()
 	var movement_intensity: float = clamp(velocity.length() / max(speed, 1.0), 0.0, 1.0)
@@ -203,18 +319,109 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 	ai_decision_timer -= delta
 	if ai_decision_timer <= 0.0:
-		ai_decision_timer = ai_decision_interval
+		ai_decision_timer = _get_effective_ai_decision_interval()
 		ai_decision_count += 1
 		_update_state()
 	_act(delta)
 	_update_individual_energy(delta, velocity.length() / max(speed, 1.0))
 	move_and_slide()
 	_enforce_world_bounds()
+	_update_spatial_cell_tick(delta)
 
 
 func force_ai_decision_for_tests() -> void:
 	ai_decision_timer = 0.0
 	_update_state()
+
+
+func _should_update_ai_decision(delta: float) -> bool:
+	return ai_decision_timer - delta <= 0.0
+
+
+func _get_effective_ai_decision_interval() -> float:
+	if simulation_level == SIMULATION_LOD.Level.MEDIUM:
+		return SIMULATION_LOD.get_medium_ai_interval(ai_decision_interval, _get_simulation_lod_config())
+	return ai_decision_interval
+
+
+func _get_simulation_lod_config() -> Dictionary:
+	return GAME_BALANCE.CREATURE_SIMULATION_LOD
+
+
+func _update_simulation_level() -> void:
+	if not is_instance_valid(player):
+		player = get_tree().get_first_node_in_group("player")
+	if not is_instance_valid(player):
+		_set_simulation_level(SIMULATION_LOD.Level.NEAR)
+		return
+	simulation_distance_to_player = global_position.distance_to(player.global_position)
+	var creature_type := species_id if species_id != "" else name.to_snake_case()
+	var next_level: CreatureSimulationLOD.Level = SIMULATION_LOD.resolve_level(
+		simulation_distance_to_player,
+		_get_simulation_lod_config(),
+		creature_type
+	) as CreatureSimulationLOD.Level
+	_set_simulation_level(next_level)
+
+
+func _set_simulation_level(next_level: CreatureSimulationLOD.Level) -> void:
+	if simulation_level == next_level:
+		return
+	last_simulation_level = simulation_level
+	simulation_level = next_level
+	simulation_level_name = SIMULATION_LOD.get_level_name(simulation_level)
+	simulation_lod_change_count += 1
+	match simulation_level:
+		SIMULATION_LOD.Level.NEAR:
+			_restore_full_simulation()
+		SIMULATION_LOD.Level.MEDIUM:
+			_apply_medium_simulation()
+		SIMULATION_LOD.Level.FAR:
+			_apply_far_simulation()
+
+
+func _restore_full_simulation() -> void:
+	visible = true
+	collision_layer = stored_collision_layer
+	collision_mask = stored_collision_mask
+	set_physics_process(true)
+	set_process(true)
+	velocity = Vector2.ZERO
+	queue_redraw()
+
+
+func _apply_medium_simulation() -> void:
+	visible = true
+	collision_layer = stored_collision_layer
+	collision_mask = stored_collision_mask
+	set_physics_process(true)
+	set_process(true)
+
+
+func _apply_far_simulation() -> void:
+	velocity = Vector2.ZERO
+	collision_layer = 0
+	collision_mask = 0
+	set_process(false)
+	set_physics_process(true)
+
+
+func _tick_far_simulation(delta: float) -> void:
+	far_simulation_timer += delta
+	var interval := SIMULATION_LOD.get_far_update_interval(_get_simulation_lod_config())
+	if far_simulation_timer < interval:
+		return
+	var tick_delta := far_simulation_timer
+	far_simulation_timer = 0.0
+	_update_night_health_bonus()
+	var hunger_growth := _get_hunger_growth_rate()
+	hunger = clamp(hunger + hunger_growth * BASE_HUNGER_TIME_SCALE * tick_delta, 0.0, 1.0)
+	age_seconds += tick_delta
+	attack_cooldown = max(attack_cooldown - tick_delta, 0.0)
+	target_lock_time = max(target_lock_time - tick_delta, 0.0)
+	energy = clamp(energy + tick_delta * 0.02, 0.0, 1.0)
+	velocity = Vector2.ZERO
+	_update_spatial_cell_tick(tick_delta)
 
 
 func get_ai_performance_debug() -> Dictionary:
@@ -256,8 +463,8 @@ func _update_state() -> void:
 		decision_reason = "active_campfire_fear"
 		state = State.FLEE
 		if randf() < 0.012:
-			get_node("/root/EventBus").emit_game_event("varnak_scared_by_fire", {"position": global_position})
-			get_node("/root/EventBus").post_message("Varnak scared by fire")
+			_emit_game_event("varnak_scared_by_fire", {"position": global_position})
+			_post_event_message("Varnak scared by fire")
 		return
 	if state == State.FLEE:
 		decision_reason = "threat_lost_return_wander"
@@ -330,7 +537,7 @@ func _update_state() -> void:
 		_pick_wander_target()
 
 
-func _act(delta: float) -> void:
+func _act(_delta: float) -> void:
 	match state:
 		State.IDLE:
 			velocity = Vector2.ZERO
@@ -346,7 +553,7 @@ func _act(delta: float) -> void:
 			_face_target(player.global_position)
 			if attack_cooldown <= 0.0 and player.has_method("receive_damage") and _is_player_in_attack_arc():
 				player.receive_damage(10.0 + aggression * 8.0, "varnak")
-				get_node("/root/EventBus").emit_game_event("varnak_attacked_player", {"damage": 10.0 + aggression * 8.0})
+				_emit_game_event("varnak_attacked_player", {"damage": 10.0 + aggression * 8.0})
 				attack_visual_time = ATTACK_VISUAL_DURATION
 				queue_redraw()
 				attack_cooldown = 1.2 * (GAME_BALANCE.TORCH_ATTACK_COOLDOWN_MULTIPLIER if _is_torch_protecting_player(global_position.distance_to(player.global_position)) else 1.0)
@@ -417,8 +624,8 @@ func _hunt_ecosystem_target() -> void:
 		eat_visual_time = EAT_VISUAL_DURATION
 		last_food_source = "%s_meat" % hunted_kind
 		var event_name := "varnak_hunted_grazer" if hunted_kind == "grazer" else "varnak_hunted_small_prey"
-		get_node("/root/EventBus").emit_game_event(event_name, {"position": global_position})
-		get_node("/root/EventBus").post_message("Varnak hunted %s" % ("Grazer" if hunted_kind == "grazer" else "SmallPrey"))
+		_emit_game_event(event_name, {"position": global_position})
+		_post_event_message("Varnak hunted %s" % ("Grazer" if hunted_kind == "grazer" else "SmallPrey"))
 		attack_visual_time = ATTACK_VISUAL_DURATION
 		attack_cooldown = 1.0
 		ecosystem_target = null
@@ -462,7 +669,8 @@ func _set_nearest_meat_target(search_range: float) -> bool:
 func _find_nearest_meat_drop(search_range: float) -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := search_range
-	for resource in _get_cached_group_nodes("meat_drops"):
+	var candidates := _get_nearby_meat(search_range)
+	for resource in candidates:
 		if not is_instance_valid(resource):
 			continue
 		if not (resource is Node2D):
@@ -502,11 +710,11 @@ func _consume_meat_target() -> void:
 	energy = clamp(energy + eaten_food * 0.34, 0.0, 1.0)
 	eat_visual_time = EAT_VISUAL_DURATION
 	last_food_source = "meat_drop"
-	get_node("/root/EventBus").emit_game_event("varnak_scavenged_meat", {
+	_emit_game_event("varnak_scavenged_meat", {
 		"position": global_position,
 		"nutrition": eaten_food
 	})
-	get_node("/root/EventBus").post_message("Varnak ate meat")
+	_post_event_message("Varnak ate meat")
 	meat_target = null
 
 
@@ -521,7 +729,8 @@ func _find_ecosystem_target() -> Node2D:
 	for group_name in ["small_prey", "grazer"]:
 		if _is_species_population_critical(group_name):
 			continue
-		for creature in _get_cached_group_nodes(group_name):
+		var candidates := _get_nearby_creatures(detect_range, group_name)
+		for creature in candidates:
 			if not is_instance_valid(creature):
 				continue
 			if not _get_world_rect().has_point(creature.global_position):
@@ -633,6 +842,31 @@ func _get_night_hunting_multiplier() -> float:
 	return 1.0
 
 
+func _get_current_day() -> int:
+	if day_night_system and day_night_system.has_method("get_day"):
+		return maxi(int(day_night_system.get_day()), 1)
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.current_scene == null:
+		return 1
+	var scene := tree.current_scene
+	if scene:
+		var day_night := scene.get_node_or_null("DayNightSystem")
+		if day_night and day_night.has_method("get_day"):
+			return maxi(int(day_night.get_day()), 1)
+	return 1
+
+
+func _apply_first_week_profile_tuning() -> void:
+	var day := _get_current_day()
+	if day > 7:
+		return
+	var difficulty := GAME_BALANCE.get_first_week_difficulty(day)
+	var aggression_multiplier := float(difficulty.get("varnak_aggression_multiplier", 1.0))
+	var activity_multiplier := float(difficulty.get("varnak_activity_multiplier", 1.0))
+	aggression = clamp(aggression * aggression_multiplier, 0.0, 1.0)
+	night_activity = clamp(night_activity * activity_multiplier, 0.0, 1.0)
+
+
 func _get_hunt_feed_amount(hunted_kind: String) -> float:
 	return HUNT_FEED_AMOUNT * (1.25 if hunted_kind == "grazer" else 1.0)
 
@@ -678,9 +912,9 @@ func _get_current_ecosystem_state() -> Dictionary:
 	return ecosystem.get_biome_state(biome_id)
 
 
-func _get_biome_id_for_position(position: Vector2) -> String:
+func _get_biome_id_for_position(world_position: Vector2) -> String:
 	for biome in WORLD_CONFIG.get_biome_zones():
-		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
+		if Geometry2D.is_point_in_polygon(world_position, PackedVector2Array(biome["points"])):
 			return _get_biome_id(biome)
 	return ""
 
@@ -717,12 +951,12 @@ func _get_navigation_direction(desired_direction: Vector2, target: Vector2) -> V
 	return fallback if fallback.length_squared() > 0.0 else Vector2.RIGHT
 
 
-func _is_navigation_position_valid(position: Vector2) -> bool:
-	var clamped_position := _clamp_to_world(position)
-	if clamped_position.distance_squared_to(position) > 0.01:
+func _is_navigation_position_valid(world_position: Vector2) -> bool:
+	var clamped_position := _clamp_to_world(world_position)
+	if clamped_position.distance_squared_to(world_position) > 0.01:
 		return false
 	var world_query: Variant = _get_world_query()
-	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(position) == true:
+	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(world_position) == true:
 		return false
 	return true
 
@@ -872,11 +1106,11 @@ func _get_bounded_flee_target(away: Vector2) -> Vector2:
 	return _clamp_to_world(global_position + direction * 90.0)
 
 
-func _clamp_to_world(position: Vector2) -> Vector2:
-	var rect := _get_world_rect()
+func _clamp_to_world(target_position: Vector2) -> Vector2:
+	var rect: Rect2 = _get_world_rect()
 	return Vector2(
-		clamp(position.x, rect.position.x, rect.end.x),
-		clamp(position.y, rect.position.y, rect.end.y)
+		clamp(target_position.x, rect.position.x, rect.end.x),
+		clamp(target_position.y, rect.position.y, rect.end.y)
 	)
 
 
@@ -941,18 +1175,18 @@ func _die(source: String) -> void:
 		return
 	is_dead = true
 	_drop_meat_once()
+	_drop_bone_once()
 	var event_name := "varnak_killed_by_trap" if source == "trap" else "varnak_killed_by_player"
-	get_node("/root/EventBus").emit_game_event(event_name, {
+	_emit_game_event(event_name, {
 		"position": global_position,
 		"biome_id": _get_current_biome_id(),
 		"species_id": species_id,
 		"generation": generation,
 		"fitness_score": _get_fitness_score()
 	})
-	get_node("/root/EventBus").post_message("Varnak killed by %s" % source)
+	_post_event_message("Varnak killed by %s" % source)
 	if is_instance_valid(player) and global_position.distance_to(player.global_position) < 90.0:
 		player.inventory.add_item("hide", 1)
-		player.inventory.add_item("bone", 1)
 	queue_free()
 
 
@@ -960,9 +1194,21 @@ func _drop_meat_once() -> void:
 	if dropped_meat:
 		return
 	dropped_meat = true
-	var world := get_tree().current_scene.get_node_or_null("World")
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.current_scene == null:
+		return
+	var world := tree.current_scene.get_node_or_null("World")
 	if world and world.has_method("spawn_meat_drop_for_animal"):
 		world.spawn_meat_drop_for_animal("varnak", global_position)
+
+
+func _drop_bone_once() -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.current_scene == null:
+		return
+	var world := tree.current_scene.get_node_or_null("World")
+	if world and world.has_method("spawn_bone_drop_for_animal"):
+		world.spawn_bone_drop_for_animal("varnak", global_position)
 
 
 func _draw() -> void:
@@ -1069,9 +1315,10 @@ func _draw_debug_lines(lines: Array[String], top_left: Vector2) -> void:
 
 
 func _get_world_node() -> Node2D:
-	var scene := get_tree().current_scene
-	if not scene:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.current_scene == null:
 		return null
+	var scene := tree.current_scene
 	return scene.get_node_or_null("World") as Node2D
 
 
@@ -1080,6 +1327,34 @@ func _get_cached_group_nodes(group_name: String) -> Array:
 	if world and world.has_method("get_cached_group_nodes"):
 		return world.get_cached_group_nodes(group_name)
 	return get_tree().get_nodes_in_group(group_name)
+
+
+func _get_nearby_meat(search_range: float) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_meat_near"):
+		return world.get_meat_near(global_position, search_range)
+	return _get_cached_group_nodes("meat_drops")
+
+
+func _get_nearby_creatures(search_range: float, creature_type_filter: Variant = null) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_creatures_near"):
+		return world.get_creatures_near(global_position, search_range, creature_type_filter)
+	return _get_cached_group_nodes(str(creature_type_filter))
+
+
+func _update_spatial_cell_tick(delta: float) -> void:
+	spatial_update_timer -= delta
+	if spatial_update_timer > 0.0:
+		return
+	spatial_update_timer = SPATIAL_UPDATE_INTERVAL_SECONDS
+	_update_spatial_cell()
+
+
+func _update_spatial_cell() -> void:
+	var world := _get_world_node()
+	if world and world.has_method("update_spatial_entity_cell"):
+		world.update_spatial_entity_cell(self)
 
 
 func _is_debug_overlay_visible() -> bool:
@@ -1132,4 +1407,12 @@ func _vector_to_data(value: Vector2) -> Dictionary:
 func _data_to_vector(data: Variant) -> Vector2:
 	if typeof(data) != TYPE_DICTIONARY:
 		return Vector2.ZERO
-	return Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
+	var x_raw: Variant = data.get("x", 0.0)
+	var y_raw: Variant = data.get("y", 0.0)
+	var x_value := 0.0
+	var y_value := 0.0
+	if x_raw != null:
+		x_value = float(x_raw)
+	if y_raw != null:
+		y_value = float(y_raw)
+	return Vector2(x_value, y_value)

@@ -8,8 +8,12 @@ const LANDMARK_SERVICE_TESTS := preload("res://tests/unit/test_landmark_service.
 const RESOURCE_SERVICE_TESTS := preload("res://tests/unit/test_resource_service.gd")
 const BENCHMARK_RUNNER_TESTS := preload("res://tests/unit/test_benchmark_runner.gd")
 const GAME_SESSION_TESTS := preload("res://tests/unit/test_game_session.gd")
+const DAY_NIGHT_SYSTEM_TESTS := preload("res://tests/unit/test_day_night_system.gd")
 const HUNGER_DIET_TESTS := preload("res://tests/unit/test_hunger_diet.gd")
 const RESOURCE_NODE_TESTS := preload("res://tests/unit/test_resource_node.gd")
+const WORLD_SPATIAL_INDEX_TESTS := preload("res://tests/unit/test_world_spatial_index.gd")
+const INVENTORY_TESTS := preload("res://tests/unit/test_inventory.gd")
+const GAME_BALANCE_TESTS := preload("res://tests/unit/test_game_balance.gd")
 const ECOSYSTEM_DIRECTOR_TESTS := preload("res://tests/unit/test_ecosystem_director.gd")
 const ECOSYSTEM_COMMAND_DELTA_TESTS := preload("res://tests/unit/test_ecosystem_command_delta.gd")
 const PLAYER_TESTS := preload("res://tests/unit/test_player.gd")
@@ -26,12 +30,14 @@ const SMALL_PREY_TESTS := preload("res://tests/unit/test_small_prey.gd")
 const GRAZER_TESTS := preload("res://tests/unit/test_grazer.gd")
 const VARNAK_TESTS := preload("res://tests/unit/test_varnak.gd")
 const SAVE_SYSTEM_TESTS := preload("res://tests/unit/test_save_system.gd")
+const PLAYER_STATS_TESTS := preload("res://tests/unit/test_player_stats.gd")
 const ERROR_DRAIN_MAX_FRAMES := 8
 const ERROR_DRAIN_STABLE_FRAMES := 2
 
 
 var _unit_test_error_logger: UnitTestErrorLogger
 var _unit_test_error_cursor := 0
+var _mock_event_bus: Node
 
 
 class UnitTestErrorLogger:
@@ -70,6 +76,29 @@ class UnitTestErrorLogger:
 		return collected
 
 
+class MockEventBus:
+	extends Node
+
+	var messages: Array[String] = []
+	var events: Array[Dictionary] = []
+
+	func _init() -> void:
+		name = "EventBus"
+
+	func post_message(message: String) -> void:
+		messages.append(message)
+
+	func emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+		events.append({
+			"name": event_name,
+			"payload": payload.duplicate(true)
+		})
+
+	func clear() -> void:
+		messages.clear()
+		events.clear()
+
+
 func _enter_tree() -> void:
 	_unit_test_error_logger = UnitTestErrorLogger.new()
 	OS.add_logger(_unit_test_error_logger)
@@ -80,6 +109,7 @@ func _exit_tree() -> void:
 
 
 func _ready() -> void:
+	_ensure_mock_event_bus()
 	call_deferred("_run_tests")
 
 
@@ -93,8 +123,12 @@ func _run_tests() -> void:
 	await _run_suite("ResourceService", RESOURCE_SERVICE_TESTS.new(), failures)
 	await _run_suite("BenchmarkRunner", BENCHMARK_RUNNER_TESTS.new(), failures)
 	await _run_suite("GameSession", GAME_SESSION_TESTS.new(), failures)
+	await _run_suite("DayNightSystem", DAY_NIGHT_SYSTEM_TESTS.new(), failures)
 	await _run_suite("HungerDiet", HUNGER_DIET_TESTS.new(), failures)
 	await _run_suite("ResourceNode", RESOURCE_NODE_TESTS.new(), failures)
+	await _run_suite("WorldSpatialIndex", WORLD_SPATIAL_INDEX_TESTS.new(), failures)
+	await _run_suite("Inventory", INVENTORY_TESTS.new(), failures)
+	await _run_suite("GameBalance", GAME_BALANCE_TESTS.new(), failures)
 	await _run_suite("EcosystemDirector", ECOSYSTEM_DIRECTOR_TESTS.new(), failures)
 	await _run_suite("EcosystemCommandDelta", ECOSYSTEM_COMMAND_DELTA_TESTS.new(), failures)
 	await _run_suite("Player", PLAYER_TESTS.new(), failures)
@@ -111,6 +145,7 @@ func _run_tests() -> void:
 	await _run_suite("Grazer", GRAZER_TESTS.new(), failures)
 	await _run_suite("Varnak", VARNAK_TESTS.new(), failures)
 	await _run_suite("SaveSystem", SAVE_SYSTEM_TESTS.new(), failures)
+	await _run_suite("PlayerStats", PLAYER_STATS_TESTS.new(), failures)
 	await _drain_runtime_errors()
 	_append_logged_errors(failures, "", _unit_test_error_cursor)
 	_remove_unit_test_error_logger()
@@ -124,10 +159,24 @@ func _run_tests() -> void:
 	get_tree().quit(1)
 
 
+func _ensure_mock_event_bus() -> Node:
+	var root := get_tree().root
+	var existing := root.get_node_or_null("EventBus")
+	if existing:
+		_mock_event_bus = existing
+		return existing
+
+	_mock_event_bus = MockEventBus.new()
+	root.add_child(_mock_event_bus)
+	return _mock_event_bus
+
+
 func _run_suite(name: String, suite: Object, failures: Array[String]) -> void:
 	if not suite.has_method("run"):
 		failures.append("%s suite does not implement run()" % name)
 		return
+	if _mock_event_bus and _mock_event_bus.has_method("clear"):
+		_mock_event_bus.clear()
 	var error_start_index := _unit_test_error_cursor
 	var suite_result: Variant = await suite.call("run")
 	await _drain_runtime_errors()

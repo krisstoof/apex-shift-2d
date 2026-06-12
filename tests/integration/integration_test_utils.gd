@@ -5,12 +5,17 @@ const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
+const WORLD_BOOT_TIMEOUT_FRAMES := 600
 
 
 static func boot_main() -> Dictionary:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null:
-		return {}
+		return {
+			"ok": false,
+			"reason": "SceneTree is not available."
+		}
+	tree.paused = false
 	var main := MAIN_SCENE.instantiate()
 	var world := main.get_node_or_null("World")
 	if world != null and world.has_method("enable_integration_test_mode"):
@@ -19,9 +24,21 @@ static func boot_main() -> Dictionary:
 	tree.root.call_deferred("add_child", main)
 	tree.call_deferred("set_current_scene", main)
 	await main.ready
-	await _wait_for_world_boot(main)
+	var boot_result := await _wait_for_world_boot(main, WORLD_BOOT_TIMEOUT_FRAMES)
+	if not bool(boot_result.get("ok", false)):
+		if is_instance_valid(main):
+			main.queue_free()
+			await tree.process_frame
+		return {
+			"ok": false,
+			"reason": String(boot_result.get("reason", "World boot failed.")),
+			"tree": tree,
+			"main": null,
+			"original_scene": original_scene
+		}
 	await tree.process_frame
 	return {
+		"ok": true,
 		"tree": tree,
 		"main": main,
 		"original_scene": original_scene
@@ -34,6 +51,7 @@ static func shutdown_main(context: Dictionary) -> void:
 	var original_scene := context.get("original_scene") as Node
 	if tree == null:
 		return
+	tree.paused = false
 	if is_instance_valid(original_scene):
 		tree.current_scene = original_scene
 	if is_instance_valid(main):
@@ -44,18 +62,46 @@ static func shutdown_main(context: Dictionary) -> void:
 		await tree.process_frame
 	if is_instance_valid(original_scene):
 		tree.current_scene = original_scene
+	else:
+		tree.current_scene = null
+	if FileAccess.file_exists("user://savegame.json"):
+		var save_path := ProjectSettings.globalize_path("user://savegame.json")
+		DirAccess.remove_absolute(save_path)
+	tree.paused = false
 
 
-static func _wait_for_world_boot(main: Node) -> void:
+static func _wait_for_world_boot(main: Node, timeout_frames := WORLD_BOOT_TIMEOUT_FRAMES) -> Dictionary:
 	if main == null:
-		return
+		return {
+			"ok": false,
+			"reason": "Main scene is null while waiting for world boot."
+		}
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return {
+			"ok": false,
+			"reason": "SceneTree is null while waiting for world boot."
+		}
 	var world := main.get_node_or_null("World")
-	if world == null or not world.has_method("is_boot_ready"):
-		return
+	if world == null:
+		return {"ok": false, "reason": "World node missing while waiting for boot."}
+	if not world.has_method("is_boot_ready"):
+		return {"ok": false, "reason": "World does not expose is_boot_ready()."}
 	if bool(world.call("is_boot_ready")):
-		return
-	if world.has_signal("world_initialized"):
-		await world.world_initialized
+		return {"ok": true}
+	for _i in range(timeout_frames):
+		await tree.process_frame
+		if not is_instance_valid(world):
+			return {"ok": false, "reason": "World was freed while waiting for boot."}
+		if bool(world.call("is_boot_ready")):
+			return {"ok": true}
+	var boot_state := {}
+	if world.has_method("get_boot_progress_state"):
+		boot_state = Dictionary(world.call("get_boot_progress_state"))
+	return {
+		"ok": false,
+		"reason": "World boot timeout after %d frames. boot_state=%s" % [timeout_frames, JSON.stringify(boot_state)]
+	}
 
 
 static func refresh_world_cache(world: Node) -> void:
@@ -211,3 +257,79 @@ static func clear_nodes_in_group(tree: SceneTree, group_name: String) -> int:
 		node_2d.queue_free()
 		removed += 1
 	return removed
+
+
+static func assert_node_exists(failures: Array[String], node: Node, label: String) -> void:
+	if node == null or not is_instance_valid(node):
+		failures.append("%s missing or invalid." % label)
+
+
+static func assert_true(failures: Array[String], condition: bool, message: String) -> void:
+	if not condition:
+		failures.append(message)
+
+
+static func assert_false(failures: Array[String], condition: bool, message: String) -> void:
+	if condition:
+		failures.append(message)
+
+
+static func assert_valid_node2d_position(failures: Array[String], node: Node, label: String) -> void:
+	if node == null or not is_instance_valid(node):
+		failures.append("%s missing or invalid." % label)
+		return
+	var node_2d := node as Node2D
+	if node_2d == null:
+		failures.append("%s is not Node2D." % label)
+		return
+	var pos := node_2d.global_position
+	if is_nan(pos.x) or is_nan(pos.y):
+		failures.append("%s position contains NaN: %s" % [label, pos])
+	if is_inf(pos.x) or is_inf(pos.y):
+		failures.append("%s position contains INF: %s" % [label, pos])
+
+
+static func assert_node_inside_world_rect(failures: Array[String], world: Node, node: Node, label: String) -> void:
+	if world == null or not world.has_method("get_world_rect"):
+		failures.append("World missing get_world_rect while checking %s." % label)
+		return
+	var node_2d := node as Node2D
+	if node_2d == null:
+		failures.append("%s is not Node2D." % label)
+		return
+	var world_rect: Rect2 = world.call("get_world_rect")
+	if not world_rect.has_point(node_2d.global_position):
+		failures.append("%s outside world rect: %s rect=%s" % [label, node_2d.global_position, world_rect])
+
+
+static func assert_resource_registered(failures: Array[String], world: Node, resource: Node, expected_kind: String, label: String) -> void:
+	if resource == null or not is_instance_valid(resource):
+		failures.append("%s resource missing." % label)
+		return
+	if not resource.is_in_group("resources"):
+		failures.append("%s resource is not in resources group." % label)
+	if world.has_method("get_registered_resources"):
+		var resources: Array = world.call("get_registered_resources")
+		if not resources.has(resource):
+			failures.append("%s resource is not in world resource registry." % label)
+	if expected_kind != "" and world.has_method("get_registered_resources_by_kind"):
+		var by_kind: Array = world.call("get_registered_resources_by_kind", expected_kind)
+		if not by_kind.has(resource):
+			failures.append("%s resource is not returned by get_registered_resources_by_kind(%s)." % [label, expected_kind])
+
+
+static func assert_creature_registered(failures: Array[String], world: Node, creature: Node, creature_type: String, label: String) -> void:
+	if creature == null or not is_instance_valid(creature):
+		failures.append("%s creature missing." % label)
+		return
+	if not creature.is_in_group(creature_type):
+		failures.append("%s creature is not in expected group: %s." % [label, creature_type])
+	if world.has_method("get_registered_creatures_by_type"):
+		var registered: Array = world.call("get_registered_creatures_by_type", creature_type)
+		if not registered.has(creature):
+			failures.append("%s creature is not in world registry for type %s." % [label, creature_type])
+
+
+static func assert_tree_unpaused(failures: Array[String], tree: SceneTree, label: String) -> void:
+	if tree.paused:
+		failures.append("%s left SceneTree.paused=true." % label)

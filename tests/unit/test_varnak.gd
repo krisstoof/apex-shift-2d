@@ -15,6 +15,7 @@ class TestWorld:
 	var navigation_blocked := false
 	var deep_water := false
 	var spawned_meat_amount := 0
+	var spawned_bone_amount := 0
 	var cached_groups := {}
 
 	func get_terrain_speed_multiplier(_position: Vector2) -> float:
@@ -31,6 +32,10 @@ class TestWorld:
 
 	func spawn_meat_drop_for_animal(_animal_kind: String, _drop_position: Vector2) -> Node:
 		spawned_meat_amount += 1
+		return Node2D.new()
+
+	func spawn_bone_drop_for_animal(_animal_kind: String, _drop_position: Vector2) -> Node:
+		spawned_bone_amount += 1
 		return Node2D.new()
 
 	func get_cached_group_nodes(group_name: String) -> Array:
@@ -65,6 +70,15 @@ class TestEcosystemDirector:
 		return state.duplicate(true)
 
 
+class TestDayNightSystem:
+	extends Node
+
+	var day := 1
+
+	func get_day() -> int:
+		return day
+
+
 class TestPlayer:
 	extends Node2D
 
@@ -83,6 +97,7 @@ func run() -> Array[String]:
 	_test_varnak_initializes_with_valid_health(failures)
 	_test_varnak_initializes_inside_world(failures)
 	_test_varnak_has_predator_diet(failures)
+	_test_varnak_uses_first_week_profile_tuning(failures)
 	_test_varnak_has_hunger_component(failures)
 	_test_varnak_has_attack_damage(failures)
 	_test_varnak_has_detection_range(failures)
@@ -106,10 +121,13 @@ func run() -> Array[String]:
 	_test_varnak_eats_meat_or_dead_prey(failures)
 	_test_varnak_skips_freed_meat_drop_targets(failures)
 	_test_varnak_hunger_restored_after_eating(failures)
+	_test_varnak_restore_from_data_handles_null_fields(failures)
+	_test_varnak_visibility_culling_sleeps_ai_and_collision(failures)
 	_test_varnak_returns_to_wandering_after_eating(failures)
 	_test_varnak_takes_damage(failures)
 	_test_varnak_dies_at_zero_health(failures)
 	_test_varnak_drops_meat_on_death(failures)
+	_test_varnak_drops_bone_on_death(failures)
 	_test_varnak_does_not_duplicate_meat_drop_on_repeated_death(failures)
 	_test_varnak_removed_from_ecosystem_after_death(failures)
 	return failures
@@ -143,6 +161,22 @@ func _test_varnak_has_predator_diet(failures: Array[String]) -> void:
 	varnak.apply_profile(profile)
 	TEST_UTILS.expect_close(varnak.meat_diet, 1.0, failures, "Varnak should strongly prefer meat")
 	TEST_UTILS.expect_close(varnak.scavenger_diet, 0.45, failures, "Varnak should keep the configured scavenger diet")
+	varnak.queue_free()
+
+
+func _test_varnak_uses_first_week_profile_tuning(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	var profile := _read_profile()
+	var day_night := TestDayNightSystem.new()
+	day_night.day = 1
+	varnak.day_night_system = day_night
+	varnak.apply_profile(profile)
+	TEST_UTILS.expect_close(varnak.aggression, 0.18, failures, "Day 1 should soften Varnak aggression")
+	TEST_UTILS.expect_close(varnak.night_activity, 0.14, failures, "Day 1 should soften Varnak night activity")
+	day_night.day = 3
+	varnak.apply_profile(profile)
+	TEST_UTILS.expect_close(varnak.aggression, 0.45, failures, "Day 3 should restore the baseline aggression")
+	TEST_UTILS.expect_close(varnak.night_activity, 0.25, failures, "Day 3 should restore the baseline night activity")
 	varnak.queue_free()
 
 
@@ -415,6 +449,50 @@ func _test_varnak_hunger_restored_after_eating(failures: Array[String]) -> void:
 	varnak.queue_free()
 
 
+func _test_varnak_restore_from_data_handles_null_fields(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	var before_health: float = varnak.health
+	varnak.restore_from_data({
+		"facing_angle": null,
+		"rotation": null,
+		"health": null,
+		"attack_cooldown": null,
+		"dropped_meat": null
+	})
+	TEST_UTILS.expect_close(varnak.health, before_health, failures, "Varnak restore should ignore null health values")
+	TEST_UTILS.expect(varnak.facing_angle == varnak.facing_angle, failures, "Varnak restore should not produce an invalid facing angle")
+	varnak.queue_free()
+
+
+func _test_varnak_visibility_culling_sleeps_ai_and_collision(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	varnak.player = Node2D.new()
+	varnak.player.global_position = Vector2(100000.0, 100000.0)
+	var original_layer: int = varnak.collision_layer
+	var original_mask: int = varnak.collision_mask
+	var before_position: Vector2 = varnak.global_position
+	var before_ai_decisions: int = varnak.ai_decision_count
+	TEST_UTILS.expect(varnak.has_method("set_visibility_culled"), failures, "Varnak should expose visibility culling")
+	varnak.call("set_visibility_culled", false)
+	TEST_UTILS.expect_equal(varnak.visible, false, failures, "Culled varnak should be hidden")
+	TEST_UTILS.expect_equal(bool(varnak.get("is_visibility_culled")), true, failures, "Culled varnak should remember it is sleeping")
+	TEST_UTILS.expect_equal(varnak.collision_layer, 0, failures, "Culled varnak should disable its collision layer")
+	TEST_UTILS.expect_equal(varnak.collision_mask, 0, failures, "Culled varnak should disable its collision mask")
+	TEST_UTILS.expect_equal(varnak.is_physics_processing(), false, failures, "Culled varnak should stop physics processing")
+	TEST_UTILS.expect_equal(varnak.is_processing(), false, failures, "Culled varnak should stop frame processing")
+	varnak.call("_physics_process", 0.2)
+	TEST_UTILS.expect_equal(varnak.ai_decision_count, before_ai_decisions, failures, "Sleeping varnak should not advance AI decisions")
+	TEST_UTILS.expect_equal(varnak.global_position, before_position, failures, "Sleeping varnak should not move")
+	varnak.call("set_visibility_culled", true)
+	TEST_UTILS.expect_equal(varnak.visible, true, failures, "Reactivated varnak should be visible")
+	TEST_UTILS.expect_equal(bool(varnak.get("is_visibility_culled")), false, failures, "Reactivated varnak should clear the sleeping flag")
+	TEST_UTILS.expect_equal(varnak.collision_layer, original_layer, failures, "Reactivated varnak should restore its collision layer")
+	TEST_UTILS.expect_equal(varnak.collision_mask, original_mask, failures, "Reactivated varnak should restore its collision mask")
+	TEST_UTILS.expect_equal(varnak.is_physics_processing(), true, failures, "Reactivated varnak should resume physics")
+	TEST_UTILS.expect_equal(varnak.is_processing(), true, failures, "Reactivated varnak should resume frame processing")
+	varnak.queue_free()
+
+
 func _test_varnak_returns_to_wandering_after_eating(failures: Array[String]) -> void:
 	var varnak := _make_varnak()
 	var world := _ensure_world()
@@ -453,6 +531,15 @@ func _test_varnak_drops_meat_on_death(failures: Array[String]) -> void:
 	world.spawned_meat_amount = 0
 	varnak.take_damage(999.0, "player")
 	TEST_UTILS.expect(world.spawned_meat_amount > 0, failures, "Dead varnak should spawn meat")
+	varnak.queue_free()
+
+
+func _test_varnak_drops_bone_on_death(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	var world := _ensure_world()
+	world.spawned_bone_amount = 0
+	varnak.take_damage(999.0, "player")
+	TEST_UTILS.expect(world.spawned_bone_amount > 0, failures, "Dead varnak should spawn a bone drop")
 	varnak.queue_free()
 
 
@@ -525,6 +612,7 @@ func _ensure_world() -> TestWorld:
 	if world:
 		world.cached_groups.clear()
 		world.spawned_meat_amount = 0
+		world.spawned_bone_amount = 0
 		return world
 	var new_world := TestWorld.new()
 	new_world.name = "World"

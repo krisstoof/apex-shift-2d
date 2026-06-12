@@ -1,6 +1,7 @@
 extends RefCounted
 class_name WorldRegistry
 
+const WORLD_SPATIAL_INDEX_SCRIPT := preload("res://scripts/world/world_spatial_index.gd")
 const RESOURCE_GROUPS_BY_KIND := {
 	"conifer_tree": "trees",
 	"leafy_tree": "trees",
@@ -42,6 +43,7 @@ var creature_version := 0
 var building_version := 0
 
 var _biome_id_resolver := Callable()
+var spatial_index = WORLD_SPATIAL_INDEX_SCRIPT.new()
 var _resource_nodes: Array[Node] = []
 var _creature_nodes_by_type: Dictionary = {}
 var _building_nodes_by_type: Dictionary = {}
@@ -58,6 +60,11 @@ func register_resource(node: Node) -> void:
 
 func unregister_resource(node: Node) -> void:
 	_unregister_node(node)
+
+
+func update_entity_cell(node: Node) -> void:
+	if spatial_index != null:
+		spatial_index.update_entity_cell(node)
 
 
 func get_resources() -> Array:
@@ -146,6 +153,72 @@ func get_group_nodes(group_name: String) -> Array:
 	return []
 
 
+func get_resources_near(position: Vector2, radius: float, kind_filter: Variant = null) -> Array:
+	if spatial_index == null:
+		return get_resources_by_kind(str(kind_filter)) if kind_filter != null and typeof(kind_filter) == TYPE_STRING else get_resources()
+	return spatial_index.query_resources_near(position, radius, kind_filter)
+
+
+func get_creatures_near(position: Vector2, radius: float, creature_type_filter: Variant = null) -> Array:
+	if spatial_index == null:
+		return get_creatures_by_type(str(creature_type_filter)) if creature_type_filter != null and typeof(creature_type_filter) == TYPE_STRING else get_creatures_by_type("")
+	return spatial_index.query_creatures_near(position, radius, creature_type_filter)
+
+
+func get_meat_near(position: Vector2, radius: float) -> Array:
+	if spatial_index == null:
+		return get_resources_by_kind("meat_drop")
+	return spatial_index.query_meat_near(position, radius)
+
+
+func get_resources_in_rect(rect: Rect2, kind_filter: Variant = null) -> Array:
+	if spatial_index == null:
+		return []
+	return spatial_index.query_resources_in_rect(rect, kind_filter)
+
+
+func get_creatures_in_rect(rect: Rect2, creature_type_filter: Variant = null) -> Array:
+	if spatial_index == null:
+		return []
+	return spatial_index.query_creatures_in_rect(rect, creature_type_filter)
+
+
+func get_meat_in_rect(rect: Rect2) -> Array:
+	if spatial_index == null:
+		return []
+	return spatial_index.query_meat_in_rect(rect)
+
+
+func get_spatial_index_debug_data() -> Dictionary:
+	if spatial_index == null:
+		return {}
+	return spatial_index.get_debug_counts()
+
+
+func clear_runtime() -> void:
+	_resource_nodes.clear()
+	_creature_nodes_by_type.clear()
+	_building_nodes_by_type.clear()
+	_tracked_entries.clear()
+	resource_version = 0
+	creature_version = 0
+	building_version = 0
+	if spatial_index != null and spatial_index.has_method("clear"):
+		spatial_index.clear()
+
+
+func get_all_registered_resources() -> Array:
+	return get_resources()
+
+
+func get_all_registered_creatures() -> Array:
+	return get_creatures_by_type("")
+
+
+func get_all_registered_decorations() -> Array:
+	return get_buildings()
+
+
 func _register_node(node: Node, category: String, type_name: String) -> void:
 	if not is_instance_valid(node):
 		return
@@ -179,7 +252,15 @@ func _register_node(node: Node, category: String, type_name: String) -> void:
 			building_nodes.append(node)
 			_building_nodes_by_type[type_name] = building_nodes
 			building_version += 1
-	node.tree_exited.connect(_on_registered_node_tree_exited.bind(instance_id), CONNECT_ONE_SHOT)
+	if spatial_index != null:
+		var spatial_category := category
+		var spatial_type := type_name
+		if category == "resource" and type_name == "meat_drop":
+			spatial_category = "meat"
+		spatial_index.register_entity(node, spatial_category, spatial_type)
+	var tree_exited_callback := _on_registered_node_tree_exited.bind(instance_id)
+	if not node.tree_exited.is_connected(tree_exited_callback):
+		node.tree_exited.connect(tree_exited_callback, CONNECT_ONE_SHOT)
 
 
 func _unregister_node(node: Node) -> void:
@@ -211,6 +292,8 @@ func _remove_entry(instance_id: int) -> void:
 				_remove_node_from_array(building_nodes, node)
 				_building_nodes_by_type[type_name] = building_nodes
 			building_version += 1
+	if spatial_index != null and node != null:
+		spatial_index.unregister_entity(node)
 	_tracked_entries.erase(instance_id)
 
 

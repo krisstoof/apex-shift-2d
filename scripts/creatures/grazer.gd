@@ -3,8 +3,10 @@ extends CharacterBody2D
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
+const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 const SPECIES_PATH := "res://data/species/grazer.json"
 const AI_DECISION_INTERVAL_SECONDS := 0.14
+const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
 
 enum State { IDLE, WANDER, EAT_PLANTS, SEEK_FOOD, FLEE, SCAVENGE, HUNT_SMALL_PREY, DEAD }
 
@@ -72,8 +74,38 @@ var decision_reason := "spawn"
 var ai_decision_interval := 0.35
 var ai_decision_timer := 0.0
 var ai_decision_count := 0
+var spatial_update_timer := 0.0
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
+var is_visibility_culled := false
+var stored_collision_layer := 0
+var stored_collision_mask := 0
+var simulation_level := SIMULATION_LOD.Level.NEAR
+var simulation_level_name := "near"
+var simulation_distance_to_player := 0.0
+var simulation_lod_timer := 0.0
+var far_simulation_timer := 0.0
+var simulation_lod_change_count := 0
+var last_simulation_level := SIMULATION_LOD.Level.NEAR
+
+
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
 
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
 
@@ -82,6 +114,8 @@ func _ready() -> void:
 	add_to_group("grazer")
 	rng.randomize()
 	player = get_tree().get_first_node_in_group("player")
+	stored_collision_layer = collision_layer
+	stored_collision_mask = collision_mask
 	_initialize_from_game_balance()
 	_load_species_data()
 	if biome_id.is_empty():
@@ -91,6 +125,29 @@ func _ready() -> void:
 	ai_decision_timer = rng.randf_range(0.0, AI_DECISION_INTERVAL_SECONDS)
 	_pick_wander_target()
 	queue_redraw()
+
+
+func set_visibility_culled(should_be_visible: bool) -> void:
+	is_visibility_culled = not should_be_visible
+	visible = should_be_visible
+	_update_simulation_level()
+	if should_be_visible:
+		match simulation_level:
+			SIMULATION_LOD.Level.NEAR:
+				_restore_full_simulation()
+			SIMULATION_LOD.Level.MEDIUM:
+				_apply_medium_simulation()
+			_:
+				_apply_far_simulation()
+		queue_redraw()
+		return
+	if simulation_level == SIMULATION_LOD.Level.FAR:
+		_apply_far_simulation()
+	else:
+		collision_layer = stored_collision_layer
+		collision_mask = stored_collision_mask
+		set_physics_process(true)
+		set_process(false)
 
 
 func setup(p_biome_id: String = "") -> void:
@@ -122,10 +179,19 @@ func get_debug_data() -> Dictionary:
 		"current_niche": current_niche,
 		"reproduction_rate": reproduction_rate,
 		"home_biome_id": home_biome_id,
-		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0
+		"distance_to_player": global_position.distance_to(player.global_position) if is_instance_valid(player) else -1.0,
+		"simulation_level": simulation_level_name,
+		"simulation_distance_to_player": simulation_distance_to_player,
+		"simulation_lod_change_count": simulation_lod_change_count,
+		"is_visibility_culled": is_visibility_culled,
+		"ai_decision_interval_effective": _get_effective_ai_decision_interval()
 	}
 	data.merge(hunger_diet.get_debug_data(), true)
 	return data
+
+
+func get_debug_ai_state() -> String:
+	return _get_debug_action_label()
 
 
 func get_save_data() -> Dictionary:
@@ -167,37 +233,41 @@ func get_save_data() -> Dictionary:
 func restore_from_data(data: Dictionary) -> void:
 	species_id = str(data.get("species_id", species_id))
 	species_name = str(data.get("species_name", species_name))
-	generation = max(int(data.get("generation", generation)), 1)
+	generation = max(_safe_int(data, "generation", generation), 1)
 	global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
-	facing_angle = float(data.get("facing_angle", facing_angle))
-	facing_side = float(data.get("facing_side", facing_side))
-	max_health = max(float(data.get("max_health", max_health)), 1.0)
-	health = clamp(float(data.get("health", health)), 0.0, max_health)
-	speed = float(data.get("speed", speed))
-	fear = float(data.get("fear", fear))
-	aggression = float(data.get("aggression", aggression))
-	max_hunger = max(float(data.get("max_hunger", max_hunger)), 0.01)
-	hunger = clamp(float(data.get("hunger", hunger)), 0.0, max_hunger)
-	hunger_growth_rate = float(data.get("hunger_growth_rate", hunger_growth_rate))
-	energy = clamp(float(data.get("energy", energy)), 0.0, 1.0)
-	age_seconds = max(float(data.get("age_seconds", age_seconds)), 0.0)
-	plant_consumption_rate = float(data.get("plant_consumption_rate", plant_consumption_rate))
-	plant_diet = float(data.get("plant_diet", plant_diet))
-	meat_diet = float(data.get("meat_diet", meat_diet))
-	scavenger_diet = float(data.get("scavenger_diet", scavenger_diet))
+	facing_angle = _safe_float(data, "facing_angle", facing_angle)
+	facing_side = _safe_float(data, "facing_side", facing_side)
+	max_health = max(_safe_float(data, "max_health", max_health), 1.0)
+	health = clamp(_safe_float(data, "health", health), 0.0, max_health)
+	speed = _safe_float(data, "speed", speed)
+	fear = _safe_float(data, "fear", fear)
+	aggression = _safe_float(data, "aggression", aggression)
+	max_hunger = max(_safe_float(data, "max_hunger", max_hunger), 0.01)
+	hunger = clamp(_safe_float(data, "hunger", hunger), 0.0, max_hunger)
+	hunger_growth_rate = _safe_float(data, "hunger_growth_rate", hunger_growth_rate)
+	energy = clamp(_safe_float(data, "energy", energy), 0.0, 1.0)
+	age_seconds = max(_safe_float(data, "age_seconds", age_seconds), 0.0)
+	plant_consumption_rate = _safe_float(data, "plant_consumption_rate", plant_consumption_rate)
+	plant_diet = _safe_float(data, "plant_diet", plant_diet)
+	meat_diet = _safe_float(data, "meat_diet", meat_diet)
+	scavenger_diet = _safe_float(data, "scavenger_diet", scavenger_diet)
 	current_niche = str(data.get("current_niche", current_niche))
-	size = float(data.get("size", size))
-	reproduction_rate = float(data.get("reproduction_rate", reproduction_rate))
-	state = int(data.get("state", State.WANDER))
+	size = _safe_float(data, "size", size)
+	reproduction_rate = _safe_float(data, "reproduction_rate", reproduction_rate)
+	state = _safe_int(data, "state", State.WANDER) as State
 	if state == State.DEAD:
 		state = State.WANDER
 	biome_id = str(data.get("biome_id", biome_id))
 	home_biome_id = str(data.get("home_biome_id", home_biome_id))
 	population_biome_id = str(data.get("population_biome_id", population_biome_id))
 	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
-	state_time = max(float(data.get("state_time", state_time)), 0.0)
+	state_time = max(_safe_float(data, "state_time", state_time), 0.0)
 	last_food_source = str(data.get("last_food_source", last_food_source))
-	dropped_meat = data.get("dropped_meat", dropped_meat) == true
+	dropped_meat = _safe_bool(data, "dropped_meat", dropped_meat)
+	velocity = Vector2.ZERO
+	simulation_level = SIMULATION_LOD.Level.NEAR
+	simulation_level_name = "near"
+	far_simulation_timer = 0.0
 	hunger_diet.configure({
 		"hunger": hunger,
 		"max_hunger": max_hunger,
@@ -209,6 +279,43 @@ func restore_from_data(data: Dictionary) -> void:
 	})
 	_sync_hunger_fields()
 	queue_redraw()
+
+
+func _safe_float(data: Dictionary, key: String, fallback: float) -> float:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+		return float(value)
+	if typeof(value) == TYPE_STRING and str(value).is_valid_float():
+		return float(value)
+	return fallback
+
+
+func _safe_int(data: Dictionary, key: String, fallback: int) -> int:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+		return int(value)
+	if typeof(value) == TYPE_STRING and str(value).is_valid_int():
+		return int(value)
+	return fallback
+
+
+func _safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
+	var value: Variant = data.get(key, fallback)
+	if value == null:
+		return fallback
+	if typeof(value) == TYPE_BOOL:
+		return bool(value)
+	if typeof(value) == TYPE_STRING:
+		var normalized := str(value).to_lower()
+		if normalized == "true":
+			return true
+		if normalized == "false":
+			return false
+	return fallback
 
 
 func take_damage(amount: float, source: String = "unknown") -> void:
@@ -227,6 +334,12 @@ func _physics_process(delta: float) -> void:
 		return
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
+	_update_simulation_level()
+	if simulation_level == SIMULATION_LOD.Level.FAR:
+		_tick_far_simulation(delta)
+		return
+	if is_visibility_culled:
+		return
 	state_time = max(state_time - delta, 0.0)
 	target_lock_time = max(target_lock_time - delta, 0.0)
 	if eat_visual_time > 0.0:
@@ -237,17 +350,106 @@ func _physics_process(delta: float) -> void:
 	_sync_hunger_fields()
 	ai_decision_timer -= delta
 	if ai_decision_timer <= 0.0:
-		ai_decision_timer = ai_decision_interval
+		ai_decision_timer = _get_effective_ai_decision_interval()
 		ai_decision_count += 1
 		_update_state()
 	_act(delta)
 	move_and_slide()
 	_enforce_world_bounds()
+	_update_spatial_cell_tick(delta)
 
 
 func force_ai_decision_for_tests() -> void:
 	ai_decision_timer = 0.0
 	_update_state()
+
+
+func _should_update_ai_decision(delta: float) -> bool:
+	return ai_decision_timer - delta <= 0.0
+
+
+func _get_effective_ai_decision_interval() -> float:
+	if simulation_level == SIMULATION_LOD.Level.MEDIUM:
+		return SIMULATION_LOD.get_medium_ai_interval(ai_decision_interval, _get_simulation_lod_config())
+	return ai_decision_interval
+
+
+func _get_simulation_lod_config() -> Dictionary:
+	return GAME_BALANCE.CREATURE_SIMULATION_LOD
+
+
+func _update_simulation_level() -> void:
+	if not is_instance_valid(player):
+		player = get_tree().get_first_node_in_group("player")
+	if not is_instance_valid(player):
+		_set_simulation_level(SIMULATION_LOD.Level.NEAR)
+		return
+	simulation_distance_to_player = global_position.distance_to(player.global_position)
+	var creature_type := species_id if species_id != "" else name.to_snake_case()
+	var next_level: CreatureSimulationLOD.Level = SIMULATION_LOD.resolve_level(
+		simulation_distance_to_player,
+		_get_simulation_lod_config(),
+		creature_type
+	) as CreatureSimulationLOD.Level
+	_set_simulation_level(next_level)
+
+
+func _set_simulation_level(next_level: CreatureSimulationLOD.Level) -> void:
+	if simulation_level == next_level:
+		return
+	last_simulation_level = simulation_level
+	simulation_level = next_level
+	simulation_level_name = SIMULATION_LOD.get_level_name(simulation_level)
+	simulation_lod_change_count += 1
+	match simulation_level:
+		SIMULATION_LOD.Level.NEAR:
+			_restore_full_simulation()
+		SIMULATION_LOD.Level.MEDIUM:
+			_apply_medium_simulation()
+		SIMULATION_LOD.Level.FAR:
+			_apply_far_simulation()
+
+
+func _restore_full_simulation() -> void:
+	visible = true
+	collision_layer = stored_collision_layer
+	collision_mask = stored_collision_mask
+	set_physics_process(true)
+	set_process(true)
+	velocity = Vector2.ZERO
+	queue_redraw()
+
+
+func _apply_medium_simulation() -> void:
+	visible = true
+	collision_layer = stored_collision_layer
+	collision_mask = stored_collision_mask
+	set_physics_process(true)
+	set_process(true)
+
+
+func _apply_far_simulation() -> void:
+	velocity = Vector2.ZERO
+	collision_layer = 0
+	collision_mask = 0
+	set_process(false)
+	set_physics_process(true)
+
+
+func _tick_far_simulation(delta: float) -> void:
+	far_simulation_timer += delta
+	var interval := SIMULATION_LOD.get_far_update_interval(_get_simulation_lod_config())
+	if far_simulation_timer < interval:
+		return
+	var tick_delta := far_simulation_timer
+	far_simulation_timer = 0.0
+	age_seconds += tick_delta
+	hunger_diet.tick(tick_delta, 0.0)
+	_sync_hunger_fields()
+	state_time = max(state_time - tick_delta, 0.0)
+	target_lock_time = max(target_lock_time - tick_delta, 0.0)
+	velocity = Vector2.ZERO
+	_update_spatial_cell_tick(tick_delta)
 
 
 func force_consume_plants_for_tests() -> void:
@@ -313,7 +515,6 @@ func _update_state() -> void:
 	var food_search_range := _get_food_search_range()
 	var nearest_plant := _find_nearest_edible_vegetation(food_search_range)
 	var nearest_prey := _find_nearest_small_prey()
-	var nearest_meat := _find_nearest_meat_drop(food_search_range)
 	var hunger_stage := hunger_diet.get_hunger_stage()
 	var risk_drive: float = hunger_diet.get_risk_drive()
 	if hunger_stage == "hungry" and _has_valid_plant_target(food_search_range):
@@ -421,7 +622,7 @@ func _hunt_small_prey() -> void:
 		_sync_hunger_fields()
 		eat_visual_time = eat_visual_duration
 		last_food_source = "small_prey_meat"
-		get_node("/root/EventBus").emit_game_event("grazer_hunted_small_prey", {
+		_emit_game_event("grazer_hunted_small_prey", {
 			"biome_id": _get_current_biome_id(),
 			"position": global_position
 		})
@@ -495,7 +696,7 @@ func _consume_plants() -> void:
 	_sync_hunger_fields()
 	eat_visual_time = eat_visual_duration
 	last_food_source = "plants"
-	get_node("/root/EventBus").emit_game_event("grazer_consumed_plants", {
+	_emit_game_event("grazer_consumed_plants", {
 		"biome_id": _get_current_biome_id(),
 		"position": global_position,
 		"plant_consumption_rate": plant_consumption_rate,
@@ -508,6 +709,9 @@ func _consume_target_vegetation() -> float:
 	if is_instance_valid(plant_target) and _is_edible_vegetation_target(plant_target):
 		var distance := global_position.distance_to(plant_target.global_position)
 		if distance <= _get_vegetation_consume_distance(plant_target) and plant_target.has_method("consume_by_creature"):
+			var world_query: Variant = _get_world_query()
+			if world_query and world_query.has_method("consume_edible_vegetation"):
+				return float(world_query.consume_edible_vegetation(plant_target, self, plant_consumption_rate))
 			return float(plant_target.consume_by_creature(self, plant_consumption_rate))
 	return _consume_nearest_vegetation()
 
@@ -516,6 +720,9 @@ func _consume_nearest_vegetation() -> float:
 	var nearest := _find_nearest_consumable_vegetation()
 	if not is_instance_valid(nearest) or not nearest.has_method("consume_by_creature"):
 		return 0.0
+	var world_query: Variant = _get_world_query()
+	if world_query and world_query.has_method("consume_edible_vegetation"):
+		return float(world_query.consume_edible_vegetation(nearest, self, plant_consumption_rate))
 	return float(nearest.consume_by_creature(self, plant_consumption_rate))
 
 
@@ -571,10 +778,24 @@ func _get_food_search_range() -> float:
 
 
 func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
+	var current_biome_id := _get_current_biome_id()
+	var world_query: Variant = _get_world_query()
+	if world_query and world_query.has_method("get_edible_vegetation_near"):
+		var world_targets: Array = world_query.get_edible_vegetation_near(global_position, search_range, current_biome_id)
+		for target_value in world_targets:
+			var target := target_value as Node2D
+			if is_instance_valid(target) and _is_edible_vegetation_target(target):
+				return target
+
 	var nearest: Node2D
 	var nearest_distance := search_range
-	var current_biome_id := _get_current_biome_id()
-	for vegetation in _get_cached_group_nodes("edible_vegetation"):
+	var candidates := _get_nearby_resources(search_range, [
+		"bush",
+		"dry_bush",
+		"small_bush",
+		"berry_bush"
+	])
+	for vegetation in candidates:
 		if not _is_edible_vegetation_target(vegetation):
 			continue
 		var distance := global_position.distance_to(vegetation.global_position)
@@ -591,7 +812,13 @@ func _find_nearest_edible_vegetation(search_range: float) -> Node2D:
 func _find_nearest_consumable_vegetation() -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := INF
-	for vegetation in _get_cached_group_nodes("edible_vegetation"):
+	var candidates := _get_nearby_resources(vegetation_consume_range + 80.0, [
+		"bush",
+		"dry_bush",
+		"small_bush",
+		"berry_bush"
+	])
+	for vegetation in candidates:
 		if not _is_edible_vegetation_target(vegetation):
 			continue
 		var distance := global_position.distance_to(vegetation.global_position)
@@ -667,7 +894,8 @@ func _set_nearest_meat_target(search_range: float = meat_eat_range) -> bool:
 func _find_nearest_meat_drop(search_range: float) -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := search_range
-	for resource in _get_cached_group_nodes("meat_drops"):
+	var candidates := _get_nearby_meat(search_range)
+	for resource in candidates:
 		if not is_instance_valid(resource):
 			continue
 		if not (resource is Node2D):
@@ -711,7 +939,7 @@ func _consume_meat_target() -> void:
 	_sync_hunger_fields()
 	eat_visual_time = eat_visual_duration
 	last_food_source = "meat_drop"
-	get_node("/root/EventBus").emit_game_event("grazer_scavenged", {
+	_emit_game_event("grazer_scavenged", {
 		"biome_id": _get_current_biome_id(),
 		"position": global_position,
 		"food_source": "meat_drop",
@@ -736,7 +964,7 @@ func _get_flee_origin() -> Vector2:
 		if player_distance < player_flee_range * fear and aggression < 0.45:
 			nearest_origin = player.global_position
 			nearest_distance = player_distance
-	for varnak in _get_cached_group_nodes("varnak"):
+	for varnak in _get_nearby_creatures(varnak_flee_range * fear, "varnak"):
 		if not is_instance_valid(varnak):
 			continue
 		var distance := global_position.distance_to(varnak.global_position)
@@ -749,7 +977,8 @@ func _get_flee_origin() -> Vector2:
 func _find_nearest_small_prey() -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := INF
-	for small_prey in _get_cached_group_nodes("small_prey"):
+	var candidates := _get_nearby_creatures(small_prey_detect_range, "small_prey")
+	for small_prey in candidates:
 		if not is_instance_valid(small_prey):
 			continue
 		var distance := global_position.distance_to(small_prey.global_position)
@@ -795,16 +1024,16 @@ func _get_preferred_wander_biome_id() -> String:
 	return home_biome_id
 
 
-func _is_navigation_position_valid(position: Vector2) -> bool:
-	var clamped_position := _clamp_to_world(position)
-	if clamped_position.distance_squared_to(position) > 0.01:
+func _is_navigation_position_valid(candidate_position: Vector2) -> bool:
+	var clamped_position := _clamp_to_world(candidate_position)
+	if clamped_position.distance_squared_to(candidate_position) > 0.01:
 		return false
 	var world_query: Variant = _get_world_query()
-	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(position) == true:
+	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(candidate_position) == true:
 		return false
 	for wall in _get_cached_group_nodes("walls"):
 		var wall_node := wall as Node2D
-		if is_instance_valid(wall_node) and position.distance_to(wall_node.global_position) < wall_avoid_radius * 0.72:
+		if is_instance_valid(wall_node) and candidate_position.distance_to(wall_node.global_position) < wall_avoid_radius * 0.72:
 			return false
 	return true
 
@@ -846,11 +1075,11 @@ func _get_bounded_flee_target(away: Vector2) -> Vector2:
 	return _clamp_to_world(global_position + direction * wander_radius * 0.45)
 
 
-func _clamp_to_world(position: Vector2) -> Vector2:
+func _clamp_to_world(candidate_position: Vector2) -> Vector2:
 	var rect := _get_world_rect()
 	return Vector2(
-		clamp(position.x, rect.position.x, rect.end.x),
-		clamp(position.y, rect.position.y, rect.end.y)
+		clamp(candidate_position.x, rect.position.x, rect.end.x),
+		clamp(candidate_position.y, rect.position.y, rect.end.y)
 	)
 
 
@@ -885,7 +1114,7 @@ func _die(source: String) -> void:
 	state = State.DEAD
 	_drop_meat_once()
 	var event_name := "grazer_killed_by_varnak" if source == "varnak" else "grazer_killed_by_player"
-	get_node("/root/EventBus").emit_game_event(event_name, {
+	_emit_game_event(event_name, {
 		"biome_id": _get_current_biome_id(),
 		"species_id": species_id,
 		"generation": generation,
@@ -893,7 +1122,7 @@ func _die(source: String) -> void:
 		"position": global_position,
 		"source": source
 	})
-	get_node("/root/EventBus").post_message("Grazer killed")
+	_post_event_message("Grazer killed")
 	queue_free()
 
 
@@ -1020,19 +1249,19 @@ func _get_current_biomass_percent() -> float:
 	return float(state_data.get("plant_biomass_percent", 100.0))
 
 
-func _get_biome_id_for_position(position: Vector2) -> String:
+func _get_biome_id_for_position(target_position: Vector2) -> String:
 	for biome in WORLD_CONFIG.get_biome_zones():
-		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
+		if Geometry2D.is_point_in_polygon(target_position, PackedVector2Array(biome["points"])):
 			return _get_biome_id(biome)
 	return ""
 
 
-func _is_position_in_biome(position: Vector2, target_biome_id: String) -> bool:
+func _is_position_in_biome(target_position: Vector2, target_biome_id: String) -> bool:
 	if target_biome_id.is_empty():
-		return WORLD_CONFIG.WORLD_RECT.has_point(position)
+		return WORLD_CONFIG.WORLD_RECT.has_point(target_position)
 	for biome in WORLD_CONFIG.get_biome_zones():
 		if _get_biome_id(biome) == target_biome_id:
-			return Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"]))
+			return Geometry2D.is_point_in_polygon(target_position, PackedVector2Array(biome["points"]))
 	return false
 
 
@@ -1047,7 +1276,15 @@ func _vector_to_data(value: Vector2) -> Dictionary:
 func _data_to_vector(data: Variant) -> Vector2:
 	if typeof(data) != TYPE_DICTIONARY:
 		return Vector2.ZERO
-	return Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
+	var x_raw: Variant = data.get("x", 0.0)
+	var y_raw: Variant = data.get("y", 0.0)
+	var x_value := 0.0
+	var y_value := 0.0
+	if x_raw != null:
+		x_value = float(x_raw)
+	if y_raw != null:
+		y_value = float(y_raw)
+	return Vector2(x_value, y_value)
 
 
 func _draw() -> void:
@@ -1171,6 +1408,41 @@ func _get_cached_group_nodes(group_name: String) -> Array:
 	if world and world.has_method("get_cached_group_nodes"):
 		return world.get_cached_group_nodes(group_name)
 	return get_tree().get_nodes_in_group(group_name)
+
+
+func _get_nearby_resources(search_range: float, kind_filter: Variant = null) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_resources_near"):
+		return world.get_resources_near(global_position, search_range, kind_filter)
+	return _get_cached_group_nodes("edible_vegetation")
+
+
+func _get_nearby_meat(search_range: float) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_meat_near"):
+		return world.get_meat_near(global_position, search_range)
+	return _get_cached_group_nodes("meat_drops")
+
+
+func _get_nearby_creatures(search_range: float, creature_type_filter: Variant = null) -> Array:
+	var world := _get_world_node()
+	if world and world.has_method("get_creatures_near"):
+		return world.get_creatures_near(global_position, search_range, creature_type_filter)
+	return _get_cached_group_nodes(str(creature_type_filter))
+
+
+func _update_spatial_cell_tick(delta: float) -> void:
+	spatial_update_timer -= delta
+	if spatial_update_timer > 0.0:
+		return
+	spatial_update_timer = SPATIAL_UPDATE_INTERVAL_SECONDS
+	_update_spatial_cell()
+
+
+func _update_spatial_cell() -> void:
+	var world := _get_world_node()
+	if world and world.has_method("update_spatial_entity_cell"):
+		world.update_spatial_entity_cell(self)
 
 
 func _initialize_from_game_balance() -> void:

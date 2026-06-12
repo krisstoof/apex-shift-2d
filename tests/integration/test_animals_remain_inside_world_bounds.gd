@@ -7,11 +7,12 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var context := await INTEGRATION.boot_main()
+	if not bool(context.get("ok", false)):
+		return [String(context.get("reason", "Integration bootstrap failed"))]
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
 	if tree == null or main == null:
-		failures.append("Integration bootstrap failed")
-		return failures
+		return ["Integration bootstrap returned invalid tree/main."]
 
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -61,6 +62,11 @@ func run() -> Array[String]:
 			var position: Vector2 = (creature as Node2D).global_position
 			TEST_UTILS.expect(is_finite(position.x) and is_finite(position.y), failures, "%s position should remain finite" % creature.name)
 			TEST_UTILS.expect(world_rect.has_point(position), failures, "%s should stay inside world bounds" % creature.name)
+	if world.has_method("get_creatures_out_of_bounds_count"):
+		TEST_UTILS.expect_equal(int(world.call("get_creatures_out_of_bounds_count")), 0, failures, "World should report no out-of-bounds creatures")
+	INTEGRATION.assert_tree_unpaused(failures, tree, "AnimalsRemainInsideWorldBounds")
 
 	await INTEGRATION.shutdown_main(context)
 	return failures
+
+

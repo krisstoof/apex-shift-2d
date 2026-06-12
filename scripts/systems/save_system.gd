@@ -17,26 +17,35 @@ const BUILDING_GROUPS := {
 }
 
 
+func _post_event_message(message: String) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var event_bus := tree.root.get_node_or_null("EventBus")
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
 func save_game() -> void:
-	var data := _collect_save_data()
+	var data: Dictionary = Dictionary(_sanitize_save_data(_collect_save_data()))
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if not file:
-		get_node("/root/EventBus").post_message("Could not save game")
+		_post_event_message("Could not save game")
 		return
 	file.store_string(JSON.stringify(data, "\t"))
-	get_node("/root/EventBus").post_message("Game saved")
+	_post_event_message("Game saved")
 
 
 func load_game() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
-		get_node("/root/EventBus").post_message("No save file found")
+		_post_event_message("No save file found")
 		return
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
 	if typeof(parsed) != TYPE_DICTIONARY:
-		get_node("/root/EventBus").post_message("Save file is invalid")
+		_post_event_message("Save file is invalid")
 		return
 	await _restore_save_data(Dictionary(parsed))
-	get_node("/root/EventBus").post_message("Game loaded")
+	_post_event_message("Game loaded")
 
 
 func _collect_save_data() -> Dictionary:
@@ -47,7 +56,7 @@ func _collect_save_data() -> Dictionary:
 	var evolution_director := scene.get_node("EvolutionDirector")
 	var ecosystem_director := scene.get_node("EcosystemDirector")
 	return {
-		"version": 3,
+		"version": 5,
 		"world": world.get_save_data(),
 		"player": _get_player_data(player),
 		"resources": world.get_resource_save_data(),
@@ -55,6 +64,7 @@ func _collect_save_data() -> Dictionary:
 		"small_prey": world.get_small_prey_save_data(),
 		"grazers": world.get_grazer_save_data(),
 		"buildings": _get_buildings_data(),
+		"storage_boxes": _get_storage_boxes_data(),
 		"day_night": day_night_system.get_save_data(),
 		"evolution": evolution_director.get_save_data(),
 		"ecosystem": ecosystem_director.get_save_data()
@@ -65,7 +75,7 @@ func _get_player_data(player: Node) -> Dictionary:
 	return {
 		"position": _vector_to_data(player.global_position),
 		"stats": player.stats.get_save_data(),
-		"inventory": player.inventory.get_save_data(),
+		"inventory": player.inventory.to_save_data(),
 		"has_spear": player.has_spear,
 		"has_bow": player.has_bow,
 		"torch_active": player.torch_active,
@@ -91,6 +101,16 @@ func _get_buildings_data() -> Array[Dictionary]:
 	return buildings
 
 
+func _get_storage_boxes_data() -> Array[Dictionary]:
+	var storage_boxes: Array[Dictionary] = []
+	for node in get_tree().get_nodes_in_group("storage_boxes"):
+		if not is_instance_valid(node):
+			continue
+		if node.has_method("get_save_data"):
+			storage_boxes.append(Dictionary(node.call("get_save_data")))
+	return storage_boxes
+
+
 func _get_building_data(building_kind: String, building: Node2D) -> Dictionary:
 	var data := {
 		"kind": building_kind,
@@ -105,6 +125,9 @@ func _get_building_data(building_kind: String, building: Node2D) -> Dictionary:
 			data["damage"] = building.damage
 		"wall":
 			data["health"] = building.health
+		"storage_box":
+			if building.has_method("get_save_data"):
+				data["inventory"] = Dictionary(building.get_save_data()).get("inventory", {})
 	return data
 
 
@@ -117,6 +140,8 @@ func _restore_save_data(data: Dictionary) -> void:
 	var ecosystem_director := scene.get_node("EcosystemDirector")
 	var game_session := get_node_or_null("/root/GameSession")
 	var world_data := Dictionary(data.get("world", {}))
+	if world and world.has_method("begin_save_restore"):
+		world.begin_save_restore()
 
 	if not world_data.is_empty():
 		await world.restore_landmarks(Array(world_data.get("landmarks", [])), int(world_data.get("world_seed", 0)))
@@ -127,18 +152,32 @@ func _restore_save_data(data: Dictionary) -> void:
 	ecosystem_director.load_save_data(Dictionary(data.get("ecosystem", {})))
 	day_night_system.restore_from_data(Dictionary(data.get("day_night", {})))
 	await world.restore_resources(Array(data.get("resources", [])))
-	await _restore_buildings(Array(data.get("buildings", [])))
+	var has_storage_boxes := data.has("storage_boxes")
+	await _restore_buildings(Array(data.get("buildings", [])), has_storage_boxes)
+	await _restore_storage_boxes(data)
 	await world.restore_varnaks(Array(data.get("varnaks", [])))
 	if data.has("small_prey"):
 		await world.restore_small_prey(Array(data.get("small_prey", [])))
 	if data.has("grazers"):
 		await world.restore_grazers(Array(data.get("grazers", [])))
+	if world and world.has_method("end_save_restore"):
+		world.end_save_restore()
+	if world and world.has_method("rebuild_runtime_indexes_after_load"):
+		world.rebuild_runtime_indexes_after_load()
 
 
 func _restore_player_data(player: Node, data: Dictionary) -> void:
 	player.global_position = _data_to_vector(data.get("position", {}))
 	player.stats.restore_from_data(Dictionary(data.get("stats", {})))
-	player.inventory.restore_from_data(Dictionary(data.get("inventory", {})))
+	if data.has("inventory"):
+		player.inventory.load_from_save_data(Dictionary(data.get("inventory", {})))
+	else:
+		player.inventory.clear()
+		player.inventory.add_item("wood", int(data.get("wood", 0)))
+		player.inventory.add_item("stone", int(data.get("stone", 0)))
+		player.inventory.add_item("fiber", int(data.get("fiber", 0)))
+		player.inventory.add_item("meat", int(data.get("meat", 0)))
+		player.inventory.add_item("bone", int(data.get("bone", 0)))
 	player.has_spear = data.get("has_spear", player.has_spear) == true
 	player.has_bow = data.get("has_bow", player.has_bow) == true
 	player.torch_active = data.get("torch_active", player.torch_active) == true
@@ -147,7 +186,7 @@ func _restore_player_data(player: Node, data: Dictionary) -> void:
 		player.clear_inactive_torch_state()
 
 
-func _restore_buildings(buildings: Array) -> void:
+func _restore_buildings(buildings: Array, skip_storage_boxes: bool = false) -> void:
 	var scene := get_tree().current_scene
 	var world := scene.get_node_or_null("World") if scene else null
 	if world and world.has_method("get_registered_buildings"):
@@ -166,6 +205,8 @@ func _restore_buildings(buildings: Array) -> void:
 			continue
 		var data := Dictionary(building_data)
 		var building_kind := str(data.get("kind", ""))
+		if skip_storage_boxes and building_kind == "storage_box":
+			continue
 		if not BUILDING_SCENES.has(building_kind):
 			continue
 		var building: Node2D = BUILDING_SCENES[building_kind].instantiate()
@@ -174,6 +215,46 @@ func _restore_buildings(buildings: Array) -> void:
 		if world and world.has_method("register_building_node"):
 			world.register_building_node(building, building_kind)
 		_restore_building_state(building_kind, building, data)
+
+
+func _restore_storage_boxes(save_data: Dictionary) -> void:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	var storage_boxes_data: Array = []
+	if save_data.has("storage_boxes"):
+		storage_boxes_data = Array(save_data.get("storage_boxes", []))
+	elif save_data.has("buildings"):
+		for building_data in Array(save_data.get("buildings", [])):
+			if typeof(building_data) != TYPE_DICTIONARY:
+				continue
+			var building_dict := Dictionary(building_data)
+			if str(building_dict.get("kind", "")) == "storage_box":
+				storage_boxes_data.append(building_dict)
+	if storage_boxes_data.is_empty():
+		return
+	_clear_existing_storage_boxes()
+	await get_tree().process_frame
+	for box_data_variant in storage_boxes_data:
+		if typeof(box_data_variant) != TYPE_DICTIONARY:
+			continue
+		var box_data := Dictionary(box_data_variant)
+		var box: Node2D = BUILDING_SCENES["storage_box"].instantiate()
+		scene.add_child(box)
+		if box.has_method("restore_from_data"):
+			box.restore_from_data(box_data)
+		else:
+			box.global_position = _data_to_vector(box_data.get("position", {}))
+		var world := scene.get_node_or_null("World")
+		if world and world.has_method("register_building_node"):
+			world.register_building_node(box, "storage_box")
+
+
+func _clear_existing_storage_boxes() -> void:
+	for node in get_tree().get_nodes_in_group("storage_boxes"):
+		if is_instance_valid(node):
+			node.queue_free()
+	await get_tree().process_frame
 
 
 func _restore_building_state(building_kind: String, building: Node, data: Dictionary) -> void:
@@ -186,6 +267,9 @@ func _restore_building_state(building_kind: String, building: Node, data: Dictio
 			building.damage = float(data.get("damage", building.damage))
 		"wall":
 			building.health = float(data.get("health", building.health))
+		"storage_box":
+			if building.has_method("restore_from_data"):
+				building.restore_from_data(data)
 	building.queue_redraw()
 
 
@@ -197,3 +281,36 @@ func _data_to_vector(data: Variant) -> Vector2:
 	if typeof(data) != TYPE_DICTIONARY:
 		return Vector2.ZERO
 	return Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
+
+
+func _sanitize_save_data(value: Variant) -> Variant:
+	match typeof(value):
+		TYPE_DICTIONARY:
+			var sanitized: Dictionary = {}
+			for key in Dictionary(value).keys():
+				sanitized[key] = _sanitize_save_data(Dictionary(value)[key])
+			return sanitized
+		TYPE_ARRAY:
+			var sanitized_array: Array = []
+			for item in Array(value):
+				sanitized_array.append(_sanitize_save_data(item))
+			return sanitized_array
+		TYPE_FLOAT:
+			var float_value := float(value)
+			if is_nan(float_value) or is_inf(float_value):
+				return null
+			return float_value
+		TYPE_VECTOR2:
+			var vector_value := Vector2(value)
+			return {
+				"x": _sanitize_save_data(vector_value.x),
+				"y": _sanitize_save_data(vector_value.y)
+			}
+		TYPE_VECTOR2I:
+			var vector2i_value := Vector2i(value)
+			return {
+				"x": vector2i_value.x,
+				"y": vector2i_value.y
+			}
+		_:
+			return value

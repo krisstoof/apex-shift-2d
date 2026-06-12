@@ -7,11 +7,12 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var context := await INTEGRATION.boot_main()
+	if not bool(context.get("ok", false)):
+		return [String(context.get("reason", "Integration bootstrap failed"))]
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
 	if tree == null or main == null:
-		failures.append("Integration bootstrap failed")
-		return failures
+		return ["Integration bootstrap returned invalid tree/main."]
 
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -60,6 +61,8 @@ func run() -> Array[String]:
 	TEST_UTILS.expect_equal(varnak.state, varnak.State.HUNT_ECOSYSTEM, failures, "Hungry Varnak should switch to ecosystem hunting")
 	TEST_UTILS.expect_equal(varnak.ecosystem_target, prey, failures, "Hungry Varnak should lock onto the spawned prey")
 	TEST_UTILS.expect_equal(varnak.decision_reason, "hunt_drive_ecosystem_prey", failures, "Varnak should explain that it is hunting ecosystem prey")
+	INTEGRATION.assert_valid_node2d_position(failures, varnak, "Hungry Varnak")
+	INTEGRATION.assert_creature_registered(failures, world, varnak, "varnak", "Hungry Varnak")
 	var distance_before: float = varnak.global_position.distance_to(prey.global_position)
 	varnak.call("_act", 0.0)
 	TEST_UTILS.expect(varnak.velocity.length() > 0.0, failures, "Hunting Varnak should start moving toward prey")
@@ -69,3 +72,5 @@ func run() -> Array[String]:
 
 	await INTEGRATION.shutdown_main(context)
 	return failures
+
+

@@ -7,11 +7,12 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var context := await INTEGRATION.boot_main()
+	if not bool(context.get("ok", false)):
+		return [String(context.get("reason", "Integration bootstrap failed"))]
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
 	if tree == null or main == null:
-		failures.append("Integration bootstrap failed")
-		return failures
+		return ["Integration bootstrap returned invalid tree/main."]
 
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -60,7 +61,14 @@ func run() -> Array[String]:
 			TEST_UTILS.expect_equal(str(meat_drop.get("resource_kind")), "meat_drop", failures, "Spawned drop should be a meat_drop resource")
 			TEST_UTILS.expect(int(meat_drop.get("amount")) > 0, failures, "Spawned meat drop should have a positive amount")
 			TEST_UTILS.expect(meat_drop.global_position.distance_to(spawn_point) < 32.0, failures, "Meat drop should appear where the animal died")
+			INTEGRATION.assert_resource_registered(failures, world, meat_drop, "meat_drop", "Meat drop")
+			INTEGRATION.assert_valid_node2d_position(failures, meat_drop, "Meat drop")
+			INTEGRATION.assert_node_inside_world_rect(failures, world, meat_drop, "Meat drop")
+			var save_data: Dictionary = meat_drop.call("get_save_data")
+			TEST_UTILS.expect_equal(str(save_data.get("resource_kind", "")), "meat_drop", failures, "Meat drop save data should use resource_kind=meat_drop")
 	TEST_UTILS.expect(not is_instance_valid(prey), failures, "Dead prey should be freed from the scene")
 
 	await INTEGRATION.shutdown_main(context)
 	return failures
+
+

@@ -6,6 +6,14 @@ const PADDING := 14.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(192, 116)
 const POND_MARKER_Y_SCALE := 0.62
 const HILL_MARKER_Y_SCALE := 0.58
+const TERRAIN_PALETTE_VERSION := "terrain_palette_v2"
+const TERRAIN_ZONE_COLORS := {
+	"deep_ocean": Color(0.07, 0.22, 0.42),
+	"shallow_water": Color(0.12, 0.34, 0.56),
+	"shore": Color(0.64, 0.61, 0.38),
+	"land": Color(0.31, 0.40, 0.22),
+	"highland": Color(0.28, 0.25, 0.16)
+}
 const MINIMAP_REDRAW_INTERVAL := 0.5
 const MINIMAP_VIEW_MARGIN_FACTOR := 1.22
 const MINIMAP_FALLBACK_VIEW_WORLD_SIZE := Vector2(1280.0, 760.0)
@@ -27,12 +35,15 @@ var minimap_texture_last_build_ms: float = 0.0
 var _is_drawing_biomes := false
 var minimap_redraw_timer := 0.0
 var cached_resources: Array[Dictionary] = []
+var cached_campfires: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
 var cached_resources_signature := ""
+var cached_campfires_signature := ""
 var cached_varnaks_signature := ""
 var markers_cache_timer := 0.0
 var landmarks_signature := ""
 var camera_world_size_override := Vector2.ZERO
+var hitch_log_cooldowns: Dictionary = {}
 
 
 func _ready() -> void:
@@ -88,6 +99,7 @@ func _draw() -> void:
 	_draw_landmarks(content_rect, view_world_rect)
 	_draw_grid(content_rect, view_world_rect)
 	_draw_resources(content_rect, view_world_rect)
+	_draw_campfires(content_rect, view_world_rect)
 	_draw_varnaks(content_rect, view_world_rect)
 	_draw_player(content_rect, view_world_rect)
 	_draw_zone_label(map_rect)
@@ -139,7 +151,7 @@ func _ensure_biome_texture() -> void:
 	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
 	var colors: Array[Color] = []
 	for biome in biome_zones:
-		colors.append(Color(biome["color"]).lerp(Color.BLACK, 0.15))
+		colors.append(Color(biome["color"]))
 	for y in range(BIOME_BLEND_TEXTURE_SIZE.y):
 		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
 			var uv := Vector2(
@@ -154,25 +166,44 @@ func _ensure_biome_texture() -> void:
 	minimap_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 
 
-func _get_direct_biome_color_at(position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
+func _get_direct_biome_color_at(world_position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
+	match terrain_zone:
+		"deep_ocean":
+			return TERRAIN_ZONE_COLORS["deep_ocean"]
+		"shallow_water":
+			return TERRAIN_ZONE_COLORS["shallow_water"]
+		"shore":
+			return TERRAIN_ZONE_COLORS["shore"]
+	var terrain_color := Color(TERRAIN_ZONE_COLORS.get(terrain_zone, TERRAIN_ZONE_COLORS["land"]))
 	var nearest_index := -1
 	var nearest_distance := INF
-	for i in zones.size():
+	for i in range(zones.size()):
 		var points := PackedVector2Array(zones[i]["points"])
-		if Geometry2D.is_point_in_polygon(position, points):
-			return colors[i]
-		var edge_distance := _get_point_polygon_edge_distance(position, points)
+		if Geometry2D.is_point_in_polygon(world_position, points):
+			return _get_land_biome_map_color(colors[i], terrain_color, terrain_zone)
+		var edge_distance := _get_point_polygon_edge_distance(world_position, points)
 		if edge_distance < nearest_distance:
 			nearest_distance = edge_distance
 			nearest_index = i
 	if nearest_index >= 0:
-		return colors[nearest_index]
-	return Color.BLACK
+		return _get_land_biome_map_color(colors[nearest_index], terrain_color, terrain_zone)
+	return terrain_color
+
+
+func _get_land_biome_map_color(biome_color: Color, terrain_color: Color, terrain_zone: String) -> Color:
+	match terrain_zone:
+		"highland":
+			return biome_color.darkened(0.28).lerp(terrain_color, 0.45)
+		"land":
+			return biome_color.darkened(0.10).lerp(terrain_color, 0.30)
+		_:
+			return terrain_color
 
 
 func _get_point_polygon_edge_distance(point: Vector2, points: PackedVector2Array) -> float:
 	var nearest_distance := INF
-	for i in points.size():
+	for i in range(points.size()):
 		nearest_distance = min(nearest_distance, _get_distance_to_segment(point, points[i], points[(i + 1) % points.size()]))
 	return nearest_distance
 
@@ -187,7 +218,10 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 
 func _get_biome_colors_key() -> String:
-	var parts: Array[String] = []
+	var parts: Array[String] = [TERRAIN_PALETTE_VERSION]
+	for zone_name in TERRAIN_ZONE_COLORS.keys():
+		var color := Color(TERRAIN_ZONE_COLORS[zone_name])
+		parts.append("%s=%.3f:%.3f:%.3f" % [str(zone_name), color.r, color.g, color.b])
 	for biome in biome_zones:
 		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
@@ -197,6 +231,11 @@ func _get_biome_colors_key() -> String:
 func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
 	if delta <= 0.1:
 		return
+	var now_ms := Time.get_ticks_msec()
+	var last_log_ms := int(hitch_log_cooldowns.get(system_name, 0))
+	if now_ms - last_log_ms < 5000:
+		return
+	hitch_log_cooldowns[system_name] = now_ms
 	var flag_text := ""
 	for key in flags.keys():
 		if not flag_text.is_empty():
@@ -295,21 +334,21 @@ func _get_pond_shape_scale(landmark: Dictionary, angle: float) -> float:
 	var irregularity: float = float(clamp(float(GAME_BALANCE.LANDMARKS.get("pond_shape_irregularity", 0.16)), 0.0, 0.45))
 	if irregularity <= 0.0:
 		return 1.0
-	var seed: float = _get_pond_shape_seed(landmark)
+	var pond_shape_seed: float = _get_pond_shape_seed(landmark)
 	var wave: float = (
-		sin(angle * 2.0 + seed) * 0.55
-		+ sin(angle * 3.0 - seed * 1.7) * 0.32
-		+ sin(angle * 5.0 + seed * 0.6) * 0.18
+		sin(angle * 2.0 + pond_shape_seed) * 0.55
+		+ sin(angle * 3.0 - pond_shape_seed * 1.7) * 0.32
+		+ sin(angle * 5.0 + pond_shape_seed * 0.6) * 0.18
 	) / 1.05
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.25, 1.0 + irregularity * 1.25)
 
 
 func _get_pond_shape_seed(landmark: Dictionary) -> float:
 	var pond_id := str(landmark.get("id", "pond"))
-	var seed := 0
+	var raw_seed: int = 0
 	for i in pond_id.length():
-		seed = (seed + pond_id.unicode_at(i) * (i + 3)) % 997
-	return float(seed) / 997.0 * TAU
+		raw_seed = (raw_seed + pond_id.unicode_at(i) * (i + 3)) % 997
+	return float(raw_seed) / 997.0 * TAU
 
 
 func _get_pond_shape_sample_count() -> int:
@@ -342,21 +381,21 @@ func _get_hill_shape_scale(landmark: Dictionary, angle: float) -> float:
 	var irregularity: float = float(clamp(float(GAME_BALANCE.LANDMARKS.get("hill_shape_irregularity", 0.10)), 0.0, 0.35))
 	if irregularity <= 0.0:
 		return 1.0
-	var seed: float = _get_hill_shape_seed(landmark)
+	var hill_seed: float = _get_hill_shape_seed(landmark)
 	var wave: float = (
-		sin(angle * 2.0 + seed) * 0.50
-		+ sin(angle * 4.0 - seed * 1.35) * 0.28
-		+ sin(angle * 6.0 + seed * 0.4) * 0.16
+		sin(angle * 2.0 + hill_seed) * 0.50
+		+ sin(angle * 4.0 - hill_seed * 1.35) * 0.28
+		+ sin(angle * 6.0 + hill_seed * 0.4) * 0.16
 	) / 0.94
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.15, 1.0 + irregularity * 1.15)
 
 
 func _get_hill_shape_seed(landmark: Dictionary) -> float:
 	var hill_id := str(landmark.get("id", "hill"))
-	var seed := 0
+	var hash_value := 0
 	for i in hill_id.length():
-		seed = (seed + hill_id.unicode_at(i) * (i + 5)) % 997
-	return float(seed) / 997.0 * TAU
+		hash_value = (hash_value + hill_id.unicode_at(i) * (i + 5)) % 997
+	return float(hash_value) / 997.0 * TAU
 
 
 func _get_hill_shape_sample_count() -> int:
@@ -381,6 +420,20 @@ func _draw_resources(content_rect: Rect2, view_world_rect: Rect2) -> void:
 			continue
 		var color := _get_resource_marker_color(resource_marker)
 		draw_circle(_world_to_map(marker_position, content_rect, view_world_rect), 3.3, color)
+
+
+func _draw_campfires(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	for campfire_marker_value in cached_campfires:
+		var campfire_marker := Dictionary(campfire_marker_value)
+		var marker_position := Vector2(campfire_marker.get("position", Vector2.ZERO))
+		if not view_world_rect.has_point(marker_position):
+			continue
+		var pos := _world_to_map(marker_position, content_rect, view_world_rect)
+		var active: bool = campfire_marker.get("active", true) == true
+		var outer_color := Color(1.0, 0.46, 0.10) if active else Color(0.48, 0.36, 0.22)
+		var inner_color := Color(1.0, 0.88, 0.28) if active else Color(0.68, 0.58, 0.42)
+		draw_circle(pos, 5.0, outer_color)
+		draw_circle(pos, 2.2, inner_color)
 
 
 func _draw_varnaks(content_rect: Rect2, view_world_rect: Rect2) -> void:
@@ -468,8 +521,8 @@ func _get_max_shape_scale(landmark: Dictionary, is_pond: bool) -> float:
 	var sample_count := _get_pond_shape_sample_count() if is_pond else _get_hill_shape_sample_count()
 	for i in range(sample_count):
 		var angle := TAU * float(i) / float(sample_count)
-		var scale := _get_pond_shape_scale(landmark, angle) if is_pond else _get_hill_shape_scale(landmark, angle)
-		max_scale = maxf(max_scale, scale)
+		var shape_scale := _get_pond_shape_scale(landmark, angle) if is_pond else _get_hill_shape_scale(landmark, angle)
+		max_scale = maxf(max_scale, shape_scale)
 	return max_scale
 
 
@@ -569,18 +622,22 @@ func _get_resource_marker_color(resource_marker: Dictionary) -> Color:
 
 
 func _update_marker_cache() -> bool:
-	var snapshot := _get_snapshot()
+	var snapshot := _get_snapshot(true)
 	var markers := Dictionary(snapshot.get("markers", {}))
 	if not markers.is_empty():
 		cached_resources = _to_dictionary_array(Array(markers.get("resources", [])))
+		cached_campfires = _to_dictionary_array(Array(markers.get("campfires", [])))
 		cached_varnaks = _to_dictionary_array(Array(markers.get("varnaks", [])))
 	else:
 		cached_resources = _build_resource_markers_from_world()
+		cached_campfires = _build_campfire_markers_from_world()
 		cached_varnaks = _build_varnak_markers_from_world()
 	var resource_signature := _build_resources_signature()
+	var campfire_signature := _build_campfires_signature()
 	var varnak_signature := _build_varnaks_signature()
-	var changed := resource_signature != cached_resources_signature or varnak_signature != cached_varnaks_signature
+	var changed := resource_signature != cached_resources_signature or campfire_signature != cached_campfires_signature or varnak_signature != cached_varnaks_signature
 	cached_resources_signature = resource_signature
+	cached_campfires_signature = campfire_signature
 	cached_varnaks_signature = varnak_signature
 	return changed
 
@@ -608,6 +665,37 @@ func _build_resources_signature() -> String:
 			int(round(Vector2(resource.get("position", Vector2.ZERO)).y)),
 			str(resource.get("resource_kind")),
 			"1" if resource.get("player_harvestable", true) != false else "0"
+	])
+	return "|".join(parts)
+
+
+func _build_campfire_markers_from_world() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	var active_world := _get_world()
+	if active_world == null or not active_world.has_method("get_cached_group_nodes"):
+		return markers
+	for campfire_value in active_world.get_cached_group_nodes("campfires"):
+		var campfire := campfire_value as Node2D
+		if campfire == null or not is_instance_valid(campfire):
+			continue
+		if campfire.is_queued_for_deletion():
+			continue
+		markers.append({
+			"position": campfire.global_position,
+			"type": "campfire",
+			"active": true
+		})
+	return markers
+
+
+func _build_campfires_signature() -> String:
+	var parts: Array[String] = []
+	for campfire_value in cached_campfires:
+		var campfire_marker := Dictionary(campfire_value)
+		parts.append("%d:%d:%s" % [
+			int(round(Vector2(campfire_marker.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(campfire_marker.get("position", Vector2.ZERO)).y)),
+			"1" if campfire_marker.get("active", true) == true else "0"
 		])
 	return "|".join(parts)
 
@@ -639,12 +727,15 @@ func _get_world() -> Node:
 	return world
 
 
-func _get_snapshot() -> Dictionary:
-	if snapshot_service != null and snapshot_service.has_method("get_snapshot"):
-		var snapshot: Dictionary = snapshot_service.get_snapshot()
-		if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+func _get_snapshot(force_refresh := false) -> Dictionary:
+	if snapshot_service != null:
+		if force_refresh and snapshot_service.has_method("refresh"):
 			return snapshot_service.refresh(true)
-		return snapshot
+		if snapshot_service.has_method("get_snapshot"):
+			var snapshot: Dictionary = snapshot_service.get_snapshot()
+			if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+				return snapshot_service.refresh(true)
+			return snapshot
 	return {}
 
 

@@ -7,7 +7,7 @@ signal exit_requested
 
 const PANEL_SIZE := Vector2(520.0, 382.0)
 const BUTTON_HEIGHT := 42.0
-const SIDE_MARGIN := 28.0
+const SIDE_MARGIN: int = 28
 
 var game_session: Node
 var restart_button: Button
@@ -93,10 +93,10 @@ func _build_ui() -> void:
 
 
 func _apply_panel_margins(container: MarginContainer) -> void:
-	container.add_theme_constant_override("margin_left", SIDE_MARGIN)
-	container.add_theme_constant_override("margin_right", SIDE_MARGIN)
-	container.add_theme_constant_override("margin_top", SIDE_MARGIN)
-	container.add_theme_constant_override("margin_bottom", SIDE_MARGIN)
+	container.add_theme_constant_override("margin_left", int(28))
+	container.add_theme_constant_override("margin_right", int(28))
+	container.add_theme_constant_override("margin_top", int(28))
+	container.add_theme_constant_override("margin_bottom", int(28))
 
 
 func _add_button(stack: VBoxContainer, label: String, callback: Callable) -> Button:

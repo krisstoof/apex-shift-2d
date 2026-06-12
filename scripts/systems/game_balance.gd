@@ -48,10 +48,10 @@ const PLAYER_MAX_STAMINA := 100.0
 const PLAYER_MAX_REST := 100.0
 const PLAYER_LOW_HUNGER := 25.0
 const PLAYER_EXHAUSTED_REST := 20.0
-const PLAYER_HUNGER_DECAY_RATE := 0.9
+const PLAYER_HUNGER_DECAY_RATE := 0.75
 const PLAYER_REST_DECAY_RATE := 0.35
 const PLAYER_RUNNING_REST_DECAY_RATE := 0.9
-const PLAYER_RUNNING_STAMINA_DECAY_RATE := 18.0
+const PLAYER_RUNNING_STAMINA_DECAY_RATE := 14.0
 const PLAYER_STARVATION_DAMAGE_PER_SECOND := 1.0
 const PLAYER_HEALTH_REGEN_RATE := 0.45
 const PLAYER_CAMPFIRE_HEALTH_REGEN_MULTIPLIER := 2.2
@@ -90,8 +90,29 @@ const ANIMAL_LOOT := {
 	},
 	"varnak": {
 		"meat_min": 2,
-		"meat_max": 4
+		"meat_max": 4,
+		"bone_min": 1,
+		"bone_max": 2
 	}
+}
+const CREATURE_SIMULATION_LOD := {
+	"near_distance": 900.0,
+	"medium_distance": 1800.0,
+	"far_update_interval_seconds": 1.0,
+	"medium_ai_interval_multiplier": 3.0,
+	"medium_spatial_update_multiplier": 2.0,
+	"far_hunger_time_scale": 1.0,
+	"far_energy_time_scale": 0.35,
+	"force_varnak_near_distance": 700.0,
+	"debug_enabled": true
+}
+
+const WORLD_CHUNKS := {
+	"chunk_size": 1024.0,
+	"active_radius_chunks": 1,
+	"preload_radius_chunks": 2,
+	"update_interval_seconds": 0.25,
+	"debug_enabled": true
 }
 
 # Larger-world generation values. These are used or reserved for world scale,
@@ -126,15 +147,82 @@ const VARNAK_DAY_SCALING := {
 	"day_2_max": 2,
 	"day_3_min": 2,
 	"day_3_max": 4,
-	"max_varnaks": 12,
+	"max_varnaks": 8,
 	"daily_growth": 1,
 	"spawn_check_interval_seconds": 10.0,
 	"spawn_batch_limit": 2,
 	"day_1_spawn_chance": 0.0,
-	"day_2_spawn_chance": 0.55,
-	"spawn_chance_daily_growth": 0.07,
-	"max_spawn_chance": 0.9,
+	"day_2_spawn_chance": 0.10,
+	"spawn_chance_daily_growth": 0.05,
+	"max_spawn_chance": 0.55,
 	"other_creature_min_distance": 140.0
+}
+
+# Early-week difficulty curve keeps day 1 gentle, day 3 meaningful, and days 6-7 clearly harsher.
+const FIRST_WEEK_DIFFICULTY := {
+	1: {
+		"varnak_max_population": 0,
+		"varnak_spawn_chance": 0.00,
+		"varnak_aggression_multiplier": 0.40,
+		"varnak_activity_multiplier": 0.55,
+		"small_prey_population_multiplier": 1.15,
+		"grazer_population_multiplier": 1.10
+	},
+	2: {
+		"varnak_max_population": 1,
+		"varnak_spawn_chance": 0.10,
+		"varnak_aggression_multiplier": 0.55,
+		"varnak_activity_multiplier": 0.68,
+		"small_prey_population_multiplier": 1.08,
+		"grazer_population_multiplier": 1.05
+	},
+	3: {
+		"varnak_max_population": 2,
+		"varnak_spawn_chance": 0.18,
+		"varnak_aggression_multiplier": 0.70,
+		"varnak_activity_multiplier": 0.80,
+		"small_prey_population_multiplier": 1.00,
+		"grazer_population_multiplier": 1.00
+	},
+	4: {
+		"varnak_max_population": 3,
+		"varnak_spawn_chance": 0.26,
+		"varnak_aggression_multiplier": 0.82,
+		"varnak_activity_multiplier": 0.90,
+		"small_prey_population_multiplier": 0.95,
+		"grazer_population_multiplier": 0.98
+	},
+	5: {
+		"varnak_max_population": 4,
+		"varnak_spawn_chance": 0.34,
+		"varnak_aggression_multiplier": 0.92,
+		"varnak_activity_multiplier": 1.00,
+		"small_prey_population_multiplier": 0.92,
+		"grazer_population_multiplier": 0.96
+	},
+	6: {
+		"varnak_max_population": 5,
+		"varnak_spawn_chance": 0.42,
+		"varnak_aggression_multiplier": 1.02,
+		"varnak_activity_multiplier": 1.10,
+		"small_prey_population_multiplier": 0.88,
+		"grazer_population_multiplier": 0.92
+	},
+	7: {
+		"varnak_max_population": 6,
+		"varnak_spawn_chance": 0.50,
+		"varnak_aggression_multiplier": 1.12,
+		"varnak_activity_multiplier": 1.22,
+		"small_prey_population_multiplier": 0.84,
+		"grazer_population_multiplier": 0.90
+	}
+}
+
+const VARNAK_SPAWN := {
+	"default_biome_weight": 1.0,
+	"dangerous_biome_weight_multiplier": 3.0,
+	"fallback_attempt_multiplier": 3,
+	"avoid_camera_margin": 160.0
 }
 
 # Food values and decision thresholds for living creatures. Future creature AI
@@ -231,15 +319,15 @@ const VARNAK_HUNTING := {
 	"player_intrusion_radius": 240.0,
 	"prey_chase_priority": 0.65,
 	"player_chase_priority": 0.85,
-	"night_hunting_multiplier": 1.25,
+	"night_hunting_multiplier": 1.35,
 	"fire_avoidance_priority": 1.10,
 	"torch_avoidance_priority": 0.75,
-	"target_lock_seconds": 1.10,
+	"target_lock_seconds": 1.25,
 	"local_patrol_radius": 320.0,
 	"hungry_roam_radius": 720.0,
 	"starving_roam_radius": 1120.0,
 	"hunting_roam_target_reached_distance": 90.0,
-	"cross_biome_hunt_drive": 0.55
+	"cross_biome_hunt_drive": 0.62
 }
 
 # Ranged combat values reserved for the bow and arrow projectile systems.
@@ -304,7 +392,7 @@ const RESOURCE_REGROWTH := {
 	},
 	"grass_regrowth_time_days": 1,
 	"bush_regrowth_time_days": 2,
-	"tree_regrowth_time_days": 3,
+	"tree_regrowth_time_days": 15,
 	"dry_bush_regrowth_time_days": 3,
 	"growth_tick_seconds": 5.0
 }
@@ -318,12 +406,20 @@ const BIOME_VISUALS := {
 }
 
 const BIOME_TEXTURES := {
-	"detail_density_multiplier": 1.35,
-	"detail_alpha": 0.30,
-	"secondary_detail_alpha": 0.18,
-	"variation_noise_strength": 0.22,
-	"blend_cache_scale": 2.0,
-	"max_detail_per_chunk": 120
+	"detail_overlay_enabled": false,
+	"detail_chunk_world_size": 768.0,
+	"detail_chunk_texture_size": 256,
+	"detail_visible_chunk_radius": 1,
+	"detail_overlay_alpha": 0.22,
+	"detail_tile_world_size": 128.0,
+	"detail_chunk_build_budget_per_frame": 1,
+	"detail_filter_nearest": true,
+	"detail_density_multiplier": 1.0,
+	"detail_alpha": 0.08,
+	"secondary_detail_alpha": 0.06,
+	"variation_noise_strength": 0.08,
+	"blend_cache_scale": 1.0,
+	"max_detail_per_chunk": 80
 }
 
 const POPULATION_RECOVERY := {
@@ -404,3 +500,8 @@ const ECOSYSTEM := {
 const DEBUG_PLAYER_DAMAGE_AMOUNT := 25.0
 const DEBUG_PLAYER_HEAL_AMOUNT := 25.0
 const DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT := 25.0
+
+
+static func get_first_week_difficulty(day: int) -> Dictionary:
+	var clamped_day: int = clampi(day, 1, 7)
+	return Dictionary(FIRST_WEEK_DIFFICULTY.get(clamped_day, FIRST_WEEK_DIFFICULTY[7]))

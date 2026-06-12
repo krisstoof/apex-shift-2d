@@ -9,7 +9,7 @@ const DEBUG_TABS := [
 	"World",
 	"Ecosystem",
 	"Creatures",
-	"Evolution",
+	"Adaptation",
 	"Combat",
 	"Events",
 	"Tools"
@@ -40,6 +40,8 @@ var benchmark_runner: Node
 var benchmark_button: Button
 var god_mode_button: Button
 var regenerate_landmarks_button: Button
+var island_world_validation_button: Button
+var pool_test_button: Button
 var landmark_overlay_button: Button
 var rebuild_biome_cache_button: Button
 var biome_texture_toggle_button: Button
@@ -109,7 +111,8 @@ func _process(_delta: float) -> void:
 	state_refresh_timer = 0.0
 	_set_state_text(_build_state_text())
 	debug_panel_refresh_count += 1
-	_refresh_creature_debug_overlays()
+	if active_tab == "Creatures":
+		_refresh_creature_debug_overlays()
 
 
 func toggle() -> void:
@@ -127,7 +130,8 @@ func set_open(open: bool) -> void:
 	if visible:
 		_update_active_tab_view()
 		_set_state_text(_build_state_text(), true)
-		_refresh_creature_debug_overlays()
+		if active_tab == "Creatures":
+			_refresh_creature_debug_overlays()
 	else:
 		last_state_text = ""
 
@@ -218,7 +222,8 @@ func _register_existing_tool_buttons() -> void:
 	_add_tool_button_node(next_day_button, "World")
 	_add_tool_button_node(spawn_aggressive_button, "Creatures")
 	_add_tool_button_node(spawn_neutral_button, "Creatures")
-	_add_tool_button_node(increase_adaptation_button, "Evolution")
+	increase_adaptation_button.text = "Force adaptation step"
+	_add_tool_button_node(increase_adaptation_button, "Adaptation")
 	_add_tool_button_node(add_spear_button, "Combat")
 
 
@@ -293,6 +298,8 @@ func _create_future_tool_buttons() -> void:
 	_add_tool_button("Reset resource growth", _on_reset_resource_growth_pressed, "World")
 	_add_tool_button("Teleport OOB creatures", _on_teleport_out_of_bounds_pressed, "Creatures")
 	regenerate_landmarks_button = _add_tool_button("Regenerate landmarks", _on_regenerate_landmarks_pressed, "World")
+	island_world_validation_button = _add_tool_button("Validate island world", _on_validate_island_world_pressed, "World")
+	pool_test_button = _add_tool_button("Test object pool", _on_test_object_pool_pressed, "Tools")
 	landmark_overlay_button = _add_tool_button("Landmark overlay: OFF", _on_toggle_landmark_overlay_pressed, "World")
 	rebuild_biome_cache_button = _add_tool_button("Rebuild biome texture cache", _on_rebuild_biome_texture_cache_pressed, "World")
 	biome_texture_toggle_button = _add_tool_button("Biome textures: ON", _on_toggle_biome_textures_pressed, "World")
@@ -313,7 +320,7 @@ func _build_state_text() -> String:
 			return _build_ecosystem_text()
 		"Creatures":
 			return _build_creatures_text()
-		"Evolution":
+		"Adaptation":
 			return _build_evolution_text(profile)
 		"Combat":
 			return _build_combat_text()
@@ -333,6 +340,7 @@ func _build_overview_text(profile: Dictionary) -> String:
 	var ecosystem_snapshot := Dictionary(snapshot.get("ecosystem", {}))
 	var world_snapshot := Dictionary(snapshot.get("world", {}))
 	var varnak_population := Dictionary(world_snapshot.get("varnak_population", {}))
+	var ai_state_counts := Dictionary(world_snapshot.get("creature_ai_state_counts", {}))
 	var lines: Array[String] = []
 	lines.append("Day %d | %s | night %.2f" % [
 		int(time_snapshot.get("day", _get_day())),
@@ -358,6 +366,11 @@ func _build_overview_text(profile: Dictionary) -> String:
 		int(varnak_population.get("target", 0)),
 		int(varnak_population.get("live", debug_snapshot.get("live_varnaks", 0))),
 		int(varnak_population.get("max", 0))
+	])
+	lines.append("AI states: prey %s | grazers %s | varnaks %s" % [
+		_get_ai_state_summary_text(Dictionary(ai_state_counts.get("small_prey", {})), ["wandering", "hungry", "eating", "fleeing"]),
+		_get_ai_state_summary_text(Dictionary(ai_state_counts.get("grazer", {})), ["wandering", "hungry", "eating", "fleeing"]),
+		_get_ai_state_summary_text(Dictionary(ai_state_counts.get("varnak", {})), ["wandering", "hungry", "hunting", "fleeing"])
 	])
 	lines.append("creatures_out_of_bounds_count = %d" % int(Dictionary(snapshot.get("world", {})).get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))
 	lines.append("Ecosystem warnings: %s" % str(ecosystem_snapshot.get("warnings_text", _get_ecosystem_warnings_text())))
@@ -385,11 +398,12 @@ func _build_player_text() -> String:
 		("%.0fpx" % float(player_snapshot.get("campfire_regen_distance", -1.0))) if float(player_snapshot.get("campfire_regen_distance", -1.0)) >= 0.0 else _get_campfire_regen_distance_text()
 	])
 	lines.append("Inventory")
-	lines.append("Wood %d | Stone %d | Fiber %d | Meat %d" % [
+	lines.append("Wood %d | Stone %d | Fiber %d | Meat %d | Bone %d" % [
 		int(inventory_snapshot.get("wood", _get_item_count("wood"))),
 		int(inventory_snapshot.get("stone", _get_item_count("stone"))),
 		int(inventory_snapshot.get("fiber", _get_item_count("fiber"))),
-		int(inventory_snapshot.get("meat", _get_item_count("meat")))
+		int(inventory_snapshot.get("meat", _get_item_count("meat"))),
+		int(inventory_snapshot.get("bone", _get_item_count("bone")))
 	])
 	lines.append("Torch %d | %s" % [
 		int(inventory_snapshot.get("torch", _get_item_count("torch"))),
@@ -422,6 +436,8 @@ func _build_world_text() -> String:
 	lines.append("Player position: %s" % _get_position_text(Vector2(Dictionary(snapshot.get("player", {})).get("position", player.global_position if player else Vector2.ZERO))))
 	lines.append("World bounds: %s" % str(WORLD_CONFIG.WORLD_RECT))
 	lines.append("creatures_out_of_bounds_count = %d" % int(world_snapshot.get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))
+	lines.append("Chunks: %s" % _get_chunk_debug_text())
+	lines.append("Spatial index: %s" % _get_spatial_index_debug_text())
 	lines.append("Campfires: %d | Traps: %d" % [
 		int(building_counts.get("campfires", _get_cached_group_nodes("campfires").size())),
 		int(building_counts.get("traps", _get_cached_group_nodes("traps").size()))
@@ -438,12 +454,14 @@ func _build_world_text() -> String:
 		int(landmark_counts.get("hill", 0)),
 		_get_nearest_landmark_text()
 	])
+	lines.append("Island validation: %s" % _get_island_world_validation_summary_text())
 	lines.append("Hill markers: %d" % _get_cached_group_nodes("hill_landmarks").size())
 	lines.append("Pond markers: %d | Water sources: %d" % [
 		_get_cached_group_nodes("pond_landmarks").size(),
 		_get_cached_group_nodes("water_sources").size()
 	])
 	lines.append("Pond vegetation: %d" % _get_cached_group_nodes("pond_vegetation").size())
+	lines.append("Decorative vegetation: %s" % _get_decorative_vegetation_text())
 	lines.append("Biome texture cache: %s" % _get_biome_texture_cache_status_text())
 	lines.append("Landmark overlay %s | Biome textures %s" % [
 		_get_landmark_overlay_state_text(),
@@ -480,11 +498,14 @@ func _build_creatures_text() -> String:
 		_get_cached_group_nodes("small_prey").size(),
 		_get_creature_state_summary("small_prey")
 	])
+	lines.append("SmallPrey LOD %s" % _get_simulation_level_counts_text("small_prey"))
 	lines.append("Grazers visible %d | %s" % [
 		_get_cached_group_nodes("grazer").size(),
 		_get_grazer_state_summary()
 	])
+	lines.append("Grazer LOD %s" % _get_simulation_level_counts_text("grazer"))
 	lines.append("Avg Varnak HP %s" % _get_average_varnak_health_text(varnaks))
+	lines.append("Varnak LOD %s" % _get_simulation_level_counts_text("varnak"))
 	lines.append_array(_get_creature_debug_stat_lines("varnak", "Varnak stats"))
 	lines.append_array(_get_creature_debug_stat_lines("small_prey", "SmallPrey stats"))
 	lines.append_array(_get_creature_debug_stat_lines("grazer", "Grazer stats"))
@@ -493,7 +514,7 @@ func _build_creatures_text() -> String:
 
 func _build_evolution_text(profile: Dictionary) -> String:
 	var lines: Array[String] = []
-	lines.append("Evolution")
+	lines.append("Adaptation")
 	lines.append("Generation %d | pressure %.2f" % [
 		int(profile.get("generation", 1)),
 		_get_adaptation_pressure(profile)
@@ -561,6 +582,7 @@ func _build_tools_text() -> String:
 	var lines: Array[String] = []
 	lines.append("Tools")
 	lines.append("God mode %s" % _get_god_mode_state_text())
+	lines.append("Object pools: %s" % _get_pool_debug_text())
 	lines.append("Player actions: Player tab")
 	lines.append("Time and regrowth: World tab")
 	lines.append("Biomass and ecosystem ticks: Ecosystem tab")
@@ -600,8 +622,8 @@ func _get_bow_state() -> String:
 	return "yes" if has_bow == true else "no"
 
 
-func _get_position_text(position: Vector2) -> String:
-	return "(%d, %d)" % [int(round(position.x)), int(round(position.y))]
+func _get_position_text(world_position: Vector2) -> String:
+	return "(%d, %d)" % [int(round(world_position.x)), int(round(world_position.y))]
 
 
 func _get_current_biome_name() -> String:
@@ -793,6 +815,21 @@ func _get_biome_texture_state_text() -> String:
 	return "unknown"
 
 
+func _get_decorative_vegetation_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_decorative_vegetation_debug"):
+		return "unavailable"
+	var decorative_debug: Dictionary = world.get_decorative_vegetation_debug()
+	var visual_debug: Dictionary = Dictionary(decorative_debug.get("visual_layer", {}))
+	var count_by_kind: Dictionary = Dictionary(visual_debug.get("count_by_kind", {}))
+	return "visuals %d | grass_patch nodes %d | dense_grass nodes %d | edible nodes %d" % [
+		int(decorative_debug.get("visual_instance_count", 0)),
+		int(count_by_kind.get("grass_patch", 0)),
+		int(count_by_kind.get("dense_grass", 0)),
+		int(decorative_debug.get("edible_grass_node_spawn_count", 0))
+	]
+
+
 func _get_adaptation_pressure(profile: Dictionary) -> float:
 	var keys := ["aggression", "trap_awareness", "pack_coordination", "night_activity", "base_curiosity", "stalk_tendency"]
 	var total := 0.0
@@ -981,11 +1018,16 @@ func get_debug_panel_performance_debug() -> Dictionary:
 
 
 func _get_snapshot() -> Dictionary:
-	if snapshot_service != null and snapshot_service.has_method("get_snapshot"):
-		var snapshot: Dictionary = snapshot_service.get_snapshot()
-		if snapshot.is_empty() and snapshot_service.has_method("refresh"):
-			return snapshot_service.refresh(true)
-		return snapshot
+	if snapshot_service != null:
+		if snapshot_service.has_method("refresh"):
+			var refreshed_snapshot: Dictionary = snapshot_service.refresh()
+			if not refreshed_snapshot.is_empty():
+				return refreshed_snapshot
+		if snapshot_service.has_method("get_snapshot"):
+			var snapshot: Dictionary = snapshot_service.get_snapshot()
+			if snapshot.is_empty() and snapshot_service.has_method("refresh"):
+				return snapshot_service.refresh(true)
+			return snapshot
 	return {}
 
 
@@ -1055,7 +1097,7 @@ func _get_creature_state_summary(group_name: String) -> String:
 	])
 
 
-func _get_varnak_state_summary(varnaks: Array) -> String:
+func _get_varnak_state_summary(_varnaks: Array) -> String:
 	return _get_fixed_creature_state_summary("varnak", [
 		"idle",
 		"wander",
@@ -1088,6 +1130,15 @@ func _get_fixed_creature_state_summary(group_name: String, state_names: Array[St
 		parts.append("%s:%d" % [state_name, int(counts.get(state_name, 0))])
 	parts.append("satiety:%d%%" % _get_average_percent(satiety_total, count))
 	parts.append("energy:%d%%" % _get_average_percent(energy_total, count))
+	return ", ".join(parts)
+
+
+func _get_ai_state_summary_text(state_counts: Dictionary, state_names: Array[String]) -> String:
+	if state_counts.is_empty():
+		return "none"
+	var parts: Array[String] = []
+	for state_name in state_names:
+		parts.append("%s:%d" % [state_name, int(state_counts.get(state_name, 0))])
 	return ", ".join(parts)
 
 
@@ -1172,6 +1223,12 @@ func _get_creature_debug_stat_lines(group_name: String, label: String) -> Array[
 			_get_debug_percent(data, "rest"),
 			_get_debug_percent(data, "fitness_score")
 		],
+		"  sim %s | dist %.0f | lod changes %d | culled %s" % [
+			_get_debug_text(data, "simulation_level"),
+			_get_debug_float(data, "simulation_distance_to_player"),
+			int(data.get("simulation_lod_change_count", 0)),
+			_get_debug_text(data, "is_visibility_culled")
+		],
 		"  diet plant %.2f | meat %.2f | scav %.2f" % [
 			_get_debug_float(data, "plant_diet"),
 			_get_debug_float(data, "meat_diet"),
@@ -1203,6 +1260,34 @@ func _get_debug_hunger_percent(data: Dictionary) -> float:
 	if data.has("hunger_ratio"):
 		return _get_debug_percent(data, "hunger_ratio")
 	return _get_debug_percent(data, "hunger")
+
+
+func _get_simulation_level_counts_text(group_name: String) -> String:
+	var counts := _get_simulation_level_counts(group_name)
+	return "near %d | medium %d | far %d | unknown %d" % [
+		int(counts.get("near", 0)),
+		int(counts.get("medium", 0)),
+		int(counts.get("far", 0)),
+		int(counts.get("unknown", 0))
+	]
+
+
+func _get_simulation_level_counts(group_name: String) -> Dictionary:
+	var counts := {
+		"near": 0,
+		"medium": 0,
+		"far": 0,
+		"unknown": 0
+	}
+	for creature in _get_cached_group_nodes(group_name):
+		if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
+			continue
+		var data: Dictionary = creature.get_debug_data()
+		var level := str(data.get("simulation_level", "unknown"))
+		if not counts.has(level):
+			level = "unknown"
+		counts[level] = int(counts.get(level, 0)) + 1
+	return counts
 
 
 func _get_debug_satiety_ratio(data: Dictionary) -> float:
@@ -1487,6 +1572,19 @@ func _on_regenerate_landmarks_pressed() -> void:
 	_set_state_text(_build_state_text(), true)
 
 
+func _on_validate_island_world_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("run_island_world_validation"):
+		_post_debug_message("Island world validation is not available yet")
+		return
+	var report: Dictionary = world.run_island_world_validation()
+	_post_debug_message(_get_island_world_validation_summary_text(report))
+	if not bool(report.get("passed", false)) and world.has_method("get_island_world_validation_text"):
+		print(world.get_island_world_validation_text())
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
 func _on_toggle_landmark_overlay_pressed() -> void:
 	var world := _get_world_node()
 	if not world or not world.has_method("debug_toggle_landmark_overlay"):
@@ -1516,6 +1614,17 @@ func _on_toggle_biome_textures_pressed() -> void:
 		return
 	var enabled: bool = world.debug_toggle_biome_textures()
 	_post_debug_message("Biome textures %s" % ("enabled" if enabled else "disabled"))
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
+func _on_test_object_pool_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_test_resource_drop_pool"):
+		_post_debug_message("Object pool test is not available yet")
+		return
+	var result: Dictionary = world.debug_test_resource_drop_pool()
+	_post_debug_message("Object pool test: %s" % str(result.get("summary", "done")))
 	_refresh_world_debug_buttons()
 	_set_state_text(_build_state_text(), true)
 
@@ -1609,6 +1718,68 @@ func _post_debug_message(message: String) -> void:
 	var event_bus := get_node_or_null("/root/EventBus")
 	if event_bus and event_bus.has_method("post_message"):
 		event_bus.post_message(message)
+	else:
+		print(message)
+
+
+func _get_pool_debug_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_pool_debug_text"):
+		return "unavailable"
+	return str(world.get_pool_debug_text())
+
+
+func _get_chunk_debug_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_chunk_debug_data"):
+		return "unavailable"
+	var chunk_data: Dictionary = world.get_chunk_debug_data()
+	if chunk_data.is_empty():
+		return "unavailable"
+	return "current %s | active %d / %d | changes %d | activations %d | deactivations %d" % [
+		str(chunk_data.get("current_player_chunk", "n/a")),
+		int(chunk_data.get("active_chunk_count", 0)),
+		int(chunk_data.get("total_chunk_count", 0)),
+		int(chunk_data.get("chunk_change_count", 0)),
+		int(chunk_data.get("chunk_activation_count", 0)),
+		int(chunk_data.get("chunk_deactivation_count", 0))
+	]
+
+
+func _get_spatial_index_debug_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_spatial_index_debug_data"):
+		return "unavailable"
+	var spatial_data: Dictionary = world.get_spatial_index_debug_data()
+	if spatial_data.is_empty():
+		return "unavailable"
+	return "resources %d | creatures %d | meat %d | tracked %d" % [
+		int(spatial_data.get("resource_cells", 0)),
+		int(spatial_data.get("creature_cells", 0)),
+		int(spatial_data.get("meat_cells", 0)),
+		int(spatial_data.get("tracked_entities", 0))
+	]
+
+
+func _get_island_world_validation_summary_text(report: Dictionary = {}) -> String:
+	var validation_report: Dictionary = report
+	if validation_report.is_empty():
+		var world := _get_world_node()
+		if world and world.has_method("get_island_world_validation_report"):
+			validation_report = world.get_island_world_validation_report()
+	if validation_report.is_empty():
+		var fallback_world := _get_world_node()
+		if fallback_world == null or not fallback_world.has_method("get_island_world_validation_summary"):
+			return "unavailable"
+		return str(fallback_world.get_island_world_validation_summary())
+	var passed := bool(validation_report.get("passed", false))
+	var errors := Array(validation_report.get("errors", []))
+	var warnings := Array(validation_report.get("warnings", []))
+	return "%s | errors %d | warnings %d" % [
+		"PASS" if passed else "FAIL",
+		errors.size(),
+		warnings.size()
+	]
 
 
 func _on_damage_player_pressed() -> void:

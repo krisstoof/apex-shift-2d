@@ -2,6 +2,15 @@ extends Area2D
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var event_bus := tree.root.get_node_or_null("EventBus")
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
+
 var direction := Vector2.RIGHT
 var speed := float(GAME_BALANCE.RANGED_COMBAT.get("arrow_speed", 780.0))
 var damage := float(GAME_BALANCE.RANGED_COMBAT.get("bow_damage", 28.0))
@@ -43,7 +52,7 @@ func _on_body_entered(body: Node) -> void:
 		return
 	if _is_damage_target(body):
 		body.take_damage(damage, source_name)
-		get_node("/root/EventBus").emit_game_event("arrow_hit_target", {
+		_emit_game_event("arrow_hit_target", {
 			"target": _get_target_label(body),
 			"damage": damage,
 			"position": global_position

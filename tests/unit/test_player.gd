@@ -1,6 +1,7 @@
 extends RefCounted
 
 const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
+const RESOURCE_NODE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const PLAYER_STATS := preload("res://scripts/player/player_stats.gd")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
@@ -28,6 +29,7 @@ class TestWorld:
 	extends Node2D
 	var cached_group_call_count := 0
 	var campfires: Array = []
+	var resources: Array = []
 	var query_service
 
 	func get_cached_group_nodes(group_name: String) -> Array:
@@ -45,6 +47,18 @@ class TestWorld:
 	func get_query_service():
 		return query_service
 
+	func get_resources_near(_position: Vector2, _radius: float, _kind_filter: Variant = null) -> Array:
+		return resources.duplicate()
+
+
+class TestEventBus:
+	extends Node
+
+	var last_message := ""
+
+	func post_message(message: String) -> void:
+		last_message = message
+
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
@@ -58,15 +72,20 @@ func run() -> Array[String]:
 	_test_player_god_mode_syncs_to_stats_and_blocks_damage(failures)
 	_test_player_torch_activation_and_deactivation(failures)
 	_test_player_creates_torch_light_and_enables_it_when_active(failures)
+	_test_player_camera_zoom_defaults_and_scroll_input(failures)
 	_test_player_starvation_damage_is_slow_enough(failures)
 	_test_player_campfire_regen_speeds_up_health_recovery(failures)
 	_test_player_debug_item_helpers(failures)
+	_test_player_debug_add_item_reports_full_inventory(failures)
 	_test_player_visual_layout_looks_human_like(failures)
 	_test_player_campfire_regen_uses_low_frequency_cached_refresh(failures)
 	_test_player_prefers_world_query_service_for_terrain_reads(failures)
 	_test_player_melee_attack_spends_stamina(failures)
 	_test_player_bow_shooting_spends_stamina_and_sets_cooldown(failures)
+	_test_player_craft_bow_requires_bone_and_consumes_it(failures)
+	_test_player_craft_torch_rolls_back_costs_when_inventory_is_full(failures)
 	_test_player_eat_meat_consumes_inventory_and_restores_hunger(failures)
+	_test_player_interact_prefers_nearest_real_resource(failures)
 	return failures
 
 
@@ -167,16 +186,36 @@ func _test_player_defaults_are_valid(failures: Array[String]) -> void:
 
 
 func _test_player_receive_damage_reduces_health(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var previous_event_bus := tree.root.get_node_or_null("EventBus")
+	if previous_event_bus != null:
+		previous_event_bus.name = "LiveEventBus"
 	var player := _make_player()
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	tree.root.add_child(event_bus)
 	var before_health: float = player.stats.health
 	TEST_UTILS.expect(player.receive_damage(17.0), failures, "Receiving damage should report success when god mode is off")
 	TEST_UTILS.expect(player.stats.health < before_health, failures, "Receiving damage should reduce player health")
 	TEST_UTILS.expect_close(player.stats.health, before_health - 17.0, failures, "Damage should reduce health by the requested amount")
+	TEST_UTILS.expect_equal(event_bus.last_message, "Took 17 damage", failures, "Player damage message should be clearer than the old hit text")
+	player.receive_damage(5.0, "varnak")
+	TEST_UTILS.expect_equal(event_bus.last_message, "Took 5 damage from Varnak", failures, "Varnak damage should identify the attacker")
+	event_bus.queue_free()
 	player.queue_free()
+	if previous_event_bus != null:
+		previous_event_bus.name = "EventBus"
 
 
 func _test_player_god_mode_syncs_to_stats_and_blocks_damage(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var previous_event_bus := tree.root.get_node_or_null("EventBus")
+	if previous_event_bus != null:
+		previous_event_bus.name = "LiveEventBus"
 	var player := _make_player()
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	tree.root.add_child(event_bus)
 	player.stats.health = 64.0
 	player.stats.hunger = 70.0
 	player.stats.stamina = 55.0
@@ -195,7 +234,11 @@ func _test_player_god_mode_syncs_to_stats_and_blocks_damage(failures: Array[Stri
 	TEST_UTILS.expect_close(player.stats.rest, before_rest, failures, "God mode should keep player rest unchanged after damage")
 	player.debug_damage_player()
 	TEST_UTILS.expect_close(player.stats.health, before_health, failures, "Debug damage should not reduce health in god mode")
+	TEST_UTILS.expect_equal(event_bus.last_message, "God mode blocked damage", failures, "God mode should keep its existing damage block message")
+	event_bus.queue_free()
 	player.queue_free()
+	if previous_event_bus != null:
+		previous_event_bus.name = "EventBus"
 
 
 func _test_player_torch_activation_and_deactivation(failures: Array[String]) -> void:
@@ -226,6 +269,22 @@ func _test_player_creates_torch_light_and_enables_it_when_active(failures: Array
 	player.queue_free()
 
 
+func _test_player_camera_zoom_defaults_and_scroll_input(failures: Array[String]) -> void:
+	var player := _make_player()
+	var camera := player.get_node_or_null("Camera2D") as Camera2D
+	TEST_UTILS.expect(camera != null, failures, "Player should have a Camera2D")
+	if camera != null:
+		TEST_UTILS.expect_close(camera.zoom.x, 1.50, failures, "Camera should start at the default zoom")
+		TEST_UTILS.expect_close(camera.zoom.y, 1.50, failures, "Camera zoom should be uniform on both axes")
+		player.call("_unhandled_input", _make_mouse_wheel_event(MOUSE_BUTTON_WHEEL_UP))
+		TEST_UTILS.expect(camera.zoom.x > 1.50, failures, "Mouse wheel up should zoom in")
+		player.call("_unhandled_input", _make_mouse_wheel_event(MOUSE_BUTTON_WHEEL_DOWN))
+		TEST_UTILS.expect_close(camera.zoom.x, 1.50, failures, "Mouse wheel down should return toward default zoom")
+		player.call("set_default_camera_zoom")
+		TEST_UTILS.expect_close(camera.zoom.x, 1.50, failures, "Resetting the camera should restore default zoom")
+	player.queue_free()
+
+
 func _test_player_starvation_damage_is_slow_enough(failures: Array[String]) -> void:
 	TEST_UTILS.expect_close(GAME_BALANCE.PLAYER_STARVATION_DAMAGE_PER_SECOND, 1.0, failures, "Starvation damage should be slowed down to give the player reaction time")
 
@@ -251,6 +310,26 @@ func _test_player_debug_item_helpers(failures: Array[String]) -> void:
 	player.debug_add_item("bow")
 	TEST_UTILS.expect(player.has_bow, failures, "Debug item helper should equip a bow")
 	player.queue_free()
+
+
+func _test_player_debug_add_item_reports_full_inventory(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var previous_event_bus := tree.root.get_node_or_null("EventBus")
+	if previous_event_bus != null:
+		previous_event_bus.name = "LiveEventBus"
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	tree.root.add_child(event_bus)
+	var player := _make_player()
+	for i in range(9):
+		player.inventory.add_item("wood", 20)
+	player.debug_add_item("wood", 1)
+	TEST_UTILS.expect_equal(event_bus.last_message, "Inventory full", failures, "Debug add item should report full inventory when nothing fits")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("wood"), 180, failures, "Debug add item should not change a full inventory")
+	player.queue_free()
+	event_bus.queue_free()
+	if previous_event_bus != null:
+		previous_event_bus.name = "EventBus"
 
 
 func _test_player_visual_layout_looks_human_like(failures: Array[String]) -> void:
@@ -359,6 +438,34 @@ func _test_player_bow_shooting_spends_stamina_and_sets_cooldown(failures: Array[
 	player.queue_free()
 
 
+func _test_player_craft_bow_requires_bone_and_consumes_it(failures: Array[String]) -> void:
+	var player := _make_player()
+	player.inventory.add_item("wood", 3)
+	player.inventory.add_item("fiber", 4)
+	player.call("_craft", "bow")
+	TEST_UTILS.expect(not player.has_bow, failures, "Bow crafting should fail without bone")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("bone"), 0, failures, "Failed bow crafting should not create bone")
+	player.inventory.add_item("bone", 1)
+	player.call("_craft", "bow")
+	TEST_UTILS.expect(player.has_bow, failures, "Bow crafting should succeed when bone is present")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("bone"), 0, failures, "Bow crafting should consume bone")
+	player.queue_free()
+
+
+func _test_player_craft_torch_rolls_back_costs_when_inventory_is_full(failures: Array[String]) -> void:
+	var player := _make_player()
+	for i in range(8):
+		player.inventory.add_item("wood", 20)
+	player.inventory.add_item("fiber", 20)
+	var before_wood: int = player.inventory.get_amount("wood")
+	var before_fiber: int = player.inventory.get_amount("fiber")
+	player.call("_craft", "torch")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("torch"), 0, failures, "Torch crafting should fail when the inventory has no room")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("wood"), before_wood, failures, "Torch crafting should roll back spent wood on failure")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("fiber"), before_fiber, failures, "Torch crafting should roll back spent fiber on failure")
+	player.queue_free()
+
+
 func _test_player_eat_meat_consumes_inventory_and_restores_hunger(failures: Array[String]) -> void:
 	var player := _make_player()
 	player.stats.hunger = 10.0
@@ -369,11 +476,43 @@ func _test_player_eat_meat_consumes_inventory_and_restores_hunger(failures: Arra
 	player.queue_free()
 
 
+func _test_player_interact_prefers_nearest_real_resource(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var world := TestWorld.new()
+	world.name = "World"
+	tree.current_scene.add_child(world)
+	var player := _make_player()
+	player.global_position = Vector2.ZERO
+	var blocked := _make_resource_node(Vector2(24.0, 0.0), "grass_patch")
+	blocked.set("player_harvestable", false)
+	var meat := _make_resource_node(Vector2(40.0, 0.0), "meat_drop")
+	var tree_resource := _make_resource_node(Vector2(64.0, 0.0), "tree")
+	world.add_child(blocked)
+	world.add_child(meat)
+	world.add_child(tree_resource)
+	player.call("_on_interactable_entered", blocked)
+	player.call("_on_interactable_entered", meat)
+	player.call("_on_interactable_entered", tree_resource)
+	var prompt := str(player.get_interaction_prompt())
+	TEST_UTILS.expect(prompt.contains("meat") or prompt.contains("wood"), failures, "Player should show the prompt for the nearest real interactable resource")
+	player.call("_interact")
+	TEST_UTILS.expect_equal(player.inventory.get_amount("meat"), 1, failures, "Player should interact with the nearest real resource instead of a blocked one")
+	player.queue_free()
+	world.queue_free()
+
+
 func _make_player() -> Node:
 	var player := PLAYER_SCENE.instantiate()
 	var tree := Engine.get_main_loop() as SceneTree
 	tree.current_scene.add_child(player)
 	return player
+
+
+func _make_mouse_wheel_event(button_index: MouseButton) -> InputEventMouseButton:
+	var event := InputEventMouseButton.new()
+	event.button_index = button_index
+	event.pressed = true
+	return event
 
 
 func _get_polygon_center(points: PackedVector2Array) -> Vector2:
@@ -390,3 +529,10 @@ func _get_polygon_max_y(points: PackedVector2Array) -> float:
 	for point in points:
 		max_y = max(max_y, point.y)
 	return max_y
+
+
+func _make_resource_node(position: Vector2, kind: String) -> Node:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	resource.global_position = position
+	resource.call("setup", kind)
+	return resource

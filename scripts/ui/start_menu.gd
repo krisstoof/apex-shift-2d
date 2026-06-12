@@ -4,9 +4,12 @@ const GAME_SCENE_PATH := "res://scenes/main.tscn"
 const SETTINGS_SCENE_PATH := "res://scenes/ui/settings_menu.tscn"
 const APP_VERSION := preload("res://scripts/systems/app_version.gd")
 
-const PANEL_SIZE := Vector2(520.0, 360.0)
-const BUTTON_HEIGHT := 42.0
-const SIDE_MARGIN := 28.0
+const PANEL_SIZE := Vector2i(620, 520)
+const BUTTON_HEIGHT: int = 42
+const SIDE_MARGIN: int = 28
+const GAME_GOAL_TEXT := "Survive, gather resources, craft tools, store supplies,\nand observe how the ecosystem reacts."
+const CONTROLS_TEXT := "Controls:\nWASD - Move\nE - Interact\nI - Inventory\nM - Map\nEsc - Pause\nF3 - Debug"
+const STORAGE_HINT_TEXT := "Storage boxes can hold supplies."
 
 var main_panel: PanelContainer
 var new_game_button: Button
@@ -52,7 +55,7 @@ func _build_ui() -> void:
 	main_panel.add_child(main_margin)
 
 	var main_stack := VBoxContainer.new()
-	main_stack.add_theme_constant_override("separation", 12)
+	main_stack.add_theme_constant_override("separation", 9)
 	main_margin.add_child(main_stack)
 
 	var title := Label.new()
@@ -67,8 +70,16 @@ func _build_ui() -> void:
 	subtitle.add_theme_font_size_override("font_size", 15)
 	main_stack.add_child(subtitle)
 
+	var info_spacer := Control.new()
+	info_spacer.custom_minimum_size = Vector2(0, 6)
+	main_stack.add_child(info_spacer)
+
+	_add_info_label(main_stack, GAME_GOAL_TEXT, 14)
+	_add_info_label(main_stack, CONTROLS_TEXT, 13)
+	_add_info_label(main_stack, STORAGE_HINT_TEXT, 13)
+
 	var spacer := Control.new()
-	spacer.custom_minimum_size = Vector2(0.0, 8.0)
+	spacer.custom_minimum_size = Vector2(0, 8)
 	main_stack.add_child(spacer)
 
 	new_game_button = _add_main_button(main_stack, "New Game", _on_new_game_pressed)
@@ -81,25 +92,40 @@ func _build_ui() -> void:
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_label.add_theme_font_size_override("font_size", 14)
-	status_label.custom_minimum_size = Vector2(0.0, 56.0)
+	status_label.custom_minimum_size = Vector2(0, 48)
 	main_stack.add_child(status_label)
 
 
 func _add_main_button(stack: VBoxContainer, label: String, callback: Callable) -> Button:
 	var button := Button.new()
 	button.text = label
-	button.custom_minimum_size = Vector2(0.0, BUTTON_HEIGHT)
+	button.custom_minimum_size = Vector2(0, BUTTON_HEIGHT)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.pressed.connect(callback)
 	stack.add_child(button)
 	return button
 
 
+func _add_info_label(stack: VBoxContainer, text: String, font_size: int = 14) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.add_theme_font_size_override("font_size", font_size)
+	stack.add_child(label)
+	return label
+
+
 func _apply_panel_margins(container: MarginContainer) -> void:
-	container.add_theme_constant_override("margin_left", SIDE_MARGIN)
-	container.add_theme_constant_override("margin_right", SIDE_MARGIN)
-	container.add_theme_constant_override("margin_top", SIDE_MARGIN)
-	container.add_theme_constant_override("margin_bottom", SIDE_MARGIN)
+	_apply_theme_margin(container, "margin_left", 28)
+	_apply_theme_margin(container, "margin_right", 28)
+	_apply_theme_margin(container, "margin_top", 28)
+	_apply_theme_margin(container, "margin_bottom", 28)
+
+
+func _apply_theme_margin(container: MarginContainer, margin_name: String, margin_value: int) -> void:
+	container.add_theme_constant_override(margin_name, margin_value)
 
 
 func _show_main_menu() -> void:

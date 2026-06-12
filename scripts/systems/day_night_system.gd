@@ -2,7 +2,7 @@ extends Node
 
 signal day_changed(day: int)
 
-@export var day_length_seconds := 120.0
+@export var day_length_seconds := 180.0
 
 const START_HOUR := 8.0
 const MORNING_HOUR := 6.0
@@ -14,6 +14,25 @@ const DEBUG_PHASE_HOURS := [MORNING_HOUR, NIGHT_HOUR, DUSK_END_HOUR, DAWN_START_
 var day := 1
 var time_of_day := 0.0
 var night_amount := 0.0
+
+
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
 
 
 func _ready() -> void:
@@ -31,12 +50,12 @@ func _process(delta: float) -> void:
 
 func sleep_until_morning() -> bool:
 	if not is_night():
-		get_node("/root/EventBus").post_message("You can sleep when night falls")
+		_post_event_message("You can sleep when night falls")
 		return false
 	time_of_day = _hour_to_time(MORNING_HOUR)
 	night_amount = _calculate_night_amount()
 	_start_new_day("slept_in_tent")
-	get_node("/root/EventBus").post_message("Slept until morning")
+	_post_event_message("Slept until morning")
 	return true
 
 
@@ -46,7 +65,7 @@ func debug_next_phase() -> void:
 		if current_hour < float(phase_hour):
 			time_of_day = _hour_to_time(float(phase_hour))
 			night_amount = _calculate_night_amount()
-			get_node("/root/EventBus").post_message("Debug phase: %s" % get_phase_label())
+			_post_event_message("Debug phase: %s" % get_phase_label())
 			return
 	time_of_day = _hour_to_time(float(DEBUG_PHASE_HOURS[0]))
 	night_amount = _calculate_night_amount()
@@ -65,7 +84,7 @@ func get_day() -> int:
 
 func get_clock_time() -> String:
 	var total_minutes := int(get_hour_float() * 60.0)
-	var hour := total_minutes / 60
+	var hour := float(total_minutes) / 60.0
 	var minute := total_minutes % 60
 	return "%02d:%02d" % [hour, minute]
 
@@ -114,9 +133,9 @@ func _calculate_night_amount() -> float:
 
 func _start_new_day(reason: String) -> void:
 	day += 1
-	get_node("/root/EventBus").emit_game_event("day_ended", {"day": day, "reason": reason})
-	get_node("/root/EventBus").emit_game_event("center_notification", {"text": "Day %s started" % day})
-	get_node("/root/EventBus").post_message("Day %s started" % day)
+	_emit_game_event("day_ended", {"day": day, "reason": reason})
+	_emit_game_event("center_notification", {"text": "Day %s started" % day})
+	_post_event_message("Day %s started" % day)
 	day_changed.emit(day)
 
 

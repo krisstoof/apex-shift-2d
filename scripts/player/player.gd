@@ -2,6 +2,7 @@ extends CharacterBody2D
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const INVENTORY := preload("res://scripts/player/inventory.gd")
 
 signal died(reason: String)
 
@@ -13,7 +14,7 @@ const ATTACK_ARC := deg_to_rad(82.0)
 const ATTACK_VISUAL_DURATION := 0.16
 
 var stats := PlayerStats.new()
-var inventory := Inventory.new()
+var inventory := INVENTORY.new()
 var has_spear := false
 var has_bow := false
 var torch_active := false
@@ -29,11 +30,13 @@ var swim_ripple_time := 0.0
 var is_dead := false
 var death_reason := "unknown"
 var god_mode := false
+var checked_start_safe_spawn := false
 var campfire_regen_refresh_timer := 0.0
 var debug_world_query_override: Variant = null
 var torch_light: PointLight2D
 var torch_light_flicker_time := 0.0
 static var cached_light_texture: Texture2D
+@onready var player_camera: Camera2D = $Camera2D
 
 const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
@@ -41,6 +44,10 @@ const WALL_SCENE := preload("res://scenes/buildings/wall.tscn")
 const STORAGE_BOX_SCENE := preload("res://scenes/buildings/storage_box.tscn")
 const TENT_SCENE := preload("res://scenes/buildings/tent.tscn")
 const ARROW_PROJECTILE_SCENE := preload("res://scenes/projectiles/arrow_projectile.tscn")
+const MIN_CAMERA_ZOOM := 1.30
+const MAX_CAMERA_ZOOM := 1.80
+const DEFAULT_CAMERA_ZOOM := Vector2(1.50, 1.50)
+const CAMERA_ZOOM_STEP := 0.10
 
 const PLAYER_SKIN_COLOR := Color(0.82, 0.68, 0.54)
 const PLAYER_HAIR_COLOR := Color(0.24, 0.16, 0.10)
@@ -66,14 +73,14 @@ func _ready() -> void:
 	interaction_area.area_entered.connect(_on_interactable_entered)
 	interaction_area.area_exited.connect(_on_interactable_exited)
 	rotation = 0.0
-	var camera := get_node_or_null("Camera2D")
+	_apply_default_camera_zoom()
 	var main := get_tree().current_scene
 	var world := main.get_node_or_null("World") if main else null
 	var hud := main.get_node_or_null("HUD") if main else null
 	print("[VIEW_SCALE_DEBUG] window_size=%s viewport_size=%s camera_zoom=%s player_scale=%s main_scale=%s world_scale=%s hud_scale=%s" % [
 		DisplayServer.window_get_size(),
 		get_viewport().get_visible_rect().size,
-		camera.zoom if camera else Vector2.ZERO,
+		player_camera.zoom if player_camera else Vector2.ZERO,
 		scale,
 		main.scale if main and main is Node2D else Vector2.ONE,
 		world.scale if world and world is Node2D else Vector2.ONE,
@@ -105,19 +112,30 @@ func _physics_process(delta: float) -> void:
 	if is_dead:
 		velocity = Vector2.ZERO
 		return
+	if not checked_start_safe_spawn:
+		checked_start_safe_spawn = true
+		var world := _get_world_node()
+		if world and world.has_method("get_safe_player_start_position") and world_query_is_deep_water(global_position):
+			global_position = world.call("get_safe_player_start_position")
 	_face_mouse()
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var terrain_speed := _get_terrain_speed_multiplier()
+	var previous_position := global_position
 	var was_swimming := is_swimming
 	is_swimming = _is_in_water()
 	if is_swimming != was_swimming:
 		queue_redraw()
 	var wants_run := Input.is_key_pressed(KEY_SHIFT) and stats.can_run() and input_vector.length() > 0.0 and not is_swimming
 	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier() * terrain_speed
+	var world_query: Variant = _get_world_query()
 	velocity = input_vector * speed
 	move_and_slide()
-	global_position.x = clamp(global_position.x, -world_limits.x, world_limits.x)
-	global_position.y = clamp(global_position.y, -world_limits.y, world_limits.y)
+	var in_deep_water := false
+	if world_query != null and world_query.has_method("is_position_in_deep_water"):
+		in_deep_water = world_query.is_position_in_deep_water(global_position) == true
+	if not WORLD_CONFIG.WORLD_RECT.grow(-32.0).has_point(global_position) or in_deep_water:
+		global_position = previous_position
+		velocity = Vector2.ZERO
 	_refresh_campfire_regen_state(delta)
 	var previous_health := stats.health
 	stats.tick(delta, wants_run)
@@ -130,15 +148,21 @@ func _physics_process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if is_dead:
 		return
-	if event is InputEventKey and event.pressed and event.keycode == KEY_E:
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_change_camera_zoom(CAMERA_ZOOM_STEP)
+			return
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_change_camera_zoom(-CAMERA_ZOOM_STEP)
+			return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E:
 		_interact()
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed:
 		match event.keycode:
 			KEY_SPACE:
 				_melee_attack()
-			KEY_G:
-				if evolution_director:
-					evolution_director.force_generation_change()
 			KEY_1:
 				_craft("campfire")
 			KEY_2:
@@ -171,13 +195,24 @@ func receive_damage(amount: float, source: String = "unknown") -> bool:
 		return false
 	if god_mode:
 		if source == "debug damage":
-			get_node("/root/EventBus").post_message("God mode blocked damage")
+			_post_event_message("God mode blocked damage")
 		return false
 	stats.damage(amount)
-	get_node("/root/EventBus").post_message("Player hit for %s" % int(amount))
+	var damage_message := "Took %d damage" % int(round(amount))
+	if source == "varnak":
+		damage_message = "Took %d damage from Varnak" % int(round(amount))
+	_post_event_message(damage_message)
 	if stats.health <= 0.0:
 		_die(source)
 	return true
+
+
+func get_health() -> float:
+	return stats.health
+
+
+func get_max_health() -> float:
+	return PlayerStats.MAX_HEALTH
 
 
 func activate_torch() -> bool:
@@ -186,15 +221,15 @@ func activate_torch() -> bool:
 	if torch_active and torch_remaining_seconds <= 0.0:
 		deactivate_torch("expired")
 	if is_torch_active():
-		get_node("/root/EventBus").post_message("Torch already active")
+		_post_event_message("Torch already active")
 		return false
 	if not inventory.remove_item("torch", 1):
-		get_node("/root/EventBus").post_message("No torch to activate")
+		_post_event_message("No torch to activate")
 		return false
 	torch_active = true
 	torch_remaining_seconds = GAME_BALANCE.TORCH_DURATION_SECONDS
-	get_node("/root/EventBus").emit_game_event("torch_activated", {"active": torch_active, "remaining_seconds": torch_remaining_seconds})
-	get_node("/root/EventBus").post_message("Torch activated")
+	_emit_game_event("torch_activated", {"active": torch_active, "remaining_seconds": torch_remaining_seconds})
+	_post_event_message("Torch activated")
 	queue_redraw()
 	return true
 
@@ -216,8 +251,15 @@ func _get_terrain_speed_multiplier() -> float:
 
 func _is_in_water() -> bool:
 	var world_query: Variant = _get_world_query()
-	if world_query != null:
+	if world_query != null and world_query.has_method("is_position_in_water"):
 		return world_query.is_position_in_water(global_position) == true
+	return false
+
+
+func world_query_is_deep_water(world_position: Vector2) -> bool:
+	var world_query: Variant = _get_world_query()
+	if world_query != null and world_query.has_method("is_position_in_deep_water"):
+		return world_query.is_position_in_deep_water(world_position) == true
 	return false
 
 
@@ -264,7 +306,7 @@ func _get_world_query():
 	var world := _get_world_node()
 	if world == null:
 		return null
-	var query_service: Variant = world.query_service
+	var query_service: Variant = world.get("query_service")
 	if query_service != null:
 		return query_service
 	if world.has_method("get_query_service"):
@@ -298,6 +340,29 @@ func _get_world_node() -> Node:
 	return null
 
 
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _format_item_label(item_id: String) -> String:
+	return str(item_id).replace("_", " ")
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
+
+
 func debug_add_item(item_name: String, amount := 1) -> void:
 	if is_dead:
 		return
@@ -307,46 +372,56 @@ func debug_add_item(item_name: String, amount := 1) -> void:
 		debug_add_bow()
 		return
 	else:
-		inventory.add_item(item_name, amount)
-	get_node("/root/EventBus").emit_game_event("debug_item_added", {"item": item_name, "amount": amount})
-	get_node("/root/EventBus").post_message("Debug added %s" % item_name)
+		var remaining := inventory.add_item(item_name, amount)
+		var added := amount - remaining
+		if added > 0:
+			_post_event_message("Debug added %s x%d" % [item_name, added])
+		if remaining > 0:
+			_post_event_message("Inventory full")
+	_emit_game_event("debug_item_added", {"item": item_name, "amount": amount})
+	if item_name == "spear":
+		_post_event_message("Debug added %s" % item_name)
 
 
 func debug_add_bow() -> void:
 	if is_dead:
 		return
 	has_bow = true
-	get_node("/root/EventBus").emit_game_event("debug_item_added", {"item": "bow", "amount": 1})
-	get_node("/root/EventBus").post_message("Debug gave bow")
+	_emit_game_event("debug_item_added", {"item": "bow", "amount": 1})
+	_post_event_message("Debug gave bow")
 
 
 func debug_damage_player() -> void:
 	if receive_damage(GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT, "debug damage"):
-		get_node("/root/EventBus").emit_game_event("debug_player_damaged", {"amount": GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT})
+		_emit_game_event("debug_player_damaged", {"amount": GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT})
 
 
 func debug_heal_player() -> void:
 	if is_dead:
 		return
 	stats.heal(GAME_BALANCE.DEBUG_PLAYER_HEAL_AMOUNT)
-	get_node("/root/EventBus").emit_game_event("debug_player_healed", {"amount": GAME_BALANCE.DEBUG_PLAYER_HEAL_AMOUNT})
-	get_node("/root/EventBus").post_message("Debug healed player")
+	_emit_game_event("debug_player_healed", {"amount": GAME_BALANCE.DEBUG_PLAYER_HEAL_AMOUNT})
+	_post_event_message("Debug healed player")
 
 
 func debug_reduce_hunger_energy() -> void:
 	if is_dead:
 		return
 	stats.reduce_hunger_energy(GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT)
-	get_node("/root/EventBus").emit_game_event("debug_player_hunger_energy_reduced", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
-	get_node("/root/EventBus").post_message("Debug reduced hunger/energy")
+	_emit_game_event("debug_player_hunger_energy_reduced", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
+	_post_event_message("Debug reduced hunger/energy")
 
 
 func debug_restore_hunger_energy() -> void:
 	if is_dead:
 		return
 	stats.restore_hunger_energy(GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT)
-	get_node("/root/EventBus").emit_game_event("debug_player_hunger_energy_restored", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
-	get_node("/root/EventBus").post_message("Debug restored hunger/energy")
+	_emit_game_event("debug_player_hunger_energy_restored", {"amount": GAME_BALANCE.DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT})
+	_post_event_message("Debug restored hunger/energy")
+
+
+func set_default_camera_zoom() -> void:
+	_apply_default_camera_zoom()
 
 
 func deactivate_torch(reason := "manual") -> void:
@@ -357,9 +432,9 @@ func deactivate_torch(reason := "manual") -> void:
 	torch_active = false
 	torch_remaining_seconds = 0.0
 	if reason == "expired":
-		get_node("/root/EventBus").emit_game_event("torch_expired", {"active": false, "remaining_seconds": 0.0})
-	get_node("/root/EventBus").emit_game_event("torch_deactivated", {"active": false, "remaining_seconds": 0.0, "reason": reason})
-	get_node("/root/EventBus").post_message("Torch burned out" if reason == "expired" else "Torch deactivated")
+		_emit_game_event("torch_expired", {"active": false, "remaining_seconds": 0.0})
+	_emit_game_event("torch_deactivated", {"active": false, "remaining_seconds": 0.0, "reason": reason})
+	_post_event_message("Torch burned out" if reason == "expired" else "Torch deactivated")
 	queue_redraw()
 
 
@@ -375,7 +450,7 @@ func set_god_mode(enabled: bool) -> void:
 	god_mode = enabled
 	if stats and stats.has_method("set_god_mode"):
 		stats.set_god_mode(enabled)
-	get_node("/root/EventBus").post_message("God mode %s" % ("enabled" if god_mode else "disabled"))
+	_post_event_message("God mode %s" % ("enabled" if god_mode else "disabled"))
 
 
 func toggle_god_mode() -> bool:
@@ -396,21 +471,27 @@ func recover_from_sleep() -> void:
 func _interact() -> void:
 	if is_dead:
 		return
-	for node in nearby_interactables.duplicate():
-		if is_instance_valid(node) and node.has_method("interact"):
-			node.interact(self)
-			return
-	get_node("/root/EventBus").post_message("Nothing to interact with")
+	_refresh_nearby_interactables_from_area()
+	var target := _get_best_interactable()
+	if target != null and is_instance_valid(target) and target.has_method("interact"):
+		target.interact(self)
+		return
+	_post_event_message("Nothing to interact with")
 
 
 func get_interaction_prompt() -> String:
 	if is_dead:
 		return ""
-	for node in nearby_interactables:
-		if is_instance_valid(node) and node.has_method("get_prompt"):
-			return node.get_prompt()
-		if is_instance_valid(node) and node.has_method("interact"):
-			return "E: interact"
+	_refresh_nearby_interactables_from_area()
+	var target := _get_best_interactable()
+	if target == null or not is_instance_valid(target):
+		return ""
+	if target.has_method("get_prompt"):
+		var prompt := str(target.get_prompt())
+		if not prompt.is_empty():
+			return prompt
+	if target.has_method("interact"):
+		return "E: interact"
 	return ""
 
 
@@ -418,7 +499,7 @@ func _melee_attack() -> void:
 	if is_dead:
 		return
 	if not stats.spend_stamina(12.0):
-		get_node("/root/EventBus").post_message("Too tired to attack")
+		_post_event_message("Too tired to attack")
 		return
 	attack_visual_time = ATTACK_VISUAL_DURATION
 	queue_redraw()
@@ -426,9 +507,9 @@ func _melee_attack() -> void:
 	var target := _get_attack_target()
 	if target:
 		target.take_damage(damage, "player")
-		get_node("/root/EventBus").post_message("Hit %s" % _get_attack_target_label(target))
+		_post_event_message("Hit %s" % _get_attack_target_label(target))
 		return
-	get_node("/root/EventBus").post_message("Attack missed")
+	_post_event_message("Attack missed")
 
 
 func _shoot_bow() -> void:
@@ -438,7 +519,7 @@ func _shoot_bow() -> void:
 		return
 	var stamina_cost := float(GAME_BALANCE.RANGED_COMBAT.get("bow_stamina_cost", 8.0))
 	if not stats.spend_stamina(stamina_cost):
-		get_node("/root/EventBus").post_message("Too tired to shoot")
+		_post_event_message("Too tired to shoot")
 		return
 	var direction := get_global_mouse_position() - global_position
 	if direction.length_squared() <= 0.0:
@@ -451,7 +532,7 @@ func _shoot_bow() -> void:
 	if arrow.has_method("setup"):
 		arrow.setup(direction, self, float(GAME_BALANCE.RANGED_COMBAT.get("bow_damage", 28.0)), "player")
 	bow_cooldown = float(GAME_BALANCE.RANGED_COMBAT.get("bow_cooldown_seconds", 0.75))
-	get_node("/root/EventBus").emit_game_event("arrow_fired", {
+	_emit_game_event("arrow_fired", {
 		"position": global_position,
 		"direction": direction
 	})
@@ -500,30 +581,34 @@ func _craft(item_name: String) -> void:
 		return
 	var recipe: Dictionary = recipes.get(item_name, {})
 	if recipe.is_empty():
-		get_node("/root/EventBus").post_message("Unknown recipe: %s" % item_name)
+		_post_event_message("Unknown recipe: %s" % item_name)
 		return
 	if item_name == "bow" and has_bow:
-		get_node("/root/EventBus").post_message("Bow already crafted")
+		_post_event_message("Bow already crafted")
 		return
-	var missing := _get_missing_ingredients(recipe)
-	if not missing.is_empty():
-		get_node("/root/EventBus").post_message("Not enough resources for %s: %s" % [item_name, ", ".join(missing)])
+	if not _can_afford_recipe(recipe):
+		_post_event_message("Missing resources")
 		return
-	for ingredient in recipe.keys():
-		inventory.remove_item(ingredient, int(recipe[ingredient]))
+	if not _pay_recipe_cost(recipe):
+		_post_event_message("Missing resources")
+		return
 	if item_name == "torch":
-		inventory.add_item("torch", 1)
-		get_node("/root/EventBus").emit_game_event("player_crafted_torch", {"count": inventory.get_amount("torch")})
-		get_node("/root/EventBus").post_message("Crafted torch")
+		var torch_leftover := inventory.add_item("torch", 1)
+		if torch_leftover > 0:
+			_refund_recipe_cost(recipe)
+			_post_event_message("Inventory full")
+			return
+		_emit_game_event("player_crafted_torch", {"count": inventory.get_amount("torch")})
+		_post_event_message("Crafted torch")
 		return
 	if item_name == "spear":
 		has_spear = true
-		get_node("/root/EventBus").post_message("Crafted spear")
+		_post_event_message("Crafted spear")
 		return
 	if item_name == "bow":
 		has_bow = true
-		get_node("/root/EventBus").emit_game_event("player_crafted_bow", {"has_bow": has_bow})
-		get_node("/root/EventBus").post_message("Crafted bow")
+		_emit_game_event("player_crafted_bow", {"has_bow": has_bow})
+		_post_event_message("Crafted bow")
 		return
 	var scene: PackedScene = {
 		"campfire": CAMPFIRE_SCENE,
@@ -538,8 +623,8 @@ func _craft(item_name: String) -> void:
 	var world := get_tree().current_scene.get_node_or_null("World")
 	if world and world.has_method("register_building_node"):
 		world.register_building_node(building, item_name)
-	get_node("/root/EventBus").emit_game_event("player_crafted_%s" % item_name, {"position": building.global_position})
-	get_node("/root/EventBus").post_message("Crafted %s" % item_name)
+	_emit_game_event("player_crafted_%s" % item_name, {"position": building.global_position})
+	_post_event_message("Crafted %s" % _format_item_label(item_name))
 
 
 func _eat(item_name: String) -> void:
@@ -547,11 +632,14 @@ func _eat(item_name: String) -> void:
 		return
 	if item_name != "meat":
 		return
+	if not inventory.has_item("meat", 1):
+		_post_event_message("No meat to eat")
+		return
 	if not inventory.remove_item(item_name, 1):
-		get_node("/root/EventBus").post_message("No meat to eat")
+		_post_event_message("No meat to eat")
 		return
 	stats.eat_food(GAME_BALANCE.PLAYER_MEAT_NUTRITION)
-	get_node("/root/EventBus").post_message("Ate meat")
+	_post_event_message("Ate meat")
 
 
 func _activate_torch() -> void:
@@ -626,14 +714,29 @@ static func _get_radial_light_texture() -> Texture2D:
 	return cached_light_texture
 
 
-func _get_missing_ingredients(recipe: Dictionary) -> Array[String]:
-	var missing: Array[String] = []
-	for ingredient in recipe.keys():
-		var required := int(recipe[ingredient])
-		var owned := inventory.get_amount(ingredient)
-		if owned < required:
-			missing.append("%s %d/%d" % [ingredient, owned, required])
-	return missing
+func _can_afford_recipe(costs: Dictionary) -> bool:
+	for item_id in costs.keys():
+		var amount := int(costs[item_id])
+		if not inventory.has_item(str(item_id), amount):
+			return false
+	return true
+
+
+func _pay_recipe_cost(costs: Dictionary) -> bool:
+	if not _can_afford_recipe(costs):
+		return false
+	for item_id in costs.keys():
+		var amount := int(costs[item_id])
+		if not inventory.remove_item(str(item_id), amount):
+			return false
+	return true
+
+
+func _refund_recipe_cost(costs: Dictionary) -> void:
+	for item_id in costs.keys():
+		var amount := int(costs[item_id])
+		if amount > 0:
+			inventory.add_item(str(item_id), amount)
 
 
 func _on_interactable_entered(node: Node) -> void:
@@ -643,6 +746,91 @@ func _on_interactable_entered(node: Node) -> void:
 
 func _on_interactable_exited(node: Node) -> void:
 	nearby_interactables.erase(node)
+
+
+func _refresh_nearby_interactables_from_area() -> void:
+	var filtered: Array[Node] = []
+	for node in nearby_interactables:
+		if is_instance_valid(node):
+			filtered.append(node)
+	nearby_interactables = filtered
+	for body in interaction_area.get_overlapping_bodies():
+		if body.has_method("interact") and not nearby_interactables.has(body):
+			nearby_interactables.append(body)
+	for area in interaction_area.get_overlapping_areas():
+		if area.has_method("interact") and not nearby_interactables.has(area):
+			nearby_interactables.append(area)
+
+
+func _get_best_interactable() -> Node:
+	var candidates := _get_interactable_candidates()
+	var best_node: Node = null
+	var best_distance := INF
+	for candidate in candidates:
+		if not is_instance_valid(candidate):
+			continue
+		if not candidate.has_method("interact"):
+			continue
+		if not _is_candidate_player_interactable(candidate):
+			continue
+		var candidate_2d := candidate as Node2D
+		if candidate_2d == null:
+			continue
+		var distance := global_position.distance_to(candidate_2d.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best_node = candidate
+	return best_node
+
+
+func _get_interactable_candidates() -> Array[Node]:
+	var candidates: Array[Node] = []
+	for node in nearby_interactables:
+		_add_unique_interactable_candidate(candidates, node)
+	for body in interaction_area.get_overlapping_bodies():
+		_add_unique_interactable_candidate(candidates, body)
+	for area in interaction_area.get_overlapping_areas():
+		_add_unique_interactable_candidate(candidates, area)
+	_add_nearby_resource_candidates(candidates)
+	return candidates
+
+
+func _add_unique_interactable_candidate(candidates: Array[Node], node: Node) -> void:
+	if node == null:
+		return
+	if not is_instance_valid(node):
+		return
+	if not node.has_method("interact"):
+		return
+	if candidates.has(node):
+		return
+	candidates.append(node)
+
+
+func _add_nearby_resource_candidates(candidates: Array[Node]) -> void:
+	var world := _get_world_node()
+	if world == null:
+		return
+	if world.has_method("get_resources_near"):
+		for resource in world.get_resources_near(global_position, 96.0):
+			_add_unique_interactable_candidate(candidates, resource)
+		return
+	for resource in get_tree().get_nodes_in_group("resources"):
+		var resource_2d := resource as Node2D
+		if resource_2d == null:
+			continue
+		if global_position.distance_to(resource_2d.global_position) <= 96.0:
+			_add_unique_interactable_candidate(candidates, resource)
+
+
+func _is_candidate_player_interactable(candidate: Node) -> bool:
+	if candidate.has_method("is_player_interactable"):
+		return candidate.is_player_interactable() == true
+	if candidate.has_method("get_prompt"):
+		var prompt := str(candidate.get_prompt())
+		if prompt.is_empty():
+			return false
+	return true
 
 
 func _load_recipes() -> Dictionary:
@@ -898,3 +1086,16 @@ func _draw_attack_visual() -> void:
 		points.append(Vector2.RIGHT.rotated(angle) * ATTACK_RANGE)
 	draw_colored_polygon(points, Color(1.0, 0.86, 0.30, alpha))
 	draw_arc(Vector2.ZERO, ATTACK_RANGE, start_angle, start_angle + ATTACK_ARC, steps, Color(1.0, 0.92, 0.48, alpha + 0.25), 4.0)
+
+
+func _apply_default_camera_zoom() -> void:
+	if player_camera == null:
+		return
+	player_camera.zoom = DEFAULT_CAMERA_ZOOM
+
+
+func _change_camera_zoom(delta: float) -> void:
+	if player_camera == null:
+		return
+	var next_zoom := clampf(player_camera.zoom.x + delta, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM)
+	player_camera.zoom = Vector2(next_zoom, next_zoom)

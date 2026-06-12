@@ -7,11 +7,12 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var context := await INTEGRATION.boot_main()
+	if not bool(context.get("ok", false)):
+		return [String(context.get("reason", "Integration bootstrap failed"))]
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
 	if tree == null or main == null:
-		failures.append("Integration bootstrap failed")
-		return failures
+		return ["Integration bootstrap returned invalid tree/main."]
 
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -38,8 +39,8 @@ func run() -> Array[String]:
 		spawn_point = world.call("get_world_rect").get_center()
 
 	INTEGRATION.clear_nodes_in_group_near_position(tree, "edible_vegetation", spawn_point, 180.0)
-	var resource := INTEGRATION.spawn_resource(world, "grass_patch", spawn_point) as Node2D
-	TEST_UTILS.expect(resource != null, failures, "The test should spawn a controllable grass patch")
+	var resource := INTEGRATION.spawn_resource(world, "berry_bush", spawn_point) as Node2D
+	TEST_UTILS.expect(resource != null, failures, "The test should spawn a controllable edible bush")
 	if resource == null:
 		await INTEGRATION.shutdown_main(context)
 		return failures
@@ -51,6 +52,7 @@ func run() -> Array[String]:
 	TEST_UTILS.expect(harvested_stage < initial_stage, failures, "Harvesting should reduce the growth stage")
 	TEST_UTILS.expect_equal(harvested_stage, 0, failures, "The test should deplete the resource to stage 0 before regrowth")
 	TEST_UTILS.expect_equal(bool(resource.get("is_edible_by_herbivores")), false, failures, "Depleted vegetation should not be edible")
+	TEST_UTILS.expect_equal(bool(resource.get("can_be_harvested")), false, failures, "Depleted vegetation should not be harvestable")
 
 	var initial_day: int = int(day_night.get("day"))
 	day_night.call("debug_next_day")
@@ -62,6 +64,10 @@ func run() -> Array[String]:
 	TEST_UTILS.expect(regrown_stage > harvested_stage, failures, "Advancing the day should regrow the resource")
 	TEST_UTILS.expect_equal(bool(resource.get("is_edible_by_herbivores")), true, failures, "Regrown vegetation should become edible again")
 	TEST_UTILS.expect_equal(int(day_night.get("day")), initial_day + 1, failures, "Debug next day should advance the calendar by one day")
+	TEST_UTILS.expect_equal(bool(resource.get("can_be_harvested")), true, failures, "Regrown resource should become harvestable again")
+	INTEGRATION.assert_resource_registered(failures, world, resource, str(resource.get("resource_kind")), "Regrowth resource")
 
 	await INTEGRATION.shutdown_main(context)
 	return failures
+
+

@@ -7,11 +7,12 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var context := await INTEGRATION.boot_main()
+	if not bool(context.get("ok", false)):
+		return [String(context.get("reason", "Integration bootstrap failed"))]
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
 	if tree == null or main == null:
-		failures.append("Integration bootstrap failed")
-		return failures
+		return ["Integration bootstrap returned invalid tree/main."]
 
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -39,6 +40,21 @@ func run() -> Array[String]:
 	TEST_UTILS.expect(pond_count > 0, failures, "Minimap test needs at least one pond landmark")
 	TEST_UTILS.expect(hill_count > 0, failures, "Minimap test needs at least one hill landmark")
 	TEST_UTILS.expect_equal((minimap.get("landmarks") as Array).size(), landmarks.size(), failures, "Minimap should receive the full landmark list from the HUD")
+	var hud := main.get_node_or_null("HUD")
+	if hud != null:
+		if hud.has_method("_set_map_screen_open"):
+			hud.call("_set_map_screen_open", true)
+			await tree.process_frame
+			await tree.process_frame
+			TEST_UTILS.expect(tree.paused, failures, "Tree should be paused while map is open")
+			var map_screen := hud.get_node_or_null("MapScreen")
+			TEST_UTILS.expect(map_screen != null, failures, "MapScreen should exist when opening minimap")
+			hud.call("_set_map_screen_open", false)
+			await tree.process_frame
+			await tree.process_frame
+			TEST_UTILS.expect(not tree.paused, failures, "Tree should unpause after closing map")
+		else:
+			failures.append("HUD missing _set_map_screen_open; cannot verify modal map behavior.")
 
 	minimap.queue_redraw()
 	await tree.process_frame
@@ -49,3 +65,5 @@ func run() -> Array[String]:
 
 	await INTEGRATION.shutdown_main(context)
 	return failures
+
+

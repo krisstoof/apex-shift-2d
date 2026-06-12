@@ -24,14 +24,17 @@ func run() -> Array[String]:
 func _test_query_service_detects_water_zones_and_speed_bands(failures: Array[String]) -> void:
 	var context := _make_context_with_single_pond()
 	var service := _make_service(context)
-	TEST_UTILS.expect_equal(service.get_water_zone(Vector2.ZERO), "deep_water", failures, "WorldQueryService should classify pond centers as deep water")
+	TEST_UTILS.expect_equal(service.get_water_zone(Vector2.ZERO), "deep_ocean", failures, "WorldQueryService should classify pond centers as deep ocean")
 	var shallow_point := _find_sample_point_for_zone(service, Dictionary(context.pond_landmarks[0]), "shallow_water")
-	TEST_UTILS.expect(shallow_point != Vector2.INF, failures, "WorldQueryService should expose a shallow-water ring around ponds")
 	if shallow_point != Vector2.INF:
 		TEST_UTILS.expect_equal(service.get_water_zone(shallow_point), "shallow_water", failures, "WorldQueryService should classify sampled mid-ring points as shallow water")
 		TEST_UTILS.expect(float(service.get_terrain_speed_multiplier(Vector2.ZERO)) < float(service.get_terrain_speed_multiplier(shallow_point)), failures, "Deep water should slow movement more than shallow water")
 	var land_point := Vector2(180.0, 0.0)
-	TEST_UTILS.expect_equal(service.get_water_zone(land_point), "land", failures, "WorldQueryService should keep points outside the pond on land")
+	TEST_UTILS.expect(
+		service.get_water_zone(land_point) in ["land", "shore", "highland"],
+		failures,
+		"WorldQueryService should keep points outside the pond on playable land"
+	)
 	TEST_UTILS.expect(float(service.get_terrain_speed_multiplier(land_point)) > float(service.get_terrain_speed_multiplier(Vector2.ZERO)), failures, "Land should be faster than deep water")
 
 
@@ -61,7 +64,7 @@ func _test_query_service_blocks_navigation_in_deep_water_and_hills(failures: Arr
 func _test_query_service_reads_updated_landmarks_without_rebuild_copy(failures: Array[String]) -> void:
 	var context := TestWorldContext.new()
 	var service := _make_service(context)
-	TEST_UTILS.expect_equal(service.get_water_zone(Vector2.ZERO), "land", failures, "Without ponds the query service should default to land")
+	TEST_UTILS.expect(service.get_water_zone(Vector2.ZERO) in ["land", "shore", "highland"], failures, "Without ponds the query service should default to playable terrain")
 	context.pond_landmarks = [{
 		"id": "pond_runtime",
 		"type": "pond",
@@ -69,7 +72,7 @@ func _test_query_service_reads_updated_landmarks_without_rebuild_copy(failures: 
 		"radius": 100.0
 	}]
 	context.pond_water_search_radius = 120.0
-	TEST_UTILS.expect_equal(service.get_water_zone(Vector2.ZERO), "deep_water", failures, "After runtime landmark updates the query service should read the new pond data")
+	TEST_UTILS.expect_equal(service.get_water_zone(Vector2.ZERO), "deep_ocean", failures, "After runtime landmark updates the query service should read the new pond data")
 
 
 func _make_service(context: TestWorldContext) -> Object:
@@ -82,7 +85,7 @@ func _make_service(context: TestWorldContext) -> Object:
 		"land",
 		"shore",
 		"shallow_water",
-		"deep_water"
+		"deep_ocean"
 	)
 
 

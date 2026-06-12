@@ -2,6 +2,7 @@ extends StaticBody2D
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const VEGETATION_CATALOG := preload("res://scripts/world/vegetation_catalog.gd")
 const RESOURCE_ATLAS_PATH := "res://assets/textures/resources/resource_atlas.svg"
 const RESOURCE_ATLAS_CELL_SIZE := Vector2(80.0, 80.0)
 const RESOURCE_ATLAS_COLUMNS := {
@@ -14,7 +15,9 @@ const RESOURCE_ATLAS_COLUMNS := {
 	"grass_patch": 6,
 	"dense_grass": 7,
 	"rock": 8,
-	"meat_drop": 9
+	"meat_drop": 9,
+	"bone_drop": 10,
+	"dry_tree": 11
 }
 static var shared_resource_atlas: ImageTexture
 
@@ -42,6 +45,30 @@ var pond_id := ""
 var food_bonus_multiplier := 1.0
 var pond_visual_multiplier := 1.0
 var biome_id := ""
+var is_visibility_culled := false
+# Pool state stays set while the node lives in the pool so release/acquire can reuse it safely.
+var is_pooled := false
+var pool_key := ""
+var pool_release_callback := Callable()
+
+
+func _get_event_bus() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("EventBus")
+
+
+func _post_event_message(message: String) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("post_message"):
+		event_bus.post_message(message)
+
+
+func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_method("emit_game_event"):
+		event_bus.emit_game_event(event_name, payload)
 
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
 @onready var visual_sprite: Sprite2D = $VisualSprite
@@ -75,6 +102,12 @@ func setup(kind: String) -> void:
 			mature_color = Color(0.16, 0.52, 0.18)
 			mature_radius = 24.0
 			food_value = float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
+		"dry_tree":
+			item_name = "wood"
+			mature_amount = 3
+			mature_color = Color(0.60, 0.44, 0.20)
+			mature_radius = 22.0
+			food_value = 0.0
 		"rock":
 			item_name = "stone"
 			mature_amount = 2
@@ -86,6 +119,13 @@ func setup(kind: String) -> void:
 			mature_color = Color(0.72, 0.12, 0.10)
 			mature_radius = 10.0
 			food_value = float(GAME_BALANCE.ANIMAL_AI.get("meat_food_value", 0.65))
+			z_index = 20
+		"bone_drop":
+			item_name = "bone"
+			mature_amount = 1
+			mature_color = Color(0.82, 0.78, 0.70)
+			mature_radius = 9.0
+			z_index = 20
 		"bush":
 			item_name = "fiber"
 			mature_amount = 2
@@ -135,22 +175,36 @@ func setup(kind: String) -> void:
 
 func interact(player: Node) -> void:
 	if not player_harvestable:
+		_post_event_message("%s cannot be gathered" % _get_resource_label())
 		return
 	if not can_be_harvested:
-		get_node("/root/EventBus").post_message("%s is still regrowing" % _get_resource_label())
+		_post_event_message("%s is still regrowing" % _get_resource_label())
 		return
-	player.inventory.add_item(item_name, amount)
-	get_node("/root/EventBus").post_message("Collected %s x%d" % [item_name, amount])
-	if resource_kind == "meat_drop":
-		get_node("/root/EventBus").emit_game_event("meat_collected", {
-			"amount": amount,
+	if amount <= 0:
+		_post_event_message("%s is empty" % _get_resource_label())
+		return
+	var collected_amount := amount
+	var leftover: int = player.inventory.add_item(item_name, collected_amount)
+	var added_amount: int = collected_amount - leftover
+	if added_amount <= 0:
+		_post_event_message("Inventory full")
+		return
+	_post_event_message("Collected %s x%d" % [item_name, added_amount])
+	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
+		var event_name := "bone_collected" if resource_kind == "bone_drop" else "meat_collected"
+		_emit_game_event(event_name, {
+			"amount": added_amount,
 			"position": global_position
 		})
+	if leftover > 0:
+		amount = leftover
+		queue_redraw()
+		return
 	_emit_plant_resource_harvested()
 	if _uses_regrowth():
 		_mark_harvested()
 	else:
-		queue_free()
+		_release_or_free()
 
 
 func get_prompt() -> String:
@@ -159,6 +213,18 @@ func get_prompt() -> String:
 	if not can_be_harvested:
 		return "Regrowing: %s" % get_growth_debug_text()
 	return "E: gather %s x%s" % [item_name, amount]
+
+
+func is_player_interactable() -> bool:
+	if not player_harvestable:
+		return false
+	if not can_be_harvested:
+		return false
+	if amount <= 0:
+		return false
+	if not visible:
+		return false
+	return true
 
 
 func get_save_data() -> Dictionary:
@@ -291,9 +357,7 @@ func _apply_growth_stage() -> void:
 	color = mature_color.darkened(0.45 if growth_stage <= 0 else 0.0).lerp(mature_color, _get_growth_ratio())
 	radius = max(mature_radius * _get_visual_scale(), 5.0)
 	_sync_collision_shape_radius()
-	var shape := _get_collision_shape()
-	if shape:
-		shape.disabled = render_only or not player_harvestable or not can_be_harvested
+	_sync_collision_state(true)
 	_sync_resource_groups()
 	_sync_visual_sprite()
 	queue_redraw()
@@ -302,6 +366,10 @@ func _apply_growth_stage() -> void:
 func _sync_visual_sprite() -> void:
 	var sprite := _get_visual_sprite()
 	if sprite == null:
+		return
+	if resource_kind == "bone_drop":
+		sprite.visible = false
+		sprite.texture = null
 		return
 	var column := int(RESOURCE_ATLAS_COLUMNS.get(resource_kind, RESOURCE_ATLAS_COLUMNS["bush"]))
 	var row := 1 if _uses_regrowth() and growth_stage <= 0 else 0
@@ -339,6 +407,8 @@ func _get_visual_sprite() -> Sprite2D:
 
 
 func consume_by_creature(_consumer: Node, _consumption_rate: float = 1.0) -> float:
+	if not is_edible_vegetation():
+		return 0.0
 	if resource_kind == "meat_drop":
 		return _consume_meat_by_creature(_consumer)
 	if not is_edible_by_herbivores:
@@ -361,17 +431,93 @@ func _consume_meat_by_creature(consumer: Node) -> float:
 		return 0.0
 	var consumed_value: float = max(food_value, float(GAME_BALANCE.ANIMAL_AI.get("meat_food_value", 0.65)))
 	amount = max(amount - 1, 0)
-	get_node("/root/EventBus").emit_game_event("meat_consumed_by_creature", {
+	_emit_game_event("meat_consumed_by_creature", {
 		"consumer": str(consumer.name) if is_instance_valid(consumer) else "creature",
 		"amount": 1,
 		"remaining": amount,
 		"position": global_position
 	})
 	if amount <= 0:
-		queue_free()
+		_release_or_free()
 	else:
 		queue_redraw()
 	return consumed_value
+
+
+func activate_from_pool(data: Dictionary) -> void:
+	is_pooled = true
+	pool_key = str(data.get("pool_key", pool_key))
+	pool_release_callback = data.get("release_callback", Callable())
+
+	var spawn_position := Vector2(data.get("position", global_position))
+	global_position = spawn_position
+
+	var kind := str(data.get("resource_kind", data.get("kind", resource_kind)))
+	setup(kind)
+
+	if data.has("loot_amount"):
+		set_loot_amount(int(data.get("loot_amount", 1)))
+
+	if not is_in_group("resources"):
+		add_to_group("resources")
+
+	visible = true
+	set_process(true)
+	set_physics_process(true)
+	_set_collision_state_safe(true)
+	is_visibility_culled = false
+	queue_redraw()
+
+
+func reset_for_pool() -> void:
+	visible = false
+	set_process(false)
+	set_physics_process(false)
+	_set_collision_state_safe(false)
+	_remove_resource_pool_groups()
+
+	amount = 0
+	mature_amount = 0
+	growth_stage = max_growth_stage
+	growth_progress = 0.0
+	days_since_harvested = 0.0
+	is_harvested = false
+	can_be_harvested = false
+	player_harvestable = false
+	is_edible_by_herbivores = false
+	food_value = 0.0
+	render_only = false
+	is_pond_vegetation = false
+	pond_id = ""
+	food_bonus_multiplier = 1.0
+	pond_visual_multiplier = 1.0
+	biome_id = ""
+	is_visibility_culled = true
+	pool_release_callback = Callable()
+	queue_redraw()
+
+
+func _remove_resource_pool_groups() -> void:
+	for group_name in [
+		"resources",
+		"trees",
+		"bushes",
+		"grass",
+		"rocks",
+		"vegetation",
+		"edible_vegetation",
+		"pond_vegetation",
+		"meat_drops"
+	]:
+		if is_in_group(group_name):
+			remove_from_group(group_name)
+
+
+func _release_or_free() -> void:
+	if is_pooled and pool_release_callback.is_valid():
+		pool_release_callback.call(self)
+	else:
+		queue_free()
 
 
 func _get_stage_yield() -> int:
@@ -401,7 +547,7 @@ func _get_days_to_next_stage() -> float:
 
 func _get_regrowth_time_days() -> float:
 	match resource_kind:
-		"conifer_tree", "leafy_tree":
+		"conifer_tree", "leafy_tree", "dry_tree":
 			return float(GAME_BALANCE.RESOURCE_REGROWTH.get("tree_regrowth_time_days", 3))
 		"bush", "small_bush", "berry_bush":
 			return float(GAME_BALANCE.RESOURCE_REGROWTH.get("bush_regrowth_time_days", 2))
@@ -434,6 +580,7 @@ func _uses_regrowth() -> bool:
 	return resource_kind in [
 		"conifer_tree",
 		"leafy_tree",
+		"dry_tree",
 		"bush",
 		"dry_bush",
 		"small_bush",
@@ -451,8 +598,38 @@ func is_render_only_resource() -> bool:
 	return render_only
 
 
+func set_visibility_culled(should_be_visible: bool) -> void:
+	is_visibility_culled = not should_be_visible
+	visible = should_be_visible
+	_set_collision_state_safe(should_be_visible)
+	set_process(should_be_visible)
+	set_physics_process(should_be_visible)
+	if should_be_visible:
+		queue_redraw()
+
+
 func _is_render_only_kind() -> bool:
-	return resource_kind in ["grass_patch", "dense_grass"]
+	return VEGETATION_CATALOG.is_visual_only_kind(resource_kind)
+
+
+func get_resource_kind() -> String:
+	return str(resource_kind)
+
+
+func get_biome_id() -> String:
+	return str(biome_id)
+
+
+func is_depleted() -> bool:
+	return float(amount) <= 0.0
+
+
+func is_edible_vegetation() -> bool:
+	if VEGETATION_CATALOG.is_visual_only_kind(resource_kind):
+		return false
+	if VEGETATION_CATALOG.is_edible_node_kind(resource_kind):
+		return true
+	return is_in_group("edible_vegetation")
 
 
 func _sync_resource_groups() -> void:
@@ -460,7 +637,7 @@ func _sync_resource_groups() -> void:
 		if is_in_group(group_name):
 			remove_from_group(group_name)
 	match resource_kind:
-		"conifer_tree", "leafy_tree":
+		"conifer_tree", "leafy_tree", "dry_tree":
 			add_to_group("trees")
 			add_to_group("vegetation")
 		"bush", "dry_bush", "small_bush", "berry_bush":
@@ -487,12 +664,12 @@ func _emit_plant_resource_harvested() -> void:
 	var biomass_impact := _get_biomass_impact()
 	if biomass_impact <= 0.0:
 		return
-	var biome_id := _get_biome_id_for_position(global_position)
-	if biome_id.is_empty():
+	var target_biome_id := _get_biome_id_for_position(global_position)
+	if target_biome_id.is_empty():
 		return
-	get_node("/root/EventBus").emit_game_event("plant_resource_harvested", {
+	_emit_game_event("plant_resource_harvested", {
 		"resource_type": resource_kind,
-		"biome_id": biome_id,
+		"biome_id": target_biome_id,
 		"position": global_position,
 		"biomass_impact": biomass_impact
 	})
@@ -500,7 +677,7 @@ func _emit_plant_resource_harvested() -> void:
 
 func _get_biomass_impact() -> float:
 	match resource_kind:
-		"conifer_tree", "leafy_tree":
+		"conifer_tree", "leafy_tree", "dry_tree":
 			return float(GAME_BALANCE.ECOSYSTEM["tree_biomass_impact"])
 		"bush":
 			return float(GAME_BALANCE.ECOSYSTEM["bush_biomass_impact"])
@@ -519,6 +696,8 @@ func _get_default_herbivore_food_value() -> float:
 	match resource_kind:
 		"conifer_tree", "leafy_tree":
 			return float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
+		"dry_tree":
+			return 0.0
 		"bush":
 			return float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45))
 		"dry_bush":
@@ -551,9 +730,21 @@ func _get_collision_shape() -> CollisionShape2D:
 	return collision_shape
 
 
-func _get_biome_id_for_position(position: Vector2) -> String:
+func _sync_collision_state(should_be_visible: bool) -> void:
+	_set_collision_state_safe(should_be_visible)
+
+
+func _set_collision_state_safe(should_be_enabled: bool) -> void:
+	var shape := _get_collision_shape()
+	if shape == null:
+		return
+	var should_disable := (not should_be_enabled) or render_only or not player_harvestable or not can_be_harvested
+	shape.set_deferred("disabled", should_disable)
+
+
+func _get_biome_id_for_position(world_position: Vector2) -> String:
 	for biome in WORLD_CONFIG.get_biome_zones():
-		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome["points"])):
+		if Geometry2D.is_point_in_polygon(world_position, PackedVector2Array(biome["points"])):
 			return _get_biome_id(biome)
 	return ""
 
@@ -592,6 +783,8 @@ func _draw() -> void:
 			_draw_rock()
 		"meat_drop":
 			_draw_meat_drop()
+		"bone_drop":
+			_draw_bone_drop()
 		_:
 			_draw_bush()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -599,7 +792,7 @@ func _draw() -> void:
 
 func _draw_depleted_plant() -> void:
 	match resource_kind:
-		"conifer_tree", "leafy_tree":
+		"conifer_tree", "leafy_tree", "dry_tree":
 			draw_rect(Rect2(-5, -2, 10, 14), Color(0.34, 0.19, 0.09), true)
 			draw_circle(Vector2.ZERO, 13.0, Color(0.17, 0.11, 0.06, 0.26))
 		"bush", "dry_bush", "small_bush", "berry_bush":
@@ -693,3 +886,11 @@ func _draw_meat_drop() -> void:
 	draw_circle(Vector2(5, -2), 7.0, Color(0.78, 0.15, 0.12))
 	draw_circle(Vector2(1, 5), 5.0, Color(0.45, 0.03, 0.03))
 	draw_line(Vector2(-7, -3), Vector2(7, 6), Color(0.95, 0.62, 0.48, 0.55), 2.0)
+
+
+func _draw_bone_drop() -> void:
+	draw_circle(Vector2(-6, 0), 5.0, Color(0.88, 0.84, 0.76))
+	draw_circle(Vector2(6, 0), 5.0, Color(0.88, 0.84, 0.76))
+	draw_rect(Rect2(-6, -4, 12, 8), Color(0.94, 0.92, 0.88), true)
+	draw_rect(Rect2(-3, -7, 6, 14), Color(0.80, 0.76, 0.68), true)
+	draw_line(Vector2(-7, -1), Vector2(7, 1), Color(0.98, 0.98, 0.94, 0.45), 1.6)

@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/ui/skill_icon_bar.gd" id="2"]
@@ -7,6 +7,8 @@
 [ext_resource type="Script" path="res://scripts/ui/pause_menu.gd" id="5"]
 [ext_resource type="Script" path="res://scripts/ui/debug_panel.gd" id="6"]
 [ext_resource type="PackedScene" path="res://scenes/ui/game_over_screen.tscn" id="7"]
+[ext_resource type="Script" path="res://scripts/ui/inventory_screen.gd" id="8"]
+[ext_resource type="Script" path="res://scripts/ui/storage_box_screen.gd" id="9"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1")
@@ -14,32 +16,144 @@ script = ExtResource("1")
 [node name="Panel" type="Panel" parent="."]
 offset_left = 12.0
 offset_top = 12.0
-offset_right = 760.0
-offset_bottom = 170.0
+offset_right = 790.0
+offset_bottom = 185.0
 
-[node name="StatsLabel" type="Label" parent="Panel"]
+[node name="StatsLabel" type="RichTextLabel" parent="Panel"]
 offset_left = 12.0
 offset_top = 8.0
-offset_right = 734.0
-offset_bottom = 62.0
-theme_override_font_sizes/font_size = 16
+offset_right = 766.0
+offset_bottom = 40.0
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0.78, 1, 0.68, 1)
+bbcode_enabled = true
+fit_content = true
 text = "Loading..."
 
 [node name="PromptLabel" type="Label" parent="Panel"]
 offset_left = 12.0
-offset_top = 68.0
-offset_right = 734.0
-offset_bottom = 94.0
-theme_override_font_sizes/font_size = 16
+offset_top = 48.0
+offset_right = 766.0
+offset_bottom = 68.0
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.9, 0.9, 0.9, 1)
 text = ""
 
 [node name="MessageLabel" type="Label" parent="Panel"]
 offset_left = 12.0
-offset_top = 98.0
-offset_right = 734.0
-offset_bottom = 156.0
-theme_override_font_sizes/font_size = 16
+offset_top = 76.0
+offset_right = 766.0
+offset_bottom = 170.0
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.72, 0.78, 0.72, 1)
 text = ""
+
+[node name="ResourcePanel" type="PanelContainer" parent="."]
+offset_left = 16.0
+offset_top = -88.0
+offset_right = 420.0
+offset_bottom = -20.0
+
+[node name="ResourceHBox" type="HBoxContainer" parent="ResourcePanel"]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 388.0
+offset_bottom = 52.0
+theme_override_constants/separation = 12
+
+[node name="WoodItem" type="HBoxContainer" parent="ResourcePanel/ResourceHBox"]
+offset_right = 84.0
+offset_bottom = 34.0
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="ResourcePanel/ResourceHBox/WoodItem"]
+custom_minimum_size = Vector2(36, 36)
+stretch_mode = 6
+expand_mode = 1
+
+[node name="CountLabel" type="Label" parent="ResourcePanel/ResourceHBox/WoodItem"]
+offset_left = 26.0
+offset_top = 4.0
+offset_right = 78.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 16
+text = "0"
+
+[node name="StoneItem" type="HBoxContainer" parent="ResourcePanel/ResourceHBox"]
+offset_left = 100.0
+offset_right = 184.0
+offset_bottom = 34.0
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="ResourcePanel/ResourceHBox/StoneItem"]
+custom_minimum_size = Vector2(36, 36)
+stretch_mode = 6
+expand_mode = 1
+
+[node name="CountLabel" type="Label" parent="ResourcePanel/ResourceHBox/StoneItem"]
+offset_left = 26.0
+offset_top = 4.0
+offset_right = 78.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 16
+text = "0"
+
+[node name="FiberItem" type="HBoxContainer" parent="ResourcePanel/ResourceHBox"]
+offset_left = 200.0
+offset_right = 284.0
+offset_bottom = 34.0
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="ResourcePanel/ResourceHBox/FiberItem"]
+custom_minimum_size = Vector2(36, 36)
+stretch_mode = 6
+expand_mode = 1
+
+[node name="CountLabel" type="Label" parent="ResourcePanel/ResourceHBox/FiberItem"]
+offset_left = 26.0
+offset_top = 4.0
+offset_right = 78.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 16
+text = "0"
+
+[node name="MeatItem" type="HBoxContainer" parent="ResourcePanel/ResourceHBox"]
+offset_left = 300.0
+offset_right = 384.0
+offset_bottom = 34.0
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="ResourcePanel/ResourceHBox/MeatItem"]
+custom_minimum_size = Vector2(36, 36)
+stretch_mode = 6
+expand_mode = 1
+
+[node name="CountLabel" type="Label" parent="ResourcePanel/ResourceHBox/MeatItem"]
+offset_left = 26.0
+offset_top = 4.0
+offset_right = 78.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 16
+text = "0"
+
+[node name="BoneItem" type="HBoxContainer" parent="ResourcePanel/ResourceHBox"]
+offset_left = 400.0
+offset_right = 484.0
+offset_bottom = 34.0
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="ResourcePanel/ResourceHBox/BoneItem"]
+custom_minimum_size = Vector2(36, 36)
+stretch_mode = 6
+expand_mode = 1
+
+[node name="CountLabel" type="Label" parent="ResourcePanel/ResourceHBox/BoneItem"]
+offset_left = 26.0
+offset_top = 4.0
+offset_right = 78.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 16
+text = "0"
 
 [node name="FPSLabel" type="Label" parent="."]
 offset_left = 12.0
@@ -66,9 +180,9 @@ text = ""
 
 [node name="SkillIconBar" type="Control" parent="."]
 offset_left = 12.0
-offset_top = 182.0
+offset_top = 250.0
 offset_right = 1030.0
-offset_bottom = 242.0
+offset_bottom = 310.0
 script = ExtResource("2")
 
 [node name="Minimap" type="Control" parent="."]
@@ -211,6 +325,26 @@ offset_top = 446.0
 offset_right = 396.0
 offset_bottom = 478.0
 text = "Next day"
+
+[node name="InventoryScreen" type="Control" parent="."]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+script = ExtResource("8")
+
+[node name="StorageBoxScreen" type="Control" parent="."]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+script = ExtResource("9")
 
 [node name="IncreaseAdaptationButton" type="Button" parent="DebugPanel/Panel"]
 offset_left = 408.0

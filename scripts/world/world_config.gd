@@ -3,13 +3,27 @@ class_name WorldConfig
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
-const WORLD_SCALE := 2.2
-const BASE_WORLD_RECT := Rect2(-1440, -880, 2880, 1760)
+const WORLD_SCALE := 3.0
+const BASE_WORLD_RECT := Rect2(-1680, -1040, 3360, 2080)
 const WORLD_RECT := Rect2(BASE_WORLD_RECT.position * WORLD_SCALE, BASE_WORLD_RECT.size * WORLD_SCALE)
+const ISLAND_RADIUS_RATIO := 0.76
+const ISLAND_NOISE_SCALE := 0.0024
+const ISLAND_NOISE_STRENGTH := 0.24
+const DEEP_OCEAN_THRESHOLD := 0.04
+const SHALLOW_WATER_THRESHOLD := 0.10
+const SHORE_THRESHOLD := 0.20
+const HIGHLAND_THRESHOLD := 0.72
+const INNER_POND_CHANCE_MULTIPLIER := 0.35
 const PLAYER_EDGE_PADDING := 40.0
-const PLAYER_START_POSITION := Vector2(-2450.0, 1450.0)
+const PLAYER_START_POSITION := Vector2(-260.0, 40.0)
+const PLAYER_LANDMARK_SAFE_DISTANCE := 760.0
+const PLAYER_POND_SAFE_DISTANCE := 900.0
+const PLAYER_HILL_SAFE_DISTANCE := 520.0
+const PLAYER_SPAWN_SEARCH_STEP := 160.0
+const PLAYER_SPAWN_SEARCH_RINGS := 10
 
 const TREE_COUNT := 48
+const WESTWOOD_EXTRA_CONIFER_COUNT := 48
 const ROCK_COUNT := 24
 const BUSH_COUNT := 36
 const SMALL_BUSH_COUNT := 28
@@ -166,9 +180,14 @@ const BIOME_ZONES := [
 			Vector2(-1440, 880)
 		],
 		"color": Color(0.10, 0.24, 0.13),
-		"tree_weight": 7.0,
+		"tree_weight": 14.0,
+		"conifer_tree_weight": 16.0,
+		"leafy_tree_weight": 2.0,
+		"dry_tree_weight": 0.4,
 		"rock_weight": 1.0,
 		"bush_weight": 3.0,
+		"berry_bush_weight": 6.0,
+		"dry_bush_weight": 0.8,
 		"grass_weight": 5.0,
 		"landmark_weights": {
 			"hill": 0.08,
@@ -193,9 +212,14 @@ const BIOME_ZONES := [
 			Vector2(-720, -620)
 		],
 		"color": Color(0.22, 0.25, 0.23),
-		"tree_weight": 1.0,
+		"tree_weight": 2.0,
+		"conifer_tree_weight": 2.8,
+		"leafy_tree_weight": 0.6,
+		"dry_tree_weight": 0.4,
 		"rock_weight": 7.0,
 		"bush_weight": 1.0,
+		"dry_bush_weight": 4.0,
+		"berry_bush_weight": 0.3,
 		"grass_weight": 1.0,
 		"landmark_weights": {
 			"hill": 1.85,
@@ -222,9 +246,14 @@ const BIOME_ZONES := [
 			Vector2(-720, -260)
 		],
 		"color": Color(0.16, 0.30, 0.14),
-		"tree_weight": 3.0,
+		"tree_weight": 6.0,
+		"conifer_tree_weight": 2.0,
+		"leafy_tree_weight": 10.0,
+		"dry_tree_weight": 0.8,
 		"rock_weight": 2.0,
 		"bush_weight": 4.0,
+		"dry_bush_weight": 1.4,
+		"berry_bush_weight": 2.5,
 		"grass_weight": 7.0,
 		"landmark_weights": {
 			"hill": 0.95,
@@ -246,9 +275,14 @@ const BIOME_ZONES := [
 			Vector2(-700, 520)
 		],
 		"color": Color(0.20, 0.34, 0.12),
-		"tree_weight": 2.0,
+		"tree_weight": 2.8,
+		"conifer_tree_weight": 0.6,
+		"leafy_tree_weight": 4.4,
+		"dry_tree_weight": 0.4,
 		"rock_weight": 1.0,
-		"bush_weight": 7.0,
+		"bush_weight": 4.5,
+		"dry_bush_weight": 0.8,
+		"berry_bush_weight": 0.9,
 		"grass_weight": 6.0,
 		"landmark_weights": {
 			"hill": 0.10,
@@ -275,10 +309,15 @@ const BIOME_ZONES := [
 			Vector2(680, -710)
 		],
 		"color": Color(0.26, 0.18, 0.13),
-		"tree_weight": 3.0,
+		"tree_weight": 6.0,
+		"conifer_tree_weight": 0.8,
+		"leafy_tree_weight": 0.4,
+		"dry_tree_weight": 20.0,
 		"rock_weight": 4.0,
 		"bush_weight": 2.0,
-		"grass_weight": 2.0,
+		"dry_bush_weight": 9.5,
+		"berry_bush_weight": 0.2,
+		"grass_weight": 1.0,
 		"landmark_weights": {
 			"hill": 1.60,
 			"pond": 0.70
@@ -290,9 +329,47 @@ const BIOME_ZONES := [
 	}
 ]
 
+const BIOME_EDGE_SUBDIVISIONS := 10
+const BIOME_EDGE_JITTER := 90.0
+const BIOME_EDGE_NOISE_SCALE := 0.028
+const OCEAN_COLOR := Color(0.08, 0.22, 0.40)
+
+static var cached_organic_biome_zones: Array[Dictionary] = []
+static var cached_organic_biome_zones_built := false
+static var cached_world_boundary_points: PackedVector2Array = PackedVector2Array()
+static var cached_world_boundary_points_built := false
+static var cached_island_noise: FastNoiseLite = FastNoiseLite.new()
+
 
 static func get_player_limits() -> Vector2:
 	return WORLD_RECT.size * 0.5 - Vector2(PLAYER_EDGE_PADDING, PLAYER_EDGE_PADDING)
+
+
+static func get_terrain_height(position: Vector2) -> float:
+	var center := WORLD_RECT.get_center()
+	var island_radius := minf(WORLD_RECT.size.x, WORLD_RECT.size.y) * ISLAND_RADIUS_RATIO
+	if island_radius <= 0.0:
+		return 0.0
+	var normalized_distance := position.distance_to(center) / island_radius
+	var falloff := pow(clampf(normalized_distance, 0.0, 1.6), 1.45)
+	var island_noise := _get_island_noise()
+	var base_noise := island_noise.get_noise_2d(position.x * ISLAND_NOISE_SCALE, position.y * ISLAND_NOISE_SCALE)
+	var detail_noise := island_noise.get_noise_2d(position.x * ISLAND_NOISE_SCALE * 2.8, position.y * ISLAND_NOISE_SCALE * 2.8)
+	var combined_noise := base_noise * 0.75 + detail_noise * 0.25
+	return 1.04 - falloff + combined_noise * ISLAND_NOISE_STRENGTH
+
+
+static func get_terrain_zone(position: Vector2) -> String:
+	var height := get_terrain_height(position)
+	if height < DEEP_OCEAN_THRESHOLD:
+		return "deep_ocean"
+	if height < SHALLOW_WATER_THRESHOLD:
+		return "shallow_water"
+	if height < SHORE_THRESHOLD:
+		return "shore"
+	if height < HIGHLAND_THRESHOLD:
+		return "land"
+	return "highland"
 
 
 static func scale_world_point(point: Vector2) -> Vector2:
@@ -307,16 +384,77 @@ static func get_biome_points(biome: Dictionary) -> Array[Vector2]:
 
 
 static func get_biome_zones() -> Array[Dictionary]:
-	var scaled_biomes: Array[Dictionary] = []
+	if cached_organic_biome_zones_built:
+		return _duplicate_biome_zones(cached_organic_biome_zones)
+	cached_organic_biome_zones = []
 	for biome_value in BIOME_ZONES:
 		var biome := Dictionary(biome_value).duplicate(true)
-		biome["points"] = get_biome_points(biome)
-		scaled_biomes.append(biome)
-	return scaled_biomes
+		biome["points"] = _build_organic_biome_points(biome)
+		biome["bounds"] = _get_polygon_bounds(PackedVector2Array(biome["points"]))
+		biome["center"] = _get_polygon_center(PackedVector2Array(biome["points"]))
+		cached_organic_biome_zones.append(biome)
+	cached_organic_biome_zones_built = true
+	return _duplicate_biome_zones(cached_organic_biome_zones)
+
+
+static func _duplicate_biome_zones(zones: Array[Dictionary]) -> Array[Dictionary]:
+	var duplicated: Array[Dictionary] = []
+	for biome_value in zones:
+		duplicated.append(Dictionary(biome_value).duplicate(true))
+	return duplicated
+
+
+static func _build_organic_biome_points(biome: Dictionary) -> Array[Vector2]:
+	var base_points := get_biome_points(biome)
+	if base_points.size() < 3:
+		return base_points
+	var biome_seed := _get_biome_seed(biome)
+	var organic_points: Array[Vector2] = []
+	for i in base_points.size():
+		var a := base_points[i]
+		var b := base_points[(i + 1) % base_points.size()]
+		organic_points.append(a)
+		for step in range(1, BIOME_EDGE_SUBDIVISIONS):
+			var t := float(step) / float(BIOME_EDGE_SUBDIVISIONS)
+			var midpoint := a.lerp(b, t)
+			var edge := b - a
+			var normal := Vector2(-edge.y, edge.x)
+			if normal.length_squared() > 0.0001:
+				normal = normal.normalized()
+				var jitter := _get_biome_edge_jitter(midpoint, biome_seed)
+				midpoint += normal * jitter
+			organic_points.append(midpoint)
+	return organic_points
+
+
+static func _get_biome_seed(biome: Dictionary) -> float:
+	var biome_name := str(biome.get("name", "biome"))
+	var hash_value := 0
+	for i in biome_name.length():
+		hash_value = (hash_value * 31 + biome_name.unicode_at(i) * (i + 7)) % 10007
+	return float(hash_value)
+
+
+static func _get_biome_edge_jitter(point: Vector2, biome_seed: float) -> float:
+	var wave := (
+		sin(point.x * BIOME_EDGE_NOISE_SCALE + biome_seed * 0.013) * 0.42
+		+ sin(point.y * BIOME_EDGE_NOISE_SCALE * 1.27 - biome_seed * 0.017) * 0.26
+		+ sin((point.x + point.y) * BIOME_EDGE_NOISE_SCALE * 0.73 + biome_seed * 0.021) * 0.18
+		+ sin((point.x - point.y) * BIOME_EDGE_NOISE_SCALE * 1.61 + biome_seed * 0.009) * 0.14
+	) / 1.00
+	return wave * BIOME_EDGE_JITTER
 
 
 static func get_landmarks() -> Array[Dictionary]:
 	return generate_landmarks(1)
+
+
+static func get_world_boundary_points() -> PackedVector2Array:
+	if cached_world_boundary_points_built:
+		return cached_world_boundary_points.duplicate()
+	cached_world_boundary_points = _build_world_boundary_points()
+	cached_world_boundary_points_built = true
+	return cached_world_boundary_points.duplicate()
 
 
 static func generate_landmarks(world_seed: int) -> Array[Dictionary]:
@@ -329,9 +467,50 @@ static func generate_landmarks(world_seed: int) -> Array[Dictionary]:
 		var landmark := _scale_landmark(Dictionary(landmark_value))
 		var biome_id := str(landmark.get("biome_id", ""))
 		var biome := _get_biome_by_id(biome_id, biomes)
-		landmark["position"] = _generate_landmark_position(landmark, biome, generated, rng)
+		var landmark_position := _generate_landmark_position(landmark, biome, generated, rng)
+		if landmark_position == Vector2.INF:
+			continue
+		landmark["position"] = landmark_position
 		generated.append(landmark)
 	return generated
+
+
+static func get_safe_player_start_position(landmarks: Array[Dictionary]) -> Vector2:
+	if is_safe_player_start_position(PLAYER_START_POSITION, landmarks):
+		return PLAYER_START_POSITION
+	for ring in range(1, PLAYER_SPAWN_SEARCH_RINGS + 1):
+		var ring_distance := float(ring) * PLAYER_SPAWN_SEARCH_STEP
+		var candidate_count: int = max(12, int(TAU * ring_distance / maxf(PLAYER_SPAWN_SEARCH_STEP * 0.75, 1.0)))
+		for index in range(candidate_count):
+			var angle := TAU * float(index) / float(candidate_count)
+			var candidate := PLAYER_START_POSITION + Vector2.RIGHT.rotated(angle) * ring_distance
+			if is_safe_player_start_position(candidate, landmarks):
+				return candidate
+	var world_center := WORLD_RECT.get_center()
+	if is_safe_player_start_position(world_center, landmarks):
+		return world_center
+	return PLAYER_START_POSITION
+
+
+static func is_safe_player_start_position(position: Vector2, landmarks: Array[Dictionary]) -> bool:
+	var zone := get_terrain_zone(position)
+	if zone != "land" and zone != "highland":
+		return false
+	if not WORLD_RECT.grow(-PLAYER_EDGE_PADDING * 4.0).has_point(position):
+		return false
+	for landmark_value in landmarks:
+		var landmark := Dictionary(landmark_value)
+		var landmark_position := Vector2(landmark.get("position", Vector2.ZERO))
+		var radius := float(landmark.get("radius", 0.0))
+		var landmark_type := str(landmark.get("type", ""))
+		var safe_distance := PLAYER_LANDMARK_SAFE_DISTANCE
+		if landmark_type == "pond":
+			safe_distance = PLAYER_POND_SAFE_DISTANCE
+		elif landmark_type == "hill":
+			safe_distance = PLAYER_HILL_SAFE_DISTANCE
+		if position.distance_to(landmark_position) < radius + safe_distance:
+			return false
+	return true
 
 
 static func _get_balanced_landmark_selection(world_seed: int) -> Array[Dictionary]:
@@ -428,7 +607,7 @@ static func _generate_landmark_position(landmark: Dictionary, biome: Dictionary,
 	var radius := float(landmark.get("radius", 120.0))
 	var spawn_margin := _get_landmark_spawn_margin(str(landmark.get("type", "")))
 	var world_margin := spawn_margin + radius
-	var player_safe_distance := float(GAME_BALANCE.LANDMARKS.get("landmark_player_safe_distance", 760.0))
+	var player_position := PLAYER_START_POSITION
 	var min_landmark_distance := float(GAME_BALANCE.LANDMARKS.get("landmark_min_distance", 420.0))
 	for _attempt in 96:
 		var candidate := Vector2(
@@ -439,12 +618,14 @@ static func _generate_landmark_position(landmark: Dictionary, biome: Dictionary,
 			continue
 		if not _is_landmark_inside_world_bounds(candidate, world_margin):
 			continue
-		if candidate.distance_to(PLAYER_START_POSITION) < player_safe_distance + radius:
+		if not _is_landmark_position_on_valid_terrain(candidate, radius):
+			continue
+		if _is_landmark_too_close_to_player(candidate, radius, player_position):
 			continue
 		if _is_landmark_too_close_to_others(candidate, radius, placed_landmarks, min_landmark_distance):
 			continue
 		return candidate
-	return _find_landmark_fallback_position(fallback_position, points, radius, world_margin, placed_landmarks, min_landmark_distance)
+	return _find_landmark_fallback_position(fallback_position, points, radius, world_margin, placed_landmarks, min_landmark_distance, player_position)
 
 
 static func _is_landmark_inside_world_bounds(position: Vector2, margin: float) -> bool:
@@ -467,8 +648,18 @@ static func _is_landmark_too_close_to_others(position: Vector2, radius: float, p
 	return false
 
 
-static func _find_landmark_fallback_position(fallback_position: Vector2, points: PackedVector2Array, radius: float, world_margin: float, placed_landmarks: Array[Dictionary], min_landmark_distance: float) -> Vector2:
-	if Geometry2D.is_point_in_polygon(fallback_position, points) and _is_landmark_inside_world_bounds(fallback_position, world_margin) and not _is_landmark_too_close_to_others(fallback_position, radius, placed_landmarks, min_landmark_distance):
+static func _is_landmark_too_close_to_player(position: Vector2, radius: float, player_position: Vector2) -> bool:
+	var zone := get_terrain_zone(position)
+	var safe_distance := PLAYER_LANDMARK_SAFE_DISTANCE
+	if zone == "pond":
+		safe_distance = PLAYER_POND_SAFE_DISTANCE
+	elif zone == "hill":
+		safe_distance = PLAYER_HILL_SAFE_DISTANCE
+	return position.distance_to(player_position) < radius + safe_distance
+
+
+static func _find_landmark_fallback_position(fallback_position: Vector2, points: PackedVector2Array, radius: float, world_margin: float, placed_landmarks: Array[Dictionary], min_landmark_distance: float, player_position: Vector2) -> Vector2:
+	if Geometry2D.is_point_in_polygon(fallback_position, points) and _is_landmark_inside_world_bounds(fallback_position, world_margin) and _is_landmark_position_on_valid_terrain(fallback_position, radius) and not _is_landmark_too_close_to_others(fallback_position, radius, placed_landmarks, min_landmark_distance) and not _is_landmark_too_close_to_player(fallback_position, radius, player_position):
 		return fallback_position
 	var bounds := _get_polygon_bounds(points)
 	var center: Vector2 = bounds.get_center()
@@ -481,10 +672,38 @@ static func _find_landmark_fallback_position(fallback_position: Vector2, points:
 				continue
 			if not _is_landmark_inside_world_bounds(candidate, world_margin):
 				continue
+			if not _is_landmark_position_on_valid_terrain(candidate, radius):
+				continue
 			if _is_landmark_too_close_to_others(candidate, radius, placed_landmarks, min_landmark_distance):
 				continue
+			if _is_landmark_too_close_to_player(candidate, radius, player_position):
+				continue
 			return candidate
-	return fallback_position
+	if Geometry2D.is_point_in_polygon(center, points) and _is_landmark_inside_world_bounds(center, world_margin) and _is_landmark_position_on_valid_terrain(center, radius) and not _is_landmark_too_close_to_others(center, radius, placed_landmarks, min_landmark_distance) and not _is_landmark_too_close_to_player(center, radius, player_position):
+		return center
+	return Vector2.INF
+
+
+static func _is_landmark_position_on_valid_terrain(position: Vector2, radius: float) -> bool:
+	var zone := get_terrain_zone(position)
+	if zone != "land" and zone != "highland":
+		return false
+	var sample_directions := [
+		Vector2.RIGHT,
+		Vector2.LEFT,
+		Vector2.UP,
+		Vector2.DOWN,
+		Vector2(1, 1).normalized(),
+		Vector2(-1, 1).normalized(),
+		Vector2(1, -1).normalized(),
+		Vector2(-1, -1).normalized()
+	]
+	for direction in sample_directions:
+		var sample_position: Vector2 = position + direction * radius * 0.9
+		var sample_zone := get_terrain_zone(sample_position)
+		if sample_zone == "deep_ocean" or sample_zone == "shallow_water":
+			return false
+	return true
 
 
 static func _get_landmark_spawn_margin(landmark_type: String) -> float:
@@ -507,6 +726,64 @@ static func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
 		max_point.x = max(max_point.x, point.x)
 		max_point.y = max(max_point.y, point.y)
 	return Rect2(min_point, max_point - min_point)
+
+
+static func _get_polygon_center(points: PackedVector2Array) -> Vector2:
+	if points.is_empty():
+		return Vector2.ZERO
+	var total := Vector2.ZERO
+	for point in points:
+		total += point
+	return total / float(points.size())
+
+
+static func _build_world_boundary_points() -> PackedVector2Array:
+	var rect := WORLD_RECT
+	var points := PackedVector2Array([
+		Vector2(rect.position.x, rect.position.y + rect.size.y * 0.14),
+		Vector2(rect.position.x + rect.size.x * 0.06, rect.position.y + rect.size.y * 0.02),
+		Vector2(rect.position.x + rect.size.x * 0.12, rect.position.y + rect.size.y * 0.09),
+		Vector2(rect.position.x + rect.size.x * 0.20, rect.position.y + rect.size.y * 0.01),
+		Vector2(rect.position.x + rect.size.x * 0.29, rect.position.y + rect.size.y * 0.12),
+		Vector2(rect.position.x + rect.size.x * 0.37, rect.position.y + rect.size.y * 0.03),
+		Vector2(rect.position.x + rect.size.x * 0.48, rect.position.y + rect.size.y * 0.10),
+		Vector2(rect.position.x + rect.size.x * 0.58, rect.position.y + rect.size.y * 0.02),
+		Vector2(rect.position.x + rect.size.x * 0.68, rect.position.y + rect.size.y * 0.13),
+		Vector2(rect.position.x + rect.size.x * 0.78, rect.position.y + rect.size.y * 0.06),
+		Vector2(rect.position.x + rect.size.x * 0.88, rect.position.y + rect.size.y * 0.17),
+		Vector2(rect.end.x, rect.position.y + rect.size.y * 0.26),
+		Vector2(rect.end.x - rect.size.x * 0.01, rect.position.y + rect.size.y * 0.38),
+		Vector2(rect.end.x - rect.size.x * 0.07, rect.position.y + rect.size.y * 0.50),
+		Vector2(rect.end.x - rect.size.x * 0.02, rect.position.y + rect.size.y * 0.64),
+		Vector2(rect.end.x - rect.size.x * 0.08, rect.position.y + rect.size.y * 0.78),
+		Vector2(rect.end.x - rect.size.x * 0.02, rect.position.y + rect.size.y * 0.91),
+		Vector2(rect.position.x + rect.size.x * 0.84, rect.end.y),
+		Vector2(rect.position.x + rect.size.x * 0.70, rect.end.y - rect.size.y * 0.03),
+		Vector2(rect.position.x + rect.size.x * 0.58, rect.end.y - rect.size.y * 0.01),
+		Vector2(rect.position.x + rect.size.x * 0.45, rect.end.y - rect.size.y * 0.06),
+		Vector2(rect.position.x + rect.size.x * 0.32, rect.end.y - rect.size.y * 0.02),
+		Vector2(rect.position.x + rect.size.x * 0.18, rect.end.y - rect.size.y * 0.08),
+		Vector2(rect.position.x + rect.size.x * 0.06, rect.end.y - rect.size.y * 0.02),
+		Vector2(rect.position.x, rect.end.y - rect.size.y * 0.14),
+		Vector2(rect.position.x + rect.size.x * 0.02, rect.position.y + rect.size.y * 0.82),
+		Vector2(rect.position.x + rect.size.x * 0.00, rect.position.y + rect.size.y * 0.56)
+	])
+	for i in points.size():
+		var point := points[i]
+		var x_wave := sin(point.y * 0.0023 + float(i) * 0.82) * 60.0
+		var y_wave := cos(point.x * 0.0020 - float(i) * 0.64) * 44.0
+		point.x = clampf(point.x + x_wave, rect.position.x, rect.end.x)
+		point.y = clampf(point.y + y_wave, rect.position.y, rect.end.y)
+		points[i] = point
+	return points
+
+
+static func _get_island_noise() -> FastNoiseLite:
+	if cached_island_noise == null:
+		cached_island_noise = FastNoiseLite.new()
+	cached_island_noise.seed = 224466
+	cached_island_noise.frequency = 0.6
+	return cached_island_noise
 
 
 static func _get_biome_id(biome: Dictionary) -> String:

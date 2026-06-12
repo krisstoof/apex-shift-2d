@@ -7,11 +7,12 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var context := await INTEGRATION.boot_main()
+	if not bool(context.get("ok", false)):
+		return [String(context.get("reason", "Integration bootstrap failed"))]
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
 	if tree == null or main == null:
-		failures.append("SceneTree is not available for the integration test run")
-		return failures
+		return ["Integration bootstrap returned invalid tree/main."]
 
 	var world_boot := main.get_node_or_null("World")
 	if world_boot != null and world_boot.has_method("is_boot_ready") and not bool(world_boot.call("is_boot_ready")):
@@ -44,3 +45,5 @@ func run() -> Array[String]:
 	await INTEGRATION.shutdown_main(context)
 
 	return failures
+
+

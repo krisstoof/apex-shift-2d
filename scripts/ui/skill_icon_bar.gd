@@ -9,7 +9,6 @@ var slots := [
 	{"key": "Shift", "name": "Run", "kind": "run"},
 	{"key": "E", "name": "Use", "kind": "use"},
 	{"key": "Space", "name": "Attack", "kind": "attack"},
-	{"key": "G", "name": "Gen", "kind": "generation"},
 	{"key": "1", "name": "Fire", "kind": "fire"},
 	{"key": "2", "name": "Spear", "kind": "spear"},
 	{"key": "3", "name": "Trap", "kind": "trap"},
@@ -99,12 +98,6 @@ func _draw_icon(kind: String, rect: Rect2, available: bool) -> void:
 		"attack":
 			draw_line(center + Vector2(-14, 12), center + Vector2(14, -14), color, 4.0)
 			draw_polygon([center + Vector2(14, -14), center + Vector2(10, -2), center + Vector2(2, -10)], [color])
-		"generation":
-			draw_circle(center, 13.0, color, false, 3.0)
-			draw_line(center + Vector2(9, -9), center + Vector2(17, -9), color, 2.0)
-			draw_line(center + Vector2(17, -9), center + Vector2(17, -1), color, 2.0)
-			draw_line(center + Vector2(-9, 9), center + Vector2(-17, 9), color, 2.0)
-			draw_line(center + Vector2(-17, 9), center + Vector2(-17, 1), color, 2.0)
 		"fire":
 			draw_circle(center + Vector2(0, 7), 9.0, Color(0.85, 0.26, 0.08) if available else color)
 			draw_circle(center + Vector2(0, 3), 5.0, Color(1.0, 0.82, 0.18) if available else color)

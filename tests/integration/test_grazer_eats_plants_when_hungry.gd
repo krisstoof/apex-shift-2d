@@ -7,11 +7,12 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var context := await INTEGRATION.boot_main()
+	if not bool(context.get("ok", false)):
+		return [String(context.get("reason", "Integration bootstrap failed"))]
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
 	if tree == null or main == null:
-		failures.append("Integration bootstrap failed")
-		return failures
+		return ["Integration bootstrap returned invalid tree/main."]
 
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -30,10 +31,13 @@ func run() -> Array[String]:
 
 	INTEGRATION.clear_nodes_in_group_near_position(tree, "edible_vegetation", grazer.global_position, 260.0)
 	INTEGRATION.refresh_world_cache(world)
-	var food_position := grazer.global_position + Vector2(18.0, 0.0)
-	var plant := INTEGRATION.spawn_resource(world, "grass_patch", food_position)
+	var near_food_position := grazer.global_position + Vector2(18.0, 0.0)
+	var far_food_position := grazer.global_position + Vector2(220.0, 0.0)
+	var plant := INTEGRATION.spawn_resource(world, "berry_bush", near_food_position)
+	var far_plant := INTEGRATION.spawn_resource(world, "small_bush", far_food_position)
 	TEST_UTILS.expect(plant != null, failures, "The test should spawn a control plant resource")
-	if plant == null:
+	TEST_UTILS.expect(far_plant != null, failures, "The test should spawn a farther control plant resource")
+	if plant == null or far_plant == null:
 		await INTEGRATION.shutdown_main(context)
 		return failures
 
@@ -43,6 +47,8 @@ func run() -> Array[String]:
 	TEST_UTILS.expect_equal(grazer.state, grazer.State.SEEK_FOOD, failures, "Hungry grazer should seek food")
 	TEST_UTILS.expect(is_instance_valid(grazer.plant_target), failures, "Hungry grazer should lock a plant target")
 	TEST_UTILS.expect(grazer.plant_target == plant, failures, "Hungry grazer should choose the closest plant")
+	INTEGRATION.assert_valid_node2d_position(failures, grazer, "Hungry grazer")
+	INTEGRATION.assert_creature_registered(failures, world, grazer, "grazer", "Hungry grazer")
 	grazer.call("_act", 0.0)
 	TEST_UTILS.expect(grazer.velocity.length() > 0.0 or grazer.state == grazer.State.EAT_PLANTS, failures, "Hungry grazer should either move toward or start eating the plant")
 	var hunger_before: float = float(grazer.hunger)
@@ -54,3 +60,5 @@ func run() -> Array[String]:
 
 	await INTEGRATION.shutdown_main(context)
 	return failures
+
+

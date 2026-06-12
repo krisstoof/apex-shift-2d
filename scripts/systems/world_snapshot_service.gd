@@ -147,6 +147,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 	var small_prey_spawn_sync: Dictionary = {}
 	var varnak_spawn_sync: Dictionary = {}
 	var varnak_population: Dictionary = {}
+	var creature_ai_state_counts: Dictionary = {}
 	var visibility_culling: Dictionary = {}
 	var landmark_overlay_enabled := false
 	var biome_textures_enabled := true
@@ -177,6 +178,11 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 			varnak_spawn_sync = Dictionary(active_world.get_varnak_spawn_sync_debug())
 		if active_world.has_method("get_varnak_population_status"):
 			varnak_population = Dictionary(active_world.get_varnak_population_status())
+		creature_ai_state_counts = {
+			"small_prey": _count_ai_states(_get_world_creatures_from_world(active_world, "small_prey")),
+			"grazer": _count_ai_states(_get_world_creatures_from_world(active_world, "grazer")),
+			"varnak": _count_ai_states(_get_world_creatures_from_world(active_world, "varnak"))
+		}
 		if active_world.has_method("get_visibility_culling_debug"):
 			visibility_culling = Dictionary(active_world.get_visibility_culling_debug())
 		if active_world.has_method("is_landmark_debug_overlay_enabled"):
@@ -213,6 +219,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 		"small_prey_spawn_sync": small_prey_spawn_sync,
 		"varnak_spawn_sync": varnak_spawn_sync,
 		"varnak_population": varnak_population,
+		"creature_ai_state_counts": creature_ai_state_counts,
 		"visibility_culling": visibility_culling,
 		"landmark_overlay_enabled": landmark_overlay_enabled,
 		"biome_textures_enabled": biome_textures_enabled,
@@ -224,10 +231,33 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 func _build_marker_snapshot() -> Dictionary:
 	return {
 		"resources": _build_resource_markers(),
+		"campfires": _build_campfire_markers(),
 		"varnaks": _build_creature_markers("varnak"),
 		"small_prey": _build_creature_markers("small_prey"),
 		"grazers": _build_creature_markers("grazer")
 	}
+
+
+func _build_campfire_markers() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return markers
+
+	for campfire_value in tree.get_nodes_in_group("campfires"):
+		var campfire := campfire_value as Node2D
+		if campfire == null or not is_instance_valid(campfire):
+			continue
+		if campfire.is_queued_for_deletion():
+			continue
+
+		markers.append({
+			"position": campfire.global_position,
+			"type": "campfire",
+			"active": _read_campfire_active(campfire)
+		})
+
+	return markers
 
 
 func _build_resource_markers() -> Array[Dictionary]:
@@ -256,11 +286,95 @@ func _build_creature_markers(creature_type: String) -> Array[Dictionary]:
 		var creature := creature_value as Node2D
 		if creature == null or not is_instance_valid(creature):
 			continue
+		if creature.is_queued_for_deletion():
+			continue
+		if _is_creature_dead_for_marker(creature):
+			continue
 		markers.append({
 			"position": creature.global_position,
 			"type": creature_type
 		})
 	return markers
+
+
+func _read_campfire_active(campfire: Node) -> bool:
+	if campfire == null:
+		return false
+	if campfire.has_method("is_active"):
+		return campfire.call("is_active") == true
+	if campfire.has_method("is_lit"):
+		return campfire.call("is_lit") == true
+	var active_value: Variant = campfire.get("active")
+	if active_value != null:
+		return active_value == true
+	var lit_value: Variant = campfire.get("lit")
+	if lit_value != null:
+		return lit_value == true
+	return true
+
+
+func _is_creature_dead_for_marker(creature: Node) -> bool:
+	if creature == null:
+		return true
+	if creature.has_method("is_dead"):
+		return creature.call("is_dead") == true
+	if creature.has_method("is_alive"):
+		return creature.call("is_alive") != true
+	if creature.has_method("get_health"):
+		return float(creature.call("get_health")) <= 0.0
+	var dead_value: Variant = creature.get("dead")
+	if dead_value != null:
+		return dead_value == true
+	var is_dead_value: Variant = creature.get("is_dead")
+	if is_dead_value != null:
+		return is_dead_value == true
+	var health_value: Variant = creature.get("health")
+	if health_value != null:
+		return float(health_value) <= 0.0
+	return false
+
+
+func _get_world_creatures_from_world(active_world: Node, creature_type: String) -> Array:
+	if active_world == null:
+		return []
+	if active_world.has_method("get_registered_creatures_by_type"):
+		return active_world.get_registered_creatures_by_type(creature_type)
+	return []
+
+
+func _count_ai_states(nodes: Array) -> Dictionary:
+	var counts: Dictionary = {}
+	for node in nodes:
+		if not is_instance_valid(node):
+			continue
+		var state_name := ""
+		if node.has_method("get_debug_ai_state"):
+			state_name = str(node.get_debug_ai_state())
+		elif node.has_method("get_debug_data"):
+			var data: Dictionary = node.get_debug_data()
+			state_name = str(data.get("state", ""))
+		if state_name.is_empty():
+			continue
+		state_name = _normalize_ai_state_label(state_name)
+		if state_name.is_empty():
+			continue
+		counts[state_name] = int(counts.get(state_name, 0)) + 1
+	return counts
+
+
+func _normalize_ai_state_label(state_name: String) -> String:
+	var normalized := state_name.strip_edges().to_lower()
+	if normalized.is_empty():
+		return ""
+	if normalized.contains("flee"):
+		return "fleeing"
+	if normalized.contains("eat"):
+		return "eating"
+	if normalized.contains("hunt") or normalized.contains("stalk") or normalized.contains("chase") or normalized.contains("attack"):
+		return "hunting"
+	if normalized.contains("hungry") or normalized.contains("starv"):
+		return "hungry"
+	return "wandering" if normalized.contains("wander") or normalized.contains("idle") else normalized
 
 
 func _build_ecosystem_snapshot() -> Dictionary:

@@ -1,6 +1,7 @@
 extends RefCounted
 class_name WorldQueryService
 
+const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
 var world
@@ -9,9 +10,10 @@ var hill_resource_block_radius_factor := 0.72
 var hill_visual_y_scale := 0.58
 var pond_visual_y_scale := 0.62
 var water_zone_land := "land"
+var water_zone_highland := "highland"
 var water_zone_shore := "shore"
 var water_zone_shallow := "shallow_water"
-var water_zone_deep := "deep_water"
+var water_zone_deep := "deep_ocean"
 
 
 func bind_world(
@@ -21,9 +23,10 @@ func bind_world(
 	p_hill_visual_y_scale := 0.58,
 	p_pond_visual_y_scale := 0.62,
 	p_water_zone_land := "land",
+	p_water_zone_highland := "highland",
 	p_water_zone_shore := "shore",
 	p_water_zone_shallow := "shallow_water",
-	p_water_zone_deep := "deep_water"
+	p_water_zone_deep := "deep_ocean"
 ) -> WorldQueryService:
 	world = p_world
 	plant_resource_kinds.clear()
@@ -33,6 +36,7 @@ func bind_world(
 	hill_visual_y_scale = p_hill_visual_y_scale
 	pond_visual_y_scale = p_pond_visual_y_scale
 	water_zone_land = p_water_zone_land
+	water_zone_highland = p_water_zone_highland
 	water_zone_shore = p_water_zone_shore
 	water_zone_shallow = p_water_zone_shallow
 	water_zone_deep = p_water_zone_deep
@@ -49,23 +53,29 @@ func get_terrain_speed_multiplier(position: Vector2) -> float:
 
 
 func get_water_zone(position: Vector2) -> String:
-	var best_zone := water_zone_land
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+	var best_zone := water_zone_highland if terrain_zone == "highland" else water_zone_land
 	var search_radius := _get_pond_water_search_radius()
-	if search_radius <= 0.0:
-		return best_zone
-	for pond_value in _get_pond_landmarks():
-		var pond := Dictionary(pond_value)
-		var pond_pos := Vector2(pond.get("position", Vector2.ZERO))
-		var distance_to_pond := position.distance_to(pond_pos)
-		if distance_to_pond > search_radius:
-			continue
-		var zone := _get_pond_water_zone(position, pond)
-		if zone == water_zone_deep:
-			return water_zone_deep
-		if zone == water_zone_shallow:
-			best_zone = water_zone_shallow
-		elif zone == water_zone_shore and best_zone == water_zone_land:
-			best_zone = water_zone_shore
+	if search_radius > 0.0:
+		for pond_value in _get_pond_landmarks():
+			var pond := Dictionary(pond_value)
+			var pond_pos := Vector2(pond.get("position", Vector2.ZERO))
+			var distance_to_pond := position.distance_to(pond_pos)
+			if distance_to_pond > search_radius:
+				continue
+			var zone := _get_pond_water_zone(position, pond)
+			if zone == water_zone_deep:
+				return water_zone_deep
+			if zone == water_zone_shallow:
+				best_zone = water_zone_shallow
+			elif zone == water_zone_shore and best_zone == water_zone_land:
+				best_zone = water_zone_shore
+	if terrain_zone == "deep_ocean":
+		return water_zone_deep
+	if terrain_zone == "shallow_water":
+		return water_zone_shallow
+	if terrain_zone == "shore":
+		return water_zone_shore
 	return best_zone
 
 
@@ -78,9 +88,25 @@ func is_position_in_deep_water(position: Vector2) -> bool:
 	return get_water_zone(position) == water_zone_deep
 
 
+func is_position_inside_world_boundary(position: Vector2) -> bool:
+	return not _is_outside_world_boundary(position)
+
+
+func is_position_on_playable_land(position: Vector2) -> bool:
+	if not WORLD_CONFIG.WORLD_RECT.grow(-32.0).has_point(position):
+		return false
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+	return terrain_zone == "land" or terrain_zone == "highland"
+
+
 func is_resource_position_blocked_by_water(resource_kind: String, position: Vector2) -> bool:
 	if not _is_plant_resource_kind(resource_kind):
 		return false
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+	if terrain_zone in ["deep_ocean", "shallow_water"]:
+		return true
+	if terrain_zone == "shore":
+		return true
 	var margin_multiplier := _get_resource_water_margin_multiplier(resource_kind)
 	for pond_value in _get_pond_landmarks():
 		var pond := Dictionary(pond_value)
@@ -100,7 +126,8 @@ func is_creature_navigation_blocked(position: Vector2) -> bool:
 
 
 func is_creature_spawn_blocked_by_water(position: Vector2) -> bool:
-	return is_position_in_deep_water(position)
+	var zone := get_water_zone(position)
+	return zone in [water_zone_deep, water_zone_shallow, water_zone_shore]
 
 
 func _get_pond_landmarks() -> Array:
@@ -140,21 +167,21 @@ func _get_pond_shape_scale(pond: Dictionary, angle: float) -> float:
 	var irregularity := _get_pond_shape_irregularity()
 	if irregularity <= 0.0:
 		return 1.0
-	var seed := _get_pond_shape_seed(pond)
+	var pond_seed := _get_pond_shape_seed(pond)
 	var wave := (
-		sin(angle * 2.0 + seed) * 0.55
-		+ sin(angle * 3.0 - seed * 1.7) * 0.32
-		+ sin(angle * 5.0 + seed * 0.6) * 0.18
+		sin(angle * 2.0 + pond_seed) * 0.55
+		+ sin(angle * 3.0 - pond_seed * 1.7) * 0.32
+		+ sin(angle * 5.0 + pond_seed * 0.6) * 0.18
 	) / 1.05
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.25, 1.0 + irregularity * 1.25)
 
 
 func _get_pond_shape_seed(pond: Dictionary) -> float:
 	var pond_id := str(pond.get("id", "pond"))
-	var seed := 0
+	var hash_value := 0
 	for i in pond_id.length():
-		seed = (seed + pond_id.unicode_at(i) * (i + 3)) % 997
-	return float(seed) / 997.0 * TAU
+		hash_value = (hash_value + pond_id.unicode_at(i) * (i + 3)) % 997
+	return float(hash_value) / 997.0 * TAU
 
 
 func _get_pond_shape_irregularity() -> float:
@@ -207,6 +234,13 @@ func _is_position_in_hill_obstacle(position: Vector2, hill: Dictionary) -> bool:
 	return _get_hill_shape_ratio(position, hill) <= hill_resource_block_radius_factor
 
 
+func _is_outside_world_boundary(position: Vector2) -> bool:
+	var boundary_points := WORLD_CONFIG.get_world_boundary_points()
+	if boundary_points.size() < 3:
+		return false
+	return not Geometry2D.is_point_in_polygon(position, boundary_points)
+
+
 func _get_hill_shape_ratio(position: Vector2, hill: Dictionary) -> float:
 	var center := Vector2(hill.get("position", Vector2.ZERO))
 	var radius := float(hill.get("radius", 0.0))
@@ -222,21 +256,21 @@ func _get_hill_shape_scale(hill: Dictionary, angle: float) -> float:
 	var irregularity := _get_hill_shape_irregularity()
 	if irregularity <= 0.0:
 		return 1.0
-	var seed := _get_hill_shape_seed(hill)
+	var shape_seed := _get_hill_shape_seed(hill)
 	var wave := (
-		sin(angle * 2.0 + seed) * 0.50
-		+ sin(angle * 4.0 - seed * 1.35) * 0.28
-		+ sin(angle * 6.0 + seed * 0.4) * 0.16
+		sin(angle * 2.0 + shape_seed) * 0.50
+		+ sin(angle * 4.0 - shape_seed * 1.35) * 0.28
+		+ sin(angle * 6.0 + shape_seed * 0.4) * 0.16
 	) / 0.94
 	return clamp(1.0 + wave * irregularity, 1.0 - irregularity * 1.15, 1.0 + irregularity * 1.15)
 
 
 func _get_hill_shape_seed(hill: Dictionary) -> float:
 	var hill_id := str(hill.get("id", "hill"))
-	var seed := 0
+	var raw_seed := 0
 	for i in hill_id.length():
-		seed = (seed + hill_id.unicode_at(i) * (i + 5)) % 997
-	return float(seed) / 997.0 * TAU
+		raw_seed = (raw_seed + hill_id.unicode_at(i) * (i + 5)) % 997
+	return float(raw_seed) / 997.0 * TAU
 
 
 func _get_hill_shape_irregularity() -> float:

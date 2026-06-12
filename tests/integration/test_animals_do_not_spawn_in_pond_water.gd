@@ -7,11 +7,12 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	var context := await INTEGRATION.boot_main()
+	if not bool(context.get("ok", false)):
+		return [String(context.get("reason", "Integration bootstrap failed"))]
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
 	if tree == null or main == null:
-		failures.append("Integration bootstrap failed")
-		return failures
+		return ["Integration bootstrap returned invalid tree/main."]
 
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -32,6 +33,7 @@ func run() -> Array[String]:
 	_assert_group_not_in_water(tree, world, "small_prey", failures)
 	_assert_group_not_in_water(tree, world, "grazer", failures)
 	_assert_group_not_in_water(tree, world, "varnak", failures)
+	INTEGRATION.assert_tree_unpaused(failures, tree, "AnimalsDoNotSpawnInPondWater")
 
 	await INTEGRATION.shutdown_main(context)
 	return failures
@@ -44,5 +46,9 @@ func _assert_group_not_in_water(tree: SceneTree, world: Node, group_name: String
 		var creature := node as Node2D
 		if creature == null:
 			continue
+		INTEGRATION.assert_valid_node2d_position(failures, creature, "%s creature" % group_name)
+		INTEGRATION.assert_creature_registered(failures, world, creature, group_name, "%s creature" % group_name)
 		TEST_UTILS.expect(world.call("get_world_rect").has_point(creature.global_position), failures, "%s should start inside world bounds" % group_name)
 		TEST_UTILS.expect(not world.call("is_position_in_water", creature.global_position), failures, "%s spawned in water at %s" % [group_name, str(creature.global_position)])
+
+
