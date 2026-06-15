@@ -44,6 +44,7 @@ const WALL_SCENE := preload("res://scenes/buildings/wall.tscn")
 const STORAGE_BOX_SCENE := preload("res://scenes/buildings/storage_box.tscn")
 const TENT_SCENE := preload("res://scenes/buildings/tent.tscn")
 const ARROW_PROJECTILE_SCENE := preload("res://scenes/projectiles/arrow_projectile.tscn")
+const RESOURCE_NODE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const MIN_CAMERA_ZOOM := 1.30
 const MAX_CAMERA_ZOOM := 1.80
 const DEFAULT_CAMERA_ZOOM := Vector2(1.50, 1.50)
@@ -389,6 +390,35 @@ func debug_add_bow() -> void:
 	has_bow = true
 	_emit_game_event("debug_item_added", {"item": "bow", "amount": 1})
 	_post_event_message("Debug gave bow")
+
+
+func drop_inventory_item(item_id: String, amount: int = 1) -> bool:
+	if is_dead:
+		return false
+	if item_id.is_empty() or amount <= 0:
+		return false
+	if not inventory.has_item(item_id, amount):
+		_post_event_message("Not enough items")
+		return false
+	var drop := RESOURCE_NODE_SCENE.instantiate()
+	var drop_position := global_position + _get_aim_vector().rotated(deg_to_rad(45.0)) * 38.0
+	drop.global_position = drop_position
+	get_tree().current_scene.add_child(drop)
+	if drop.has_method("setup"):
+		drop.setup("item_drop")
+	drop.set("item_id", item_id)
+	drop.set("amount", amount)
+	drop.set("item_name", item_id)
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("register_resource_node"):
+		world.register_resource_node(drop)
+	if not inventory.remove_item(item_id, amount):
+		if is_instance_valid(drop):
+			drop.queue_free()
+		_post_event_message("Could not drop item")
+		return false
+	_post_event_message("Dropped %s x%d" % [item_id.replace("_", " "), amount])
+	return true
 
 
 func debug_damage_player() -> void:
@@ -872,7 +902,7 @@ func _draw_human_body() -> void:
 
 func _draw_player_visual_layout(layout: Dictionary, scale_factor: float, shirt_color: Color, shade_color: Color, skin_color: Color, alpha: float) -> void:
 	var pose := _get_player_draw_pose()
-	var transformed_layout := _transform_player_visual_layout(layout, bool(pose["flip_x"]), float(pose["body_angle"]))
+	var transformed_layout := _transform_player_visual_layout(layout, pose["flip_x"] == true, float(pose["body_angle"]))
 	var shadow_center: Vector2 = Vector2(layout["shadow_center"])
 	var shadow_radius: float = float(layout["shadow_radius"]) * scale_factor
 	draw_circle(shadow_center, shadow_radius, Color(0.02, 0.03, 0.04, 0.22 * alpha))

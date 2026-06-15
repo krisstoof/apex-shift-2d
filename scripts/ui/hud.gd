@@ -141,7 +141,7 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones, landmarks, snapshot_service)
 	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director, snapshot_service)
 	if inventory_screen.has_method("setup"):
-		inventory_screen.setup(_get_player_inventory())
+		inventory_screen.setup(_get_player_inventory(), player)
 	if storage_box_screen != null and storage_box_screen.has_method("setup"):
 		storage_box_screen.visible = false
 	_connect_inventory_changed()
@@ -724,7 +724,7 @@ func _get_player_stat_value(player_node: Node, stat_name: String, default_value:
 
 func _is_player_near_campfire(player_node: Node) -> bool:
 	if player_node.has_method("is_near_campfire"):
-		return bool(player_node.call("is_near_campfire"))
+		return player_node.call("is_near_campfire") == true
 	var player_2d := player_node as Node2D
 	if player_2d == null:
 		return false

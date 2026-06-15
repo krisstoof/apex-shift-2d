@@ -59,6 +59,33 @@ func add_item(item_id: String, amount: int) -> int:
 	return remaining
 
 
+func can_add_item(item_id: String, amount: int) -> bool:
+	if amount <= 0:
+		return true
+	if not ITEM_DATABASE.has_item(item_id):
+		return false
+	var max_stack := ITEM_DATABASE.get_max_stack(item_id)
+	var remaining := amount
+	for slot in slots:
+		if remaining <= 0:
+			break
+		var slot_item_id := str(slot.get("item_id", ""))
+		var current_amount: int = int(slot.get("amount", 0))
+		if slot_item_id == item_id:
+			var available_space: int = max_stack - current_amount
+			remaining -= maxi(available_space, 0)
+		elif slot_item_id.is_empty():
+			remaining -= max_stack
+	return remaining <= 0
+
+
+func add_item_full_stack(item_id: String, amount: int) -> bool:
+	if not can_add_item(item_id, amount):
+		return false
+	var leftover := add_item(item_id, amount)
+	return leftover == 0
+
+
 func remove_item(item_id: String, amount: int) -> bool:
 	if amount <= 0:
 		return true

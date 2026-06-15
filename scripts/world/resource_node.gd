@@ -26,6 +26,7 @@ static var shared_resource_atlas: ImageTexture
 @export var color := Color.FOREST_GREEN
 @export var radius := 15.0
 var resource_kind := "conifer_tree"
+var item_id := ""
 var mature_amount := 2
 var mature_radius := 15.0
 var mature_color := Color.FOREST_GREEN
@@ -126,6 +127,12 @@ func setup(kind: String) -> void:
 			mature_color = Color(0.82, 0.78, 0.70)
 			mature_radius = 9.0
 			z_index = 20
+		"item_drop":
+			item_name = ""
+			mature_amount = 1
+			mature_color = Color(0.82, 0.76, 0.42)
+			mature_radius = 10.0
+			z_index = 20
 		"bush":
 			item_name = "fiber"
 			mature_amount = 2
@@ -174,6 +181,12 @@ func setup(kind: String) -> void:
 
 
 func interact(player: Node) -> void:
+	if resource_kind == "item_drop":
+		_interact_item_drop(player)
+		return
+	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
+		_interact_full_stack_drop(player)
+		return
 	if not player_harvestable:
 		_post_event_message("%s cannot be gathered" % _get_resource_label())
 		return
@@ -184,7 +197,10 @@ func interact(player: Node) -> void:
 		_post_event_message("%s is empty" % _get_resource_label())
 		return
 	var collected_amount := amount
-	var leftover: int = player.inventory.add_item(item_name, collected_amount)
+	var player_inventory: Variant = player.get("inventory")
+	if player_inventory == null or not player_inventory.has_method("add_item"):
+		return
+	var leftover: int = int(player_inventory.call("add_item", item_name, collected_amount))
 	var added_amount: int = collected_amount - leftover
 	if added_amount <= 0:
 		_post_event_message("Inventory full")
@@ -208,6 +224,8 @@ func interact(player: Node) -> void:
 
 
 func get_prompt() -> String:
+	if resource_kind == "item_drop":
+		return "E: pick up %s x%d" % [_get_drop_item_label(), amount]
 	if not player_harvestable:
 		return ""
 	if not can_be_harvested:
@@ -248,12 +266,30 @@ func get_save_data() -> Dictionary:
 		"is_pond_vegetation": is_pond_vegetation,
 		"pond_id": pond_id,
 		"food_bonus_multiplier": food_bonus_multiplier,
-		"pond_visual_multiplier": pond_visual_multiplier
+		"pond_visual_multiplier": pond_visual_multiplier,
+		"item_id": item_id
 	}
 
 
 func restore_from_data(data: Dictionary) -> void:
 	biome_id = str(data.get("biome_id", _get_biome_id_for_position(global_position)))
+	if str(data.get("kind", resource_kind)) == "item_drop":
+		resource_kind = "item_drop"
+		item_id = str(data.get("item_id", data.get("item_name", item_id)))
+		item_name = item_id
+		player_harvestable = true
+		render_only = false
+		amount = max(int(data.get("amount", 1)), 1)
+		mature_amount = amount
+		can_be_harvested = true
+		is_edible_by_herbivores = false
+		food_value = 0.0
+		is_pond_vegetation = false
+		pond_id = ""
+		_sync_resource_groups()
+		_sync_visual_sprite()
+		queue_redraw()
+		return
 	mature_amount = max(int(data.get("mature_amount", mature_amount)), 0)
 	amount = max(int(data.get("amount", mature_amount)), 0)
 	growth_stage = clamp(int(data.get("growth_stage", max_growth_stage)), 0, max_growth_stage)
@@ -270,6 +306,7 @@ func restore_from_data(data: Dictionary) -> void:
 	pond_id = str(data.get("pond_id", pond_id))
 	food_bonus_multiplier = max(float(data.get("food_bonus_multiplier", food_bonus_multiplier)), 1.0)
 	pond_visual_multiplier = max(float(data.get("pond_visual_multiplier", pond_visual_multiplier)), 1.0)
+	item_id = str(data.get("item_id", item_id))
 	_apply_pond_visual_bonus()
 	_sync_resource_groups()
 	_apply_growth_stage()
@@ -368,6 +405,10 @@ func _sync_visual_sprite() -> void:
 	if sprite == null:
 		return
 	if resource_kind == "bone_drop":
+		sprite.visible = false
+		sprite.texture = null
+		return
+	if resource_kind == "item_drop":
 		sprite.visible = false
 		sprite.texture = null
 		return
@@ -594,6 +635,35 @@ func _get_resource_label() -> String:
 	return str(resource_kind).replace("_", " ")
 
 
+func _interact_item_drop(player: Node) -> void:
+	_interact_full_stack_drop(player)
+
+
+func _interact_full_stack_drop(player: Node) -> void:
+	var drop_item_id := _get_drop_item_id()
+	if drop_item_id.is_empty() or amount <= 0:
+		queue_free()
+		return
+	var player_inventory: Variant = player.get("inventory")
+	if player_inventory == null or not player_inventory.has_method("add_item_full_stack"):
+		return
+	if player_inventory.call("add_item_full_stack", drop_item_id, amount) != true:
+		_post_event_message("Inventory full")
+		return
+	_post_event_message("Collected %s x%d" % [_get_drop_item_label(), amount])
+	queue_free()
+
+
+func _get_drop_item_id() -> String:
+	if not item_id.is_empty():
+		return item_id
+	return item_name
+
+
+func _get_drop_item_label() -> String:
+	return _get_drop_item_id().replace("_", " ")
+
+
 func is_render_only_resource() -> bool:
 	return render_only
 
@@ -633,7 +703,7 @@ func is_edible_vegetation() -> bool:
 
 
 func _sync_resource_groups() -> void:
-	for group_name in ["trees", "bushes", "grass", "rocks", "vegetation", "edible_vegetation", "pond_vegetation", "meat_drops"]:
+	for group_name in ["trees", "bushes", "grass", "rocks", "vegetation", "edible_vegetation", "pond_vegetation", "meat_drops", "item_drops"]:
 		if is_in_group(group_name):
 			remove_from_group(group_name)
 	match resource_kind:
@@ -650,6 +720,8 @@ func _sync_resource_groups() -> void:
 			add_to_group("rocks")
 		"meat_drop":
 			add_to_group("meat_drops")
+		"item_drop":
+			add_to_group("item_drops")
 	if is_edible_by_herbivores:
 		add_to_group("edible_vegetation")
 	if is_pond_vegetation:
@@ -785,6 +857,8 @@ func _draw() -> void:
 			_draw_meat_drop()
 		"bone_drop":
 			_draw_bone_drop()
+		"item_drop":
+			_draw_item_drop()
 		_:
 			_draw_bush()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -894,3 +968,10 @@ func _draw_bone_drop() -> void:
 	draw_rect(Rect2(-6, -4, 12, 8), Color(0.94, 0.92, 0.88), true)
 	draw_rect(Rect2(-3, -7, 6, 14), Color(0.80, 0.76, 0.68), true)
 	draw_line(Vector2(-7, -1), Vector2(7, 1), Color(0.98, 0.98, 0.94, 0.45), 1.6)
+
+
+func _draw_item_drop() -> void:
+	draw_circle(Vector2.ZERO, 9.0, Color(0.16, 0.12, 0.05, 0.24))
+	draw_circle(Vector2.ZERO, 8.0, Color(0.90, 0.78, 0.34))
+	draw_circle(Vector2(-2.5, -2.5), 3.0, Color(1.0, 0.93, 0.62))
+	draw_line(Vector2(-6, 5), Vector2(6, -5), Color(0.32, 0.22, 0.06, 0.55), 2.0)

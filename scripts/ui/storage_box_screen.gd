@@ -16,6 +16,8 @@ var storage_grid: GridContainer
 var info_label: Label
 var player_slots: Array[Control] = []
 var storage_slots: Array[Control] = []
+var player_visual_stack_data: Array[Dictionary] = []
+var storage_visual_stack_data: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -194,7 +196,7 @@ func _build_inventory_column(title_text: String, columns: int, slot_count: int) 
 func _create_slot() -> PanelContainer:
 	var slot := PanelContainer.new()
 	slot.mouse_filter = Control.MOUSE_FILTER_STOP
-	slot.custom_minimum_size = Vector2(72, 72)
+	slot.custom_minimum_size = Vector2(156, 72)
 	var slot_style := StyleBoxFlat.new()
 	slot_style.bg_color = Color(0.06, 0.07, 0.08, 0.92)
 	slot_style.corner_radius_top_left = 6
@@ -224,10 +226,29 @@ func _create_slot() -> PanelContainer:
 	icon.custom_minimum_size = Vector2(40, 40)
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	icon.position = Vector2(10, 6)
+	icon.position = Vector2(8, 8)
 	container.add_child(icon)
+
+	var name_label := Label.new()
+	name_label.name = "NameLabel"
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_label.text = ""
+	name_label.position = Vector2(54, 10)
+	name_label.size = Vector2(86, 20)
+	name_label.add_theme_font_size_override("font_size", 14)
+	container.add_child(name_label)
+
+	var symbol_label := Label.new()
+	symbol_label.name = "SymbolLabel"
+	symbol_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	symbol_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	symbol_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	symbol_label.position = Vector2(8, 47)
+	symbol_label.size = Vector2(40, 16)
+	symbol_label.add_theme_font_size_override("font_size", 11)
+	container.add_child(symbol_label)
 
 	var count_label := Label.new()
 	count_label.name = "CountLabel"
@@ -235,9 +256,9 @@ func _create_slot() -> PanelContainer:
 	count_label.text = ""
 	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	count_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	count_label.add_theme_font_size_override("font_size", 16)
-	count_label.position = Vector2(0, 42)
-	count_label.size = Vector2(60, 22)
+	count_label.add_theme_font_size_override("font_size", 15)
+	count_label.position = Vector2(54, 36)
+	count_label.size = Vector2(86, 20)
 	container.add_child(count_label)
 
 	slot.gui_input.connect(_on_slot_gui_input.bind(slot))
@@ -330,19 +351,18 @@ func _refresh_panel() -> void:
 		info_label.visible = false
 	_clear_slots(player_slots)
 	_clear_slots(storage_slots)
-	_fill_slots(player_slots, player_inventory, PLAYER_SLOT_COUNT)
-	_fill_slots(storage_slots, storage_inventory, STORAGE_SLOT_COUNT)
+	player_visual_stack_data = _build_visual_stacks(player_inventory)
+	storage_visual_stack_data = _build_visual_stacks(storage_inventory)
+	_fill_slots(player_slots, player_visual_stack_data, PLAYER_SLOT_COUNT)
+	_fill_slots(storage_slots, storage_visual_stack_data, STORAGE_SLOT_COUNT)
 
 
-func _fill_slots(slot_nodes: Array[Control], inventory: Variant, slot_limit: int) -> void:
-	if inventory == null:
-		return
-	var visual_stacks: Array[Dictionary] = _build_visual_stacks(inventory)
+func _fill_slots(slot_nodes: Array[Control], visual_stacks: Array[Dictionary], slot_limit: int) -> void:
 	var shown_count: int = mini(visual_stacks.size(), slot_limit)
 	for index in range(slot_limit):
 		if index < visual_stacks.size():
 			var stack: Dictionary = Dictionary(visual_stacks[index])
-			_set_slot_item(slot_nodes[index], str(stack.get("item_id", "")), int(stack.get("count", 0)))
+			_set_slot_item(slot_nodes[index], str(stack.get("item_id", "")), int(stack.get("count", 0)), index)
 		else:
 			_clear_slot(slot_nodes[index])
 	if info_label != null and visual_stacks.size() > slot_limit:
@@ -383,20 +403,29 @@ func _clear_slots(slot_nodes: Array[Control]) -> void:
 		_clear_slot(slot)
 
 
-func _set_slot_item(slot: Control, item_id: String, count: int) -> void:
+func _set_slot_item(slot: Control, item_id: String, count: int, visual_index: int) -> void:
 	if slot == null:
 		return
 	slot.set_meta("item_id", item_id)
 	slot.set_meta("amount", count)
+	slot.set_meta("visual_index", visual_index)
 	var icon: TextureRect = slot.get_node_or_null("Content/Icon")
+	var name_label: Label = slot.get_node_or_null("Content/NameLabel")
+	var symbol_label: Label = slot.get_node_or_null("Content/SymbolLabel")
 	var count_label: Label = slot.get_node_or_null("Content/CountLabel")
 	if icon != null:
 		var icon_path := ITEM_DATABASE.get_icon_path(item_id)
 		icon.texture = load(icon_path) if not icon_path.is_empty() else null
 		icon.visible = true
+	if name_label != null:
+		name_label.text = ITEM_DATABASE.get_display_name(item_id)
+		name_label.visible = true
+	if symbol_label != null:
+		symbol_label.text = _get_item_symbol(item_id)
+		symbol_label.visible = true
 	if count_label != null:
-		count_label.text = "x%d" % count if count > 1 else ""
-		count_label.visible = count > 1
+		count_label.text = "x%d" % count
+		count_label.visible = true
 
 
 func _clear_slot(slot: Control) -> void:
@@ -404,11 +433,20 @@ func _clear_slot(slot: Control) -> void:
 		return
 	slot.set_meta("item_id", "")
 	slot.set_meta("amount", 0)
+	slot.set_meta("visual_index", -1)
 	var icon: TextureRect = slot.get_node_or_null("Content/Icon")
+	var name_label: Label = slot.get_node_or_null("Content/NameLabel")
+	var symbol_label: Label = slot.get_node_or_null("Content/SymbolLabel")
 	var count_label: Label = slot.get_node_or_null("Content/CountLabel")
 	if icon != null:
 		icon.texture = null
 		icon.visible = false
+	if name_label != null:
+		name_label.text = ""
+		name_label.visible = false
+	if symbol_label != null:
+		symbol_label.text = ""
+		symbol_label.visible = false
 	if count_label != null:
 		count_label.text = ""
 		count_label.visible = false
@@ -458,3 +496,28 @@ func _show_info(text: String) -> void:
 		return
 	info_label.text = text
 	info_label.visible = true
+
+
+func _get_item_symbol(item_id: String) -> String:
+	match item_id:
+		"wood":
+			return "LOG"
+		"stone":
+			return "ROCK"
+		"fiber":
+			return "GRS"
+		"meat":
+			return "MEA"
+		"bone":
+			return "BON"
+		"berries":
+			return "BERR"
+		"grass":
+			return "GRASS"
+		"torch":
+			return "TOR"
+		"spear":
+			return "SPE"
+		"bow":
+			return "BOW"
+	return str(item_id).substr(0, 4).to_upper()

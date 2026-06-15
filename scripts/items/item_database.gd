@@ -41,6 +41,16 @@ const ITEMS := {
 		"display_name": "Bow",
 		"icon": "",
 		"max_stack": 1
+	},
+	"berries": {
+		"display_name": "Berries",
+		"icon": "",
+		"max_stack": 20
+	},
+	"grass": {
+		"display_name": "Grass",
+		"icon": "",
+		"max_stack": 20
 	}
 }
 

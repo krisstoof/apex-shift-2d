@@ -45,6 +45,9 @@ func run() -> Array[String]:
 	_test_resource_node_renders_bone_drop_through_custom_draw(failures)
 	_test_resource_node_emits_bone_collected_for_bone_drop(failures)
 	_test_resource_node_reports_inventory_full_when_pickup_does_not_fit(failures)
+	_test_resource_node_picks_up_generic_item_drop(failures)
+	_test_resource_node_keeps_generic_item_drop_when_inventory_full(failures)
+	_test_resource_node_rejects_partial_pickup_for_full_stack_drop(failures)
 	return failures
 
 
@@ -373,6 +376,79 @@ func _test_resource_node_reports_inventory_full_when_pickup_does_not_fit(failure
 	TEST_UTILS.expect_equal(event_bus.last_message, "Inventory full", failures, "Full inventory should report an inventory full message")
 	TEST_UTILS.expect_equal(int(player.inventory.get_amount("bone")), 0, failures, "Full inventory should not add a pickup when no space exists")
 	TEST_UTILS.expect(resource.is_inside_tree(), failures, "Pickup should remain in the world when nothing was added")
+	resource.queue_free()
+	player.queue_free()
+	event_bus.queue_free()
+	if previous_event_bus != null:
+		previous_event_bus.name = "EventBus"
+
+
+func _test_resource_node_picks_up_generic_item_drop(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	tree.current_scene.add_child(resource)
+	resource.call("setup", "item_drop")
+	resource.set("item_id", "wood")
+	resource.set("amount", 3)
+	var player := TestPlayer.new()
+	tree.current_scene.add_child(player)
+	resource.call("interact", player)
+	TEST_UTILS.expect_equal(int(player.inventory.get_amount("wood")), 3, failures, "Generic item drops should add their item to the inventory")
+	TEST_UTILS.expect_equal(resource.is_queued_for_deletion(), true, failures, "Generic item drops should disappear after a successful pickup")
+	player.queue_free()
+
+
+func _test_resource_node_keeps_generic_item_drop_when_inventory_full(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var previous_event_bus := tree.root.get_node_or_null("EventBus")
+	if previous_event_bus != null:
+		previous_event_bus.name = "LiveEventBus"
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	tree.root.add_child(event_bus)
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	tree.current_scene.add_child(resource)
+	resource.call("setup", "item_drop")
+	resource.set("item_id", "stone")
+	resource.set("amount", 2)
+	var player := TestPlayer.new()
+	tree.current_scene.add_child(player)
+	for i in range(9):
+		player.inventory.add_item("wood", 20)
+	resource.call("interact", player)
+	TEST_UTILS.expect_equal(event_bus.last_message, "Inventory full", failures, "Full inventory should report an inventory full message for generic item drops")
+	TEST_UTILS.expect_equal(int(player.inventory.get_amount("stone")), 0, failures, "Full inventory should not add a generic item drop")
+	TEST_UTILS.expect(resource.is_inside_tree(), failures, "Generic item drops should stay in the world when pickup fails")
+	resource.queue_free()
+	player.queue_free()
+	event_bus.queue_free()
+	if previous_event_bus != null:
+		previous_event_bus.name = "EventBus"
+
+
+func _test_resource_node_rejects_partial_pickup_for_full_stack_drop(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var previous_event_bus := tree.root.get_node_or_null("EventBus")
+	if previous_event_bus != null:
+		previous_event_bus.name = "LiveEventBus"
+	var event_bus := TestEventBus.new()
+	event_bus.name = "EventBus"
+	tree.root.add_child(event_bus)
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	tree.current_scene.add_child(resource)
+	resource.call("setup", "item_drop")
+	resource.set("item_id", "wood")
+	resource.set("amount", 2)
+	var player := TestPlayer.new()
+	tree.current_scene.add_child(player)
+	for i in range(9):
+		player.inventory.add_item("wood", 20)
+	player.inventory.remove_item("wood", 1)
+	resource.call("interact", player)
+	TEST_UTILS.expect_equal(event_bus.last_message, "Inventory full", failures, "Partial space should still reject a full stack pickup")
+	TEST_UTILS.expect_equal(int(player.inventory.get_amount("wood")), 179, failures, "Partial space should not modify inventory on a rejected stack pickup")
+	TEST_UTILS.expect_equal(int(resource.get("amount")), 2, failures, "Rejected stack pickup should remain unchanged in the world")
+	TEST_UTILS.expect(resource.is_inside_tree(), failures, "Rejected stack pickup should remain in the world")
 	resource.queue_free()
 	player.queue_free()
 	event_bus.queue_free()

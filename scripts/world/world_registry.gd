@@ -13,7 +13,8 @@ const RESOURCE_GROUPS_BY_KIND := {
 	"grass_patch": "grass",
 	"dense_grass": "grass",
 	"rock": "rocks",
-	"meat_drop": "meat_drops"
+	"meat_drop": "meat_drops",
+	"item_drop": "item_drops"
 }
 const BUILDING_GROUP_TO_KIND := {
 	"campfires": "campfire",
@@ -29,6 +30,7 @@ const SUPPORTED_RESOURCE_GROUPS := {
 	"grass": true,
 	"rocks": true,
 	"meat_drops": true,
+	"item_drops": true,
 	"edible_vegetation": true,
 	"pond_vegetation": true
 }
@@ -371,6 +373,8 @@ func _get_resource_group_nodes(group_name: String) -> Array:
 			)
 		"meat_drops":
 			return get_resources_by_kind("meat_drop")
+		"item_drops":
+			return get_resources_by_kind("item_drop")
 		"trees", "bushes", "grass", "rocks":
 			return _filter_resources(func(resource: Node) -> bool:
 				return str(RESOURCE_GROUPS_BY_KIND.get(_get_resource_kind(resource), "")) == group_name
