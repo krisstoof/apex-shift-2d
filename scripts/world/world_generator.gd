@@ -2,6 +2,7 @@ extends RefCounted
 class_name WorldGenerator
 
 const GEN_CONFIG := preload("res://scripts/world/world_generation_config.gd")
+const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 
 var seed: int = 0
 var rng := RandomNumberGenerator.new()
@@ -19,10 +20,17 @@ var biome_detail_noise := FastNoiseLite.new()
 const BIOME_IDS := ["westwood", "stoneback_ridge", "hearth_meadow", "south_thicket", "redfang_wilds"]
 const BIOME_OWNERSHIP_MAP_WIDTH := 256
 const BIOME_OWNERSHIP_MAP_HEIGHT := 192
+const USE_PROCEDURAL_BIOME_OWNERSHIP := false
 
 var biome_region_anchors: Array[Dictionary] = []
 var biome_ownership_map: Array[Array] = []
 var topography_features: Array[Dictionary] = []
+var biome_cleanup_debug: Dictionary = {
+	"component_count": 0,
+	"small_components_removed": 0,
+	"largest_component_per_biome": {},
+	"cells_changed": 0
+}
 
 
 func generate_world(p_seed: int = 0) -> Dictionary:
@@ -117,6 +125,11 @@ func get_biome_id_at(position: Vector2) -> String:
 		return base_terrain
 	if base_terrain == "shore":
 		return "shore"
+	if not USE_PROCEDURAL_BIOME_OWNERSHIP:
+		var polygon_biome := _get_polygon_biome_id_at(position)
+		if not polygon_biome.is_empty():
+			return polygon_biome
+		return _get_nearest_biome_zone_id(position)
 	if biome_ownership_map.is_empty():
 		return _get_raw_biome_id_at(position)
 	return _sample_biome_ownership_map(position)
@@ -381,6 +394,7 @@ func _build_generation_debug(layout: Dictionary) -> Dictionary:
 		"biome_coverage": get_biome_coverage_debug(),
 		"topography_feature_counts": topography_counts,
 		"topography_features": topography_features.size(),
+		"biome_cleanup": biome_cleanup_debug.duplicate(true),
 		"terrain_coverage": {
 			"ocean": float(int(terrain_counts["deep_ocean"]) + int(terrain_counts["shallow_water"])) / float(total),
 			"land": float(int(terrain_counts["land"])) / float(total),
@@ -525,21 +539,16 @@ func _get_biome_scores(position: Vector2) -> Dictionary:
 	var height := get_height_at(position)
 	var moisture := get_moisture_at(position)
 	var danger := get_danger_at(position)
-	var macro_noise := biome_macro_noise.get_noise_2d(position.x, position.y)
-	var ridge_value := ridge_noise.get_noise_2d(position.x, position.y)
 
 	return {
 		"westwood": (
 			_get_macro_biome_score(warped, "westwood") * 4.0
 			+ moisture * 0.24
-			+ macro_noise * 0.08
 			- nx * 0.06
 		),
 		"stoneback_ridge": (
 			_get_macro_biome_score(warped, "stoneback_ridge") * 4.0
 			+ height * 0.18
-			+ ridge_value * 0.12
-			+ macro_noise * 0.06
 			- ny * 0.04
 		),
 		"hearth_meadow": (
@@ -551,28 +560,89 @@ func _get_biome_scores(position: Vector2) -> Dictionary:
 			_get_macro_biome_score(warped, "south_thicket") * 4.0
 			+ moisture * 0.22
 			+ ny * 0.04
-			+ macro_noise * 0.06
 		),
 		"redfang_wilds": (
 			_get_macro_biome_score(warped, "redfang_wilds") * 4.0
 			+ danger * 0.24
 			- moisture * 0.08
 			+ nx * 0.04
-			+ macro_noise * 0.06
 		)
 	}
 
 
 func _get_raw_biome_id_at(position: Vector2) -> String:
 	var scores := _get_biome_scores(position)
-	var best_biome_id := "south_thicket"
-	var best_score := -INF
+	var sorted_ids: Array[String] = []
+	for biome_id in BIOME_IDS:
+		sorted_ids.append(biome_id)
+	sorted_ids.sort_custom(func(a: String, b: String) -> bool:
+		return float(scores.get(a, -INF)) > float(scores.get(b, -INF))
+	)
+	if sorted_ids.is_empty():
+		return "south_thicket"
+	var best_biome_id := str(sorted_ids[0])
+	if sorted_ids.size() < 2:
+		return best_biome_id
+	var best_score := float(scores.get(best_biome_id, -INF))
+	var second_score := float(scores.get(str(sorted_ids[1]), -INF))
+	if best_score - second_score < 0.08:
+		return _get_nearest_anchor_biome(position)
 	for biome_id in BIOME_IDS:
 		var score := float(scores.get(biome_id, -INF))
 		if score > best_score:
 			best_score = score
 			best_biome_id = biome_id
 	return best_biome_id
+
+
+func _get_nearest_anchor_biome(position: Vector2) -> String:
+	var best_id := ""
+	var best_distance := INF
+	for anchor in biome_region_anchors:
+		var anchor_pos := Vector2(anchor.get("position", Vector2.ZERO))
+		var distance := position.distance_to(anchor_pos)
+		if distance < best_distance:
+			best_distance = distance
+			best_id = str(anchor.get("biome_id", ""))
+	return best_id if not best_id.is_empty() else "south_thicket"
+
+
+func _get_polygon_biome_id_at(position: Vector2) -> String:
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var points := PackedVector2Array(biome.get("points", []))
+		if points.size() >= 3 and Geometry2D.is_point_in_polygon(position, points):
+			return _normalize_biome_id(str(biome.get("id", biome.get("name", ""))))
+	return ""
+
+
+func _normalize_biome_id(value: String) -> String:
+	return value.strip_edges().to_lower().replace(" ", "_")
+
+
+func _get_nearest_biome_zone_id(position: Vector2) -> String:
+	var best_id := ""
+	var best_distance := INF
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var points := PackedVector2Array(biome.get("points", []))
+		if points.is_empty():
+			continue
+		var centroid := _get_polygon_centroid(points)
+		var distance := position.distance_to(centroid)
+		if distance < best_distance:
+			best_distance = distance
+			best_id = _normalize_biome_id(str(biome.get("id", biome.get("name", ""))))
+	return best_id
+
+
+func _get_polygon_centroid(points: PackedVector2Array) -> Vector2:
+	if points.is_empty():
+		return Vector2.ZERO
+	var sum := Vector2.ZERO
+	for point in points:
+		sum += point
+	return sum / float(points.size())
 
 
 func _build_biome_ownership_map() -> void:
@@ -624,33 +694,91 @@ func _smooth_biome_ownership_map() -> void:
 func _remove_small_biome_islands(min_region_cells: int) -> void:
 	if biome_ownership_map.is_empty():
 		return
-	var counts := {}
-	for row in biome_ownership_map:
-		for biome_id in row:
-			var key := str(biome_id)
-			counts[key] = int(counts.get(key, 0)) + 1
+	var visited: Dictionary = {}
+	var component_count := 0
+	var small_components_removed := 0
+	var cells_changed := 0
+	var largest_component_per_biome: Dictionary = {}
 	for y in range(biome_ownership_map.size()):
 		for x in range(Array(biome_ownership_map[y]).size()):
-			var biome_id := str(Array(biome_ownership_map[y])[x])
-			if int(counts.get(biome_id, 0)) >= min_region_cells:
+			var cell := Vector2i(x, y)
+			if visited.has(cell):
 				continue
-			var neighbor_counts := {}
-			for oy in range(-1, 2):
-				for ox in range(-1, 2):
-					if ox == 0 and oy == 0:
-						continue
-					var sy := clampi(y + oy, 0, biome_ownership_map.size() - 1)
-					var sx := clampi(x + ox, 0, Array(biome_ownership_map[sy]).size() - 1)
-					var neighbor_id := str(Array(biome_ownership_map[sy])[sx])
-					neighbor_counts[neighbor_id] = int(neighbor_counts.get(neighbor_id, 0)) + 1
-			var replacement_id := biome_id
-			var replacement_count := -1
-			for neighbor_id in neighbor_counts.keys():
-				var count := int(neighbor_counts[neighbor_id])
-				if count > replacement_count:
-					replacement_count = count
-					replacement_id = str(neighbor_id)
-			Array(biome_ownership_map[y])[x] = replacement_id
+			var component := _collect_biome_component(cell, visited)
+			component_count += 1
+			if component.is_empty():
+				continue
+			var biome_id := str(Array(biome_ownership_map[cell.y])[cell.x])
+			largest_component_per_biome[biome_id] = maxi(int(largest_component_per_biome.get(biome_id, 0)), component.size())
+			if component.size() >= min_region_cells:
+				continue
+			var replacement_id := _get_dominant_neighbor_biome(component)
+			if replacement_id.is_empty():
+				continue
+			small_components_removed += 1
+			for component_cell in component:
+				var row: Array = Array(biome_ownership_map[component_cell.y])
+				if str(row[component_cell.x]) == replacement_id:
+					continue
+				row[component_cell.x] = replacement_id
+				cells_changed += 1
+	biome_cleanup_debug = {
+		"component_count": component_count,
+		"small_components_removed": small_components_removed,
+		"largest_component_per_biome": largest_component_per_biome,
+		"cells_changed": cells_changed
+	}
+
+
+func _collect_biome_component(start_cell: Vector2i, visited: Dictionary) -> Array[Vector2i]:
+	var component: Array[Vector2i] = []
+	var target_biome := str(Array(biome_ownership_map[start_cell.y])[start_cell.x])
+	var stack: Array[Vector2i] = [start_cell]
+	while not stack.is_empty():
+		var cell: Vector2i = stack.pop_back()
+		if visited.has(cell):
+			continue
+		visited[cell] = true
+		if str(Array(biome_ownership_map[cell.y])[cell.x]) != target_biome:
+			continue
+		component.append(cell)
+		for offset in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+			var nx: int = cell.x + offset.x
+			var ny: int = cell.y + offset.y
+			if ny < 0 or ny >= biome_ownership_map.size():
+				continue
+			var row: Array = Array(biome_ownership_map[ny])
+			if nx < 0 or nx >= row.size():
+				continue
+			var neighbor_cell := Vector2i(nx, ny)
+			if not visited.has(neighbor_cell):
+				stack.append(neighbor_cell)
+	return component
+
+
+func _get_dominant_neighbor_biome(component: Array[Vector2i]) -> String:
+	var neighbor_counts: Dictionary = {}
+	for cell in component:
+		for offset in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+			var nx: int = cell.x + offset.x
+			var ny: int = cell.y + offset.y
+			if ny < 0 or ny >= biome_ownership_map.size():
+				continue
+			var row: Array = Array(biome_ownership_map[ny])
+			if nx < 0 or nx >= row.size():
+				continue
+			var neighbor_id := str(row[nx])
+			if neighbor_id.is_empty():
+				continue
+			neighbor_counts[neighbor_id] = int(neighbor_counts.get(neighbor_id, 0)) + 1
+	var best_id := ""
+	var best_count := -1
+	for neighbor_id in neighbor_counts.keys():
+		var count := int(neighbor_counts[neighbor_id])
+		if count > best_count:
+			best_count = count
+			best_id = str(neighbor_id)
+	return best_id
 
 
 func _sample_biome_ownership_map(position: Vector2) -> String:
@@ -676,7 +804,7 @@ func get_biome_coverage_debug() -> Dictionary:
 
 
 func get_debug_generation_key() -> String:
-	return "biome_ownership_v5|seed=%d|anchors=%d|ownership=%dx%d" % [
+	return "biome_ownership_v6|seed=%d|anchors=%d|ownership=%dx%d" % [
 		seed,
 		biome_region_anchors.size(),
 		BIOME_OWNERSHIP_MAP_WIDTH,
