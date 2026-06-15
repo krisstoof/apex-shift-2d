@@ -3,6 +3,7 @@ extends CharacterBody2D
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
+const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 
 signal died(reason: String)
 
@@ -432,7 +433,7 @@ func drop_inventory_stack(slot_index: int, expected_item_id: String, expected_am
 	if stack.is_empty():
 		_post_event_message("No item selected")
 		return false
-	var item_id := str(stack.get("item_id", ""))
+	var item_id := ITEM_DATABASE.normalize_item_id(str(stack.get("item_id", "")))
 	var amount := int(stack.get("amount", 0))
 	if item_id != expected_item_id or amount != expected_amount:
 		_post_event_message("Inventory changed")
@@ -458,6 +459,7 @@ func drop_inventory_stack(slot_index: int, expected_item_id: String, expected_am
 func _spawn_inventory_world_drop(item_id: String, amount: int) -> Node:
 	if item_id.is_empty() or amount <= 0:
 		return null
+	item_id = ITEM_DATABASE.normalize_item_id(item_id)
 	var world := _get_world_node()
 	if world == null:
 		return null

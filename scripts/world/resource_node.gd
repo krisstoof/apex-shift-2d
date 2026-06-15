@@ -49,6 +49,7 @@ var pond_visual_multiplier := 1.0
 var biome_id := ""
 var is_visibility_culled := false
 var is_inventory_drop := false
+var inventory_drop_item_id := ""
 # Pool state stays set while the node lives in the pool so release/acquire can reuse it safely.
 var is_pooled := false
 var pool_key := ""
@@ -229,7 +230,9 @@ func interact(player: Node) -> void:
 
 
 func get_prompt() -> String:
-	if is_inventory_drop or resource_kind == "item_drop":
+	if is_inventory_drop:
+		return "E: pick up %s x%d" % [ITEM_DATABASE.get_display_name(item_name), amount]
+	if resource_kind == "item_drop":
 		return "E: pick up %s x%d" % [ITEM_DATABASE.get_display_name(_get_drop_item_id()), amount]
 	if not player_harvestable:
 		return ""
@@ -274,6 +277,7 @@ func get_save_data() -> Dictionary:
 		"pond_visual_multiplier": pond_visual_multiplier,
 		"item_id": item_id,
 		"is_inventory_drop": is_inventory_drop,
+		"inventory_drop_item_id": inventory_drop_item_id,
 		"item_name": item_name
 	}
 
@@ -282,7 +286,10 @@ func restore_from_data(data: Dictionary) -> void:
 	biome_id = str(data.get("biome_id", _get_biome_id_for_position(global_position)))
 	is_inventory_drop = data.get("is_inventory_drop", false) == true
 	if is_inventory_drop:
-		setup_dropped_item(str(data.get("item_name", item_name)), max(int(data.get("amount", 1)), 1))
+		var saved_item_id: String = ITEM_DATABASE.normalize_item_id(str(data.get("inventory_drop_item_id", data.get("item_name", item_name))))
+		var saved_amount: int = maxi(int(data.get("amount", amount)), 1)
+		global_position = _data_to_vector(data.get("position", _vector_to_data(global_position)))
+		setup_dropped_item(saved_item_id, saved_amount)
 		return
 	if str(data.get("kind", resource_kind)) == "item_drop":
 		resource_kind = "item_drop"
@@ -414,6 +421,10 @@ func _apply_growth_stage() -> void:
 func _sync_visual_sprite() -> void:
 	var sprite := _get_visual_sprite()
 	if sprite == null:
+		return
+	if is_inventory_drop:
+		sprite.visible = false
+		sprite.texture = null
 		return
 	if resource_kind == "bone_drop":
 		sprite.visible = false
@@ -652,8 +663,9 @@ func _interact_item_drop(player: Node) -> void:
 
 func setup_dropped_item(p_item_id: String, p_amount: int) -> void:
 	is_inventory_drop = true
-	resource_kind = "item_drop"
-	item_name = p_item_id
+	inventory_drop_item_id = ITEM_DATABASE.normalize_item_id(p_item_id)
+	resource_kind = "inventory_drop"
+	item_name = inventory_drop_item_id
 	amount = max(1, p_amount)
 	mature_amount = amount
 	can_be_harvested = true
@@ -662,30 +674,33 @@ func setup_dropped_item(p_item_id: String, p_amount: int) -> void:
 	is_harvested = false
 	growth_stage = max_growth_stage
 	z_index = 20
-	var accent := ITEM_DATABASE.get_accent_color(item_name)
+	var accent := ITEM_DATABASE.get_accent_color(inventory_drop_item_id)
 	color = accent
 	mature_color = accent
-	radius = 10.0
-	mature_radius = 10.0
+	radius = 14.0
+	mature_radius = 14.0
 	_sync_resource_groups()
 	_sync_visual_sprite()
 	queue_redraw()
 
 
 func _interact_inventory_drop(player: Node) -> void:
-	if player == null or not player.has_method("inventory"):
+	if player == null:
 		return
 	var player_inventory: Variant = player.get("inventory")
 	if player_inventory == null:
 		return
-	if player_inventory.has_method("can_add_item") and not player_inventory.call("can_add_item", item_name, amount):
+	var normalized_item_id := ITEM_DATABASE.normalize_item_id(item_name)
+	item_name = normalized_item_id
+	inventory_drop_item_id = normalized_item_id
+	if player_inventory.has_method("can_add_item") and not player_inventory.call("can_add_item", normalized_item_id, amount):
 		_post_event_message("Inventory full")
 		return
-	var leftover: int = int(player_inventory.call("add_item", item_name, amount))
+	var leftover: int = int(player_inventory.call("add_item", normalized_item_id, amount))
 	if leftover > 0:
 		_post_event_message("Inventory full")
 		return
-	_post_event_message("Picked up %s x%d" % [ITEM_DATABASE.get_display_name(item_name), amount])
+	_post_event_message("Picked up %s x%d" % [ITEM_DATABASE.get_display_name(normalized_item_id), amount])
 	_release_or_free()
 
 
@@ -705,9 +720,82 @@ func _interact_full_stack_drop(player: Node) -> void:
 
 
 func _get_drop_item_id() -> String:
+	if not inventory_drop_item_id.is_empty():
+		return inventory_drop_item_id
 	if not item_id.is_empty():
-		return item_id
-	return item_name
+		return ITEM_DATABASE.normalize_item_id(item_id)
+	return ITEM_DATABASE.normalize_item_id(item_name)
+
+
+func _draw_inventory_drop_visual() -> void:
+	var normalized_item_id := ITEM_DATABASE.normalize_item_id(item_name if not item_name.is_empty() else inventory_drop_item_id)
+	var accent := ITEM_DATABASE.get_accent_color(normalized_item_id)
+	var shape := ITEM_DATABASE.get_ground_shape(normalized_item_id)
+	draw_circle(Vector2(3, 5), radius * 0.85, Color(0.0, 0.0, 0.0, 0.22))
+	match shape:
+		"log":
+			_draw_log_drop(accent)
+		"rock":
+			_draw_rock_drop(accent)
+		"grass_bundle":
+			_draw_fiber_drop(accent)
+		"meat_chunk":
+			_draw_inventory_meat_drop(accent)
+		"bone":
+			_draw_inventory_bone_drop(accent)
+		_:
+			_draw_generic_drop(accent)
+
+
+func _draw_log_drop(accent: Color) -> void:
+	var dark := accent.darkened(0.35)
+	draw_rect(Rect2(Vector2(-13, -5), Vector2(26, 10)), dark, true)
+	draw_rect(Rect2(Vector2(-11, -7), Vector2(22, 10)), accent, true)
+	draw_line(Vector2(-7, -5), Vector2(-7, 3), dark.darkened(0.2), 2.0)
+	draw_line(Vector2(2, -5), Vector2(2, 3), dark.darkened(0.2), 2.0)
+
+
+func _draw_rock_drop(accent: Color) -> void:
+	var points := PackedVector2Array([
+		Vector2(-12, 2),
+		Vector2(-7, -9),
+		Vector2(6, -11),
+		Vector2(14, -2),
+		Vector2(9, 9),
+		Vector2(-5, 11)
+	])
+	draw_colored_polygon(points, accent)
+	draw_polyline(PackedVector2Array([points[0], points[1], points[2], points[3], points[4], points[5], points[0]]), accent.darkened(0.4), 2.0)
+
+
+func _draw_fiber_drop(accent: Color) -> void:
+	var dark := accent.darkened(0.35)
+	for offset in [-9, -4, 0, 5, 9]:
+		draw_line(Vector2(offset, 10), Vector2(offset * 0.4, -11), accent, 3.0)
+		draw_line(Vector2(offset, 10), Vector2(offset * 0.4 + 4, -5), dark, 1.6)
+
+
+func _draw_inventory_meat_drop(accent: Color) -> void:
+	var dark := accent.darkened(0.35)
+	draw_circle(Vector2(-4, 0), 10.0, accent)
+	draw_circle(Vector2(5, 2), 8.0, accent.lightened(0.08))
+	draw_circle(Vector2(2, -1), 3.0, Color(0.95, 0.70, 0.62))
+	draw_arc(Vector2(0, 1), 11.0, 0.2, 5.8, 20, dark, 2.0)
+
+
+func _draw_inventory_bone_drop(accent: Color) -> void:
+	var dark := accent.darkened(0.35)
+	draw_line(Vector2(-9, 0), Vector2(9, 0), accent, 7.0)
+	draw_circle(Vector2(-12, -4), 5.0, accent)
+	draw_circle(Vector2(-12, 4), 5.0, accent)
+	draw_circle(Vector2(12, -4), 5.0, accent)
+	draw_circle(Vector2(12, 4), 5.0, accent)
+	draw_line(Vector2(-9, 0), Vector2(9, 0), dark, 1.5)
+
+
+func _draw_generic_drop(accent: Color) -> void:
+	draw_circle(Vector2.ZERO, 11.0, accent)
+	draw_arc(Vector2.ZERO, 11.0, 0.0, TAU, 24, accent.darkened(0.35), 2.0)
 
 
 func _get_drop_item_label() -> String:
@@ -780,6 +868,13 @@ func _sync_resource_groups() -> void:
 
 func _vector_to_data(value: Vector2) -> Dictionary:
 	return {"x": value.x, "y": value.y}
+
+
+func _data_to_vector(data: Variant) -> Vector2:
+	if data is Dictionary:
+		var position_data := data as Dictionary
+		return Vector2(float(position_data.get("x", 0.0)), float(position_data.get("y", 0.0)))
+	return Vector2.ZERO
 
 
 func _emit_plant_resource_harvested() -> void:
@@ -876,6 +971,9 @@ func _get_biome_id(biome: Dictionary) -> String:
 
 
 func _draw() -> void:
+	if is_inventory_drop:
+		_draw_inventory_drop_visual()
+		return
 	var sprite := _get_visual_sprite()
 	if sprite != null and sprite.texture != null:
 		return

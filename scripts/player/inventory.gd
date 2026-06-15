@@ -27,6 +27,7 @@ func clear() -> void:
 
 
 func add_item(item_id: String, amount: int) -> int:
+	item_id = ITEM_DATABASE.normalize_item_id(item_id)
 	if amount <= 0:
 		return 0
 	if not ITEM_DATABASE.has_item(item_id):
@@ -60,8 +61,9 @@ func add_item(item_id: String, amount: int) -> int:
 
 
 func can_add_item(item_id: String, amount: int) -> bool:
+	item_id = ITEM_DATABASE.normalize_item_id(item_id)
 	if amount <= 0:
-		return true
+		return false
 	if not ITEM_DATABASE.has_item(item_id):
 		return false
 	var max_stack := ITEM_DATABASE.get_max_stack(item_id)
@@ -80,6 +82,7 @@ func can_add_item(item_id: String, amount: int) -> bool:
 
 
 func add_item_full_stack(item_id: String, amount: int) -> bool:
+	item_id = ITEM_DATABASE.normalize_item_id(item_id)
 	if not can_add_item(item_id, amount):
 		return false
 	var leftover := add_item(item_id, amount)
@@ -118,6 +121,7 @@ func clear_slot_stack(slot_index: int) -> bool:
 
 
 func remove_item(item_id: String, amount: int) -> bool:
+	item_id = ITEM_DATABASE.normalize_item_id(item_id)
 	if amount <= 0:
 		return true
 	if not ITEM_DATABASE.has_item(item_id):
@@ -144,12 +148,14 @@ func remove_item(item_id: String, amount: int) -> bool:
 
 
 func has_item(item_id: String, amount: int) -> bool:
+	item_id = ITEM_DATABASE.normalize_item_id(item_id)
 	if amount <= 0:
 		return true
 	return get_amount(item_id) >= amount
 
 
 func get_amount(item_id: String) -> int:
+	item_id = ITEM_DATABASE.normalize_item_id(item_id)
 	var total := 0
 	for slot in slots:
 		if str(slot.get("item_id", "")) == item_id:
