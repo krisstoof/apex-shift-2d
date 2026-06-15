@@ -1717,14 +1717,15 @@ func is_resource_position_blocked_by_water(resource_kind: String, world_position
 func _is_valid_resource_terrain(resource_kind: String, world_position: Vector2) -> bool:
 	if not WORLD_CONFIG.WORLD_RECT.has_point(world_position):
 		return false
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
-	if resource_kind in ["reed", "cattail", "water_lily", "pond_grass", "wetland_grass"]:
-		return terrain_zone in [WATER_ZONE_LAND, WATER_ZONE_HIGHLAND, WATER_ZONE_SHORE, WATER_ZONE_SHALLOW, WATER_ZONE_DEEP]
-	if terrain_zone != WATER_ZONE_LAND and terrain_zone != WATER_ZONE_HIGHLAND:
+	var water_zone := get_water_zone(world_position)
+	if _is_aquatic_vegetation_kind(resource_kind):
+		return water_zone == WATER_ZONE_SHALLOW or water_zone == WATER_ZONE_SHORE
+	if water_zone == WATER_ZONE_DEEP or water_zone == WATER_ZONE_SHALLOW or water_zone == WATER_ZONE_SHORE:
 		return false
+	var terrain_zone := get_surface_terrain_zone_at(world_position)
 	if resource_kind == "rock":
-		return terrain_zone == WATER_ZONE_LAND or terrain_zone == WATER_ZONE_HIGHLAND
-	return true
+		return terrain_zone == WATER_ZONE_LAND or terrain_zone == WATER_ZONE_HIGHLAND or terrain_zone == "rocky_patch"
+	return terrain_zone == WATER_ZONE_LAND or terrain_zone == WATER_ZONE_HIGHLAND or terrain_zone == "wetland"
 
 
 func is_creature_navigation_blocked(world_position: Vector2) -> bool:
@@ -1939,6 +1940,9 @@ func _spawn_resources() -> void:
 	var dry_bush_count := int(ceil(float(bush_count) * 0.35))
 	var green_bush_count := bush_count - dry_bush_count
 
+	await _spawn_pond_aquatic_vegetation(used_positions, player_position)
+	await _spawn_pond_vegetation(used_positions, player_position)
+	await _spawn_pond_edge_greenery(used_positions, player_position)
 	await _spawn_resource_kind("conifer_tree", conifer_count, used_positions, player_position)
 	await _spawn_resource_kind_in_biome(
 		"conifer_tree",
@@ -1958,9 +1962,6 @@ func _spawn_resources() -> void:
 	await _spawn_resource_kind("berry_bush", WORLD_CONFIG.get_berry_bush_count(), used_positions, player_position)
 	await _spawn_grass_kind_mixed("grass_patch", WORLD_CONFIG.get_grass_patch_count(), used_positions, player_position)
 	await _spawn_grass_kind_mixed("dense_grass", WORLD_CONFIG.get_dense_grass_count(), used_positions, player_position)
-	await _spawn_pond_vegetation(used_positions, player_position)
-	await _spawn_pond_aquatic_vegetation(used_positions, player_position)
-	await _spawn_pond_edge_greenery(used_positions, player_position)
 	await _spawn_highland_rocks(used_positions, player_position)
 	await _spawn_outer_island_vegetation(used_positions, player_position)
 	await _spawn_biome_fill_vegetation(used_positions, player_position)
@@ -2103,11 +2104,11 @@ func _spawn_pond_aquatic_vegetation(used_positions: Array[Vector2], player_posit
 			continue
 		var target_count := clampi(int(GAME_BALANCE.LANDMARKS.get("pond_aquatic_vegetation_count", 12)), 8, 18)
 		var spawned := 0
-		for _i in range(target_count * 3):
+		for _i in range(target_count * 8):
 			if spawned >= target_count:
 				break
 			var angle := TAU * resource_rng.randf()
-			var ring := resource_rng.randf_range(0.72, 1.10)
+			var ring := resource_rng.randf_range(0.82, 1.16)
 			var candidate := _get_pond_shape_position(pond, angle, ring)
 			var water_zone := _get_pond_water_zone(candidate, pond)
 			if water_zone not in [WATER_ZONE_SHALLOW, WATER_ZONE_SHORE]:
@@ -2275,8 +2276,15 @@ func _fill_sparse_land_areas(used_positions: Array[Vector2], player_position: Ve
 func _is_valid_sparse_land_fill_position(candidate: Vector2) -> bool:
 	if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
 		return false
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(candidate)
+	var water_zone := get_water_zone(candidate)
+	if water_zone == WATER_ZONE_DEEP or water_zone == WATER_ZONE_SHALLOW or water_zone == WATER_ZONE_SHORE:
+		return false
+	var terrain_zone := get_surface_terrain_zone_at(candidate)
 	return terrain_zone == "land" or terrain_zone == "highland"
+
+
+func _is_aquatic_vegetation_kind(resource_kind: String) -> bool:
+	return resource_kind in ["reed", "cattail", "water_lily", "pond_grass", "wetland_grass"]
 
 
 func _count_nearby_vegetation(position: Vector2, radius: float) -> int:

@@ -107,8 +107,10 @@ func is_position_on_playable_land(position: Vector2) -> bool:
 func is_resource_position_blocked_by_water(resource_kind: String, position: Vector2) -> bool:
 	if not _is_plant_resource_kind(resource_kind):
 		return false
-	var terrain_zone := _get_surface_terrain_zone(position)
-	return terrain_zone in ["deep_ocean", "shallow_water", "shore", "pond"]
+	var zone := get_water_zone(position)
+	if is_aquatic_resource_kind(resource_kind):
+		return zone == water_zone_deep
+	return zone == water_zone_deep or zone == water_zone_shallow or zone == water_zone_shore
 
 
 func is_creature_navigation_blocked(position: Vector2) -> bool:
@@ -125,6 +127,10 @@ func _get_pond_landmarks() -> Array:
 	if world == null:
 		return []
 	return Array(world.get("pond_landmarks"))
+
+
+func is_aquatic_resource_kind(resource_kind: String) -> bool:
+	return resource_kind in ["reed", "cattail", "water_lily", "pond_grass", "wetland_grass"]
 
 
 func _get_landmark_pond_water_zone(position: Vector2) -> String:
