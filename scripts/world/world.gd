@@ -115,7 +115,13 @@ const EDIBLE_GRASS_NODE_BUDGET_PER_KIND := {
 }
 const EDIBLE_POND_GRASS_NODE_BUDGET_TOTAL := 12
 const DECORATIVE_GRASS_VISUAL_Z_INDEX := -2
-const DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES := 360
+const DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES := 560
+const CENTRAL_MEADOW_GRASS_VISUAL_COUNT := 160
+const CENTRAL_MEADOW_DENSE_GRASS_VISUAL_COUNT := 90
+const CENTRAL_MEADOW_SMALL_BUSH_VISUAL_COUNT := 42
+const CENTRAL_MEADOW_BERRY_BUSH_VISUAL_COUNT := 12
+const CENTRAL_MEADOW_RADIUS_X_RATIO := 0.34
+const CENTRAL_MEADOW_RADIUS_Y_RATIO := 0.30
 const INITIAL_SPAWN_BATCH_SIZE := 4
 const INITIAL_BOOT_STEP_FRAME_BREAKS := 1
 const BIOME_TERRAIN_ACCENT_BUILD_BATCH_SIZE := 1
@@ -1047,6 +1053,8 @@ func _should_keep_edible_pond_grass_node(kind: String) -> bool:
 
 
 func _spawn_decorative_vegetation_visual(kind: String, world_position: Vector2, biome_id: String = "", visual_scale: float = 1.0) -> void:
+	if not _is_valid_resource_terrain(kind, world_position):
+		return
 	var layer := _ensure_vegetation_visual_layer()
 	layer.add_instance(kind, world_position, _get_decorative_vegetation_radius(kind), biome_id, visual_scale)
 	decorative_grass_visual_spawn_count += 1
@@ -1060,6 +1068,8 @@ func _clear_decorative_vegetation_visuals() -> void:
 func _try_spawn_decorative_grass_visual(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
 	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var candidate := _get_random_resource_position(resource_kind)
+		if not _is_valid_resource_terrain(resource_kind, candidate):
+			continue
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
@@ -1256,6 +1266,17 @@ func is_position_in_deep_water(world_position: Vector2) -> bool:
 
 func is_resource_position_blocked_by_water(resource_kind: String, world_position: Vector2) -> bool:
 	return _ensure_query_service().is_resource_position_blocked_by_water(resource_kind, world_position)
+
+
+func _is_valid_resource_terrain(resource_kind: String, world_position: Vector2) -> bool:
+	if not WORLD_CONFIG.WORLD_RECT.has_point(world_position):
+		return false
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
+	if terrain_zone != WATER_ZONE_LAND and terrain_zone != WATER_ZONE_HIGHLAND:
+		return false
+	if resource_kind == "rock":
+		return terrain_zone == WATER_ZONE_LAND or terrain_zone == WATER_ZONE_HIGHLAND
+	return true
 
 
 func is_creature_navigation_blocked(world_position: Vector2) -> bool:
@@ -1491,6 +1512,7 @@ func _spawn_resources() -> void:
 	await _spawn_pond_vegetation(used_positions, player_position)
 	await _spawn_outer_island_vegetation(used_positions, player_position)
 	await _spawn_biome_fill_vegetation(used_positions, player_position)
+	await _spawn_central_meadow_visual_fill(used_positions, player_position)
 	call_deferred("_sync_all_biome_vegetation")
 
 
@@ -1561,9 +1583,7 @@ func _try_spawn_resource_in_island_band(
 			cos(angle) * radius_x * ratio,
 			sin(angle) * radius_y * ratio
 		)
-		if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
-			continue
-		if WORLD_CONFIG.get_terrain_zone(candidate) not in ["land", "highland"]:
+		if not _is_valid_resource_terrain(resource_kind, candidate):
 			continue
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
@@ -1587,6 +1607,66 @@ func _spawn_biome_fill_vegetation(used_positions: Array[Vector2], player_positio
 		var biome_id := str(biome.get("name", "")).to_snake_case()
 		await _spawn_resource_kind_in_biome("grass_patch", 18, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70)
 		await _spawn_resource_kind_in_biome("small_bush", 6, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.85)
+
+
+func _spawn_central_meadow_visual_fill(used_positions: Array[Vector2], player_position: Vector2) -> void:
+	var center_biome := _get_biome_for_id("hearth_meadow")
+	var biome := center_biome if not center_biome.is_empty() else _get_biome_for_position(WORLD_CONFIG.WORLD_RECT.get_center())
+	if biome.is_empty():
+		return
+	var center := WORLD_CONFIG.WORLD_RECT.get_center()
+	var radius := Vector2(
+		WORLD_CONFIG.WORLD_RECT.size.x * CENTRAL_MEADOW_RADIUS_X_RATIO,
+		WORLD_CONFIG.WORLD_RECT.size.y * CENTRAL_MEADOW_RADIUS_Y_RATIO
+	)
+	var spawned_since_yield := 0
+	await _spawn_central_band_visual_kind("grass_patch", CENTRAL_MEADOW_GRASS_VISUAL_COUNT, biome, center, radius, used_positions, player_position, spawned_since_yield)
+	await _spawn_central_band_visual_kind("dense_grass", CENTRAL_MEADOW_DENSE_GRASS_VISUAL_COUNT, biome, center, radius, used_positions, player_position, spawned_since_yield)
+	await _spawn_central_band_visual_kind("small_bush", CENTRAL_MEADOW_SMALL_BUSH_VISUAL_COUNT, biome, center, radius, used_positions, player_position, spawned_since_yield)
+	await _spawn_central_band_visual_kind("berry_bush", CENTRAL_MEADOW_BERRY_BUSH_VISUAL_COUNT, biome, center, radius, used_positions, player_position, spawned_since_yield)
+
+
+func _spawn_central_band_visual_kind(kind: String, count: int, biome: Dictionary, center: Vector2, radius: Vector2, used_positions: Array[Vector2], player_position: Vector2, spawned_since_yield: int) -> void:
+	for _i in count:
+		var candidate := _get_random_position_in_biome(biome, center, radius)
+		if candidate == Vector2.INF:
+			continue
+		if not _is_valid_resource_terrain(kind, candidate):
+			continue
+		if is_resource_position_blocked_by_water(kind, candidate):
+			continue
+		if _is_resource_blocked_by_hill(kind, candidate):
+			continue
+		if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.62):
+			continue
+		used_positions.append(candidate)
+		_spawn_decorative_vegetation_visual(kind, candidate, _get_biome_id_for_position(candidate), _get_biome_visual_scale(kind))
+		spawned_since_yield += 1
+		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
+			spawned_since_yield = 0
+			await get_tree().process_frame
+
+
+func _get_random_position_in_biome(biome: Dictionary, center: Vector2, radius: Vector2) -> Vector2:
+	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
+		var angle := resource_rng.randf_range(0.0, TAU)
+		var distance := sqrt(resource_rng.randf())
+		var candidate := center + Vector2(cos(angle) * radius.x * distance, sin(angle) * radius.y * distance)
+		if _is_point_in_biome(candidate, biome):
+			return candidate
+	return Vector2.INF
+
+
+func _get_biome_visual_scale(resource_kind: String) -> float:
+	match resource_kind:
+		"berry_bush":
+			return 1.05
+		"small_bush":
+			return 0.92
+		"dense_grass":
+			return 1.08
+		_:
+			return 1.0
 
 
 func _get_random_resource_position(resource_kind: String = "") -> Vector2:
@@ -1694,6 +1774,8 @@ func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biom
 		var angle: float = base_angle + resource_rng.randf_range(-slot_angle, slot_angle) * POND_VEGETATION_ANGLE_JITTER_FACTOR
 		var distance_factor := resource_rng.randf_range(min_ring_factor, max_ring_factor)
 		var candidate := _get_pond_shape_position(pond, angle, distance_factor)
+		if not _is_valid_resource_terrain(resource_kind, candidate):
+			continue
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
 		if not _is_point_in_biome(candidate, biome):
@@ -2085,6 +2167,8 @@ func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], 
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
+		if not _is_valid_resource_terrain(resource_kind, candidate):
+			continue
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
@@ -2728,7 +2812,8 @@ func _try_spawn_resource_in_biome(
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
-
+		if not _is_valid_resource_terrain(resource_kind, candidate):
+			continue
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):

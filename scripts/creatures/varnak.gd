@@ -23,6 +23,11 @@ const BASE_HUNGER_TIME_SCALE := 0.05
 const MOVEMENT_HUNGER_TIME_SCALE := 0.06
 const AI_DECISION_INTERVAL_SECONDS := 0.14
 const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
+const MAX_PHYSICS_DELTA := 0.08
+const LARGE_MOVEMENT_WARNING_DISTANCE := 220.0
+const MAX_WANDER_TARGET_DISTANCE := 1100.0
+const MAX_FLEE_TARGET_DISTANCE := 1100.0
+const MAX_HUNT_ROAM_TARGET_DISTANCE := 1100.0
 
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
@@ -76,6 +81,8 @@ var simulation_lod_timer := 0.0
 var far_simulation_timer := 0.0
 var simulation_lod_change_count := 0
 var last_simulation_level := SIMULATION_LOD.Level.NEAR
+var movement_spike_count := 0
+var max_movement_spike_distance := 0.0
 
 
 func _get_event_bus() -> Node:
@@ -291,12 +298,13 @@ func _safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
 func _physics_process(delta: float) -> void:
 	if is_dead:
 		return
+	var safe_delta := minf(delta, MAX_PHYSICS_DELTA)
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
 		return
 	_update_simulation_level()
 	if simulation_level == SIMULATION_LOD.Level.FAR:
-		_tick_far_simulation(delta)
+		_tick_far_simulation(safe_delta)
 		return
 	if is_visibility_culled:
 		return
@@ -304,29 +312,31 @@ func _physics_process(delta: float) -> void:
 	var movement_intensity: float = clamp(velocity.length() / max(speed, 1.0), 0.0, 1.0)
 	var hunger_growth := _get_hunger_growth_rate()
 	hunger = clamp(
-		hunger + hunger_growth * BASE_HUNGER_TIME_SCALE * delta + hunger_growth * movement_intensity * MOVEMENT_HUNGER_TIME_SCALE * delta,
+		hunger + hunger_growth * BASE_HUNGER_TIME_SCALE * safe_delta + hunger_growth * movement_intensity * MOVEMENT_HUNGER_TIME_SCALE * safe_delta,
 		0.0,
 		1.0
 	)
-	age_seconds += delta
-	attack_cooldown = max(attack_cooldown - delta, 0.0)
-	target_lock_time = max(target_lock_time - delta, 0.0)
+	age_seconds += safe_delta
+	attack_cooldown = max(attack_cooldown - safe_delta, 0.0)
+	target_lock_time = max(target_lock_time - safe_delta, 0.0)
 	if attack_visual_time > 0.0:
-		attack_visual_time = max(attack_visual_time - delta, 0.0)
+		attack_visual_time = max(attack_visual_time - safe_delta, 0.0)
 		queue_redraw()
 	if eat_visual_time > 0.0:
-		eat_visual_time = max(eat_visual_time - delta, 0.0)
+		eat_visual_time = max(eat_visual_time - safe_delta, 0.0)
 		queue_redraw()
-	ai_decision_timer -= delta
+	ai_decision_timer -= safe_delta
+	var position_before_move := global_position
 	if ai_decision_timer <= 0.0:
 		ai_decision_timer = _get_effective_ai_decision_interval()
 		ai_decision_count += 1
 		_update_state()
-	_act(delta)
-	_update_individual_energy(delta, velocity.length() / max(speed, 1.0))
+	_act(safe_delta)
+	_update_individual_energy(safe_delta, velocity.length() / max(speed, 1.0))
 	move_and_slide()
+	_record_movement_spike(position_before_move)
 	_enforce_world_bounds()
-	_update_spatial_cell_tick(delta)
+	_update_spatial_cell_tick(safe_delta)
 
 
 func force_ai_decision_for_tests() -> void:
@@ -428,7 +438,9 @@ func get_ai_performance_debug() -> Dictionary:
 	return {
 		"decision_interval": ai_decision_interval,
 		"decision_timer": ai_decision_timer,
-		"decision_count": ai_decision_count
+		"decision_count": ai_decision_count,
+		"movement_spike_count": movement_spike_count,
+		"max_movement_spike_distance": max_movement_spike_distance
 	}
 
 
@@ -1037,6 +1049,7 @@ func _pick_wander_target() -> void:
 			randf_range(-local_radius, local_radius),
 			randf_range(-local_radius, local_radius)
 		)
+		candidate = _clamp_target_distance(candidate, MAX_WANDER_TARGET_DISTANCE)
 		if _is_navigation_position_valid(candidate) and (current_biome_id.is_empty() or _get_biome_id_for_position(candidate) == current_biome_id):
 			wander_target = _clamp_to_world(candidate)
 			return
@@ -1045,8 +1058,9 @@ func _pick_wander_target() -> void:
 			randf_range(rect.position.x, rect.end.x),
 			randf_range(rect.position.y, rect.end.y)
 		)
+		candidate = _clamp_target_distance(candidate, MAX_WANDER_TARGET_DISTANCE)
 		if _is_navigation_position_valid(candidate):
-			wander_target = candidate
+			wander_target = _clamp_to_world(candidate)
 			return
 	wander_target = _clamp_to_world(global_position)
 
@@ -1058,7 +1072,7 @@ func _pick_hunt_roam_target() -> void:
 	for _attempt in 36:
 		var angle := randf_range(0.0, TAU)
 		var distance := randf_range(roam_radius * 0.55, roam_radius)
-		var candidate := _clamp_to_world(global_position + Vector2.RIGHT.rotated(angle) * distance)
+		var candidate := _clamp_to_world(_clamp_target_distance(global_position + Vector2.RIGHT.rotated(angle) * distance, MAX_HUNT_ROAM_TARGET_DISTANCE))
 		if not _is_navigation_position_valid(candidate):
 			continue
 		if not allow_cross_biome and not current_biome_id.is_empty() and _get_biome_id_for_position(candidate) != current_biome_id:
@@ -1100,10 +1114,10 @@ func _get_bounded_flee_target(away: Vector2) -> Vector2:
 		direction.rotated(-PI * 0.5)
 	]
 	for candidate_direction in candidates:
-		var candidate := _clamp_to_world(global_position + candidate_direction * 180.0)
+		var candidate := _clamp_to_world(_clamp_target_distance(global_position + candidate_direction * 180.0, MAX_FLEE_TARGET_DISTANCE))
 		if candidate.distance_squared_to(global_position) > 16.0 and _is_navigation_position_valid(candidate):
 			return candidate
-	return _clamp_to_world(global_position + direction * 90.0)
+	return _clamp_to_world(_clamp_target_distance(global_position + direction * 90.0, MAX_FLEE_TARGET_DISTANCE))
 
 
 func _clamp_to_world(target_position: Vector2) -> Vector2:
@@ -1112,6 +1126,22 @@ func _clamp_to_world(target_position: Vector2) -> Vector2:
 		clamp(target_position.x, rect.position.x, rect.end.x),
 		clamp(target_position.y, rect.position.y, rect.end.y)
 	)
+
+
+func _clamp_target_distance(target: Vector2, max_distance: float) -> Vector2:
+	var offset := target - global_position
+	if offset.length() <= max_distance:
+		return target
+	return global_position + offset.normalized() * max_distance
+
+
+func _record_movement_spike(previous_position: Vector2) -> void:
+	var moved_distance := global_position.distance_to(previous_position)
+	if moved_distance <= LARGE_MOVEMENT_WARNING_DISTANCE:
+		return
+	movement_spike_count += 1
+	max_movement_spike_distance = maxf(max_movement_spike_distance, moved_distance)
+	push_warning("Varnak movement spike: %.1f px" % moved_distance)
 
 
 func _get_world_rect() -> Rect2:

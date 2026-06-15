@@ -156,12 +156,20 @@ func _check_water_rules(report: Dictionary, world: Node) -> void:
 	var blocked_positions: Array[String] = []
 	var resource_count := 0
 	var blocked_resource_count := 0
+	var invalid_resource_terrain_count := 0
+	var invalid_rock_terrain_count := 0
 	if world.has_method("get_registered_resources"):
 		for resource_value in Array(world.get_registered_resources()):
 			var resource := resource_value as Node2D
 			if resource == null:
 				continue
 			resource_count += 1
+			var resource_kind := str(resource.get("resource_kind"))
+			var terrain_zone := str(world.get_terrain_zone(resource.global_position)) if world.has_method("get_terrain_zone") else "unknown"
+			if terrain_zone != "land" and terrain_zone != "highland":
+				invalid_resource_terrain_count += 1
+				if resource_kind == "rock":
+					invalid_rock_terrain_count += 1
 			if _is_blocked_zone(world, resource.global_position):
 				blocked_resource_count += 1
 				blocked_positions.append("resource:%s@%s" % [str(resource.name), _format_position(resource.global_position)])
@@ -193,6 +201,8 @@ func _check_water_rules(report: Dictionary, world: Node) -> void:
 	report["stats"]["creatures"] = creature_count
 	report["stats"]["buildings"] = building_count
 	report["checks"]["blocked_resources"] = blocked_resource_count
+	report["checks"]["resource_invalid_terrain"] = invalid_resource_terrain_count
+	report["checks"]["rock_invalid_terrain"] = invalid_rock_terrain_count
 	report["checks"]["blocked_creatures"] = blocked_creature_count
 	report["checks"]["blocked_buildings"] = blocked_building_count
 	if blocked_positions.size() > 0:
@@ -206,17 +216,24 @@ func _check_registered_nodes(report: Dictionary, world: Node) -> void:
 			var count := Array(world.get_registered_resources_by_kind(resource_kind)).size()
 			report["stats"]["resource_kind_%s" % resource_kind] = count
 	var blocked_water_nodes := 0
+	var invalid_resource_nodes := 0
 	if world.has_method("get_registered_resources"):
 		for resource_value in Array(world.get_registered_resources()):
 			var resource := resource_value as Node2D
 			if resource == null:
 				continue
 			var resource_kind := str(resource.get("resource_kind"))
+			var terrain_zone := str(world.get_terrain_zone(resource.global_position)) if world.has_method("get_terrain_zone") else "unknown"
+			if terrain_zone != "land" and terrain_zone != "highland":
+				invalid_resource_nodes += 1
 			if world.has_method("is_resource_position_blocked_by_water") and bool(world.is_resource_position_blocked_by_water(resource_kind, resource.global_position)):
 				blocked_water_nodes += 1
 	if blocked_water_nodes > 0:
 		_collect_error(report, "Registered resources violate water blocking rules: %d" % blocked_water_nodes)
+	if invalid_resource_nodes > 0:
+		_collect_error(report, "Registered resources are outside valid terrain: %d" % invalid_resource_nodes)
 	report["checks"]["resource_water_blocked"] = blocked_water_nodes
+	report["checks"]["resource_invalid_terrain_nodes"] = invalid_resource_nodes
 	_check_water_rule_sampling(report, world)
 
 

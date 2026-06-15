@@ -7,6 +7,10 @@ const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod
 const SPECIES_PATH := "res://data/species/grazer.json"
 const AI_DECISION_INTERVAL_SECONDS := 0.14
 const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
+const MAX_PHYSICS_DELTA := 0.08
+const LARGE_MOVEMENT_WARNING_DISTANCE := 220.0
+const MAX_WANDER_TARGET_DISTANCE := 800.0
+const MAX_FLEE_TARGET_DISTANCE := 800.0
 
 enum State { IDLE, WANDER, EAT_PLANTS, SEEK_FOOD, FLEE, SCAVENGE, HUNT_SMALL_PREY, DEAD }
 
@@ -87,6 +91,8 @@ var simulation_lod_timer := 0.0
 var far_simulation_timer := 0.0
 var simulation_lod_change_count := 0
 var last_simulation_level := SIMULATION_LOD.Level.NEAR
+var movement_spike_count := 0
+var max_movement_spike_distance := 0.0
 
 
 func _get_event_bus() -> Node:
@@ -332,31 +338,34 @@ func take_damage(amount: float, source: String = "unknown") -> void:
 func _physics_process(delta: float) -> void:
 	if state == State.DEAD:
 		return
+	var safe_delta := minf(delta, MAX_PHYSICS_DELTA)
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
 	_update_simulation_level()
 	if simulation_level == SIMULATION_LOD.Level.FAR:
-		_tick_far_simulation(delta)
+		_tick_far_simulation(safe_delta)
 		return
 	if is_visibility_culled:
 		return
-	state_time = max(state_time - delta, 0.0)
-	target_lock_time = max(target_lock_time - delta, 0.0)
+	state_time = max(state_time - safe_delta, 0.0)
+	target_lock_time = max(target_lock_time - safe_delta, 0.0)
 	if eat_visual_time > 0.0:
-		eat_visual_time = max(eat_visual_time - delta, 0.0)
+		eat_visual_time = max(eat_visual_time - safe_delta, 0.0)
 		queue_redraw()
-	age_seconds += delta
-	hunger_diet.tick(delta, velocity.length() / max(speed, 1.0))
+	age_seconds += safe_delta
+	hunger_diet.tick(safe_delta, velocity.length() / max(speed, 1.0))
 	_sync_hunger_fields()
-	ai_decision_timer -= delta
+	ai_decision_timer -= safe_delta
+	var position_before_move := global_position
 	if ai_decision_timer <= 0.0:
 		ai_decision_timer = _get_effective_ai_decision_interval()
 		ai_decision_count += 1
 		_update_state()
-	_act(delta)
+	_act(safe_delta)
 	move_and_slide()
+	_record_movement_spike(position_before_move)
 	_enforce_world_bounds()
-	_update_spatial_cell_tick(delta)
+	_update_spatial_cell_tick(safe_delta)
 
 
 func force_ai_decision_for_tests() -> void:
@@ -469,7 +478,9 @@ func get_ai_performance_debug() -> Dictionary:
 	return {
 		"decision_interval": ai_decision_interval,
 		"decision_timer": ai_decision_timer,
-		"decision_count": ai_decision_count
+		"decision_count": ai_decision_count,
+		"movement_spike_count": movement_spike_count,
+		"max_movement_spike_distance": max_movement_spike_distance
 	}
 
 
@@ -995,6 +1006,7 @@ func _pick_wander_target() -> void:
 			rng.randf_range(-wander_radius, wander_radius),
 			rng.randf_range(-wander_radius, wander_radius)
 		)
+		candidate = _clamp_target_distance(candidate, MAX_WANDER_TARGET_DISTANCE)
 		if _is_navigation_position_valid(candidate) and _is_position_in_biome(candidate, preferred_biome_id):
 			wander_target = _clamp_to_world(candidate)
 			return
@@ -1003,14 +1015,15 @@ func _pick_wander_target() -> void:
 			rng.randf_range(-wander_radius, wander_radius),
 			rng.randf_range(-wander_radius, wander_radius)
 		)
+		candidate = _clamp_target_distance(candidate, MAX_WANDER_TARGET_DISTANCE)
 		if _is_navigation_position_valid(candidate):
 			wander_target = _clamp_to_world(candidate)
 			return
 	var limits := WORLD_CONFIG.get_player_limits()
-	wander_target = _clamp_to_world(Vector2(
+	wander_target = _clamp_to_world(_clamp_target_distance(Vector2(
 		clamp(global_position.x + rng.randf_range(-wander_radius, wander_radius), -limits.x, limits.x),
 		clamp(global_position.y + rng.randf_range(-wander_radius, wander_radius), -limits.y, limits.y)
-	))
+	), MAX_WANDER_TARGET_DISTANCE))
 
 
 func _get_preferred_wander_biome_id() -> String:
@@ -1069,10 +1082,10 @@ func _get_bounded_flee_target(away: Vector2) -> Vector2:
 		direction.rotated(-PI * 0.5)
 	]
 	for candidate_direction in candidates:
-		var candidate := _clamp_to_world(global_position + candidate_direction * wander_radius)
+		var candidate := _clamp_to_world(_clamp_target_distance(global_position + candidate_direction * wander_radius, MAX_FLEE_TARGET_DISTANCE))
 		if candidate.distance_squared_to(global_position) > 16.0 and _is_navigation_position_valid(candidate):
 			return candidate
-	return _clamp_to_world(global_position + direction * wander_radius * 0.45)
+	return _clamp_to_world(_clamp_target_distance(global_position + direction * wander_radius * 0.45, MAX_FLEE_TARGET_DISTANCE))
 
 
 func _clamp_to_world(candidate_position: Vector2) -> Vector2:
@@ -1081,6 +1094,22 @@ func _clamp_to_world(candidate_position: Vector2) -> Vector2:
 		clamp(candidate_position.x, rect.position.x, rect.end.x),
 		clamp(candidate_position.y, rect.position.y, rect.end.y)
 	)
+
+
+func _clamp_target_distance(target: Vector2, max_distance: float) -> Vector2:
+	var offset := target - global_position
+	if offset.length() <= max_distance:
+		return target
+	return global_position + offset.normalized() * max_distance
+
+
+func _record_movement_spike(previous_position: Vector2) -> void:
+	var moved_distance := global_position.distance_to(previous_position)
+	if moved_distance <= LARGE_MOVEMENT_WARNING_DISTANCE:
+		return
+	movement_spike_count += 1
+	max_movement_spike_distance = maxf(max_movement_spike_distance, moved_distance)
+	push_warning("Grazer movement spike: %.1f px" % moved_distance)
 
 
 func _get_world_rect() -> Rect2:
