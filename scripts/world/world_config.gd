@@ -13,7 +13,9 @@ const RESOURCE_DENSITY_MULTIPLIER := 1.65
 const DECORATIVE_VEGETATION_DENSITY_MULTIPLIER := 1.35
 const CREATURE_DENSITY_MULTIPLIER := 1.35
 const VARNAK_DENSITY_MULTIPLIER := 1.25
-const ISLAND_RADIUS_RATIO := 0.70
+const ISLAND_RADIUS_X_RATIO := 0.82
+const ISLAND_RADIUS_Y_RATIO := 0.74
+const ISLAND_EDGE_FALLOFF_POWER := 1.45
 const ISLAND_NOISE_SCALE := 0.0024
 const ISLAND_NOISE_STRENGTH := 0.24
 const DEEP_OCEAN_THRESHOLD := 0.04
@@ -153,23 +155,59 @@ const LANDMARKS := [
 		"radius": 135.0,
 		"biome_id": "redfang_wilds",
 		"gameplay_tags": ["water_source", "danger"]
+	},
+	{
+		"id": "north_coast_pool",
+		"type": "pond",
+		"position": Vector2(-260, -760),
+		"radius": 120.0,
+		"biome_id": "stoneback_ridge",
+		"gameplay_tags": ["water_source", "coast"]
+	},
+	{
+		"id": "south_marsh_pool",
+		"type": "pond",
+		"position": Vector2(-120, 820),
+		"radius": 150.0,
+		"biome_id": "south_thicket",
+		"gameplay_tags": ["water_source", "vegetation_bonus"]
+	},
+	{
+		"id": "far_west_hill",
+		"type": "hill",
+		"position": Vector2(-1320, 120),
+		"radius": 180.0,
+		"biome_id": "westwood",
+		"gameplay_tags": ["high_ground", "navigation"]
+	},
+	{
+		"id": "east_ridge_hill",
+		"type": "hill",
+		"position": Vector2(1260, -140),
+		"radius": 210.0,
+		"biome_id": "redfang_wilds",
+		"gameplay_tags": ["high_ground", "danger"]
 	}
 ]
 
 const HILL_LANDMARK_PRIORITY := [
 	"westwood_old_hill",
+	"far_west_hill",
 	"stoneback_spine",
 	"hearth_watch_hill",
 	"south_thicket_mound",
 	"redfang_teeth",
-	"redfang_lookout"
+	"redfang_lookout",
+	"east_ridge_hill"
 ]
 
 const POND_LANDMARK_PRIORITY := [
 	"westwood_shade_pond",
+	"north_coast_pool",
 	"hearth_mirror_pond",
 	"redfang_darkwater",
 	"south_thicket_pool",
+	"south_marsh_pool",
 	"stoneback_basin"
 ]
 
@@ -409,11 +447,14 @@ static func get_grazer_population_multiplier() -> float:
 
 static func get_terrain_height(position: Vector2) -> float:
 	var center := WORLD_RECT.get_center()
-	var island_radius := minf(WORLD_RECT.size.x, WORLD_RECT.size.y) * ISLAND_RADIUS_RATIO
-	if island_radius <= 0.0:
+	var radius_x := WORLD_RECT.size.x * 0.5 * ISLAND_RADIUS_X_RATIO
+	var radius_y := WORLD_RECT.size.y * 0.5 * ISLAND_RADIUS_Y_RATIO
+	if radius_x <= 0.0 or radius_y <= 0.0:
 		return 0.0
-	var normalized_distance := position.distance_to(center) / island_radius
-	var falloff := pow(clampf(normalized_distance, 0.0, 1.6), 1.45)
+	var local_position := position - center
+	var normalized := Vector2(local_position.x / radius_x, local_position.y / radius_y)
+	var normalized_distance := normalized.length()
+	var falloff := pow(clampf(normalized_distance, 0.0, 1.8), ISLAND_EDGE_FALLOFF_POWER)
 	var island_noise := _get_island_noise()
 	var base_noise := island_noise.get_noise_2d(position.x * ISLAND_NOISE_SCALE, position.y * ISLAND_NOISE_SCALE)
 	var detail_noise := island_noise.get_noise_2d(position.x * ISLAND_NOISE_SCALE * 2.8, position.y * ISLAND_NOISE_SCALE * 2.8)
@@ -517,6 +558,33 @@ static func get_world_boundary_points() -> PackedVector2Array:
 	cached_world_boundary_points = _build_world_boundary_points()
 	cached_world_boundary_points_built = true
 	return cached_world_boundary_points.duplicate()
+
+
+static func get_world_distribution_debug(landmarks: Array[Dictionary]) -> Dictionary:
+	var quadrants := {
+		"north_west": 0,
+		"north_east": 0,
+		"south_west": 0,
+		"south_east": 0
+	}
+	var center := WORLD_RECT.get_center()
+	for landmark_value in landmarks:
+		var landmark := Dictionary(landmark_value)
+		var pos := Vector2(landmark.get("position", Vector2.ZERO))
+		var key := "north_" if pos.y < center.y else "south_"
+		key += "west" if pos.x < center.x else "east"
+		quadrants[key] = int(quadrants.get(key, 0)) + 1
+	return {
+		"landmarks": landmarks.size(),
+		"quadrants": quadrants
+	}
+
+
+static func clear_runtime_caches() -> void:
+	cached_organic_biome_zones.clear()
+	cached_organic_biome_zones_built = false
+	cached_world_boundary_points.clear()
+	cached_world_boundary_points_built = false
 
 
 static func generate_landmarks(world_seed: int) -> Array[Dictionary]:

@@ -59,6 +59,20 @@ func _ready() -> void:
 	_update_marker_cache()
 
 
+func _exit_tree() -> void:
+	biome_blend_texture = null
+	cached_resources.clear()
+	cached_campfires.clear()
+	cached_varnaks.clear()
+	landmarks.clear()
+	biome_zones.clear()
+	snapshot_service = null
+	world = null
+	player = null
+	evolution_director = null
+	day_night_system = null
+
+
 func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = [], p_snapshot_service = null) -> void:
 	player = p_player
 	world = _get_world()
@@ -501,7 +515,7 @@ func _sync_biome_texture() -> void:
 func _ensure_biome_texture() -> void:
 	if biome_zones.is_empty():
 		return
-	var current_key := _get_biome_colors_key()
+	var current_key := _get_biome_texture_key()
 	if biome_blend_texture and biome_blend_colors_key == current_key:
 		return
 	var build_start_ms: int = Time.get_ticks_msec()
@@ -574,8 +588,23 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 	return point.distance_to(start + segment * t)
 
 
-func _get_biome_colors_key() -> String:
+func _get_biome_texture_key() -> String:
 	var parts: Array[String] = [TERRAIN_PALETTE_VERSION]
+	parts.append("rect=%d,%d,%d,%d" % [
+		int(world_rect.position.x),
+		int(world_rect.position.y),
+		int(world_rect.size.x),
+		int(world_rect.size.y)
+	])
+	parts.append("scale=%.2f" % WORLD_CONFIG.WORLD_SCALE)
+	parts.append("island=%.3f:%.3f" % [WORLD_CONFIG.ISLAND_RADIUS_X_RATIO, WORLD_CONFIG.ISLAND_RADIUS_Y_RATIO])
+	parts.append("noise=%.5f:%.3f" % [WORLD_CONFIG.ISLAND_NOISE_SCALE, WORLD_CONFIG.ISLAND_NOISE_STRENGTH])
+	parts.append("thresholds=%.3f:%.3f:%.3f:%.3f" % [
+		WORLD_CONFIG.DEEP_OCEAN_THRESHOLD,
+		WORLD_CONFIG.SHALLOW_WATER_THRESHOLD,
+		WORLD_CONFIG.SHORE_THRESHOLD,
+		WORLD_CONFIG.HIGHLAND_THRESHOLD
+	])
 	for zone_name in TERRAIN_ZONE_COLORS.keys():
 		var color := Color(TERRAIN_ZONE_COLORS[zone_name])
 		parts.append("%s=%.3f:%.3f:%.3f" % [str(zone_name), color.r, color.g, color.b])
