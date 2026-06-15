@@ -115,6 +115,7 @@ const EDIBLE_GRASS_NODE_BUDGET_PER_KIND := {
 }
 const EDIBLE_POND_GRASS_NODE_BUDGET_TOTAL := 12
 const DECORATIVE_GRASS_VISUAL_Z_INDEX := -2
+const DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES := 360
 const INITIAL_SPAWN_BATCH_SIZE := 4
 const INITIAL_BOOT_STEP_FRAME_BREAKS := 1
 const BIOME_TERRAIN_ACCENT_BUILD_BATCH_SIZE := 1
@@ -379,7 +380,7 @@ func _update_decorative_vegetation_visible_rect() -> void:
 			focus_position = visible_rect.get_center()
 		vegetation_visual_layer.set_camera_focus_position(focus_position)
 	if vegetation_visual_layer.has_method("set_max_drawn_instances"):
-		vegetation_visual_layer.set_max_drawn_instances(220)
+		vegetation_visual_layer.set_max_drawn_instances(DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES)
 
 
 func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2, margin := VISIBILITY_CULL_MARGIN) -> Rect2:
@@ -1057,7 +1058,7 @@ func _clear_decorative_vegetation_visuals() -> void:
 
 
 func _try_spawn_decorative_grass_visual(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
-	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
+	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var candidate := _get_random_resource_position(resource_kind)
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
@@ -1462,30 +1463,34 @@ func _create_landmark_area(landmark: Dictionary, group_name: String) -> void:
 func _spawn_resources() -> void:
 	var used_positions: Array[Vector2] = []
 	var player_position := _get_player_position()
-	var conifer_count := int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.6))
-	var leafy_count := WORLD_CONFIG.TREE_COUNT - conifer_count
-	var dry_bush_count := int(ceil(float(WORLD_CONFIG.BUSH_COUNT) * 0.35))
-	var green_bush_count := WORLD_CONFIG.BUSH_COUNT - dry_bush_count
+	var tree_count := WORLD_CONFIG.get_tree_count()
+	var conifer_count := int(ceil(float(tree_count) * 0.6))
+	var leafy_count := tree_count - conifer_count
+	var bush_count := WORLD_CONFIG.get_bush_count()
+	var dry_bush_count := int(ceil(float(bush_count) * 0.35))
+	var green_bush_count := bush_count - dry_bush_count
 
 	await _spawn_resource_kind("conifer_tree", conifer_count, used_positions, player_position)
 	await _spawn_resource_kind_in_biome(
 		"conifer_tree",
-		WORLD_CONFIG.WESTWOOD_EXTRA_CONIFER_COUNT,
+		WORLD_CONFIG.get_westwood_extra_conifer_count(),
 		"westwood",
 		used_positions,
 		player_position,
 		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72
 	)
 	await _spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
-	await _spawn_resource_kind("dry_tree", int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.10)), used_positions, player_position)
-	await _spawn_resource_kind("rock", WORLD_CONFIG.ROCK_COUNT, used_positions, player_position)
+	await _spawn_resource_kind("dry_tree", int(ceil(float(tree_count) * 0.12)), used_positions, player_position)
+	await _spawn_resource_kind("rock", WORLD_CONFIG.get_rock_count(), used_positions, player_position)
 	await _spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
 	await _spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
-	await _spawn_resource_kind("small_bush", WORLD_CONFIG.SMALL_BUSH_COUNT, used_positions, player_position)
-	await _spawn_resource_kind("berry_bush", WORLD_CONFIG.BERRY_BUSH_COUNT, used_positions, player_position)
-	await _spawn_grass_kind_mixed("grass_patch", WORLD_CONFIG.GRASS_PATCH_COUNT, used_positions, player_position)
-	await _spawn_grass_kind_mixed("dense_grass", WORLD_CONFIG.DENSE_GRASS_COUNT, used_positions, player_position)
+	await _spawn_resource_kind("small_bush", WORLD_CONFIG.get_small_bush_count(), used_positions, player_position)
+	await _spawn_resource_kind("berry_bush", WORLD_CONFIG.get_berry_bush_count(), used_positions, player_position)
+	await _spawn_grass_kind_mixed("grass_patch", WORLD_CONFIG.get_grass_patch_count(), used_positions, player_position)
+	await _spawn_grass_kind_mixed("dense_grass", WORLD_CONFIG.get_dense_grass_count(), used_positions, player_position)
 	await _spawn_pond_vegetation(used_positions, player_position)
+	await _spawn_outer_island_vegetation(used_positions, player_position)
+	await _spawn_biome_fill_vegetation(used_positions, player_position)
 	call_deferred("_sync_all_biome_vegetation")
 
 
@@ -1518,6 +1523,70 @@ func _spawn_grass_kind_mixed(resource_kind: String, count: int, used_positions: 
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
 			await get_tree().process_frame
+
+
+func _spawn_outer_island_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
+	var outer_visual_count := 90
+	var outer_bush_count := 24
+	var spawned_since_yield := 0
+	for _i in outer_visual_count:
+		if _try_spawn_resource_in_island_band("grass_patch", used_positions, player_position, 0.55, 0.86, true):
+			spawned_since_yield += 1
+		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
+			spawned_since_yield = 0
+			await get_tree().process_frame
+	for _i in outer_bush_count:
+		if _try_spawn_resource_in_island_band("small_bush", used_positions, player_position, 0.50, 0.82, false):
+			spawned_since_yield += 1
+		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
+			spawned_since_yield = 0
+			await get_tree().process_frame
+
+
+func _try_spawn_resource_in_island_band(
+	resource_kind: String,
+	used_positions: Array[Vector2],
+	player_position: Vector2,
+	min_radius_ratio: float,
+	max_radius_ratio: float,
+	visual_only: bool
+) -> bool:
+	var center := WORLD_CONFIG.WORLD_RECT.get_center()
+	var radius_x := WORLD_CONFIG.WORLD_RECT.size.x * 0.5
+	var radius_y := WORLD_CONFIG.WORLD_RECT.size.y * 0.5
+	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
+		var angle := resource_rng.randf_range(0.0, TAU)
+		var ratio := resource_rng.randf_range(min_radius_ratio, max_radius_ratio)
+		var candidate := center + Vector2(
+			cos(angle) * radius_x * ratio,
+			sin(angle) * radius_y * ratio
+		)
+		if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
+			continue
+		if WORLD_CONFIG.get_terrain_zone(candidate) not in ["land", "highland"]:
+			continue
+		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			continue
+		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			continue
+		if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.75):
+			continue
+		used_positions.append(candidate)
+		var biome_id := _get_biome_id_for_position(candidate)
+		if visual_only or VegetationCatalog.is_decorative_kind(resource_kind):
+			_spawn_decorative_vegetation_visual(resource_kind, candidate, biome_id, 1.0)
+		else:
+			_spawn_resource_at(resource_kind, candidate)
+		return true
+	return false
+
+
+func _spawn_biome_fill_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var biome_id := str(biome.get("name", "")).to_snake_case()
+		await _spawn_resource_kind_in_biome("grass_patch", 18, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70)
+		await _spawn_resource_kind_in_biome("small_bush", 6, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.85)
 
 
 func _get_random_resource_position(resource_kind: String = "") -> Vector2:
@@ -1587,7 +1656,7 @@ func _spawn_decorative_vegetation_visuals_for_loaded_world() -> void:
 	var used_positions: Array[Vector2] = []
 	var player_position := _get_player_position()
 	for kind in ["grass_patch", "dense_grass"]:
-		for _i in range(max(WORLD_CONFIG.GRASS_PATCH_COUNT, WORLD_CONFIG.DENSE_GRASS_COUNT)):
+		for _i in range(max(WORLD_CONFIG.get_grass_patch_count(), WORLD_CONFIG.get_dense_grass_count())):
 			if not _try_spawn_decorative_grass_visual(kind, used_positions, player_position):
 				break
 	for pond in pond_landmarks:
@@ -1621,7 +1690,7 @@ func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biom
 	var ring_factor := _get_pond_vegetation_ring_factor(slot_index, slot_count)
 	var min_ring_factor: float = max(ring_factor - POND_VEGETATION_RING_JITTER, 1.12)
 	var max_ring_factor: float = ring_factor + POND_VEGETATION_RING_JITTER
-	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
+	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var angle: float = base_angle + resource_rng.randf_range(-slot_angle, slot_angle) * POND_VEGETATION_ANGLE_JITTER_FACTOR
 		var distance_factor := resource_rng.randf_range(min_ring_factor, max_ring_factor)
 		var candidate := _get_pond_shape_position(pond, angle, distance_factor)
@@ -2009,7 +2078,7 @@ func _is_valid_drop_position(drop_position: Vector2, radius: float = 18.0, resou
 
 
 func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
-	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
+	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var biome := _pick_resource_biome(resource_kind)
 		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
 		var candidate := Vector2(
@@ -2058,8 +2127,10 @@ func _get_biome_resource_weight(biome: Dictionary, resource_kind: String) -> flo
 			return float(biome.get("dry_tree_weight", biome.get("tree_weight", 0.0)))
 		"rock":
 			return float(biome.get("rock_weight", 0.0))
-		"bush", "small_bush":
+		"bush":
 			return float(biome.get("bush_weight", 0.0))
+		"small_bush":
+			return float(biome.get("small_bush_weight", biome.get("bush_weight", 0.0)))
 		"dry_bush":
 			return float(biome.get("dry_bush_weight", biome.get("bush_weight", 0.0)))
 		"berry_bush":
@@ -2396,7 +2467,7 @@ func _get_existing_small_prey_positions() -> Array[Vector2]:
 
 func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2], slot_index: int, _slot_count: int) -> bool:
 	var spawn_ring := _get_creature_horizon_spawn_ring()
-	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
+	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):
@@ -2413,7 +2484,7 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 		SMALL_PREY_MIN_DISTANCE,
 		SMALL_PREY_PLAYER_SAFE_DISTANCE,
 		small_prey_rng,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.0, 400)
+		WORLD_CONFIG.get_resource_spawn_attempts()
 	)
 	if fallback_position != Vector2.INF:
 		used_positions.append(fallback_position)
@@ -2651,7 +2722,7 @@ func _try_spawn_resource_in_biome(
 	player_position: Vector2,
 	min_distance: float
 ) -> bool:
-	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
+	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
 		var candidate := Vector2(
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
@@ -2785,7 +2856,7 @@ func _get_initial_grazer_biomes() -> Array[Dictionary]:
 
 func _try_spawn_grazer_in_biome(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
 	var spawn_area := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
-	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
+	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var candidate := Vector2(
 			grazer_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			grazer_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
@@ -2805,7 +2876,7 @@ func _try_spawn_grazer_in_biome(biome: Dictionary, player_position: Vector2, use
 
 func _try_spawn_grazer_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
 	var spawn_ring := _get_creature_horizon_spawn_ring()
-	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
+	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var offset := Vector2.RIGHT.rotated(grazer_rng.randf_range(0.0, TAU)) * grazer_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):

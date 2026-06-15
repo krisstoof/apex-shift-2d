@@ -9,8 +9,10 @@ const BASE_WORLD_RECT := Rect2(-1680, -1040, 3360, 2080)
 const WORLD_RECT := Rect2(BASE_WORLD_RECT.position * WORLD_SCALE, BASE_WORLD_RECT.size * WORLD_SCALE)
 const WORLD_LINEAR_SCALE_FACTOR := WORLD_SCALE / BASELINE_WORLD_SCALE
 const WORLD_AREA_SCALE_FACTOR := WORLD_LINEAR_SCALE_FACTOR * WORLD_LINEAR_SCALE_FACTOR
-const RESOURCE_DENSITY_MULTIPLIER := 1.65
-const DECORATIVE_VEGETATION_DENSITY_MULTIPLIER := 1.35
+const RESOURCE_DENSITY_MULTIPLIER := 1.75
+const DECORATIVE_VEGETATION_DENSITY_MULTIPLIER := 2.25
+const ROCK_DENSITY_MULTIPLIER := 1.65
+const FOOD_BUSH_DENSITY_MULTIPLIER := 1.75
 const CREATURE_DENSITY_MULTIPLIER := 1.35
 const VARNAK_DENSITY_MULTIPLIER := 1.25
 const ISLAND_RADIUS_X_RATIO := 0.82
@@ -39,6 +41,15 @@ const SMALL_BUSH_COUNT := 28
 const BERRY_BUSH_COUNT := 14
 const GRASS_PATCH_COUNT := 72
 const DENSE_GRASS_COUNT := 34
+const TREE_COUNT_MAX := 170
+const WESTWOOD_EXTRA_CONIFER_COUNT_MAX := 130
+const ROCK_COUNT_MAX := 85
+const BUSH_COUNT_MAX := 120
+const SMALL_BUSH_COUNT_MAX := 110
+const BERRY_BUSH_COUNT_MAX := 55
+const GRASS_PATCH_COUNT_MAX := 260
+const DENSE_GRASS_COUNT_MAX := 180
+const RESOURCE_SPAWN_ATTEMPTS_MAX := 360
 
 const RESOURCE_SPAWN_MARGIN := 95.0
 const RESOURCE_MIN_DISTANCE := 90.0
@@ -225,15 +236,15 @@ const BIOME_ZONES := [
 			Vector2(-1440, 880)
 		],
 		"color": Color(0.10, 0.24, 0.13),
-		"tree_weight": 14.0,
-		"conifer_tree_weight": 16.0,
+		"tree_weight": 16.0,
+		"conifer_tree_weight": 18.0,
 		"leafy_tree_weight": 2.0,
 		"dry_tree_weight": 0.4,
 		"rock_weight": 1.0,
-		"bush_weight": 3.0,
+		"bush_weight": 4.0,
 		"berry_bush_weight": 6.0,
 		"dry_bush_weight": 0.8,
-		"grass_weight": 5.0,
+		"grass_weight": 6.0,
 		"landmark_weights": {
 			"hill": 0.08,
 			"pond": 2.25
@@ -261,11 +272,11 @@ const BIOME_ZONES := [
 		"conifer_tree_weight": 2.8,
 		"leafy_tree_weight": 0.6,
 		"dry_tree_weight": 0.4,
-		"rock_weight": 7.0,
+		"rock_weight": 9.0,
 		"bush_weight": 1.0,
-		"dry_bush_weight": 4.0,
+		"dry_bush_weight": 5.0,
 		"berry_bush_weight": 0.3,
-		"grass_weight": 1.0,
+		"grass_weight": 1.5,
 		"landmark_weights": {
 			"hill": 1.85,
 			"pond": 0.20
@@ -325,10 +336,11 @@ const BIOME_ZONES := [
 		"leafy_tree_weight": 4.4,
 		"dry_tree_weight": 0.4,
 		"rock_weight": 1.0,
-		"bush_weight": 4.5,
+		"bush_weight": 6.0,
+		"small_bush_weight": 5.0,
 		"dry_bush_weight": 0.8,
 		"berry_bush_weight": 0.9,
-		"grass_weight": 6.0,
+		"grass_weight": 8.0,
 		"landmark_weights": {
 			"hill": 0.10,
 			"pond": 2.35
@@ -357,10 +369,10 @@ const BIOME_ZONES := [
 		"tree_weight": 6.0,
 		"conifer_tree_weight": 0.8,
 		"leafy_tree_weight": 0.4,
-		"dry_tree_weight": 20.0,
-		"rock_weight": 4.0,
+		"dry_tree_weight": 22.0,
+		"rock_weight": 5.0,
 		"bush_weight": 2.0,
-		"dry_bush_weight": 9.5,
+		"dry_bush_weight": 11.0,
 		"berry_bush_weight": 0.2,
 		"grass_weight": 1.0,
 		"landmark_weights": {
@@ -390,11 +402,8 @@ static func get_player_limits() -> Vector2:
 	return WORLD_RECT.size * 0.5 - Vector2(PLAYER_EDGE_PADDING, PLAYER_EDGE_PADDING)
 
 
-static func scale_count_for_world(base_count: int, density_multiplier: float = 1.0, min_count: int = 0, max_count: int = -1) -> int:
-	var scaled := int(round(float(base_count) * density_multiplier))
-	if max_count >= 0:
-		scaled = mini(scaled, max_count)
-	return maxi(scaled, min_count)
+static func scale_count(base_count: int, multiplier: float, max_count: int) -> int:
+	return mini(int(round(float(base_count) * multiplier)), max_count)
 
 
 static func get_scaled_spawn_attempts(base_attempts: int, multiplier: float = 1.5, max_attempts: int = 400) -> int:
@@ -402,39 +411,43 @@ static func get_scaled_spawn_attempts(base_attempts: int, multiplier: float = 1.
 
 
 static func get_tree_count() -> int:
-	return scale_count_for_world(TREE_COUNT, RESOURCE_DENSITY_MULTIPLIER, TREE_COUNT, 140)
+	return scale_count(TREE_COUNT, RESOURCE_DENSITY_MULTIPLIER, TREE_COUNT_MAX)
 
 
 static func get_westwood_extra_conifer_count() -> int:
-	return scale_count_for_world(WESTWOOD_EXTRA_CONIFER_COUNT, RESOURCE_DENSITY_MULTIPLIER, WESTWOOD_EXTRA_CONIFER_COUNT, 140)
+	return scale_count(WESTWOOD_EXTRA_CONIFER_COUNT, RESOURCE_DENSITY_MULTIPLIER, WESTWOOD_EXTRA_CONIFER_COUNT_MAX)
 
 
 static func get_rock_count() -> int:
-	return scale_count_for_world(ROCK_COUNT, RESOURCE_DENSITY_MULTIPLIER, ROCK_COUNT, 80)
+	return scale_count(ROCK_COUNT, ROCK_DENSITY_MULTIPLIER, ROCK_COUNT_MAX)
 
 
 static func get_bush_count() -> int:
-	return scale_count_for_world(BUSH_COUNT, RESOURCE_DENSITY_MULTIPLIER, BUSH_COUNT, 120)
+	return scale_count(BUSH_COUNT, RESOURCE_DENSITY_MULTIPLIER, BUSH_COUNT_MAX)
 
 
 static func get_small_bush_count() -> int:
-	return scale_count_for_world(SMALL_BUSH_COUNT, RESOURCE_DENSITY_MULTIPLIER, SMALL_BUSH_COUNT, 100)
+	return scale_count(SMALL_BUSH_COUNT, RESOURCE_DENSITY_MULTIPLIER, SMALL_BUSH_COUNT_MAX)
 
 
 static func get_berry_bush_count() -> int:
-	return scale_count_for_world(BERRY_BUSH_COUNT, RESOURCE_DENSITY_MULTIPLIER, BERRY_BUSH_COUNT, 60)
+	return scale_count(BERRY_BUSH_COUNT, FOOD_BUSH_DENSITY_MULTIPLIER, BERRY_BUSH_COUNT_MAX)
 
 
 static func get_grass_patch_count() -> int:
-	return scale_count_for_world(GRASS_PATCH_COUNT, DECORATIVE_VEGETATION_DENSITY_MULTIPLIER, GRASS_PATCH_COUNT, 180)
+	return scale_count(GRASS_PATCH_COUNT, DECORATIVE_VEGETATION_DENSITY_MULTIPLIER, GRASS_PATCH_COUNT_MAX)
 
 
 static func get_dense_grass_count() -> int:
-	return scale_count_for_world(DENSE_GRASS_COUNT, DECORATIVE_VEGETATION_DENSITY_MULTIPLIER, DENSE_GRASS_COUNT, 100)
+	return scale_count(DENSE_GRASS_COUNT, DECORATIVE_VEGETATION_DENSITY_MULTIPLIER, DENSE_GRASS_COUNT_MAX)
 
 
 static func get_varnak_target_count() -> int:
-	return scale_count_for_world(VARNAK_TARGET_COUNT, VARNAK_DENSITY_MULTIPLIER, VARNAK_TARGET_COUNT, 14)
+	return scale_count(VARNAK_TARGET_COUNT, VARNAK_DENSITY_MULTIPLIER, 14)
+
+
+static func get_resource_spawn_attempts() -> int:
+	return mini(int(round(float(RESOURCE_SPAWN_ATTEMPTS) * 2.0)), RESOURCE_SPAWN_ATTEMPTS_MAX)
 
 
 static func get_small_prey_population_multiplier() -> float:
