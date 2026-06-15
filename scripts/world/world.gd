@@ -721,7 +721,7 @@ func get_map_surface_debug_key() -> String:
 	var ponds := int(feature_counts.get("pond", 0))
 	var highlands := int(feature_counts.get("highland", 0))
 	var rocks := int(feature_counts.get("rocky_patch", 0))
-	return "surface_v12|seed=%d|generator_key=%s|topography_rules=%s|ponds=%d|highlands=%d|rocks=%d" % [
+	return "surface_v13|seed=%d|generator_key=%s|topography_rules=%s|ponds=%d|highlands=%d|rocks=%d" % [
 		world_seed,
 		generator_key,
 		WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION,
