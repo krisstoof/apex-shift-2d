@@ -57,6 +57,9 @@ func get_terrain_speed_multiplier(position: Vector2) -> float:
 
 
 func get_water_zone(position: Vector2) -> String:
+	var landmark_zone := _get_landmark_pond_water_zone(position)
+	if not landmark_zone.is_empty():
+		return landmark_zone
 	var terrain_zone := _get_surface_terrain_zone(position)
 	match terrain_zone:
 		"deep_ocean":
@@ -64,7 +67,13 @@ func get_water_zone(position: Vector2) -> String:
 		"shallow_water":
 			return water_zone_shallow
 		"pond":
-			return water_zone_shallow
+			var sample := _get_topography_sample(position)
+			var pond_influence := float(sample.get("best_pond_influence", sample.get("pond_influence", 0.0)))
+			if pond_influence >= 0.68:
+				return water_zone_shallow
+			if pond_influence >= 0.46:
+				return water_zone_shore
+			return water_zone_land
 		"shore":
 			return water_zone_shore
 		"wetland":
@@ -103,21 +112,32 @@ func is_resource_position_blocked_by_water(resource_kind: String, position: Vect
 
 
 func is_creature_navigation_blocked(position: Vector2) -> bool:
-	var terrain_zone := _get_surface_terrain_zone(position)
-	if terrain_zone in ["deep_ocean", "pond"]:
-		return true
-	return false
+	var zone := get_water_zone(position)
+	return zone == water_zone_deep or zone == water_zone_shallow
 
 
 func is_creature_spawn_blocked_by_water(position: Vector2) -> bool:
-	var terrain_zone := _get_surface_terrain_zone(position)
-	return terrain_zone in ["deep_ocean", "shallow_water", "shore", "pond"]
+	var zone := get_water_zone(position)
+	return zone == water_zone_deep or zone == water_zone_shallow or zone == water_zone_shore
 
 
 func _get_pond_landmarks() -> Array:
 	if world == null:
 		return []
 	return Array(world.get("pond_landmarks"))
+
+
+func _get_landmark_pond_water_zone(position: Vector2) -> String:
+	for pond_value in _get_pond_landmarks():
+		var pond := Dictionary(pond_value)
+		var ratio := _get_pond_water_ratio(position, pond)
+		if ratio <= _get_pond_deep_water_radius_factor():
+			return water_zone_deep
+		if ratio <= _get_pond_shallow_water_radius_factor():
+			return water_zone_shallow
+		if ratio <= _get_pond_shore_radius_factor():
+			return water_zone_shore
+	return ""
 
 
 func _get_topography_zone(position: Vector2) -> String:

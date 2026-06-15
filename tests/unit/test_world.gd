@@ -42,7 +42,7 @@ class PeriodicRockSpawnWorld:
 	func _get_existing_resource_positions() -> Array[Vector2]:
 		return []
 
-	func _try_spawn_resource_in_biome(resource_kind: String, biome: Dictionary, _used_positions: Array[Vector2], _player_position: Vector2, min_distance: float = WORLD_CONFIG.RESOURCE_MIN_DISTANCE) -> bool:
+	func _try_spawn_resource_in_biome(resource_kind: String, biome: Dictionary, _used_positions: Array[Vector2], _player_position: Vector2, min_distance: float = WORLD_CONFIG.RESOURCE_MIN_DISTANCE, _spawn_attempts: int = WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS) -> bool:
 		spawn_calls += 1
 		last_resource_kind = resource_kind
 		last_biome_id = str(biome.get("biome_id", ""))

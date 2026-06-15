@@ -344,8 +344,8 @@ const RANGED_COMBAT := {
 # Landmark generation and biome modifiers for ponds, hills, dense vegetation,
 # and future animal hotspots.
 const LANDMARKS := {
-	"hill_count": 5,
-	"pond_count": 3,
+	"hill_count": 8,
+	"pond_count": 7,
 	"dense_vegetation_zone_count": 5,
 	"animal_hotspot_count": 3,
 	"hill_spawn_margin": 220.0,
@@ -356,7 +356,7 @@ const LANDMARKS := {
 	"pond_spawn_margin": 260.0,
 	"landmark_min_distance": 420.0,
 	"pond_vegetation_bonus": 2.0,
-	"pond_vegetation_base_count": 14,
+	"pond_vegetation_base_count": 6,
 	"pond_deep_water_radius_factor": 0.68,
 	"pond_shallow_water_radius_factor": 1.0,
 	"pond_shore_radius_factor": 1.12,
@@ -366,15 +366,15 @@ const LANDMARKS := {
 	"pond_shape_sample_count": 48,
 	"pond_shore_detail_count": 18,
 	"pond_aquatic_vegetation_count": 12,
-	"pond_vegetation_min_distance": 28.0,
+	"pond_vegetation_min_distance": 46.0,
 	"pond_vegetation_player_safe_distance": 36.0,
 	"pond_vegetation_inner_ring_factor": 1.18,
 	"pond_vegetation_outer_ring_factor": 1.48,
 	"pond_tree_water_margin": 1.22,
 	"pond_bush_water_margin": 1.12,
 	"pond_grass_water_margin": 1.04,
-	"pond_grass_food_bonus": 1.45,
-	"pond_vegetation_visual_scale": 1.28,
+	"pond_grass_food_bonus": 1.0,
+	"pond_vegetation_visual_scale": 1.0,
 	"dense_vegetation_resource_bonus": 1.60,
 	"animal_hotspot_population_bonus": 1.25
 }

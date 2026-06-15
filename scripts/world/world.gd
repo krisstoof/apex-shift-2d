@@ -1452,8 +1452,18 @@ func _clear_decorative_vegetation_visuals() -> void:
 
 
 func _try_spawn_decorative_grass_visual(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	var biome := _pick_resource_biome(resource_kind)
+	if biome.is_empty():
+		return false
+	var biome_id := _get_biome_id(biome)
 	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
-		var candidate := _get_random_resource_position(resource_kind)
+		var candidate := _get_random_resource_position(resource_kind, biome)
+		if candidate == Vector2.INF:
+			continue
+		if get_biome_id_at(candidate) != biome_id:
+			continue
+		if not _is_point_in_biome(candidate, biome):
+			continue
 		if not _is_valid_resource_terrain(resource_kind, candidate):
 			continue
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
@@ -1463,7 +1473,6 @@ func _try_spawn_decorative_grass_visual(resource_kind: String, used_positions: A
 		if not _is_valid_resource_position(candidate, used_positions, player_position):
 			continue
 		used_positions.append(candidate)
-		var biome_id := _get_biome_id_for_position(candidate)
 		_spawn_decorative_vegetation_visual(resource_kind, candidate, biome_id, 1.0)
 		return true
 	return false
@@ -1937,7 +1946,8 @@ func _spawn_resources() -> void:
 		"westwood",
 		used_positions,
 		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.5, 320)
 	)
 	await _spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
 	await _spawn_resource_kind("dry_tree", int(ceil(float(tree_count) * 0.12)), used_positions, player_position)
@@ -2085,45 +2095,40 @@ func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: 
 
 
 func _spawn_pond_aquatic_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
-	if world_topography == null or not world_topography.has_method("sample_topography_at"):
-		return
-	var pond_kinds := [
-		"reed",
-		"cattail",
-		"water_lily",
-		"pond_grass",
-		"wetland_grass"
-	]
-	var ponds := Array(world_topography.get_topography_features_by_type("pond"))
-	for pond_value in ponds:
+	for pond_value in pond_landmarks:
 		var pond := Dictionary(pond_value)
 		var center := Vector2(pond.get("position", Vector2.ZERO))
 		var radius := float(pond.get("radius", 0.0))
 		if radius <= 0.0:
 			continue
-		var target_count := clampi(int(radius / 58.0), 8, 22)
-		for i in range(target_count):
-			var angle := TAU * (float(i) / float(max(target_count, 1)) + resource_rng.randf_range(-0.08, 0.08))
-			var distance := radius * resource_rng.randf_range(0.66, 1.30)
-			var candidate := center + Vector2(cos(angle), sin(angle)) * distance
-			var topo_sample := get_topography_sample_at(candidate)
-			var terrain_zone := str(topo_sample.get("terrain_zone", "land"))
-			if terrain_zone not in ["pond", "wetland", "shore"]:
+		var target_count := clampi(int(GAME_BALANCE.LANDMARKS.get("pond_aquatic_vegetation_count", 12)), 8, 18)
+		var spawned := 0
+		for _i in range(target_count * 3):
+			if spawned >= target_count:
+				break
+			var angle := TAU * resource_rng.randf()
+			var ring := resource_rng.randf_range(0.72, 1.10)
+			var candidate := _get_pond_shape_position(pond, angle, ring)
+			var water_zone := _get_pond_water_zone(candidate, pond)
+			if water_zone not in [WATER_ZONE_SHALLOW, WATER_ZONE_SHORE]:
 				continue
-			if terrain_zone == "pond" and float(topo_sample.get("best_pond_influence", 0.0)) < 0.20:
+			if not _is_valid_resource_position_with_min_distance(
+				candidate,
+				used_positions,
+				player_position,
+				WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.30,
+				WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE * 0.55
+			):
 				continue
-			if terrain_zone == "wetland" and float(topo_sample.get("wetland_value", 0.0)) < 0.05:
-				continue
-			if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.40, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE * 0.78):
-				continue
-			var kind := _pick_pond_aquatic_vegetation_kind(topo_sample)
+			var kind := _pick_landmark_pond_aquatic_kind(water_zone)
 			if kind.is_empty():
 				continue
-			if _is_resource_blocked_by_hill(kind, candidate):
-				continue
 			used_positions.append(candidate)
-			_spawn_decorative_vegetation_visual(kind, candidate, str(pond.get("biome_id", "")), _get_biome_visual_scale(kind) * 1.30)
+			_spawn_decorative_vegetation_visual(kind, candidate, str(pond.get("biome_id", "")), _get_biome_visual_scale(kind) * 1.25)
 			topography_resource_distribution_debug["pond_aquatic_vegetation_spawned"] = int(topography_resource_distribution_debug.get("pond_aquatic_vegetation_spawned", 0)) + 1
+			spawned += 1
+		if spawned == 0:
+			push_warning("No aquatic vegetation spawned for pond %s" % str(pond.get("id", "pond")))
 
 
 func _spawn_highland_rocks(used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -2191,29 +2196,22 @@ func _pick_pond_edge_greenery_kind() -> String:
 	return "leafy_tree"
 
 
-func _pick_pond_aquatic_vegetation_kind(topo_sample: Dictionary) -> String:
-	var terrain_zone := str(topo_sample.get("terrain_zone", "land"))
-	var pond_influence := float(topo_sample.get("best_pond_influence", 0.0))
-	var wetland_value := float(topo_sample.get("wetland_value", 0.0))
+func _pick_landmark_pond_aquatic_kind(water_zone: String) -> String:
 	var roll := resource_rng.randf()
-	if terrain_zone == "pond" and pond_influence >= 0.45:
-		if roll < 0.40:
+	if water_zone == WATER_ZONE_SHALLOW:
+		if roll < 0.36:
 			return "water_lily"
-		if roll < 0.70:
+		if roll < 0.66:
 			return "cattail"
 		if roll < 0.88:
 			return "reed"
 		return "pond_grass"
-	if terrain_zone == "wetland" or wetland_value > 0.38:
-		if roll < 0.34:
-			return "wetland_grass"
-		if roll < 0.64:
+	if water_zone == WATER_ZONE_SHORE:
+		if roll < 0.42:
 			return "reed"
-		if roll < 0.84:
+		if roll < 0.72:
 			return "cattail"
-		return "pond_grass"
-	if terrain_zone == "shore":
-		return "reed" if roll < 0.72 else "wetland_grass"
+		return "wetland_grass"
 	return ""
 
 
@@ -2420,15 +2418,25 @@ func _get_biome_visual_scale(resource_kind: String) -> float:
 			return 1.0
 
 
-func _get_random_resource_position(resource_kind: String = "") -> Vector2:
-	var biome := _pick_resource_biome(resource_kind)
-	if biome.is_empty():
+func _get_random_resource_position(resource_kind: String = "", biome: Dictionary = {}) -> Vector2:
+	var target_biome := biome
+	if target_biome.is_empty():
+		target_biome = _pick_resource_biome(resource_kind)
+	if target_biome.is_empty():
 		return _clamp_position_to_world(_get_player_position())
-	var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
-	return Vector2(
-		resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
-		resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
-	)
+	var biome_id := _get_biome_id(target_biome)
+	var spawn_area := _get_biome_bounds(target_biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
+		var candidate := Vector2(
+			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
+			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
+		)
+		if get_biome_id_at(candidate) != biome_id:
+			continue
+		if not _is_point_in_biome(candidate, target_biome):
+			continue
+		return candidate
+	return Vector2.INF
 
 
 func _spawn_resource_kind_in_biome(
@@ -2437,14 +2445,15 @@ func _spawn_resource_kind_in_biome(
 	biome_id: String,
 	used_positions: Array[Vector2],
 	player_position: Vector2,
-	min_distance: float = WORLD_CONFIG.RESOURCE_MIN_DISTANCE
+	min_distance: float = WORLD_CONFIG.RESOURCE_MIN_DISTANCE,
+	spawn_attempts: int = WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS
 ) -> void:
 	var biome := _get_biome_for_id(biome_id)
 	if biome.is_empty():
 		return
 	var spawned_since_yield := 0
 	for _i in count:
-		if not _try_spawn_resource_in_biome(resource_kind, biome, used_positions, player_position, min_distance):
+		if not _try_spawn_resource_in_biome(resource_kind, biome, used_positions, player_position, min_distance, spawn_attempts):
 			push_warning("Could not find a valid spawn position for %s in biome %s" % [resource_kind, biome_id])
 		spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
@@ -3606,9 +3615,10 @@ func _try_spawn_resource_in_biome(
 	biome: Dictionary,
 	used_positions: Array[Vector2],
 	player_position: Vector2,
-	min_distance: float
+	min_distance: float,
+	spawn_attempts: int = WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS
 ) -> bool:
-	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
+	for _attempt in spawn_attempts:
 		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
 		var candidate := Vector2(
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
