@@ -2062,11 +2062,11 @@ func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: 
 		var radius := float(pond.get("radius", 0.0))
 		if radius <= 0.0:
 			continue
-		var target_count := clampi(int(radius / 55.0), 8, 24)
+		var target_count := clampi(int(radius / 48.0), 10, 30)
 		var spawned := 0
 		for _i in range(target_count):
 			var angle := TAU * resource_rng.randf()
-			var distance := radius * resource_rng.randf_range(1.04, 1.42)
+			var distance := radius * resource_rng.randf_range(0.94, 1.52)
 			var candidate := center + Vector2(cos(angle), sin(angle)) * distance
 			if not _is_valid_sparse_land_fill_position(candidate):
 				continue
@@ -2101,18 +2101,18 @@ func _spawn_pond_aquatic_vegetation(used_positions: Array[Vector2], player_posit
 		var radius := float(pond.get("radius", 0.0))
 		if radius <= 0.0:
 			continue
-		var target_count := clampi(int(radius / 70.0), 6, 18)
+		var target_count := clampi(int(radius / 58.0), 8, 22)
 		for i in range(target_count):
 			var angle := TAU * (float(i) / float(max(target_count, 1)) + resource_rng.randf_range(-0.08, 0.08))
-			var distance := radius * resource_rng.randf_range(0.72, 1.22)
+			var distance := radius * resource_rng.randf_range(0.66, 1.30)
 			var candidate := center + Vector2(cos(angle), sin(angle)) * distance
 			var topo_sample := get_topography_sample_at(candidate)
 			var terrain_zone := str(topo_sample.get("terrain_zone", "land"))
 			if terrain_zone not in ["pond", "wetland", "shore"]:
 				continue
-			if terrain_zone == "pond" and float(topo_sample.get("best_pond_influence", 0.0)) < 0.30:
+			if terrain_zone == "pond" and float(topo_sample.get("best_pond_influence", 0.0)) < 0.20:
 				continue
-			if terrain_zone == "wetland" and float(topo_sample.get("wetland_value", 0.0)) < 0.10:
+			if terrain_zone == "wetland" and float(topo_sample.get("wetland_value", 0.0)) < 0.05:
 				continue
 			if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.40, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE * 0.78):
 				continue
@@ -2122,7 +2122,7 @@ func _spawn_pond_aquatic_vegetation(used_positions: Array[Vector2], player_posit
 			if _is_resource_blocked_by_hill(kind, candidate):
 				continue
 			used_positions.append(candidate)
-			_spawn_decorative_vegetation_visual(kind, candidate, str(pond.get("biome_id", "")), _get_biome_visual_scale(kind) * 1.18)
+			_spawn_decorative_vegetation_visual(kind, candidate, str(pond.get("biome_id", "")), _get_biome_visual_scale(kind) * 1.30)
 			topography_resource_distribution_debug["pond_aquatic_vegetation_spawned"] = int(topography_resource_distribution_debug.get("pond_aquatic_vegetation_spawned", 0)) + 1
 
 
@@ -2196,24 +2196,24 @@ func _pick_pond_aquatic_vegetation_kind(topo_sample: Dictionary) -> String:
 	var pond_influence := float(topo_sample.get("best_pond_influence", 0.0))
 	var wetland_value := float(topo_sample.get("wetland_value", 0.0))
 	var roll := resource_rng.randf()
-	if terrain_zone == "pond" and pond_influence >= 0.70:
-		if roll < 0.34:
+	if terrain_zone == "pond" and pond_influence >= 0.45:
+		if roll < 0.40:
 			return "water_lily"
-		if roll < 0.58:
+		if roll < 0.70:
 			return "cattail"
-		if roll < 0.78:
+		if roll < 0.88:
 			return "reed"
 		return "pond_grass"
-	if terrain_zone == "wetland" or wetland_value > 0.48:
-		if roll < 0.30:
+	if terrain_zone == "wetland" or wetland_value > 0.38:
+		if roll < 0.34:
 			return "wetland_grass"
-		if roll < 0.54:
+		if roll < 0.64:
 			return "reed"
-		if roll < 0.76:
+		if roll < 0.84:
 			return "cattail"
 		return "pond_grass"
 	if terrain_zone == "shore":
-		return "reed" if roll < 0.65 else "wetland_grass"
+		return "reed" if roll < 0.72 else "wetland_grass"
 	return ""
 
 

@@ -12,11 +12,11 @@ var rocky_noise := FastNoiseLite.new()
 var topography_features: Array[Dictionary] = []
 var feature_counts_debug: Dictionary = {"pond": 0, "highland": 0, "rocky_patch": 0}
 
-const POND_THRESHOLD := 0.48
-const WETLAND_THRESHOLD := 0.66
-const RIDGE_THRESHOLD := 0.86
-const ROCKY_PATCH_THRESHOLD := 0.62
-const TOPOGRAPHY_RULES_VERSION := "v4"
+const POND_THRESHOLD := 0.46
+const WETLAND_THRESHOLD := 0.63
+const RIDGE_THRESHOLD := 0.84
+const ROCKY_PATCH_THRESHOLD := 0.60
+const TOPOGRAPHY_RULES_VERSION := "v5"
 
 func setup(p_seed: int, p_biome_id_getter: Callable = Callable(), p_base_terrain_getter: Callable = Callable()) -> void:
 	seed = p_seed if p_seed != 0 else 1
@@ -77,9 +77,12 @@ func sample_topography_at(position: Vector2) -> Dictionary:
 	var rocky_feature := _get_feature_influence(position, "rocky_patch")
 
 	sample["pond_influence"] = maxf(pond_value, pond_feature)
+	sample["best_pond_influence"] = sample["pond_influence"]
 	sample["wetland_value"] = wetland_value
 	sample["ridge_value"] = maxf(ridge_value, highland_feature)
+	sample["best_highland_influence"] = sample["ridge_value"]
 	sample["rocky_influence"] = maxf(rocky_value, rocky_feature)
+	sample["best_rocky_influence"] = sample["rocky_influence"]
 	sample["highland_influence"] = maxf(ridge_value, highland_feature)
 
 	var dominant_type := "land"
@@ -182,9 +185,9 @@ func _build_topography_features() -> void:
 	topography_features.clear()
 	feature_counts_debug = {"pond": 0, "highland": 0, "rocky_patch": 0}
 	var rect := Rect2(Vector2(-1000.0, -1000.0), Vector2(2000.0, 2000.0))
-	var target_ponds := randi_range(2, 4)
-	var target_highlands := randi_range(5, 9)
-	var target_rocks := randi_range(5, 10)
+	var target_ponds := randi_range(1, 3)
+	var target_highlands := randi_range(3, 5)
+	var target_rocks := randi_range(4, 7)
 	_spawn_features_for_type("pond", target_ponds, rect)
 	_spawn_features_for_type("highland", target_highlands, rect)
 	_spawn_features_for_type("rocky_patch", target_rocks, rect)
@@ -220,6 +223,15 @@ func _is_valid_feature_position(feature_type: String, position: Vector2) -> bool
 	if biome_id.is_empty():
 		return false
 	var sample := sample_topography_at(position)
+	var candidate_radius := _get_feature_radius(feature_type)
+	var min_spacing := candidate_radius * 1.45
+	for feature_value in topography_features:
+		var feature := Dictionary(feature_value)
+		var existing_position := Vector2(feature.get("position", Vector2.ZERO))
+		var existing_radius := maxf(float(feature.get("radius", 1.0)), 1.0)
+		var required_spacing := maxf(min_spacing, existing_radius * 1.2)
+		if position.distance_to(existing_position) < required_spacing:
+			return false
 	if feature_type == "pond":
 		return float(sample.get("pond_influence", 0.0)) >= 0.40 or get_base_terrain_zone(position) == "land"
 	if feature_type == "highland":
@@ -229,12 +241,12 @@ func _is_valid_feature_position(feature_type: String, position: Vector2) -> bool
 func _get_feature_radius(feature_type: String) -> float:
 	match feature_type:
 		"pond":
-			return randf_range(700.0, 1450.0)
+			return randf_range(900.0, 1800.0)
 		"highland":
-			return randf_range(180.0, 320.0)
+			return randf_range(260.0, 420.0)
 		"rocky_patch":
-			return randf_range(90.0, 190.0)
-	return randf_range(90.0, 200.0)
+			return randf_range(120.0, 220.0)
+	return randf_range(120.0, 240.0)
 
 func _update_feature_counts() -> void:
 	feature_counts_debug["pond"] = get_topography_features_by_type("pond").size()
@@ -254,12 +266,12 @@ func _get_feature_influence(position: Vector2, feature_type: String) -> float:
 		var strength := 0.0
 		match feature_type:
 			"pond":
-				strength = 0.22
+				strength = 0.20
 			"highland":
-				strength = 0.34
+				strength = 0.30
 			"rocky_patch":
-				strength = 0.28
-		best = maxf(best, pow(normalized, 1.6) * strength)
+				strength = 0.24
+		best = maxf(best, pow(normalized, 1.35) * strength)
 	return best
 
 func is_pond_at(position: Vector2) -> bool:
