@@ -413,6 +413,7 @@ func _set_slot_item(slot: Control, item_id: String, count: int, visual_index: in
 	var name_label: Label = slot.get_node_or_null("Content/NameLabel")
 	var symbol_label: Label = slot.get_node_or_null("Content/SymbolLabel")
 	var count_label: Label = slot.get_node_or_null("Content/CountLabel")
+	var accent := ITEM_DATABASE.get_accent_color(item_id)
 	if icon != null:
 		var icon_path := ITEM_DATABASE.get_icon_path(item_id)
 		icon.texture = load(icon_path) if not icon_path.is_empty() else null
@@ -421,8 +422,9 @@ func _set_slot_item(slot: Control, item_id: String, count: int, visual_index: in
 		name_label.text = ITEM_DATABASE.get_display_name(item_id)
 		name_label.visible = true
 	if symbol_label != null:
-		symbol_label.text = _get_item_symbol(item_id)
-		symbol_label.visible = true
+		symbol_label.text = ITEM_DATABASE.get_symbol(item_id)
+		symbol_label.visible = icon == null
+		symbol_label.modulate = accent
 	if count_label != null:
 		count_label.text = "x%d" % count
 		count_label.visible = true

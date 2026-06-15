@@ -86,6 +86,37 @@ func add_item_full_stack(item_id: String, amount: int) -> bool:
 	return leftover == 0
 
 
+func is_valid_slot_index(slot_index: int) -> bool:
+	return slot_index >= 0 and slot_index < slots.size()
+
+
+func peek_slot_stack(slot_index: int) -> Dictionary:
+	if not is_valid_slot_index(slot_index):
+		return {}
+	var slot := Dictionary(slots[slot_index])
+	var item_id := str(slot.get("item_id", ""))
+	var amount := int(slot.get("amount", 0))
+	if item_id.is_empty() or amount <= 0:
+		return {}
+	return {
+		"slot_index": slot_index,
+		"item_id": item_id,
+		"amount": amount
+	}
+
+
+func clear_slot_stack(slot_index: int) -> bool:
+	if not is_valid_slot_index(slot_index):
+		return false
+	var stack := peek_slot_stack(slot_index)
+	if stack.is_empty():
+		return false
+	slots[slot_index]["item_id"] = ""
+	slots[slot_index]["amount"] = 0
+	inventory_changed.emit()
+	return true
+
+
 func remove_item(item_id: String, amount: int) -> bool:
 	if amount <= 0:
 		return true

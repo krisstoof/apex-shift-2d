@@ -444,7 +444,7 @@ func _set_resource_icon(icon_node: TextureRect, item_id: String) -> void:
 	icon_node.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	icon_node.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon_node.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon_node.modulate = Color(1.0, 1.0, 1.0, 0.92)
+	icon_node.modulate = ITEM_DATABASE.get_accent_color(item_id)
 	var icon_path := ITEM_DATABASE.get_icon_path(item_id)
 	if icon_path.is_empty():
 		icon_node.texture = null

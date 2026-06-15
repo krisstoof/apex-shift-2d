@@ -421,6 +421,92 @@ func drop_inventory_item(item_id: String, amount: int = 1) -> bool:
 	return true
 
 
+func drop_inventory_stack(slot_index: int, expected_item_id: String, expected_amount: int) -> bool:
+	if is_dead:
+		return false
+	if inventory == null:
+		return false
+	if not inventory.has_method("peek_slot_stack") or not inventory.has_method("clear_slot_stack"):
+		return false
+	var stack: Dictionary = inventory.call("peek_slot_stack", slot_index)
+	if stack.is_empty():
+		_post_event_message("No item selected")
+		return false
+	var item_id := str(stack.get("item_id", ""))
+	var amount := int(stack.get("amount", 0))
+	if item_id != expected_item_id or amount != expected_amount:
+		_post_event_message("Inventory changed")
+		return false
+	var drop := _spawn_inventory_world_drop(item_id, amount)
+	if drop == null:
+		_post_event_message("Could not drop item")
+		return false
+	if not inventory.call("clear_slot_stack", slot_index):
+		if is_instance_valid(drop):
+			drop.queue_free()
+		_post_event_message("Could not remove item from inventory")
+		return false
+	_post_event_message("Dropped %s x%d" % [_format_item_label(item_id), amount])
+	_emit_game_event("inventory_stack_dropped", {
+		"item_id": item_id,
+		"amount": amount,
+		"position": global_position
+	})
+	return true
+
+
+func _spawn_inventory_world_drop(item_id: String, amount: int) -> Node:
+	if item_id.is_empty() or amount <= 0:
+		return null
+	var world := _get_world_node()
+	if world == null:
+		return null
+	var drop := RESOURCE_NODE_SCENE.instantiate()
+	if drop == null:
+		return null
+	var drop_parent := world
+	if world.has_method("get_resource_container"):
+		var container: Variant = world.call("get_resource_container")
+		if container != null:
+			drop_parent = container
+	drop_parent.add_child(drop)
+	drop.global_position = _get_inventory_drop_position()
+	if drop.has_method("setup_dropped_item"):
+		drop.call("setup_dropped_item", item_id, amount)
+	else:
+		drop.set("item_name", item_id)
+		drop.set("amount", amount)
+		if drop.has_method("setup"):
+			drop.call("setup", "item_drop")
+	_register_spawned_drop(drop)
+	return drop
+
+
+func _get_inventory_drop_position() -> Vector2:
+	var direction := Vector2.RIGHT
+	if has_method("get_facing_direction"):
+		var facing: Variant = call("get_facing_direction")
+		if facing is Vector2 and facing.length() > 0.1:
+			direction = (facing as Vector2).normalized()
+	return global_position + direction * 36.0
+
+
+func _register_spawned_drop(drop: Node) -> void:
+	var world := _get_world_node()
+	if world == null or drop == null:
+		return
+	if world.has_method("register_resource_node"):
+		world.call("register_resource_node", drop)
+	elif world.has_method("register_spawned_resource"):
+		world.call("register_spawned_resource", drop)
+	if world.has_method("register_world_entity"):
+		world.call("register_world_entity", drop)
+	if world.has_method("get_spatial_index"):
+		var spatial_index: Variant = world.call("get_spatial_index")
+		if spatial_index != null and spatial_index.has_method("register_entity"):
+			spatial_index.call("register_entity", drop)
+
+
 func debug_damage_player() -> void:
 	if receive_damage(GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT, "debug damage"):
 		_emit_game_event("debug_player_damaged", {"amount": GAME_BALANCE.DEBUG_PLAYER_DAMAGE_AMOUNT})

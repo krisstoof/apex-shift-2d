@@ -3,6 +3,7 @@ extends StaticBody2D
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const VEGETATION_CATALOG := preload("res://scripts/world/vegetation_catalog.gd")
+const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 const RESOURCE_ATLAS_PATH := "res://assets/textures/resources/resource_atlas.svg"
 const RESOURCE_ATLAS_CELL_SIZE := Vector2(80.0, 80.0)
 const RESOURCE_ATLAS_COLUMNS := {
@@ -47,6 +48,7 @@ var food_bonus_multiplier := 1.0
 var pond_visual_multiplier := 1.0
 var biome_id := ""
 var is_visibility_culled := false
+var is_inventory_drop := false
 # Pool state stays set while the node lives in the pool so release/acquire can reuse it safely.
 var is_pooled := false
 var pool_key := ""
@@ -181,6 +183,9 @@ func setup(kind: String) -> void:
 
 
 func interact(player: Node) -> void:
+	if is_inventory_drop:
+		_interact_inventory_drop(player)
+		return
 	if resource_kind == "item_drop":
 		_interact_item_drop(player)
 		return
@@ -224,8 +229,8 @@ func interact(player: Node) -> void:
 
 
 func get_prompt() -> String:
-	if resource_kind == "item_drop":
-		return "E: pick up %s x%d" % [_get_drop_item_label(), amount]
+	if is_inventory_drop or resource_kind == "item_drop":
+		return "E: pick up %s x%d" % [ITEM_DATABASE.get_display_name(_get_drop_item_id()), amount]
 	if not player_harvestable:
 		return ""
 	if not can_be_harvested:
@@ -267,12 +272,18 @@ func get_save_data() -> Dictionary:
 		"pond_id": pond_id,
 		"food_bonus_multiplier": food_bonus_multiplier,
 		"pond_visual_multiplier": pond_visual_multiplier,
-		"item_id": item_id
+		"item_id": item_id,
+		"is_inventory_drop": is_inventory_drop,
+		"item_name": item_name
 	}
 
 
 func restore_from_data(data: Dictionary) -> void:
 	biome_id = str(data.get("biome_id", _get_biome_id_for_position(global_position)))
+	is_inventory_drop = data.get("is_inventory_drop", false) == true
+	if is_inventory_drop:
+		setup_dropped_item(str(data.get("item_name", item_name)), max(int(data.get("amount", 1)), 1))
+		return
 	if str(data.get("kind", resource_kind)) == "item_drop":
 		resource_kind = "item_drop"
 		item_id = str(data.get("item_id", data.get("item_name", item_id)))
@@ -637,6 +648,45 @@ func _get_resource_label() -> String:
 
 func _interact_item_drop(player: Node) -> void:
 	_interact_full_stack_drop(player)
+
+
+func setup_dropped_item(p_item_id: String, p_amount: int) -> void:
+	is_inventory_drop = true
+	resource_kind = "item_drop"
+	item_name = p_item_id
+	amount = max(1, p_amount)
+	mature_amount = amount
+	can_be_harvested = true
+	player_harvestable = true
+	render_only = false
+	is_harvested = false
+	growth_stage = max_growth_stage
+	z_index = 20
+	var accent := ITEM_DATABASE.get_accent_color(item_name)
+	color = accent
+	mature_color = accent
+	radius = 10.0
+	mature_radius = 10.0
+	_sync_resource_groups()
+	_sync_visual_sprite()
+	queue_redraw()
+
+
+func _interact_inventory_drop(player: Node) -> void:
+	if player == null or not player.has_method("inventory"):
+		return
+	var player_inventory: Variant = player.get("inventory")
+	if player_inventory == null:
+		return
+	if player_inventory.has_method("can_add_item") and not player_inventory.call("can_add_item", item_name, amount):
+		_post_event_message("Inventory full")
+		return
+	var leftover: int = int(player_inventory.call("add_item", item_name, amount))
+	if leftover > 0:
+		_post_event_message("Inventory full")
+		return
+	_post_event_message("Picked up %s x%d" % [ITEM_DATABASE.get_display_name(item_name), amount])
+	_release_or_free()
 
 
 func _interact_full_stack_drop(player: Node) -> void:

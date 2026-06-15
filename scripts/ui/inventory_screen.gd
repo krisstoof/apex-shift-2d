@@ -13,8 +13,12 @@ var inventory_grid: GridContainer
 var info_label: Label
 var drop_button: Button
 var selected_slot_index := -1
+var selected_item_id := ""
+var selected_amount := 0
 var slot_nodes: Array[Control] = []
-var visual_stack_data: Array[Dictionary] = []
+var normal_slot_style: StyleBoxFlat
+var selected_slot_style: StyleBoxFlat
+var empty_slot_style: StyleBoxFlat
 
 
 func _ready() -> void:
@@ -53,20 +57,19 @@ func refresh_from_inventory(target_inventory: Variant) -> void:
 	inventory = target_inventory
 	_connect_inventory_changed()
 	_clear_slots()
-	visual_stack_data = []
 	if inventory == null:
 		return
-	visual_stack_data = _build_visual_stacks()
-	var shown_count: int = mini(visual_stack_data.size(), GRID_SLOT_COUNT)
+	var slots: Array[Dictionary] = _get_inventory_slots()
+	var shown_count: int = mini(slots.size(), GRID_SLOT_COUNT)
 	for index in range(GRID_SLOT_COUNT):
-		if index < visual_stack_data.size():
-			var stack: Dictionary = Dictionary(visual_stack_data[index])
-			_set_slot_item(slot_nodes[index], str(stack.get("item_id", "")), int(stack.get("count", 0)), index)
+		if index < slots.size():
+			var stack: Dictionary = Dictionary(slots[index])
+			_set_slot_item(slot_nodes[index], str(stack.get("item_id", "")), int(stack.get("amount", 0)), index)
 		else:
 			_clear_slot(slot_nodes[index])
-	info_label.visible = visual_stack_data.size() > GRID_SLOT_COUNT
+	info_label.visible = slots.size() > GRID_SLOT_COUNT
 	if info_label.visible:
-		info_label.text = "+%d stack(s) not shown" % (visual_stack_data.size() - shown_count)
+		info_label.text = "+%d stack(s) not shown" % (slots.size() - shown_count)
 	_update_drop_button()
 	_update_slot_selection_visuals()
 
@@ -163,22 +166,32 @@ func _create_slot(slot_index: int) -> PanelContainer:
 	var slot := PanelContainer.new()
 	slot.mouse_filter = Control.MOUSE_FILTER_STOP
 	slot.custom_minimum_size = Vector2(156, 72)
-	var slot_style := StyleBoxFlat.new()
-	slot_style.bg_color = Color(0.06, 0.07, 0.08, 0.92)
-	slot_style.corner_radius_top_left = 6
-	slot_style.corner_radius_top_right = 6
-	slot_style.corner_radius_bottom_left = 6
-	slot_style.corner_radius_bottom_right = 6
-	slot_style.border_width_left = 1
-	slot_style.border_width_top = 1
-	slot_style.border_width_right = 1
-	slot_style.border_width_bottom = 1
-	slot_style.border_color = Color(0.74, 0.77, 0.72, 0.32)
-	slot_style.content_margin_left = 6.0
-	slot_style.content_margin_right = 6.0
-	slot_style.content_margin_top = 6.0
-	slot_style.content_margin_bottom = 6.0
-	slot.add_theme_stylebox_override("panel", slot_style)
+	slot.set_meta("slot_index", slot_index)
+	normal_slot_style = StyleBoxFlat.new()
+	normal_slot_style.bg_color = Color(0.06, 0.07, 0.08, 0.92)
+	normal_slot_style.corner_radius_top_left = 6
+	normal_slot_style.corner_radius_top_right = 6
+	normal_slot_style.corner_radius_bottom_left = 6
+	normal_slot_style.corner_radius_bottom_right = 6
+	normal_slot_style.border_width_left = 1
+	normal_slot_style.border_width_top = 1
+	normal_slot_style.border_width_right = 1
+	normal_slot_style.border_width_bottom = 1
+	normal_slot_style.border_color = Color(0.74, 0.77, 0.72, 0.32)
+	normal_slot_style.content_margin_left = 6.0
+	normal_slot_style.content_margin_right = 6.0
+	normal_slot_style.content_margin_top = 6.0
+	normal_slot_style.content_margin_bottom = 6.0
+	selected_slot_style = normal_slot_style.duplicate() as StyleBoxFlat
+	selected_slot_style.bg_color = Color(0.22, 0.28, 0.18, 0.96)
+	selected_slot_style.border_color = Color(0.95, 0.82, 0.35, 0.95)
+	selected_slot_style.border_width_left = 2
+	selected_slot_style.border_width_top = 2
+	selected_slot_style.border_width_right = 2
+	selected_slot_style.border_width_bottom = 2
+	empty_slot_style = normal_slot_style.duplicate() as StyleBoxFlat
+	empty_slot_style.bg_color = Color(0.04, 0.05, 0.05, 0.72)
+	slot.add_theme_stylebox_override("panel", normal_slot_style)
 
 	var container := Control.new()
 	container.name = "Content"
@@ -215,6 +228,13 @@ func _create_slot(slot_index: int) -> PanelContainer:
 	symbol_label.size = Vector2(40, 16)
 	symbol_label.add_theme_font_size_override("font_size", 11)
 	container.add_child(symbol_label)
+
+	var accent_bar := ColorRect.new()
+	accent_bar.name = "AccentBar"
+	accent_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	accent_bar.position = Vector2(0, 0)
+	accent_bar.size = Vector2(4, 72)
+	container.add_child(accent_bar)
 
 	var count_label := Label.new()
 	count_label.name = "CountLabel"
@@ -288,7 +308,9 @@ func _set_slot_item(slot: Control, item_id: String, count: int, visual_index: in
 	var icon: TextureRect = slot.get_node_or_null("Content/Icon")
 	var name_label: Label = slot.get_node_or_null("Content/NameLabel")
 	var symbol_label: Label = slot.get_node_or_null("Content/SymbolLabel")
+	var accent_bar: ColorRect = slot.get_node_or_null("Content/AccentBar")
 	var count_label: Label = slot.get_node_or_null("Content/CountLabel")
+	var accent := ITEM_DATABASE.get_accent_color(item_id)
 	if icon != null:
 		var icon_path := ITEM_DATABASE.get_icon_path(item_id)
 		icon.texture = load(icon_path) if not icon_path.is_empty() else null
@@ -297,8 +319,11 @@ func _set_slot_item(slot: Control, item_id: String, count: int, visual_index: in
 		name_label.text = ITEM_DATABASE.get_display_name(item_id)
 		name_label.visible = true
 	if symbol_label != null:
-		symbol_label.text = _get_item_symbol(item_id)
+		symbol_label.text = ITEM_DATABASE.get_symbol(item_id)
 		symbol_label.visible = true
+		symbol_label.modulate = accent
+	if accent_bar != null:
+		accent_bar.color = accent
 	if count_label != null:
 		count_label.text = "x%d" % count
 		count_label.visible = true
@@ -314,6 +339,7 @@ func _clear_slot(slot: Control) -> void:
 	var icon: TextureRect = slot.get_node_or_null("Content/Icon")
 	var name_label: Label = slot.get_node_or_null("Content/NameLabel")
 	var symbol_label: Label = slot.get_node_or_null("Content/SymbolLabel")
+	var accent_bar: ColorRect = slot.get_node_or_null("Content/AccentBar")
 	var count_label: Label = slot.get_node_or_null("Content/CountLabel")
 	if icon != null:
 		icon.texture = null
@@ -324,6 +350,8 @@ func _clear_slot(slot: Control) -> void:
 	if symbol_label != null:
 		symbol_label.text = ""
 		symbol_label.visible = false
+	if accent_bar != null:
+		accent_bar.color = Color(0.0, 0.0, 0.0, 0.0)
 	if count_label != null:
 		count_label.text = ""
 		count_label.visible = false
@@ -332,41 +360,41 @@ func _clear_slot(slot: Control) -> void:
 
 func _on_slot_gui_input(event: InputEvent, slot_index: int) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		selected_slot_index = slot_index
-		_update_drop_button()
-		_update_slot_selection_visuals()
-		refresh()
+		var slot := slot_nodes[slot_index]
+		var item_id := str(slot.get_meta("item_id", ""))
+		var amount := int(slot.get_meta("amount", 0))
+		if item_id.is_empty() or amount <= 0:
+			_clear_selection()
+			return
+		_select_slot(slot_index, item_id, amount)
 
 
 func _update_drop_button() -> void:
 	if drop_button == null:
 		return
-	drop_button.disabled = _get_selected_slot_data().is_empty()
-	drop_button.text = "Drop Stack"
+	drop_button.disabled = selected_slot_index < 0 or selected_item_id.is_empty() or selected_amount <= 0
+	if drop_button.disabled:
+		drop_button.text = "Drop Stack"
+	else:
+		drop_button.text = "Drop Stack: %s x%d" % [ITEM_DATABASE.get_display_name(selected_item_id), selected_amount]
 
 
 func _get_selected_slot_data() -> Dictionary:
 	if selected_slot_index < 0 or selected_slot_index >= slot_nodes.size():
 		return {}
-	var slot := slot_nodes[selected_slot_index]
-	var item_id := str(slot.get_meta("item_id", ""))
-	var amount := int(slot.get_meta("amount", 0))
-	if item_id.is_empty() or amount <= 0:
-		return {}
-	return {"item_id": item_id, "amount": amount}
+	return {
+		"item_id": selected_item_id,
+		"amount": selected_amount,
+		"slot_index": selected_slot_index
+	}
 
 
 func _on_drop_pressed() -> void:
 	var slot_data := _get_selected_slot_data()
 	if slot_data.is_empty() or player == null:
 		return
-	var item_id := str(slot_data.get("item_id", ""))
-	var amount := int(slot_data.get("amount", 0))
-	if item_id.is_empty() or amount <= 0:
-		return
-	if item_id not in ["torch", "spear", "bow"]:
-		amount = 1
-	if player.has_method("drop_inventory_item") and player.call("drop_inventory_item", item_id, amount) == true:
+	if player.has_method("drop_inventory_stack") and player.call("drop_inventory_stack", int(slot_data.get("slot_index", -1)), str(slot_data.get("item_id", "")), int(slot_data.get("amount", 0))) == true:
+		_clear_selection()
 		refresh()
 
 
@@ -409,6 +437,38 @@ func _get_all_inventory_item_ids() -> Array[String]:
 	return result
 
 
+func _get_inventory_slots() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if inventory == null or not inventory.has_method("get_slots"):
+		return result
+	var slots: Variant = inventory.call("get_slots")
+	if slots is Array:
+		for index in range(Array(slots).size()):
+			var slot_data: Variant = Array(slots)[index]
+			if slot_data is Dictionary:
+				var slot_dict := Dictionary(slot_data)
+				var item_id := str(slot_dict.get("item_id", ""))
+				var amount := int(slot_dict.get("amount", 0))
+				result.append({"slot_index": index, "item_id": item_id, "amount": amount})
+	return result
+
+
+func _select_slot(slot_index: int, item_id: String, amount: int) -> void:
+	selected_slot_index = slot_index
+	selected_item_id = item_id
+	selected_amount = amount
+	_update_drop_button()
+	_update_slot_selection_visuals()
+
+
+func _clear_selection() -> void:
+	selected_slot_index = -1
+	selected_item_id = ""
+	selected_amount = 0
+	_update_drop_button()
+	_update_slot_selection_visuals()
+
+
 func _update_slot_selection_visuals() -> void:
 	for index in range(slot_nodes.size()):
 		_update_slot_visual_state(slot_nodes[index], index == selected_slot_index)
@@ -420,8 +480,8 @@ func _update_slot_visual_state(slot: Control, selected: bool) -> void:
 	slot.self_modulate = Color(1.0, 0.96, 0.62) if selected else Color(1.0, 1.0, 1.0)
 	var slot_style := slot.get_theme_stylebox("panel") as StyleBoxFlat
 	if slot_style != null:
-		slot_style.bg_color = Color(0.14, 0.15, 0.08, 0.96) if selected else Color(0.06, 0.07, 0.08, 0.92)
-		slot_style.border_color = Color(0.98, 0.88, 0.36, 0.95) if selected else Color(0.74, 0.77, 0.72, 0.32)
+		slot_style.bg_color = selected_slot_style.bg_color if selected else normal_slot_style.bg_color
+		slot_style.border_color = selected_slot_style.border_color if selected else normal_slot_style.border_color
 
 
 func _get_item_symbol(item_id: String) -> String:
