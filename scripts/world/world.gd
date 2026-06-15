@@ -557,7 +557,11 @@ func _apply_world_layout(layout: Dictionary) -> void:
 
 func _setup_topography() -> void:
 	world_topography = WORLD_TOPOGRAPHY.new()
-	world_topography.setup(world_seed if world_seed != 0 else int(world_layout.get("seed", 1)))
+	world_topography.setup(
+		world_seed if world_seed != 0 else int(world_layout.get("seed", 1)),
+		Callable(self, "get_biome_id_at"),
+		Callable(self, "get_generator_base_terrain_zone_at")
+	)
 	_invalidate_surface_texture_cache()
 
 
@@ -717,7 +721,7 @@ func get_map_surface_debug_key() -> String:
 	var ponds := int(feature_counts.get("pond", 0))
 	var highlands := int(feature_counts.get("highland", 0))
 	var rocks := int(feature_counts.get("rocky_patch", 0))
-	return "surface_v10|seed=%d|generator_key=%s|topography_rules=%s|ponds=%d|highlands=%d|rocks=%d" % [
+	return "surface_v11|seed=%d|generator_key=%s|topography_rules=%s|ponds=%d|highlands=%d|rocks=%d" % [
 		world_seed,
 		generator_key,
 		WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION,

@@ -20,11 +20,12 @@ var biome_detail_noise := FastNoiseLite.new()
 const BIOME_IDS := ["westwood", "stoneback_ridge", "hearth_meadow", "south_thicket", "redfang_wilds"]
 const BIOME_OWNERSHIP_MAP_WIDTH := 256
 const BIOME_OWNERSHIP_MAP_HEIGHT := 192
-const USE_PROCEDURAL_BIOME_OWNERSHIP := false
+const USE_RANDOMIZED_BIOME_LAYOUT := true
 
 var biome_region_anchors: Array[Dictionary] = []
 var biome_ownership_map: Array[Array] = []
 var topography_features: Array[Dictionary] = []
+var island_shape_profile: Dictionary = {}
 var biome_cleanup_debug: Dictionary = {
 	"component_count": 0,
 	"small_components_removed": 0,
@@ -36,6 +37,7 @@ var biome_cleanup_debug: Dictionary = {
 func generate_world(p_seed: int = 0) -> Dictionary:
 	seed = p_seed if p_seed != 0 else GEN_CONFIG.DEFAULT_SEED
 	_configure_rng_and_noise(seed)
+	_build_island_shape_profile()
 	_build_biome_region_anchors()
 	_build_biome_ownership_map()
 	var layout := {
@@ -58,16 +60,23 @@ func generate_world(p_seed: int = 0) -> Dictionary:
 
 
 func get_height_at(position: Vector2) -> float:
-	var center := GEN_CONFIG.WORLD_RECT.get_center()
-	var radius_x := GEN_CONFIG.WORLD_RECT.size.x * 0.5 * GEN_CONFIG.ISLAND_RADIUS_X_RATIO
-	var radius_y := GEN_CONFIG.WORLD_RECT.size.y * 0.5 * GEN_CONFIG.ISLAND_RADIUS_Y_RATIO
-	var local := position - center
-	var normalized := Vector2(local.x / radius_x, local.y / radius_y)
+	if island_shape_profile.is_empty():
+		_build_island_shape_profile()
+	var rect := GEN_CONFIG.WORLD_RECT
+	var center := rect.get_center() + Vector2(island_shape_profile.get("center_offset", Vector2.ZERO))
+	var rotation := float(island_shape_profile.get("rotation", 0.0))
+	var radius_x := rect.size.x * 0.5 * float(island_shape_profile.get("radius_x_ratio", GEN_CONFIG.ISLAND_RADIUS_X_RATIO))
+	var radius_y := rect.size.y * 0.5 * float(island_shape_profile.get("radius_y_ratio", GEN_CONFIG.ISLAND_RADIUS_Y_RATIO))
+	var local := (position - center).rotated(-rotation)
+	var normalized := Vector2(local.x / maxf(radius_x, 1.0), local.y / maxf(radius_y, 1.0))
 	var distance := normalized.length()
+	var angle := normalized.angle()
+	var profile_delta := _get_island_profile_delta(angle, distance)
+	var edge_noise_strength := float(island_shape_profile.get("edge_noise_strength", 0.24))
 	var falloff := pow(clampf(distance, 0.0, 1.8), GEN_CONFIG.ISLAND_EDGE_FALLOFF_POWER)
 	var base_noise := height_noise.get_noise_2d(position.x, position.y)
 	var detail_noise := height_noise.get_noise_2d(position.x * 2.7, position.y * 2.7)
-	return 1.04 - falloff + base_noise * 0.20 + detail_noise * 0.08
+	return 1.04 - falloff + profile_delta + base_noise * edge_noise_strength + detail_noise * 0.08
 
 
 func get_base_terrain_zone(position: Vector2) -> String:
@@ -125,11 +134,6 @@ func get_biome_id_at(position: Vector2) -> String:
 		return base_terrain
 	if base_terrain == "shore":
 		return "shore"
-	if not USE_PROCEDURAL_BIOME_OWNERSHIP:
-		var polygon_biome := _get_polygon_biome_id_at(position)
-		if not polygon_biome.is_empty():
-			return polygon_biome
-		return _get_nearest_biome_zone_id(position)
 	if biome_ownership_map.is_empty():
 		return _get_raw_biome_id_at(position)
 	return _sample_biome_ownership_map(position)
@@ -268,6 +272,70 @@ func _generate_sample_maps() -> Dictionary:
 		"topography_map": topography_samples,
 		"danger_map": danger_samples
 	}
+
+
+func _build_island_shape_profile() -> void:
+	var rect := GEN_CONFIG.WORLD_RECT
+	var min_size := minf(rect.size.x, rect.size.y)
+	island_shape_profile = {
+		"center_offset": Vector2(
+			rng.randf_range(-rect.size.x * 0.055, rect.size.x * 0.055),
+			rng.randf_range(-rect.size.y * 0.055, rect.size.y * 0.055)
+		),
+		"rotation": rng.randf_range(-0.38, 0.38),
+		"radius_x_ratio": rng.randf_range(0.68, 0.88),
+		"radius_y_ratio": rng.randf_range(0.58, 0.82),
+		"edge_noise_strength": rng.randf_range(0.18, 0.34),
+		"lobes": _generate_island_lobes(rng.randi_range(3, 6), min_size),
+		"bays": _generate_island_bays(rng.randi_range(1, 3), min_size)
+	}
+
+
+func _generate_island_lobes(count: int, _min_size: float) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for _i in range(count):
+		result.append({
+			"angle": rng.randf_range(0.0, TAU),
+			"width": rng.randf_range(0.32, 0.62),
+			"strength": rng.randf_range(0.05, 0.16),
+			"distance": rng.randf_range(0.70, 1.05)
+		})
+	return result
+
+
+func _generate_island_bays(count: int, _min_size: float) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for _i in range(count):
+		result.append({
+			"angle": rng.randf_range(0.0, TAU),
+			"width": rng.randf_range(0.22, 0.48),
+			"strength": rng.randf_range(0.05, 0.14),
+			"distance": rng.randf_range(0.68, 0.98)
+		})
+	return result
+
+
+func _get_island_profile_delta(angle: float, distance: float) -> float:
+	var delta := 0.0
+	for lobe_value in Array(island_shape_profile.get("lobes", [])):
+		var lobe := Dictionary(lobe_value)
+		var d := absf(angle_difference(angle, float(lobe.get("angle", 0.0))))
+		var width := maxf(float(lobe.get("width", 0.4)), 0.01)
+		var influence := exp(-pow(d / width, 2.0))
+		influence *= smoothstep(0.30, 1.15, distance)
+		delta += influence * float(lobe.get("strength", 0.08))
+	for bay_value in Array(island_shape_profile.get("bays", [])):
+		var bay := Dictionary(bay_value)
+		var d := absf(angle_difference(angle, float(bay.get("angle", 0.0))))
+		var width := maxf(float(bay.get("width", 0.35)), 0.01)
+		var influence := exp(-pow(d / width, 2.0))
+		influence *= smoothstep(0.42, 1.18, distance)
+		delta -= influence * float(bay.get("strength", 0.08))
+	return delta
+
+
+func angle_difference(a: float, b: float) -> float:
+	return wrapf(a - b, -PI, PI)
 
 
 func _sample_to_world_position(x: int, y: int) -> Vector2:
@@ -441,54 +509,30 @@ func _random_land_position() -> Vector2:
 
 func _build_biome_region_anchors() -> void:
 	biome_region_anchors.clear()
-	var rect := GEN_CONFIG.WORLD_RECT
-	var center := rect.get_center()
-	var half := rect.size * 0.5
-	_add_biome_anchor(
-		"westwood",
-		center + Vector2(
-			-half.x * rng.randf_range(0.36, 0.56),
-			rng.randf_range(-half.y * 0.22, half.y * 0.18)
-		),
-		rng.randf_range(2600.0, 3900.0),
-		rng.randf_range(1.10, 1.35)
-	)
-	_add_biome_anchor(
-		"stoneback_ridge",
-		center + Vector2(
-			rng.randf_range(-half.x * 0.20, half.x * 0.24),
-			-half.y * rng.randf_range(0.34, 0.56)
-		),
-		rng.randf_range(2400.0, 3600.0),
-		rng.randf_range(1.05, 1.28)
-	)
-	_add_biome_anchor(
-		"hearth_meadow",
-		center + Vector2(
-			rng.randf_range(-half.x * 0.10, half.x * 0.10),
-			rng.randf_range(-half.y * 0.10, half.y * 0.10)
-		),
-		rng.randf_range(2800.0, 4200.0),
-		rng.randf_range(1.18, 1.45)
-	)
-	_add_biome_anchor(
-		"south_thicket",
-		center + Vector2(
-			rng.randf_range(-half.x * 0.22, half.x * 0.18),
-			half.y * rng.randf_range(0.32, 0.54)
-		),
-		rng.randf_range(2500.0, 3800.0),
-		rng.randf_range(1.08, 1.32)
-	)
-	_add_biome_anchor(
-		"redfang_wilds",
-		center + Vector2(
-			half.x * rng.randf_range(0.36, 0.58),
-			rng.randf_range(-half.y * 0.20, half.y * 0.26)
-		),
-		rng.randf_range(2500.0, 3900.0),
-		rng.randf_range(1.10, 1.38)
-	)
+	var remaining_biomes: Array[String] = []
+	for biome_id in BIOME_IDS:
+		remaining_biomes.append(biome_id)
+	var hearth_id := "hearth_meadow"
+	if USE_RANDOMIZED_BIOME_LAYOUT:
+		var hearth_pos := _find_biome_anchor_position_near_safe_area()
+		_add_biome_anchor(hearth_id, hearth_pos, _get_random_biome_radius(hearth_id), rng.randf_range(1.12, 1.36))
+	else:
+		var rect := GEN_CONFIG.WORLD_RECT
+		var center := rect.get_center()
+		_add_biome_anchor(
+			hearth_id,
+			center + Vector2(
+				rng.randf_range(-rect.size.x * 0.10, rect.size.x * 0.10),
+				rng.randf_range(-rect.size.y * 0.10, rect.size.y * 0.10)
+			),
+			_get_random_biome_radius(hearth_id),
+			rng.randf_range(1.12, 1.36)
+		)
+	remaining_biomes.erase(hearth_id)
+	remaining_biomes.shuffle()
+	for biome_id in remaining_biomes:
+		var pos := _find_random_macro_biome_anchor_position(biome_id)
+		_add_biome_anchor(biome_id, pos, _get_random_biome_radius(biome_id), rng.randf_range(1.05, 1.35))
 
 
 func _add_biome_anchor(biome_id: String, position: Vector2, radius: float, strength: float) -> void:
@@ -498,6 +542,75 @@ func _add_biome_anchor(biome_id: String, position: Vector2, radius: float, stren
 		"radius": radius,
 		"strength": strength
 	})
+
+
+func _find_biome_anchor_position_near_safe_area() -> Vector2:
+	var center := GEN_CONFIG.WORLD_RECT.get_center()
+	for _attempt in range(800):
+		var offset := Vector2(
+			rng.randf_range(-GEN_CONFIG.WORLD_RECT.size.x * 0.14, GEN_CONFIG.WORLD_RECT.size.x * 0.14),
+			rng.randf_range(-GEN_CONFIG.WORLD_RECT.size.y * 0.14, GEN_CONFIG.WORLD_RECT.size.y * 0.14)
+		)
+		var candidate := center + offset
+		if _is_good_biome_anchor_position(candidate, "hearth_meadow", minf(GEN_CONFIG.WORLD_RECT.size.x, GEN_CONFIG.WORLD_RECT.size.y) * 0.20):
+			return candidate
+	return center
+
+
+func _find_random_macro_biome_anchor_position(biome_id: String) -> Vector2:
+	var min_distance := minf(GEN_CONFIG.WORLD_RECT.size.x, GEN_CONFIG.WORLD_RECT.size.y) * 0.20
+	for _attempt in range(800):
+		var candidate := _random_land_position()
+		if _is_good_biome_anchor_position(candidate, biome_id, min_distance):
+			return candidate
+	return _random_land_position()
+
+
+func _is_good_biome_anchor_position(candidate: Vector2, _biome_id: String, min_distance: float) -> bool:
+	if get_base_terrain_zone(candidate) != "land":
+		return false
+	if _is_near_ocean_or_shore(candidate, 420.0):
+		return false
+	for anchor_value in biome_region_anchors:
+		var anchor := Dictionary(anchor_value)
+		var other_pos := Vector2(anchor.get("position", Vector2.ZERO))
+		if candidate.distance_to(other_pos) < min_distance:
+			return false
+	return true
+
+
+func _is_near_ocean_or_shore(position: Vector2, radius: float) -> bool:
+	var samples := [
+		Vector2.ZERO,
+		Vector2(radius, 0.0),
+		Vector2(-radius, 0.0),
+		Vector2(0.0, radius),
+		Vector2(0.0, -radius),
+		Vector2(radius * 0.7, radius * 0.7),
+		Vector2(-radius * 0.7, radius * 0.7),
+		Vector2(radius * 0.7, -radius * 0.7),
+		Vector2(-radius * 0.7, -radius * 0.7)
+	]
+	for offset in samples:
+		if get_base_terrain_zone(position + offset) != "land":
+			return true
+	return false
+
+
+func _get_random_biome_radius(biome_id: String) -> float:
+	var min_size := minf(GEN_CONFIG.WORLD_RECT.size.x, GEN_CONFIG.WORLD_RECT.size.y)
+	match biome_id:
+		"hearth_meadow":
+			return rng.randf_range(min_size * 0.22, min_size * 0.34)
+		"stoneback_ridge":
+			return rng.randf_range(min_size * 0.20, min_size * 0.32)
+		"redfang_wilds":
+			return rng.randf_range(min_size * 0.22, min_size * 0.36)
+		"westwood":
+			return rng.randf_range(min_size * 0.24, min_size * 0.38)
+		"south_thicket":
+			return rng.randf_range(min_size * 0.22, min_size * 0.36)
+	return rng.randf_range(min_size * 0.22, min_size * 0.34)
 
 
 func _get_warped_biome_position(position: Vector2) -> Vector2:
@@ -534,39 +647,13 @@ func _get_biome_scores(position: Vector2) -> Dictionary:
 
 	var nx := clampf(local.x / maxf(rect.size.x * 0.5, 1.0), -1.0, 1.0)
 	var ny := clampf(local.y / maxf(rect.size.y * 0.5, 1.0), -1.0, 1.0)
-	var distance_from_center := Vector2(nx, ny).length()
-
-	var height := get_height_at(position)
-	var moisture := get_moisture_at(position)
-	var danger := get_danger_at(position)
 
 	return {
-		"westwood": (
-			_get_macro_biome_score(warped, "westwood") * 4.0
-			+ moisture * 0.24
-			- nx * 0.06
-		),
-		"stoneback_ridge": (
-			_get_macro_biome_score(warped, "stoneback_ridge") * 4.0
-			+ height * 0.18
-			- ny * 0.04
-		),
-		"hearth_meadow": (
-			_get_macro_biome_score(warped, "hearth_meadow") * 4.2
-			+ (1.0 - distance_from_center) * 0.18
-			- danger * 0.08
-		),
-		"south_thicket": (
-			_get_macro_biome_score(warped, "south_thicket") * 4.0
-			+ moisture * 0.22
-			+ ny * 0.04
-		),
-		"redfang_wilds": (
-			_get_macro_biome_score(warped, "redfang_wilds") * 4.0
-			+ danger * 0.24
-			- moisture * 0.08
-			+ nx * 0.04
-		)
+		"westwood": _get_macro_biome_score(warped, "westwood") * 5.0 - nx * 0.02,
+		"stoneback_ridge": _get_macro_biome_score(warped, "stoneback_ridge") * 5.0 - ny * 0.02,
+		"hearth_meadow": _get_macro_biome_score(warped, "hearth_meadow") * 5.2,
+		"south_thicket": _get_macro_biome_score(warped, "south_thicket") * 5.0 + ny * 0.02,
+		"redfang_wilds": _get_macro_biome_score(warped, "redfang_wilds") * 5.0 + nx * 0.02
 	}
 
 
@@ -655,7 +742,7 @@ func _build_biome_ownership_map() -> void:
 		biome_ownership_map.append(row)
 	for _i in range(3):
 		_smooth_biome_ownership_map()
-	_remove_small_biome_islands(48)
+	_remove_small_biome_islands(220)
 
 
 func _ownership_sample_to_world_position(x: int, y: int) -> Vector2:
@@ -804,7 +891,7 @@ func get_biome_coverage_debug() -> Dictionary:
 
 
 func get_debug_generation_key() -> String:
-	return "biome_ownership_v6|seed=%d|anchors=%d|ownership=%dx%d" % [
+	return "biome_ownership_v7|seed=%d|anchors=%d|ownership=%dx%d" % [
 		seed,
 		biome_region_anchors.size(),
 		BIOME_OWNERSHIP_MAP_WIDTH,
