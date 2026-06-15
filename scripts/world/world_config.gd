@@ -3,10 +3,17 @@ class_name WorldConfig
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 
-const WORLD_SCALE := 3.0
+const BASELINE_WORLD_SCALE := 3.0
+const WORLD_SCALE := 6.0
 const BASE_WORLD_RECT := Rect2(-1680, -1040, 3360, 2080)
 const WORLD_RECT := Rect2(BASE_WORLD_RECT.position * WORLD_SCALE, BASE_WORLD_RECT.size * WORLD_SCALE)
-const ISLAND_RADIUS_RATIO := 0.76
+const WORLD_LINEAR_SCALE_FACTOR := WORLD_SCALE / BASELINE_WORLD_SCALE
+const WORLD_AREA_SCALE_FACTOR := WORLD_LINEAR_SCALE_FACTOR * WORLD_LINEAR_SCALE_FACTOR
+const RESOURCE_DENSITY_MULTIPLIER := 1.65
+const DECORATIVE_VEGETATION_DENSITY_MULTIPLIER := 1.35
+const CREATURE_DENSITY_MULTIPLIER := 1.35
+const VARNAK_DENSITY_MULTIPLIER := 1.25
+const ISLAND_RADIUS_RATIO := 0.70
 const ISLAND_NOISE_SCALE := 0.0024
 const ISLAND_NOISE_STRENGTH := 0.24
 const DEEP_OCEAN_THRESHOLD := 0.04
@@ -343,6 +350,61 @@ static var cached_island_noise: FastNoiseLite = FastNoiseLite.new()
 
 static func get_player_limits() -> Vector2:
 	return WORLD_RECT.size * 0.5 - Vector2(PLAYER_EDGE_PADDING, PLAYER_EDGE_PADDING)
+
+
+static func scale_count_for_world(base_count: int, density_multiplier: float = 1.0, min_count: int = 0, max_count: int = -1) -> int:
+	var scaled := int(round(float(base_count) * density_multiplier))
+	if max_count >= 0:
+		scaled = mini(scaled, max_count)
+	return maxi(scaled, min_count)
+
+
+static func get_scaled_spawn_attempts(base_attempts: int, multiplier: float = 1.5, max_attempts: int = 400) -> int:
+	return mini(int(round(float(base_attempts) * multiplier)), max_attempts)
+
+
+static func get_tree_count() -> int:
+	return scale_count_for_world(TREE_COUNT, RESOURCE_DENSITY_MULTIPLIER, TREE_COUNT, 140)
+
+
+static func get_westwood_extra_conifer_count() -> int:
+	return scale_count_for_world(WESTWOOD_EXTRA_CONIFER_COUNT, RESOURCE_DENSITY_MULTIPLIER, WESTWOOD_EXTRA_CONIFER_COUNT, 140)
+
+
+static func get_rock_count() -> int:
+	return scale_count_for_world(ROCK_COUNT, RESOURCE_DENSITY_MULTIPLIER, ROCK_COUNT, 80)
+
+
+static func get_bush_count() -> int:
+	return scale_count_for_world(BUSH_COUNT, RESOURCE_DENSITY_MULTIPLIER, BUSH_COUNT, 120)
+
+
+static func get_small_bush_count() -> int:
+	return scale_count_for_world(SMALL_BUSH_COUNT, RESOURCE_DENSITY_MULTIPLIER, SMALL_BUSH_COUNT, 100)
+
+
+static func get_berry_bush_count() -> int:
+	return scale_count_for_world(BERRY_BUSH_COUNT, RESOURCE_DENSITY_MULTIPLIER, BERRY_BUSH_COUNT, 60)
+
+
+static func get_grass_patch_count() -> int:
+	return scale_count_for_world(GRASS_PATCH_COUNT, DECORATIVE_VEGETATION_DENSITY_MULTIPLIER, GRASS_PATCH_COUNT, 180)
+
+
+static func get_dense_grass_count() -> int:
+	return scale_count_for_world(DENSE_GRASS_COUNT, DECORATIVE_VEGETATION_DENSITY_MULTIPLIER, DENSE_GRASS_COUNT, 100)
+
+
+static func get_varnak_target_count() -> int:
+	return scale_count_for_world(VARNAK_TARGET_COUNT, VARNAK_DENSITY_MULTIPLIER, VARNAK_TARGET_COUNT, 14)
+
+
+static func get_small_prey_population_multiplier() -> float:
+	return CREATURE_DENSITY_MULTIPLIER
+
+
+static func get_grazer_population_multiplier() -> float:
+	return CREATURE_DENSITY_MULTIPLIER
 
 
 static func get_terrain_height(position: Vector2) -> float:

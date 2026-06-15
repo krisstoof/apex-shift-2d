@@ -1057,7 +1057,7 @@ func _clear_decorative_vegetation_visuals() -> void:
 
 
 func _try_spawn_decorative_grass_visual(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
-	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
 		var candidate := _get_random_resource_position(resource_kind)
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
@@ -1621,7 +1621,7 @@ func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biom
 	var ring_factor := _get_pond_vegetation_ring_factor(slot_index, slot_count)
 	var min_ring_factor: float = max(ring_factor - POND_VEGETATION_RING_JITTER, 1.12)
 	var max_ring_factor: float = ring_factor + POND_VEGETATION_RING_JITTER
-	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
 		var angle: float = base_angle + resource_rng.randf_range(-slot_angle, slot_angle) * POND_VEGETATION_ANGLE_JITTER_FACTOR
 		var distance_factor := resource_rng.randf_range(min_ring_factor, max_ring_factor)
 		var candidate := _get_pond_shape_position(pond, angle, distance_factor)
@@ -2009,7 +2009,7 @@ func _is_valid_drop_position(drop_position: Vector2, radius: float = 18.0, resou
 
 
 func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
-	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
 		var biome := _pick_resource_biome(resource_kind)
 		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
 		var candidate := Vector2(
@@ -2370,7 +2370,7 @@ func _get_desired_small_prey_count(biome: Dictionary, biome_state: Dictionary) -
 	var population_factor: float = clamp(population / 12.0, 0.0, 1.0)
 	var biomass_factor: float = clamp(biomass_percent / 100.0, 0.0, 1.0)
 	var danger_factor := 0.45 if biome.get("dangerous", false) == true else 1.0
-	var desired := int(round(float(SMALL_PREY_MAX_VISIBLE_PER_BIOME) * population_factor * biomass_factor * danger_factor))
+	var desired := int(round(float(SMALL_PREY_MAX_VISIBLE_PER_BIOME) * population_factor * biomass_factor * danger_factor * WORLD_CONFIG.get_small_prey_population_multiplier()))
 	if population > 0.0 and biomass_percent >= 30.0:
 		desired = max(desired, 1)
 	return clamp(desired, 0, SMALL_PREY_MAX_VISIBLE_PER_BIOME)
@@ -2396,7 +2396,7 @@ func _get_existing_small_prey_positions() -> Array[Vector2]:
 
 func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2], slot_index: int, _slot_count: int) -> bool:
 	var spawn_ring := _get_creature_horizon_spawn_ring()
-	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
 		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):
@@ -2413,7 +2413,7 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 		SMALL_PREY_MIN_DISTANCE,
 		SMALL_PREY_PLAYER_SAFE_DISTANCE,
 		small_prey_rng,
-		WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS * 2
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.0, 400)
 	)
 	if fallback_position != Vector2.INF:
 		used_positions.append(fallback_position)
@@ -2580,23 +2580,25 @@ func _get_biome_resource_target_count(biome: Dictionary, resource_kind: String) 
 func _get_base_resource_count(resource_kind: String) -> int:
 	match resource_kind:
 		"conifer_tree":
-			return int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.50))
+			return int(ceil(float(WORLD_CONFIG.get_tree_count()) * 0.50))
 		"leafy_tree":
-			return WORLD_CONFIG.TREE_COUNT - int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.50)) - int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.10))
+			var total_trees := WORLD_CONFIG.get_tree_count()
+			return total_trees - int(ceil(float(total_trees) * 0.50)) - int(ceil(float(total_trees) * 0.10))
 		"dry_tree":
-			return int(ceil(float(WORLD_CONFIG.TREE_COUNT) * 0.10))
+			return int(ceil(float(WORLD_CONFIG.get_tree_count()) * 0.10))
 		"bush":
-			return WORLD_CONFIG.BUSH_COUNT - int(ceil(float(WORLD_CONFIG.BUSH_COUNT) * 0.35))
+			var total_bushes := WORLD_CONFIG.get_bush_count()
+			return total_bushes - int(ceil(float(total_bushes) * 0.35))
 		"dry_bush":
-			return int(ceil(float(WORLD_CONFIG.BUSH_COUNT) * 0.35))
+			return int(ceil(float(WORLD_CONFIG.get_bush_count()) * 0.35))
 		"small_bush":
-			return WORLD_CONFIG.SMALL_BUSH_COUNT
+			return WORLD_CONFIG.get_small_bush_count()
 		"berry_bush":
-			return WORLD_CONFIG.BERRY_BUSH_COUNT
+			return WORLD_CONFIG.get_berry_bush_count()
 		"grass_patch":
-			return WORLD_CONFIG.GRASS_PATCH_COUNT
+			return WORLD_CONFIG.get_grass_patch_count()
 		"dense_grass":
-			return WORLD_CONFIG.DENSE_GRASS_COUNT
+			return WORLD_CONFIG.get_dense_grass_count()
 	return 0
 
 
@@ -2649,7 +2651,7 @@ func _try_spawn_resource_in_biome(
 	player_position: Vector2,
 	min_distance: float
 ) -> bool:
-	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
 		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
 		var candidate := Vector2(
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
@@ -2750,7 +2752,7 @@ func _get_desired_grazer_count(biome_state: Dictionary) -> int:
 	var target_population := float(GAME_BALANCE.POPULATION_RECOVERY["grazer_target_population"])
 	var population_factor: float = clamp(population / maxf(target_population, 1.0), 0.0, 1.0)
 	var biomass_factor: float = clamp(biomass_percent / 100.0, 0.0, 1.0)
-	var desired := int(round(float(GRAZER_MAX_VISIBLE_PER_BIOME) * population_factor * biomass_factor))
+	var desired := int(round(float(GRAZER_MAX_VISIBLE_PER_BIOME) * population_factor * biomass_factor * WORLD_CONFIG.get_grazer_population_multiplier()))
 	if population > 0.0 and biomass_percent >= 30.0:
 		desired = max(desired, 1)
 	return clampi(desired, 0, GRAZER_MAX_VISIBLE_PER_BIOME)
@@ -2783,7 +2785,7 @@ func _get_initial_grazer_biomes() -> Array[Dictionary]:
 
 func _try_spawn_grazer_in_biome(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
 	var spawn_area := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
-	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
 		var candidate := Vector2(
 			grazer_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			grazer_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
@@ -2803,7 +2805,7 @@ func _try_spawn_grazer_in_biome(biome: Dictionary, player_position: Vector2, use
 
 func _try_spawn_grazer_near_player(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
 	var spawn_ring := _get_creature_horizon_spawn_ring()
-	for _attempt in WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS:
+	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.75, 320):
 		var offset := Vector2.RIGHT.rotated(grazer_rng.randf_range(0.0, TAU)) * grazer_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):
@@ -2938,7 +2940,7 @@ func _get_game_session() -> Node:
 
 func _try_spawn_varnak_in_world(player_position: Vector2, used_positions: Array[Vector2]) -> bool:
 	var spawn_ring := _get_creature_horizon_spawn_ring()
-	for _attempt in WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS:
+	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS, 1.5, 96):
 		var angle := varnak_rng.randf_range(0.0, TAU)
 		var distance := varnak_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + Vector2.RIGHT.rotated(angle) * distance
@@ -3005,7 +3007,7 @@ func _pick_varnak_spawn_biome() -> Dictionary:
 
 func _try_spawn_varnak_in_weighted_biome(player_position: Vector2, used_positions: Array[Vector2], spawn_ring: Vector2) -> bool:
 	var attempt_multiplier := int(GAME_BALANCE.VARNAK_SPAWN.get("fallback_attempt_multiplier", 3))
-	for _attempt in WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS * max(attempt_multiplier, 1):
+	for _attempt in WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS, max(float(attempt_multiplier), 1.0) * 1.0, 96):
 		var biome := _pick_varnak_spawn_biome()
 		if biome.is_empty():
 			return false
@@ -3035,7 +3037,7 @@ func _try_spawn_varnak_in_weighted_biome(player_position: Vector2, used_position
 			VARNAK_MIN_DISTANCE,
 			maxf(spawn_ring.x, WORLD_CONFIG.VARNAK_PLAYER_SAFE_DISTANCE),
 			varnak_rng,
-			WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS
+			WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.VARNAK_SPAWN_ATTEMPTS, 1.5, 96)
 		)
 		if fallback_position == Vector2.INF:
 			continue
@@ -3447,23 +3449,24 @@ func _get_current_day() -> int:
 
 
 func _get_varnak_target_count(day: int) -> int:
+	var base_target := WORLD_CONFIG.get_varnak_target_count()
 	if day <= 7:
 		var difficulty := GameBalance.get_first_week_difficulty(day)
 		var difficulty_max := int(difficulty.get("varnak_max_population", -1))
 		if difficulty_max > 0:
-			return difficulty_max
+			return max(difficulty_max, base_target)
 	var scaling := GameBalance.VARNAK_DAY_SCALING
 	var normalized_day := maxi(day, 1)
 	if normalized_day <= 1:
-		return clampi(int(scaling.get("day_1_min", 0)), 0, int(scaling.get("day_1_max", 0)))
+		return clampi(max(int(scaling.get("day_1_min", 0)), base_target), 0, int(scaling.get("day_1_max", 0)))
 	if normalized_day == 2:
-		return clampi(int(scaling.get("day_2_min", 1)), int(scaling.get("day_2_min", 1)), int(scaling.get("day_2_max", 2)))
+		return clampi(max(int(scaling.get("day_2_min", 1)), base_target), int(scaling.get("day_2_min", 1)), int(scaling.get("day_2_max", 2)))
 	if normalized_day == 3:
-		return clampi(int(scaling.get("day_3_min", 2)), int(scaling.get("day_3_min", 2)), int(scaling.get("day_3_max", 4)))
+		return clampi(max(int(scaling.get("day_3_min", 2)), base_target), int(scaling.get("day_3_min", 2)), int(scaling.get("day_3_max", 4)))
 	var daily_growth := int(scaling.get("daily_growth", 1))
 	var max_varnaks := int(scaling.get("max_varnaks", 12))
 	var day_three_cap := int(scaling.get("day_3_max", 4))
-	return clampi(day_three_cap + ((normalized_day - 3) * daily_growth), day_three_cap, max_varnaks)
+	return clampi(max(day_three_cap + ((normalized_day - 3) * daily_growth), base_target), day_three_cap, max_varnaks)
 
 
 func _get_varnak_spawn_chance(day: int) -> float:
