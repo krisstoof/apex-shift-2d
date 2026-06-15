@@ -1,7 +1,7 @@
 extends RefCounted
 class_name WorldRenderController
 
-const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
+const BIOME_BLEND_TEXTURE_SIZE := Vector2i(480, 296)
 
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""

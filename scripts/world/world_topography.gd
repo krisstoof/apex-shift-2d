@@ -72,17 +72,20 @@ func sample_topography_at(position: Vector2) -> Dictionary:
 	var wetland_value := _get_wetland_value(position)
 	var ridge_value := _get_ridge_value(position)
 	var rocky_value := _get_rocky_value(position)
+	var pond_feature := _get_feature_influence(position, "pond")
+	var highland_feature := _get_feature_influence(position, "highland")
+	var rocky_feature := _get_feature_influence(position, "rocky_patch")
 
-	sample["pond_influence"] = pond_value
+	sample["pond_influence"] = maxf(pond_value, pond_feature)
 	sample["wetland_value"] = wetland_value
-	sample["ridge_value"] = ridge_value
-	sample["rocky_influence"] = rocky_value
-	sample["highland_influence"] = ridge_value
+	sample["ridge_value"] = maxf(ridge_value, highland_feature)
+	sample["rocky_influence"] = maxf(rocky_value, rocky_feature)
+	sample["highland_influence"] = maxf(ridge_value, highland_feature)
 
 	var dominant_type := "land"
 	var dominant_influence := 0.0
-	if pond_value > dominant_influence:
-		dominant_influence = pond_value
+	if sample["pond_influence"] > dominant_influence:
+		dominant_influence = float(sample["pond_influence"])
 		dominant_type = "pond"
 	if wetland_value > dominant_influence:
 		dominant_influence = wetland_value
@@ -91,16 +94,16 @@ func sample_topography_at(position: Vector2) -> Dictionary:
 		dominant_influence = ridge_value
 		dominant_type = "ridge"
 	if rocky_value > dominant_influence:
-		dominant_influence = rocky_value
+		dominant_influence = maxf(rocky_value, rocky_feature)
 		dominant_type = "rocky_patch"
 
 	sample["dominant_feature_type"] = dominant_type
 	sample["dominant_feature_influence"] = dominant_influence
 
-	if pond_value > POND_THRESHOLD:
+	if float(sample["pond_influence"]) > POND_THRESHOLD:
 		sample["terrain_zone"] = "pond"
 		sample["elevation_band"] = "pond"
-	elif wetland_value > WETLAND_THRESHOLD and pond_value <= POND_THRESHOLD:
+	elif wetland_value > WETLAND_THRESHOLD and float(sample["pond_influence"]) <= POND_THRESHOLD:
 		sample["terrain_zone"] = "wetland"
 		sample["elevation_band"] = "wetland"
 	elif ridge_value > RIDGE_THRESHOLD:
@@ -179,7 +182,7 @@ func _build_topography_features() -> void:
 	topography_features.clear()
 	feature_counts_debug = {"pond": 0, "highland": 0, "rocky_patch": 0}
 	var rect := Rect2(Vector2(-1000.0, -1000.0), Vector2(2000.0, 2000.0))
-	var target_ponds := randi_range(4, 8)
+	var target_ponds := randi_range(2, 4)
 	var target_highlands := randi_range(5, 9)
 	var target_rocks := randi_range(5, 10)
 	_spawn_features_for_type("pond", target_ponds, rect)
@@ -218,7 +221,7 @@ func _is_valid_feature_position(feature_type: String, position: Vector2) -> bool
 		return false
 	var sample := sample_topography_at(position)
 	if feature_type == "pond":
-		return float(sample.get("pond_influence", 0.0)) >= 0.65 or get_base_terrain_zone(position) == "land"
+		return float(sample.get("pond_influence", 0.0)) >= 0.40 or get_base_terrain_zone(position) == "land"
 	if feature_type == "highland":
 		return float(sample.get("dominant_feature_influence", 0.0)) >= 0.55 or get_base_terrain_zone(position) == "land"
 	return float(sample.get("dominant_feature_influence", 0.0)) >= 0.55 or get_base_terrain_zone(position) == "land"
@@ -226,17 +229,38 @@ func _is_valid_feature_position(feature_type: String, position: Vector2) -> bool
 func _get_feature_radius(feature_type: String) -> float:
 	match feature_type:
 		"pond":
-			return randf_range(110.0, 220.0)
+			return randf_range(700.0, 1450.0)
 		"highland":
-			return randf_range(140.0, 260.0)
+			return randf_range(180.0, 320.0)
 		"rocky_patch":
-			return randf_range(80.0, 180.0)
+			return randf_range(90.0, 190.0)
 	return randf_range(90.0, 200.0)
 
 func _update_feature_counts() -> void:
 	feature_counts_debug["pond"] = get_topography_features_by_type("pond").size()
 	feature_counts_debug["highland"] = get_topography_features_by_type("highland").size()
 	feature_counts_debug["rocky_patch"] = get_topography_features_by_type("rocky_patch").size()
+
+func _get_feature_influence(position: Vector2, feature_type: String) -> float:
+	var best := 0.0
+	for feature_value in topography_features:
+		var feature := Dictionary(feature_value)
+		if str(feature.get("type", "")) != feature_type:
+			continue
+		var center := Vector2(feature.get("position", Vector2.ZERO))
+		var radius := maxf(float(feature.get("radius", 1.0)), 1.0)
+		var distance := position.distance_to(center)
+		var normalized := clampf(1.0 - distance / radius, 0.0, 1.0)
+		var strength := 0.0
+		match feature_type:
+			"pond":
+				strength = 0.22
+			"highland":
+				strength = 0.34
+			"rocky_patch":
+				strength = 0.28
+		best = maxf(best, pow(normalized, 1.6) * strength)
+	return best
 
 func is_pond_at(position: Vector2) -> bool:
 	return sample_topography_at(position).get("terrain_zone", "") == "pond"

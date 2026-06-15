@@ -3,7 +3,7 @@ extends Control
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const PADDING := 14.0
-const BIOME_BLEND_TEXTURE_SIZE := Vector2i(192, 116)
+const BIOME_BLEND_TEXTURE_SIZE := Vector2i(224, 136)
 const POND_MARKER_Y_SCALE := 0.62
 const HILL_MARKER_Y_SCALE := 0.58
 const TERRAIN_PALETTE_VERSION := "terrain_palette_v2"
@@ -48,7 +48,7 @@ var hitch_log_cooldowns: Dictionary = {}
 
 
 func _ready() -> void:
-	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_update_marker_cache()
 
 

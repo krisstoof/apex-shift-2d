@@ -721,7 +721,7 @@ func get_map_surface_debug_key() -> String:
 	var ponds := int(feature_counts.get("pond", 0))
 	var highlands := int(feature_counts.get("highland", 0))
 	var rocks := int(feature_counts.get("rocky_patch", 0))
-	return "surface_v11|seed=%d|generator_key=%s|topography_rules=%s|ponds=%d|highlands=%d|rocks=%d" % [
+	return "surface_v12|seed=%d|generator_key=%s|topography_rules=%s|ponds=%d|highlands=%d|rocks=%d" % [
 		world_seed,
 		generator_key,
 		WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION,
@@ -738,7 +738,7 @@ func _get_topography_biome_blend_strength(topo_sample: Dictionary, biome_id: Str
 	if feature_biome_id.is_empty():
 		return 1.0
 	if feature_biome_id != biome_id:
-		return 0.18
+		return 0.12
 	return 1.0
 
 
@@ -750,7 +750,7 @@ func _get_pond_surface_color(base_color: Color, biome_id: String, topo_sample: D
 		return Color(0.03, 0.25, 0.42)
 	if influence > 0.58:
 		return Color(0.06, 0.35, 0.50)
-	return base_color.lerp(_get_biome_wetland_tint(biome_id), 0.14)
+	return base_color.lerp(_get_biome_wetland_tint(biome_id), 0.10)
 
 
 func _get_low_end_surface_color(base_color: Color, topo_sample: Dictionary, biome_id: String) -> Color:
@@ -759,13 +759,13 @@ func _get_low_end_surface_color(base_color: Color, topo_sample: Dictionary, biom
 		"pond":
 			return Color(0.05, 0.28, 0.44)
 		"rocky_patch":
-			return base_color.lerp(_get_biome_rocky_tint(biome_id), 0.08)
+			return base_color.lerp(_get_biome_rocky_tint(biome_id), 0.06)
 		"highland":
-			return base_color.lerp(_get_biome_highland_tint(biome_id), 0.08)
+			return base_color.lerp(_get_biome_highland_tint(biome_id), 0.06)
 		"wetland":
-			return base_color.lerp(_get_biome_wetland_tint(biome_id), 0.06)
+			return base_color.lerp(_get_biome_wetland_tint(biome_id), 0.04)
 		"ridge":
-			return base_color.lerp(_get_biome_ridge_tint(biome_id), 0.10)
+			return base_color.lerp(_get_biome_ridge_tint(biome_id), 0.08)
 		_:
 			return base_color
 
@@ -1532,7 +1532,7 @@ func _ensure_biome_blend_background() -> Sprite2D:
 	biome_blend_background.centered = false
 	biome_blend_background.show_behind_parent = true
 	biome_blend_background.z_index = -100
-	biome_blend_background.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	biome_blend_background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	biome_blend_background.visible = false
 	add_child(biome_blend_background)
 	return biome_blend_background
@@ -1596,7 +1596,7 @@ func _prepare_boot_render_cache() -> void:
 
 
 func _get_world_biome_blend_texture_size() -> Vector2i:
-	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 1.0)), 1.0, 1.0)
+	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 1.25)), 1.25, 1.25)
 	return Vector2i(
 		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.x) * cache_scale)), BIOME_BLEND_TEXTURE_SIZE.x),
 		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.y) * cache_scale)), BIOME_BLEND_TEXTURE_SIZE.y)
