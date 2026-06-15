@@ -28,6 +28,8 @@ class MockWorld:
 	extends Node
 	var registered_resources: Array = []
 	var registered_varnaks: Array = []
+	var surface_texture := ImageTexture.create_from_image(Image.create(4, 4, false, Image.FORMAT_RGBA8))
+	var surface_texture_key := "shared-surface"
 
 	func get_registered_resources() -> Array:
 		return registered_resources
@@ -39,6 +41,12 @@ class MockWorld:
 
 	func get_landmarks() -> Array[Dictionary]:
 		return []
+
+	func get_surface_texture() -> ImageTexture:
+		return surface_texture
+
+	func get_surface_texture_key() -> String:
+		return surface_texture_key
 
 
 class MockSnapshotService:
@@ -60,6 +68,9 @@ func run() -> Array[String]:
 	_test_landmark_markers_stay_inside_minimap_content(failures)
 	_test_minimap_reads_registry_resources_and_varnaks(failures)
 	_test_minimap_builds_texture_outside_draw_path(failures)
+	_test_minimap_reuses_world_surface_texture_when_available(failures)
+	_test_minimap_camera_world_size_scales_inversely_with_zoom(failures)
+	_test_minimap_content_rect_reserves_footer_space(failures)
 	return failures
 
 
@@ -187,6 +198,49 @@ func _test_minimap_builds_texture_outside_draw_path(failures: Array[String]) -> 
 	draw_spy.call("_draw_biomes", Rect2(Vector2.ZERO, Vector2(160.0, 100.0)), Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0)))
 	TEST_UTILS.expect_equal(draw_spy.ensure_calls, ensure_calls_before, failures, "Minimap draw path should reuse the cached biome texture instead of rebuilding it")
 	draw_spy.free()
+
+
+func _test_minimap_reuses_world_surface_texture_when_available(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	var player := Node2D.new()
+	var fake_world := MockWorld.new()
+	minimap.set("player", player)
+	minimap.set("world", fake_world)
+	minimap.set("biome_zones", [{"name": "Test Biome", "points": PackedVector2Array([Vector2.ZERO, Vector2.RIGHT, Vector2.ONE]), "color": Color(0.2, 0.4, 0.2)}])
+	minimap.call("_sync_biome_texture")
+	TEST_UTILS.expect_equal(minimap.get("biome_blend_texture"), fake_world.surface_texture, failures, "Minimap should reuse the shared world surface texture when it exists")
+	TEST_UTILS.expect_equal(str(minimap.get("biome_blend_colors_key")), fake_world.surface_texture_key, failures, "Minimap should mirror the shared world surface texture key")
+	minimap.free()
+	player.free()
+	fake_world.free()
+
+
+func _test_minimap_camera_world_size_scales_inversely_with_zoom(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	var player := Node2D.new()
+	var camera := Camera2D.new()
+	player.add_child(camera)
+	minimap.player = player
+	minimap.camera_world_size_override = Vector2.ZERO
+	camera.zoom = Vector2(1.0, 1.0)
+	var normal_size: Vector2 = minimap.call("_get_player_camera_world_size")
+	camera.zoom = Vector2(2.0, 2.0)
+	var closer_size: Vector2 = minimap.call("_get_player_camera_world_size")
+	camera.zoom = Vector2(0.5, 0.5)
+	var farther_size: Vector2 = minimap.call("_get_player_camera_world_size")
+	TEST_UTILS.expect(closer_size.x < normal_size.x and closer_size.y < normal_size.y, failures, "Minimap camera world size should shrink when camera zoom increases")
+	TEST_UTILS.expect(farther_size.x > normal_size.x and farther_size.y > normal_size.y, failures, "Minimap camera world size should grow when camera zoom decreases")
+	minimap.free()
+	player.free()
+
+
+func _test_minimap_content_rect_reserves_footer_space(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	var map_rect := Rect2(Vector2.ZERO, Vector2(260.0, 180.0))
+	var content_rect: Rect2 = minimap.call("_get_content_rect", map_rect)
+	TEST_UTILS.expect(content_rect.size.y < map_rect.size.y - 20.0, failures, "Minimap content rect should reserve room for the footer label")
+	TEST_UTILS.expect(content_rect.end.y <= map_rect.end.y - 20.0, failures, "Minimap content rect should stop above the footer label")
+	minimap.free()
 
 
 func _make_minimap() -> Control:

@@ -126,6 +126,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 	var landmarks: Array[Dictionary] = WORLD_CONFIG.get_landmarks()
 	var landmark_counts := {"generated": 0, "hill": 0, "pond": 0}
 	var world_seed := 0
+	var world_generation_debug: Dictionary = {}
 	var current_biome_texture_id := "none"
 	var nearest_landmark: Dictionary = {}
 	var out_of_bounds_count := 0
@@ -164,6 +165,8 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 			landmark_counts = Dictionary(active_world.get_landmark_counts())
 		if active_world.has_method("get_world_seed"):
 			world_seed = int(active_world.get_world_seed())
+		if active_world.has_method("get_world_generation_debug"):
+			world_generation_debug = Dictionary(active_world.get_world_generation_debug())
 		if active_world.has_method("get_creatures_out_of_bounds_count"):
 			out_of_bounds_count = int(active_world.get_creatures_out_of_bounds_count())
 		if active_world.has_method("get_current_biome_texture_id"):
@@ -209,6 +212,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 		"landmarks": landmarks.duplicate(true),
 		"landmark_counts": landmark_counts,
 		"world_seed": world_seed,
+		"world_generation_debug": world_generation_debug,
 		"current_biome_name": _get_current_biome_name(Vector2(player_snapshot.get("position", Vector2.ZERO)), biome_zones),
 		"current_biome_texture_id": current_biome_texture_id,
 		"nearest_landmark": nearest_landmark,
@@ -454,10 +458,13 @@ func _get_world_group_count(active_world: Node, group_name: String) -> int:
 
 
 func _get_current_biome_name(position: Vector2, biome_zones: Array[Dictionary]) -> String:
-	for biome_value in biome_zones:
-		var biome := Dictionary(biome_value)
-		if Geometry2D.is_point_in_polygon(position, PackedVector2Array(biome.get("points", []))):
-			return str(biome.get("name", "Biome"))
+	var world := _get_world()
+	if world != null and world.has_method("get_biome_name_at"):
+		var biome_name := str(world.get_biome_name_at(position))
+		if not biome_name.is_empty():
+			return biome_name
+		if world.has_method("get_biome_lookup_debug") and bool(Dictionary(world.get_biome_lookup_debug(position)).get("world_rect_has_point", false)) == true:
+			return "unknown (lookup error)"
 	return "outside world"
 
 

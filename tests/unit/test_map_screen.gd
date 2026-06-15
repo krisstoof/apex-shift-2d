@@ -91,6 +91,8 @@ class MockWorld:
 	extends Node
 	var registered_resources: Array = []
 	var registered_varnaks: Array = []
+	var surface_texture := ImageTexture.create_from_image(Image.create(4, 4, false, Image.FORMAT_RGBA8))
+	var surface_texture_key := "shared-surface"
 
 	func get_registered_resources() -> Array:
 		return registered_resources
@@ -102,6 +104,12 @@ class MockWorld:
 
 	func get_landmarks() -> Array[Dictionary]:
 		return []
+
+	func get_surface_texture() -> ImageTexture:
+		return surface_texture
+
+	func get_surface_texture_key() -> String:
+		return surface_texture_key
 
 
 class MockSnapshotService:
@@ -126,6 +134,7 @@ func run() -> Array[String]:
 	_test_map_screen_skips_updates_while_hidden(failures)
 	_test_map_screen_reads_registry_resources_and_varnaks(failures)
 	_test_map_screen_builds_texture_outside_draw_path(failures)
+	_test_map_screen_reuses_world_surface_texture_when_available(failures)
 	return failures
 
 
@@ -301,6 +310,21 @@ func _test_map_screen_builds_texture_outside_draw_path(failures: Array[String]) 
 	draw_spy.call("_draw_biomes", Rect2(Vector2.ZERO, Vector2(300.0, 180.0)))
 	TEST_UTILS.expect_equal(draw_spy.ensure_calls, ensure_calls_before, failures, "Map screen draw path should reuse the cached biome texture instead of rebuilding it")
 	draw_spy.free()
+
+
+func _test_map_screen_reuses_world_surface_texture_when_available(failures: Array[String]) -> void:
+	var map_screen := _make_map_screen()
+	var player := MockPlayer.new()
+	var fake_world := MockWorld.new()
+	map_screen.set("player", player)
+	map_screen.set("world", fake_world)
+	map_screen.set("biome_zones", [{"name": "Test Biome", "points": PackedVector2Array([Vector2.ZERO, Vector2.RIGHT, Vector2.ONE]), "color": Color(0.2, 0.4, 0.2)}])
+	map_screen.call("_sync_biome_texture")
+	TEST_UTILS.expect_equal(map_screen.get("biome_blend_texture"), fake_world.surface_texture, failures, "Map screen should reuse the shared world surface texture when it exists")
+	TEST_UTILS.expect_equal(str(map_screen.get("biome_blend_colors_key")), fake_world.surface_texture_key, failures, "Map screen should mirror the shared world surface texture key")
+	map_screen.free()
+	player.free()
+	fake_world.free()
 
 
 func _make_map_screen() -> Object:

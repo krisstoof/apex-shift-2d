@@ -49,34 +49,30 @@ func get_terrain_speed_multiplier(position: Vector2) -> float:
 			return _get_pond_deep_speed_multiplier()
 		water_zone_shallow:
 			return _get_pond_shallow_speed_multiplier()
+		water_zone_highland:
+			return _get_highland_speed_multiplier(position)
+		water_zone_shore:
+			return 0.92
 	return 1.0
 
 
 func get_water_zone(position: Vector2) -> String:
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
-	var best_zone := water_zone_highland if terrain_zone == "highland" else water_zone_land
-	var search_radius := _get_pond_water_search_radius()
-	if search_radius > 0.0:
-		for pond_value in _get_pond_landmarks():
-			var pond := Dictionary(pond_value)
-			var pond_pos := Vector2(pond.get("position", Vector2.ZERO))
-			var distance_to_pond := position.distance_to(pond_pos)
-			if distance_to_pond > search_radius:
-				continue
-			var zone := _get_pond_water_zone(position, pond)
-			if zone == water_zone_deep:
-				return water_zone_deep
-			if zone == water_zone_shallow:
-				best_zone = water_zone_shallow
-			elif zone == water_zone_shore and best_zone == water_zone_land:
-				best_zone = water_zone_shore
-	if terrain_zone == "deep_ocean":
-		return water_zone_deep
-	if terrain_zone == "shallow_water":
-		return water_zone_shallow
-	if terrain_zone == "shore":
-		return water_zone_shore
-	return best_zone
+	var terrain_zone := _get_surface_terrain_zone(position)
+	match terrain_zone:
+		"deep_ocean":
+			return water_zone_deep
+		"shallow_water":
+			return water_zone_shallow
+		"pond":
+			return water_zone_shallow
+		"shore":
+			return water_zone_shore
+		"wetland":
+			return water_zone_shore
+		"highland":
+			return water_zone_highland
+		_:
+			return water_zone_land
 
 
 func is_position_in_water(position: Vector2) -> bool:
@@ -95,45 +91,55 @@ func is_position_inside_world_boundary(position: Vector2) -> bool:
 func is_position_on_playable_land(position: Vector2) -> bool:
 	if not WORLD_CONFIG.WORLD_RECT.grow(-32.0).has_point(position):
 		return false
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+	var terrain_zone := _get_surface_terrain_zone(position)
 	return terrain_zone == "land" or terrain_zone == "highland"
 
 
 func is_resource_position_blocked_by_water(resource_kind: String, position: Vector2) -> bool:
 	if not _is_plant_resource_kind(resource_kind):
 		return false
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
-	if terrain_zone in ["deep_ocean", "shallow_water"]:
-		return true
-	if terrain_zone == "shore":
-		return true
-	var margin_multiplier := _get_resource_water_margin_multiplier(resource_kind)
-	for pond_value in _get_pond_landmarks():
-		var pond := Dictionary(pond_value)
-		if _is_position_in_pond_water(position, pond, margin_multiplier):
-			return true
-	return false
+	var terrain_zone := _get_surface_terrain_zone(position)
+	return terrain_zone in ["deep_ocean", "shallow_water", "shore", "pond"]
 
 
 func is_creature_navigation_blocked(position: Vector2) -> bool:
-	if is_position_in_deep_water(position):
+	var terrain_zone := _get_surface_terrain_zone(position)
+	if terrain_zone in ["deep_ocean", "pond"]:
 		return true
-	for hill_value in _get_hill_landmarks():
-		var hill := Dictionary(hill_value)
-		if _is_position_in_hill_obstacle(position, hill):
-			return true
 	return false
 
 
 func is_creature_spawn_blocked_by_water(position: Vector2) -> bool:
-	var zone := get_water_zone(position)
-	return zone in [water_zone_deep, water_zone_shallow, water_zone_shore]
+	var terrain_zone := _get_surface_terrain_zone(position)
+	return terrain_zone in ["deep_ocean", "shallow_water", "shore", "pond"]
 
 
 func _get_pond_landmarks() -> Array:
 	if world == null:
 		return []
 	return Array(world.get("pond_landmarks"))
+
+
+func _get_topography_zone(position: Vector2) -> String:
+	if world != null and world.has_method("get_topography_zone_at"):
+		return str(world.get_topography_zone_at(position))
+	return ""
+
+
+func _get_base_terrain_zone(position: Vector2) -> String:
+	if world != null and world.has_method("get_generator_base_terrain_zone_at"):
+		return str(world.get_generator_base_terrain_zone_at(position))
+	if world != null and world.has_method("get_base_terrain_zone_at"):
+		return str(world.get_base_terrain_zone_at(position))
+	return WORLD_CONFIG.get_terrain_zone(position)
+
+
+func _get_surface_terrain_zone(position: Vector2) -> String:
+	if world != null and world.has_method("get_surface_terrain_zone_at"):
+		return str(world.get_surface_terrain_zone_at(position))
+	if world != null and world.has_method("get_topography_zone_at"):
+		return str(world.get_topography_zone_at(position))
+	return _get_base_terrain_zone(position)
 
 
 func _get_hill_landmarks() -> Array:
@@ -219,6 +225,27 @@ func _get_pond_shallow_speed_multiplier() -> float:
 	return float(GAME_BALANCE.LANDMARKS.get("pond_shallow_speed_multiplier", 0.68))
 
 
+func _get_highland_speed_multiplier(position: Vector2) -> float:
+	var sample := _get_topography_sample(position)
+	var terrain_zone := str(sample.get("terrain_zone", "land"))
+	var elevation_band := str(sample.get("elevation_band", "lowland"))
+	var base_multiplier := 0.88
+	match terrain_zone:
+		"ridge":
+			base_multiplier = 0.68
+		"rocky_patch":
+			base_multiplier = 0.78
+		"highland":
+			base_multiplier = 0.86
+		"wetland":
+			base_multiplier = 0.82
+	if elevation_band == "highland_peak":
+		base_multiplier = minf(base_multiplier, 0.70)
+	elif elevation_band == "highland_mid":
+		base_multiplier = minf(base_multiplier, 0.78)
+	return base_multiplier
+
+
 func _get_resource_water_margin_multiplier(resource_kind: String) -> float:
 	match resource_kind:
 		"conifer_tree", "leafy_tree", "tree":
@@ -228,6 +255,14 @@ func _get_resource_water_margin_multiplier(resource_kind: String) -> float:
 		"grass_patch", "dense_grass":
 			return float(GAME_BALANCE.LANDMARKS.get("pond_grass_water_margin", 1.04))
 	return 1.0
+
+
+func _get_topography_sample(position: Vector2) -> Dictionary:
+	if world != null and world.has_method("get_topography_sample_at"):
+		return Dictionary(world.get_topography_sample_at(position))
+	if world != null and world.has_method("get_topography_debug_at"):
+		return Dictionary(world.get_topography_debug_at(position))
+	return {}
 
 
 func _is_position_in_hill_obstacle(position: Vector2, hill: Dictionary) -> bool:

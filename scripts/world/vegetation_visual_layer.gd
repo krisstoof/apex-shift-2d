@@ -237,6 +237,14 @@ func _draw_vegetation_instance_lod(kind: String, position: Vector2, radius: floa
 	match kind:
 		"grass_patch", "dense_grass":
 			_draw_grass_lod(kind, position, radius, seed, lod)
+		"reed":
+			_draw_reed_lod(position, radius, seed, lod)
+		"cattail":
+			_draw_cattail_lod(position, radius, seed, lod)
+		"water_lily":
+			_draw_water_lily_lod(position, radius, seed, lod)
+		"pond_grass", "wetland_grass":
+			_draw_wetland_grass_lod(kind, position, radius, seed, lod)
 		_:
 			_draw_vegetation_instance(kind, position, radius, seed)
 
@@ -270,6 +278,34 @@ func _draw_far_grass_mark(kind: String, position: Vector2, radius: float, seed: 
 	var color := _get_color_for_kind(kind, seed)
 	var width := maxf(2.0, radius * 0.30)
 	draw_line(position + Vector2(-width, 0.0), position + Vector2(width, 0.0), color, 1.0)
+
+
+func _draw_reed_lod(position: Vector2, radius: float, seed: int, lod: int) -> void:
+	var blade_count := 4 if lod == LOD_NEAR else 2
+	for i in blade_count:
+		var x_offset := -radius * 0.14 + float(i) * radius * 0.10
+		draw_line(position + Vector2(x_offset, radius * 0.45), position + Vector2(x_offset + sin(float(seed + i)) * 1.4, -radius * 0.95), Color(0.34, 0.60, 0.22), 1.8 if lod == LOD_NEAR else 1.3)
+
+
+func _draw_cattail_lod(position: Vector2, radius: float, seed: int, lod: int) -> void:
+	draw_line(position + Vector2(-1.4, radius * 0.48), position + Vector2(-1.4, -radius * 0.92), Color(0.32, 0.48, 0.20), 2.0)
+	draw_line(position + Vector2(2.2, radius * 0.46), position + Vector2(2.2, -radius * 0.80), Color(0.28, 0.44, 0.18), 2.0)
+	draw_circle(position + Vector2(-1.4, -radius * 0.92), maxf(radius * 0.18, 2.0), Color(0.40, 0.30, 0.12))
+	draw_circle(position + Vector2(2.2, -radius * 0.80), maxf(radius * 0.18, 2.0), Color(0.42, 0.31, 0.13))
+
+
+func _draw_water_lily_lod(position: Vector2, radius: float, seed: int, lod: int) -> void:
+	draw_circle(position, maxf(radius * 0.55, 5.5), Color(0.12, 0.44, 0.18))
+	draw_circle(position + Vector2(-2.0, 1.5), maxf(radius * 0.26, 2.5), Color(0.18, 0.56, 0.22))
+	draw_arc(position, maxf(radius * 0.60, 6.0), -PI * 0.1, PI * 1.5, 12, Color(0.08, 0.30, 0.11), 2.0)
+
+
+func _draw_wetland_grass_lod(kind: String, position: Vector2, radius: float, seed: int, lod: int) -> void:
+	var base_color := Color(0.22, 0.55, 0.18) if kind == "wetland_grass" else Color(0.28, 0.64, 0.20)
+	var blade_count := 7 if lod == LOD_NEAR else 4
+	for i in blade_count:
+		var offset := -radius * 0.55 + float(i) * radius * 0.16
+		draw_line(position + Vector2(offset, radius * 0.45), position + Vector2(offset + sin(float(seed + i)) * 1.6, -radius * 0.55 - float(i % 2) * 2.5), base_color, 1.6)
 
 
 func _draw_vegetation_instance(kind: String, position: Vector2, radius: float, seed: int) -> void:

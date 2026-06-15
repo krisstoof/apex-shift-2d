@@ -17,6 +17,7 @@ var display_mode_index := 0
 var _apply_serial := 0
 
 var low_end_rendering: bool = true
+var low_end_static_surface_mode: bool = true
 var biome_textures_enabled: bool = true
 var landmark_debug_overlay_enabled: bool = false
 var biome_terrain_accents_enabled: bool = false
@@ -47,6 +48,7 @@ func set_show_resource_markers_on_maps(value: bool) -> void:
 
 func apply_low_end_rendering_defaults() -> void:
 	low_end_rendering = true
+	low_end_static_surface_mode = true
 	biome_textures_enabled = true
 	landmark_debug_overlay_enabled = false
 	biome_terrain_accents_enabled = false
@@ -91,6 +93,7 @@ func load_settings() -> void:
 		resolution_index = int(clamp(int(config.get_value("graphics", "resolution_index", resolution_index)), 0, RESOLUTIONS.size() - 1))
 		display_mode_index = int(clamp(int(config.get_value("graphics", "display_mode_index", display_mode_index)), 0, 2))
 		low_end_rendering = bool(config.get_value("graphics", "low_end_rendering", low_end_rendering))
+		low_end_static_surface_mode = bool(config.get_value("graphics", "low_end_static_surface_mode", low_end_static_surface_mode))
 		biome_textures_enabled = bool(config.get_value("graphics", "biome_textures_enabled", biome_textures_enabled))
 		landmark_debug_overlay_enabled = bool(config.get_value("graphics", "landmark_debug_overlay_enabled", landmark_debug_overlay_enabled))
 		biome_terrain_accents_enabled = bool(config.get_value("graphics", "biome_terrain_accents_enabled", biome_terrain_accents_enabled))
@@ -102,6 +105,7 @@ func save_settings() -> void:
 	config.set_value("graphics", "resolution_index", resolution_index)
 	config.set_value("graphics", "display_mode_index", display_mode_index)
 	config.set_value("graphics", "low_end_rendering", low_end_rendering)
+	config.set_value("graphics", "low_end_static_surface_mode", low_end_static_surface_mode)
 	config.set_value("graphics", "biome_textures_enabled", biome_textures_enabled)
 	config.set_value("graphics", "landmark_debug_overlay_enabled", landmark_debug_overlay_enabled)
 	config.set_value("graphics", "biome_terrain_accents_enabled", biome_terrain_accents_enabled)

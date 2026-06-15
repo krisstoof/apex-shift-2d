@@ -6,6 +6,8 @@ const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const WORLD_GENERATOR := preload("res://scripts/world/world_generator.gd")
+const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
 const WORLD_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_query_service.gd")
@@ -46,6 +48,7 @@ const DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS := 0.20
 const DECORATIVE_VEGETATION_VISIBILITY_MARGIN := 256.0
 const VISIBILITY_CULL_GROUPS := ["resources", "small_prey", "grazer", "varnak"]
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
+const SURFACE_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
 const BIOME_DETAIL_CHUNK_WORLD_SIZE := 768.0
 const BIOME_DETAIL_CHUNK_TEXTURE_SIZE := Vector2i(256, 256)
 const BIOME_DETAIL_VISIBLE_CHUNK_RADIUS := 1
@@ -161,6 +164,9 @@ var varnak_spawn_sync_last_requested := 0
 var varnak_spawn_sync_last_failed := 0
 var varnak_spawn_sync_last_success := 0
 var world_seed := 0
+var world_layout: Dictionary = {}
+var world_generator: RefCounted
+var world_topography: RefCounted
 var landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
 var pond_landmarks: Array[Dictionary] = []
@@ -198,6 +204,10 @@ var hitch_log_cooldowns: Dictionary = {}
 var hitch_log_sequence: Dictionary = {}
 var world_biome_texture_build_count: int = 0
 var world_biome_texture_last_build_ms: float = 0.0
+var world_surface_texture: ImageTexture
+var world_surface_texture_key := ""
+var world_surface_texture_build_count: int = 0
+var world_surface_texture_last_build_ms: float = 0.0
 var visibility_cull_timer := 0.0
 var decorative_vegetation_visibility_timer := 0.0
 var visibility_cull_last_visible_resources: int = 0
@@ -207,6 +217,14 @@ var visibility_cull_last_hidden_creatures: int = 0
 var visibility_cull_last_visible_nodes: Dictionary = {}
 var is_restoring_save: bool = false
 var island_world_validation_last_report: Dictionary = {}
+var topography_resource_distribution_debug: Dictionary = {
+	"pond_edge_greenery_spawned": 0,
+	"pond_aquatic_vegetation_spawned": 0,
+	"highland_rocks_spawned": 0,
+	"resources_blocked_by_pond": 0,
+	"plants_reduced_on_highland": 0,
+	"topography_resource_modifier_samples": 0
+}
 var night_overlay_polygon: Polygon2D
 var registry = WORLD_REGISTRY_SCRIPT.new()
 var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
@@ -249,8 +267,10 @@ func _ready() -> void:
 	if event_bus and event_bus.has_signal("game_event"):
 		event_bus.game_event.connect(_on_game_event)
 	_ensure_render_controller()
+	_setup_topography()
 	_set_boot_progress("Generating landmarks...", 0.18)
 	_create_landmarks()
+	_set_world_generator_seed(world_seed)
 	_place_player_on_safe_start()
 	_bind_chunk_manager()
 	_queue_biome_terrain_accent_cache_rebuild()
@@ -297,6 +317,8 @@ func _process(delta: float) -> void:
 		"biome_textures_enabled": biome_textures_enabled,
 		"background_visible": is_instance_valid(biome_blend_background) and biome_blend_background.visible,
 		"visibility_culling_enabled": visibility_culling_enabled,
+		"surface_texture_builds": world_surface_texture_build_count,
+		"surface_texture_last_build_ms": snappedf(world_surface_texture_last_build_ms, 0.01),
 		"visible_resources": visibility_cull_last_visible_resources,
 		"hidden_resources": visibility_cull_last_hidden_resources,
 		"visible_creatures": visibility_cull_last_visible_creatures,
@@ -469,12 +491,14 @@ func _hide_nodes_that_left_visibility_rect(current_visible_nodes: Dictionary) ->
 
 
 func get_biome_zones() -> Array[Dictionary]:
+	if not world_layout.is_empty() and world_layout.has("biomes"):
+		return Array(world_layout.get("biomes", [])).duplicate(true)
 	return WORLD_CONFIG.get_biome_zones()
 
 
 func get_landmarks() -> Array[Dictionary]:
 	if landmarks.is_empty():
-		return WORLD_CONFIG.get_landmarks()
+		return []
 	return _ensure_landmark_service().get_landmarks()
 
 
@@ -484,6 +508,364 @@ func get_safe_player_start_position() -> Vector2:
 
 func get_world_seed() -> int:
 	return world_seed
+
+
+func get_world_layout() -> Dictionary:
+	return world_layout.duplicate(true)
+
+
+func get_world_generation_debug() -> Dictionary:
+	return Dictionary(world_layout.get("debug", {})).duplicate(true)
+
+
+func get_world_generation_summary() -> String:
+	var debug := get_world_generation_debug()
+	if debug.is_empty():
+		return "unavailable"
+	return "seed %d | version %d | biomes %d | landmarks %d | spawn zones %d" % [
+		int(debug.get("seed", world_seed)),
+		int(debug.get("version", 0)),
+		int(debug.get("biomes", 0)),
+		int(debug.get("landmarks", 0)),
+		int(debug.get("creature_spawn_zones", 0))
+	]
+
+
+func _set_world_generator_seed(seed: int) -> void:
+	world_generator = WORLD_GENERATOR.new()
+	world_layout = Dictionary(world_generator.generate_world(seed if seed != 0 else world_seed)).duplicate(true)
+	world_seed = int(world_layout.get("seed", seed))
+	_setup_topography()
+
+
+func _apply_world_layout(layout: Dictionary) -> void:
+	world_layout = layout.duplicate(true)
+	if world_layout.has("seed"):
+		world_seed = int(world_layout.get("seed", world_seed))
+	if world_generator == null:
+		world_generator = WORLD_GENERATOR.new()
+	world_generator.generate_world(world_seed if world_seed != 0 else int(world_layout.get("seed", 1)))
+	_setup_topography()
+	if render_controller and render_controller.has_method("invalidate_biome_blend_texture"):
+		render_controller.invalidate_biome_blend_texture()
+	_invalidate_surface_texture_cache()
+	biome_detail_overlay_cache.clear()
+	biome_detail_overlay_pending_keys.clear()
+	biome_detail_overlay_visible_keys.clear()
+	biome_detail_overlay_last_signature = ""
+
+
+func _setup_topography() -> void:
+	world_topography = WORLD_TOPOGRAPHY.new()
+	world_topography.setup(world_seed if world_seed != 0 else int(world_layout.get("seed", 1)))
+	_invalidate_surface_texture_cache()
+
+
+func get_terrain_zone_at(position: Vector2) -> String:
+	return get_surface_terrain_zone_at(position)
+
+
+func get_base_terrain_zone_at(position: Vector2) -> String:
+	return get_generator_base_terrain_zone_at(position)
+
+
+func get_generator_base_terrain_zone_at(position: Vector2) -> String:
+	if world_generator != null and world_generator.has_method("get_base_terrain_zone"):
+		return str(world_generator.get_base_terrain_zone(position))
+	return WORLD_CONFIG.get_terrain_zone(position)
+
+
+func get_topography_zone_at(position: Vector2) -> String:
+	if world_topography and world_topography.has_method("get_topography_zone"):
+		return str(world_topography.get_topography_zone(position))
+	return WORLD_CONFIG.get_terrain_zone(position)
+
+
+func get_topography_debug_at(position: Vector2) -> Dictionary:
+	if world_topography and world_topography.has_method("get_topography_debug_at"):
+		return Dictionary(world_topography.get_topography_debug_at(position))
+	return {
+		"type": get_topography_zone_at(position),
+		"influence": 0.0,
+		"terrain_zone": get_topography_zone_at(position)
+	}
+
+
+func get_surface_terrain_zone_at(position: Vector2) -> String:
+	if world_topography != null and world_topography.has_method("sample_topography_at"):
+		var sample := Dictionary(world_topography.sample_topography_at(position))
+		return str(sample.get("terrain_zone", get_generator_base_terrain_zone_at(position)))
+	return get_generator_base_terrain_zone_at(position)
+
+
+func get_topography_debug_summary() -> Dictionary:
+	if world_topography == null:
+		return {
+			"feature_counts": {},
+			"sample_position": Vector2.ZERO,
+			"sample": {}
+		}
+	var sample_position := _get_player_position()
+	if sample_position == Vector2.ZERO:
+		sample_position = WORLD_CONFIG.WORLD_RECT.get_center()
+	return {
+		"feature_counts": Dictionary(world_topography.get_topography_feature_counts_debug()) if world_topography.has_method("get_topography_feature_counts_debug") else {},
+		"sample_position": sample_position,
+		"sample": get_topography_debug_at(sample_position)
+	}
+
+
+func get_topography_resource_distribution_debug() -> Dictionary:
+	return topography_resource_distribution_debug.duplicate(true)
+
+
+func get_elevation_band_at(position: Vector2) -> String:
+	if world_topography and world_topography.has_method("get_elevation_band_at"):
+		return str(world_topography.get_elevation_band_at(position))
+	var topography_zone := get_topography_zone_at(position)
+	return "highland_low" if topography_zone == "highland" else topography_zone
+
+
+func get_resource_density_at(position: Vector2, resource_kind: String = "") -> float:
+	var density := 1.0
+	if world_topography and world_topography.has_method("get_resource_density_at"):
+		density = float(world_topography.get_resource_density_at(position, resource_kind))
+	if world_topography != null and world_topography.has_method("get_resource_distribution_modifiers_at"):
+		var modifiers := Dictionary(world_topography.get_resource_distribution_modifiers_at(position))
+		density *= float(modifiers.get(resource_kind, 1.0))
+	return maxf(density, 0.0)
+
+
+func get_player_surface_debug(position: Vector2) -> Dictionary:
+	return {
+		"position": position,
+		"biome_id": get_biome_id_at(position),
+		"generator_base_terrain": get_generator_base_terrain_zone_at(position),
+		"surface_terrain": get_surface_terrain_zone_at(position),
+		"topography_sample": Dictionary(world_topography.sample_topography_at(position)) if world_topography != null and world_topography.has_method("sample_topography_at") else {}
+	}
+
+
+func get_topography_sample_at(position: Vector2) -> Dictionary:
+	if world_topography != null and world_topography.has_method("sample_topography_at"):
+		return Dictionary(world_topography.sample_topography_at(position))
+	return {}
+
+
+func is_pond_at(position: Vector2) -> bool:
+	return world_topography != null and world_topography.is_pond_at(position)
+
+
+func is_ridge_at(position: Vector2) -> bool:
+	return world_topography != null and world_topography.is_ridge_at(position)
+
+
+func is_rocky_patch_at(position: Vector2) -> bool:
+	return world_topography != null and world_topography.is_rocky_patch_at(position)
+
+
+func get_biome_id_at(position: Vector2) -> String:
+	if world_generator and world_generator.has_method("get_biome_id_at"):
+		return str(world_generator.get_biome_id_at(position))
+	return _get_biome_id_for_position(position)
+
+
+func get_biome_name_at(position: Vector2) -> String:
+	var biome_id := get_biome_id_at(position)
+	return _get_biome_display_name(biome_id)
+
+
+func get_map_surface_color_at(position: Vector2) -> Color:
+	if world_generator != null and world_generator.has_method("get_biome_visual_color_at"):
+		var color: Color = Color(world_generator.get_biome_visual_color_at(position))
+		if world_topography != null and world_topography.has_method("sample_topography_at"):
+			var topo_sample := Dictionary(world_topography.sample_topography_at(position))
+			var biome_id := get_biome_id_at(position)
+			var terrain := str(topo_sample.get("terrain_zone", "land"))
+			var elevation_band := str(topo_sample.get("elevation_band", terrain))
+			var blend_strength := _get_topography_biome_blend_strength(topo_sample, biome_id)
+			if _is_low_end_static_surface_mode_enabled():
+				return _get_low_end_surface_color(color, topo_sample, biome_id)
+			match terrain:
+				"pond":
+					return _get_pond_surface_color(color, biome_id, topo_sample)
+				"rocky_patch":
+					return color.lerp(_get_biome_rocky_tint(biome_id), 0.13 * blend_strength)
+				"highland":
+					match elevation_band:
+						"highland_peak":
+							return color.lerp(_get_biome_highland_tint(biome_id), 0.14 * blend_strength).lightened(0.035)
+						"highland_mid":
+							return color.lerp(_get_biome_highland_tint(biome_id), 0.10 * blend_strength).lightened(0.025)
+						_:
+							return color.lerp(_get_biome_highland_tint(biome_id), 0.06 * blend_strength).lightened(0.015)
+				"wetland":
+					return color.lerp(_get_biome_wetland_tint(biome_id), 0.09 * blend_strength)
+				"ridge":
+					return color.lerp(_get_biome_ridge_tint(biome_id), 0.17 * blend_strength)
+		return color
+	return Color.MAGENTA
+
+
+func get_map_surface_debug_key() -> String:
+	var generator_key := "no_generator"
+	if world_generator != null and world_generator.has_method("get_debug_generation_key"):
+		generator_key = str(world_generator.get_debug_generation_key())
+	var feature_counts := {}
+	if world_topography != null and world_topography.has_method("get_topography_feature_counts_debug"):
+		feature_counts = Dictionary(world_topography.get_topography_feature_counts_debug())
+	var ponds := int(feature_counts.get("pond", 0))
+	var highlands := int(feature_counts.get("highland", 0))
+	var rocks := int(feature_counts.get("rocky_patch", 0))
+	return "surface_v9|seed=%d|generator_key=%s|topography_rules=%s|ponds=%d|highlands=%d|rocks=%d" % [
+		world_seed,
+		generator_key,
+		WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION,
+		ponds,
+		highlands,
+		rocks
+	]
+
+
+func _get_topography_biome_blend_strength(topo_sample: Dictionary, biome_id: String) -> float:
+	if topo_sample.is_empty():
+		return 1.0
+	var feature_biome_id := str(topo_sample.get("dominant_feature_home_biome_id", ""))
+	if feature_biome_id.is_empty():
+		return 1.0
+	if feature_biome_id != biome_id:
+		return 0.18
+	return 1.0
+
+
+func _get_pond_surface_color(base_color: Color, biome_id: String, topo_sample: Dictionary) -> Color:
+	if topo_sample.is_empty():
+		return Color(0.05, 0.28, 0.44)
+	var influence := float(topo_sample.get("best_pond_influence", 1.0))
+	if influence > 0.74:
+		return Color(0.03, 0.25, 0.42)
+	if influence > 0.58:
+		return Color(0.06, 0.35, 0.50)
+	return base_color.lerp(_get_biome_wetland_tint(biome_id), 0.14)
+
+
+func _get_low_end_surface_color(base_color: Color, topo_sample: Dictionary, biome_id: String) -> Color:
+	var terrain := str(topo_sample.get("terrain_zone", "land"))
+	match terrain:
+		"pond":
+			return Color(0.05, 0.28, 0.44)
+		"rocky_patch":
+			return base_color.lerp(_get_biome_rocky_tint(biome_id), 0.08)
+		"highland":
+			return base_color.lerp(_get_biome_highland_tint(biome_id), 0.08)
+		"wetland":
+			return base_color.lerp(_get_biome_wetland_tint(biome_id), 0.06)
+		"ridge":
+			return base_color.lerp(_get_biome_ridge_tint(biome_id), 0.10)
+		_:
+			return base_color
+
+
+func _get_biome_highland_tint(biome_id: String) -> Color:
+	match biome_id:
+		"westwood":
+			return Color(0.44, 0.41, 0.24)
+		"stoneback_ridge":
+			return Color(0.53, 0.50, 0.42)
+		"hearth_meadow":
+			return Color(0.40, 0.44, 0.24)
+		"south_thicket":
+			return Color(0.35, 0.38, 0.20)
+		"redfang_wilds":
+			return Color(0.48, 0.30, 0.20)
+		_:
+			return Color(0.46, 0.42, 0.30)
+
+
+func _get_biome_rocky_tint(biome_id: String) -> Color:
+	match biome_id:
+		"westwood":
+			return Color(0.44, 0.41, 0.34)
+		"stoneback_ridge":
+			return Color(0.52, 0.50, 0.46)
+		"hearth_meadow":
+			return Color(0.47, 0.44, 0.35)
+		"south_thicket":
+			return Color(0.38, 0.36, 0.30)
+		"redfang_wilds":
+			return Color(0.50, 0.34, 0.26)
+		_:
+			return Color(0.45, 0.43, 0.38)
+
+
+func _get_biome_ridge_tint(biome_id: String) -> Color:
+	match biome_id:
+		"westwood":
+			return Color(0.40, 0.37, 0.28)
+		"stoneback_ridge":
+			return Color(0.49, 0.46, 0.39)
+		"hearth_meadow":
+			return Color(0.39, 0.36, 0.26)
+		"south_thicket":
+			return Color(0.33, 0.31, 0.24)
+		"redfang_wilds":
+			return Color(0.46, 0.30, 0.18)
+		_:
+			return Color(0.42, 0.39, 0.33)
+
+
+func _get_biome_wetland_tint(biome_id: String) -> Color:
+	match biome_id:
+		"westwood":
+			return Color(0.22, 0.42, 0.24)
+		"stoneback_ridge":
+			return Color(0.26, 0.40, 0.28)
+		"hearth_meadow":
+			return Color(0.24, 0.44, 0.22)
+		"south_thicket":
+			return Color(0.20, 0.38, 0.20)
+		"redfang_wilds":
+			return Color(0.33, 0.26, 0.18)
+		_:
+			return Color(0.24, 0.38, 0.24)
+
+
+func _get_biome_display_name(biome_id: String) -> String:
+	match biome_id:
+		"westwood":
+			return "Westwood"
+		"stoneback_ridge":
+			return "Stoneback Ridge"
+		"hearth_meadow":
+			return "Hearth Meadow"
+		"south_thicket":
+			return "South Thicket"
+		"redfang_wilds":
+			return "Redfang Wilds"
+		"shore":
+			return "Shore"
+		"land":
+			return "Land"
+		"highland":
+			return "Highland"
+		_:
+			return biome_id.capitalize() if not biome_id.is_empty() else "Unknown"
+
+
+func get_biome_lookup_debug(position: Vector2) -> Dictionary:
+	return {
+		"position": position,
+		"world_rect_has_point": WORLD_CONFIG.WORLD_RECT.has_point(position),
+		"biome_id": get_biome_id_at(position),
+		"terrain_zone": get_base_terrain_zone_at(position),
+		"topography_zone": get_topography_zone_at(position)
+	}
+
+
+func generate_new_world(p_seed: int = 0) -> void:
+	_set_world_generator_seed(p_seed)
+	world_seed = int(world_layout.get("seed", world_seed))
+	call_deferred("_apply_world_layout", world_layout)
 
 
 func get_varnak_population_status() -> Dictionary:
@@ -977,7 +1359,7 @@ func _filter_valid_cached_group_nodes(nodes: Array) -> Array:
 func _ensure_registry():
 	if registry == null:
 		registry = WORLD_REGISTRY_SCRIPT.new()
-	registry.set_biome_id_resolver(Callable(self, "_get_biome_id_for_position"))
+	registry.set_biome_id_resolver(Callable(self, "get_biome_id_at"))
 	return registry
 
 
@@ -1210,7 +1592,7 @@ func _prepare_boot_render_cache() -> void:
 
 
 func _get_world_biome_blend_texture_size() -> Vector2i:
-	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 2.0)), 1.0, 3.0)
+	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 1.0)), 1.0, 1.0)
 	return Vector2i(
 		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.x) * cache_scale)), BIOME_BLEND_TEXTURE_SIZE.x),
 		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.y) * cache_scale)), BIOME_BLEND_TEXTURE_SIZE.y)
@@ -1243,6 +1625,57 @@ func _sync_biome_blend_background() -> void:
 	background.visible = true
 
 
+func get_surface_texture() -> ImageTexture:
+	return _ensure_surface_texture()
+
+
+func get_surface_texture_key() -> String:
+	return _ensure_surface_texture_key()
+
+
+func _ensure_surface_texture_key() -> String:
+	var current_key := get_map_surface_debug_key()
+	if current_key != world_surface_texture_key:
+		print("[WORLD] surface texture cache key changed old=%s new=%s" % [world_surface_texture_key, current_key])
+		world_surface_texture_key = current_key
+	return world_surface_texture_key
+
+
+func _ensure_surface_texture() -> ImageTexture:
+	var current_key := _ensure_surface_texture_key()
+	if world_surface_texture != null and world_surface_texture_key == current_key:
+		return world_surface_texture
+	var texture_size := SURFACE_BLEND_TEXTURE_SIZE
+	if _is_low_end_static_surface_mode_enabled():
+		texture_size = Vector2i(192, 118)
+	var build_start_ms: int = Time.get_ticks_msec()
+	var image := Image.create(texture_size.x, texture_size.y, false, Image.FORMAT_RGBA8)
+	for y in range(texture_size.y):
+		for x in range(texture_size.x):
+			var uv := Vector2(
+				(float(x) + 0.5) / float(texture_size.x),
+				(float(y) + 0.5) / float(texture_size.y)
+			)
+			var world_position := WORLD_CONFIG.WORLD_RECT.position + uv * WORLD_CONFIG.WORLD_RECT.size
+			image.set_pixel(x, y, get_map_surface_color_at(world_position))
+	world_surface_texture = ImageTexture.create_from_image(image)
+	world_surface_texture_build_count += 1
+	world_surface_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
+	print("[WORLD] surface texture build count=%d last_build_ms=%.2f key=%s" % [world_surface_texture_build_count, world_surface_texture_last_build_ms, world_surface_texture_key])
+	return world_surface_texture
+
+
+func _invalidate_surface_texture_cache() -> void:
+	world_surface_texture = null
+	world_surface_texture_key = ""
+
+
+func _is_low_end_static_surface_mode_enabled() -> bool:
+	if graphics_settings != null and graphics_settings.has_method("is_low_end_rendering_enabled") and graphics_settings.is_low_end_rendering_enabled():
+		return graphics_settings.get("low_end_static_surface_mode") == true
+	return false
+
+
 func _yield_initial_boot_step() -> void:
 	for _i in INITIAL_BOOT_STEP_FRAME_BREAKS:
 		await get_tree().process_frame
@@ -1272,6 +1705,8 @@ func _is_valid_resource_terrain(resource_kind: String, world_position: Vector2) 
 	if not WORLD_CONFIG.WORLD_RECT.has_point(world_position):
 		return false
 	var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
+	if resource_kind in ["reed", "cattail", "water_lily", "pond_grass", "wetland_grass"]:
+		return terrain_zone in [WATER_ZONE_LAND, WATER_ZONE_HIGHLAND, WATER_ZONE_SHORE, WATER_ZONE_SHALLOW, WATER_ZONE_DEEP]
 	if terrain_zone != WATER_ZONE_LAND and terrain_zone != WATER_ZONE_HIGHLAND:
 		return false
 	if resource_kind == "rock":
@@ -1510,6 +1945,9 @@ func _spawn_resources() -> void:
 	await _spawn_grass_kind_mixed("grass_patch", WORLD_CONFIG.get_grass_patch_count(), used_positions, player_position)
 	await _spawn_grass_kind_mixed("dense_grass", WORLD_CONFIG.get_dense_grass_count(), used_positions, player_position)
 	await _spawn_pond_vegetation(used_positions, player_position)
+	await _spawn_pond_aquatic_vegetation(used_positions, player_position)
+	await _spawn_pond_edge_greenery(used_positions, player_position)
+	await _spawn_highland_rocks(used_positions, player_position)
 	await _spawn_outer_island_vegetation(used_positions, player_position)
 	await _spawn_biome_fill_vegetation(used_positions, player_position)
 	await _spawn_central_meadow_visual_fill(used_positions, player_position)
@@ -1604,9 +2042,308 @@ func _try_spawn_resource_in_island_band(
 func _spawn_biome_fill_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
 	for biome_value in WORLD_CONFIG.get_biome_zones():
 		var biome := Dictionary(biome_value)
-		var biome_id := str(biome.get("name", "")).to_snake_case()
+		var biome_id := _get_biome_id(biome)
 		await _spawn_resource_kind_in_biome("grass_patch", 18, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70)
 		await _spawn_resource_kind_in_biome("small_bush", 6, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.85)
+	await _fill_sparse_land_areas(used_positions, player_position)
+
+
+func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: Vector2) -> void:
+	if world_topography == null or not world_topography.has_method("get_topography_features_by_type"):
+		return
+	var ponds := Array(world_topography.get_topography_features_by_type("pond"))
+	for pond_value in ponds:
+		var pond := Dictionary(pond_value)
+		var center := Vector2(pond.get("position", Vector2.ZERO))
+		var radius := float(pond.get("radius", 0.0))
+		if radius <= 0.0:
+			continue
+		var target_count := clampi(int(radius / 55.0), 8, 24)
+		var spawned := 0
+		for _i in range(target_count):
+			var angle := TAU * resource_rng.randf()
+			var distance := radius * resource_rng.randf_range(1.04, 1.42)
+			var candidate := center + Vector2(cos(angle), sin(angle)) * distance
+			if not _is_valid_sparse_land_fill_position(candidate):
+				continue
+			if is_resource_position_blocked_by_water("grass_patch", candidate):
+				continue
+			if _is_resource_blocked_by_hill("grass_patch", candidate):
+				continue
+			if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.55, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE * 0.88):
+				continue
+			var kind := _pick_pond_edge_greenery_kind()
+			if _spawn_resource_or_decorative_visual(kind, candidate, used_positions, player_position):
+				spawned += 1
+				topography_resource_distribution_debug["pond_edge_greenery_spawned"] = int(topography_resource_distribution_debug.get("pond_edge_greenery_spawned", 0)) + 1
+				if spawned >= target_count:
+					break
+
+
+func _spawn_pond_aquatic_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
+	if world_topography == null or not world_topography.has_method("sample_topography_at"):
+		return
+	var pond_kinds := [
+		"reed",
+		"cattail",
+		"water_lily",
+		"pond_grass",
+		"wetland_grass"
+	]
+	var ponds := Array(world_topography.get_topography_features_by_type("pond"))
+	for pond_value in ponds:
+		var pond := Dictionary(pond_value)
+		var center := Vector2(pond.get("position", Vector2.ZERO))
+		var radius := float(pond.get("radius", 0.0))
+		if radius <= 0.0:
+			continue
+		var target_count := clampi(int(radius / 70.0), 6, 18)
+		for i in range(target_count):
+			var angle := TAU * (float(i) / float(max(target_count, 1)) + resource_rng.randf_range(-0.08, 0.08))
+			var distance := radius * resource_rng.randf_range(0.72, 1.22)
+			var candidate := center + Vector2(cos(angle), sin(angle)) * distance
+			var topo_sample := get_topography_sample_at(candidate)
+			var terrain_zone := str(topo_sample.get("terrain_zone", "land"))
+			if terrain_zone not in ["pond", "wetland", "shore"]:
+				continue
+			if terrain_zone == "pond" and float(topo_sample.get("best_pond_influence", 0.0)) < 0.30:
+				continue
+			if terrain_zone == "wetland" and float(topo_sample.get("wetland_value", 0.0)) < 0.10:
+				continue
+			if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.40, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE * 0.78):
+				continue
+			var kind := _pick_pond_aquatic_vegetation_kind(topo_sample)
+			if kind.is_empty():
+				continue
+			if _is_resource_blocked_by_hill(kind, candidate):
+				continue
+			used_positions.append(candidate)
+			_spawn_decorative_vegetation_visual(kind, candidate, str(pond.get("biome_id", "")), _get_biome_visual_scale(kind) * 1.18)
+			topography_resource_distribution_debug["pond_aquatic_vegetation_spawned"] = int(topography_resource_distribution_debug.get("pond_aquatic_vegetation_spawned", 0)) + 1
+
+
+func _spawn_highland_rocks(used_positions: Array[Vector2], player_position: Vector2) -> void:
+	if world_topography == null or not world_topography.has_method("get_topography_features_by_type"):
+		return
+	var highlands := Array(world_topography.get_topography_features_by_type("highland"))
+	for feature_value in highlands:
+		var feature := Dictionary(feature_value)
+		var center := Vector2(feature.get("position", Vector2.ZERO))
+		var radius := float(feature.get("radius", 0.0))
+		if radius <= 0.0:
+			continue
+		var target_count := clampi(int(radius / 90.0), 6, 18)
+		var spawned := 0
+		for _i in range(target_count):
+			var angle := TAU * resource_rng.randf()
+			var distance := radius * sqrt(resource_rng.randf()) * 0.85
+			var candidate := center + Vector2(cos(angle), sin(angle)) * distance
+			var terrain_zone := get_topography_zone_at(candidate)
+			if terrain_zone not in ["highland", "ridge", "rocky_patch"]:
+				continue
+			if not _is_valid_resource_terrain("rock", candidate):
+				continue
+			if is_resource_position_blocked_by_water("rock", candidate):
+				continue
+			if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.65, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE * 0.92):
+				continue
+			_spawn_resource_at("rock", candidate)
+			used_positions.append(candidate)
+			spawned += 1
+			topography_resource_distribution_debug["highland_rocks_spawned"] = int(topography_resource_distribution_debug.get("highland_rocks_spawned", 0)) + 1
+			if spawned >= target_count:
+				break
+
+
+func _spawn_resource_or_decorative_visual(resource_kind: String, position: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	if not _is_valid_resource_terrain(resource_kind, position):
+		return false
+	if is_resource_position_blocked_by_water(resource_kind, position):
+		return false
+	if _is_resource_blocked_by_hill(resource_kind, position):
+		return false
+	if not _is_valid_resource_position_with_min_distance(position, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.55, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE * 0.88):
+		return false
+	used_positions.append(position)
+	if VegetationCatalog.is_decorative_kind(resource_kind):
+		_spawn_decorative_vegetation_visual(resource_kind, position, _get_biome_id_for_position(position), _get_biome_visual_scale(resource_kind))
+	else:
+		_spawn_resource_at(resource_kind, position)
+	return true
+
+
+func _pick_pond_edge_greenery_kind() -> String:
+	var roll := resource_rng.randf_range(0.0, 100.0)
+	if roll < 35.0:
+		return "dense_grass"
+	if roll < 65.0:
+		return "grass_patch"
+	if roll < 79.0:
+		return "bush"
+	if roll < 91.0:
+		return "small_bush"
+	if roll < 98.0:
+		return "berry_bush"
+	return "leafy_tree"
+
+
+func _pick_pond_aquatic_vegetation_kind(topo_sample: Dictionary) -> String:
+	var terrain_zone := str(topo_sample.get("terrain_zone", "land"))
+	var pond_influence := float(topo_sample.get("best_pond_influence", 0.0))
+	var wetland_value := float(topo_sample.get("wetland_value", 0.0))
+	var roll := resource_rng.randf()
+	if terrain_zone == "pond" and pond_influence >= 0.70:
+		if roll < 0.34:
+			return "water_lily"
+		if roll < 0.58:
+			return "cattail"
+		if roll < 0.78:
+			return "reed"
+		return "pond_grass"
+	if terrain_zone == "wetland" or wetland_value > 0.48:
+		if roll < 0.30:
+			return "wetland_grass"
+		if roll < 0.54:
+			return "reed"
+		if roll < 0.76:
+			return "cattail"
+		return "pond_grass"
+	if terrain_zone == "shore":
+		return "reed" if roll < 0.65 else "wetland_grass"
+	return ""
+
+
+func _fill_sparse_land_areas(used_positions: Array[Vector2], player_position: Vector2) -> void:
+	var step := 180.0
+	var refill_radius := 200.0
+	var seam_threshold := 2
+	var fill_candidates: Array[Dictionary] = []
+	var world_rect := WORLD_CONFIG.WORLD_RECT
+	var start_x := world_rect.position.x + step * 0.5
+	var start_y := world_rect.position.y + step * 0.5
+	var x := start_x
+	while x < world_rect.end.x:
+		var y := start_y
+		while y < world_rect.end.y:
+			var candidate := Vector2(x, y)
+			if _is_valid_sparse_land_fill_position(candidate):
+				var local_density := _count_nearby_vegetation(candidate, refill_radius)
+				if local_density <= 2:
+					var seam_bonus := 1 if _is_biome_seam_position(candidate) else 0
+					var score := float(seam_bonus) * 2.0 + float(3 - local_density)
+					fill_candidates.append({
+						"position": candidate,
+						"score": score,
+						"seam": seam_bonus == 1
+					})
+			y += step
+		x += step
+	fill_candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_score := float(a.get("score", 0.0))
+		var b_score := float(b.get("score", 0.0))
+		if a_score == b_score:
+			return bool(a.get("seam", false)) and not bool(b.get("seam", false))
+		return a_score > b_score
+	)
+	var fill_limit := mini(fill_candidates.size(), 120)
+	for i in range(fill_limit):
+		var candidate := Vector2(fill_candidates[i].get("position", Vector2.ZERO))
+		if candidate == Vector2.ZERO and not fill_candidates[i].has("position"):
+			continue
+		if not _is_valid_sparse_land_fill_position(candidate):
+			continue
+		if _count_nearby_vegetation(candidate, refill_radius * 0.75) > 4:
+			continue
+		var kind := _pick_sparse_fill_resource_kind(candidate)
+		if kind.is_empty():
+			continue
+		if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.62, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE * 0.85):
+			continue
+		if is_resource_position_blocked_by_water(kind, candidate) or _is_resource_blocked_by_hill(kind, candidate):
+			continue
+		used_positions.append(candidate)
+		if VegetationCatalog.is_decorative_kind(kind):
+			_spawn_decorative_vegetation_visual(kind, candidate, _get_biome_id_for_position(candidate), _get_biome_visual_scale(kind))
+		else:
+			_spawn_resource_at(kind, candidate)
+		if i % 12 == 0:
+			await get_tree().process_frame
+
+
+func _is_valid_sparse_land_fill_position(candidate: Vector2) -> bool:
+	if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
+		return false
+	var terrain_zone := WORLD_CONFIG.get_terrain_zone(candidate)
+	return terrain_zone == "land" or terrain_zone == "highland"
+
+
+func _count_nearby_vegetation(position: Vector2, radius: float) -> int:
+	var count := 0
+	for resource in get_registered_resources():
+		if not is_instance_valid(resource):
+			continue
+		if not resource.is_in_group("resources"):
+			continue
+		var node_2d := resource as Node2D
+		if node_2d == null:
+			continue
+		if node_2d.global_position.distance_to(position) <= radius:
+			count += 1
+	return count
+
+
+func _is_biome_seam_position(position: Vector2) -> bool:
+	var sample_offsets: Array[Vector2] = [
+		Vector2(-90.0, 0.0),
+		Vector2(90.0, 0.0),
+		Vector2(0.0, -90.0),
+		Vector2(0.0, 90.0)
+	]
+	var biome_ids: Dictionary = {}
+	for offset in sample_offsets:
+		var biome_id := _get_biome_id_for_position(position + offset)
+		if not biome_id.is_empty():
+			biome_ids[biome_id] = true
+	return biome_ids.size() >= 2
+
+
+func _pick_sparse_fill_resource_kind(position: Vector2) -> String:
+	var biome_id := _get_biome_id_for_position(position)
+	var roll := resource_rng.randf()
+	match biome_id:
+		"westwood":
+			if roll < 0.52:
+				return "grass_patch"
+			if roll < 0.76:
+				return "bush"
+			if roll < 0.90:
+				return "berry_bush"
+			return "conifer_tree"
+		"stoneback_ridge":
+			if roll < 0.48:
+				return "grass_patch"
+			if roll < 0.72:
+				return "rock"
+			return "small_bush"
+		"hearth_meadow":
+			if roll < 0.56:
+				return "grass_patch"
+			if roll < 0.78:
+				return "berry_bush"
+			return "leafy_tree"
+		"south_thicket":
+			if roll < 0.58:
+				return "grass_patch"
+			if roll < 0.84:
+				return "bush"
+			return "small_bush"
+		"redfang_wilds":
+			if roll < 0.40:
+				return "dry_bush"
+			if roll < 0.72:
+				return "dry_tree"
+			return "rock"
+	return "grass_patch" if roll < 0.7 else "small_bush"
 
 
 func _spawn_central_meadow_visual_fill(used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -1665,6 +2402,16 @@ func _get_biome_visual_scale(resource_kind: String) -> float:
 			return 0.92
 		"dense_grass":
 			return 1.08
+		"reed":
+			return 1.28
+		"cattail":
+			return 1.36
+		"water_lily":
+			return 1.42
+		"pond_grass":
+			return 1.22
+		"wetland_grass":
+			return 1.16
 		_:
 			return 1.0
 
@@ -2170,8 +2917,21 @@ func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], 
 		if not _is_valid_resource_terrain(resource_kind, candidate):
 			continue
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			if world_topography != null and world_topography.has_method("sample_topography_at"):
+				var topo_sample := Dictionary(world_topography.sample_topography_at(candidate))
+				if str(topo_sample.get("terrain_zone", "")) == "pond":
+					topography_resource_distribution_debug["resources_blocked_by_pond"] = int(topography_resource_distribution_debug.get("resources_blocked_by_pond", 0)) + 1
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			continue
+		var allowance := _get_topography_resource_allowance(resource_kind, candidate)
+		if allowance <= 0.0:
+			continue
+		if resource_rng.randf() > clampf(get_resource_density_at(candidate, resource_kind) * allowance, 0.0, 2.5) / 2.5:
+			continue
+		if allowance < 1.0 and _is_plant_resource_kind(resource_kind):
+			topography_resource_distribution_debug["plants_reduced_on_highland"] = int(topography_resource_distribution_debug.get("plants_reduced_on_highland", 0)) + 1
+		if get_biome_id_at(candidate) != _get_biome_id(biome):
 			continue
 		if _is_point_in_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
 			used_positions.append(candidate)
@@ -2201,28 +2961,34 @@ func _pick_resource_biome(resource_kind: String) -> Dictionary:
 	return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
 
 
-func _get_biome_resource_weight(biome: Dictionary, resource_kind: String) -> float:
+func _get_biome_resource_weight(biome: Dictionary, resource_kind: String, position: Vector2 = Vector2.ZERO) -> float:
+	var base_weight := 0.0
 	match resource_kind:
 		"tree", "conifer_tree":
-			return float(biome.get("conifer_tree_weight", biome.get("tree_weight", 0.0)))
+			base_weight = float(biome.get("conifer_tree_weight", biome.get("tree_weight", 0.0)))
 		"leafy_tree":
-			return float(biome.get("leafy_tree_weight", biome.get("tree_weight", 0.0)))
+			base_weight = float(biome.get("leafy_tree_weight", biome.get("tree_weight", 0.0)))
 		"dry_tree":
-			return float(biome.get("dry_tree_weight", biome.get("tree_weight", 0.0)))
+			base_weight = float(biome.get("dry_tree_weight", biome.get("tree_weight", 0.0)))
 		"rock":
-			return float(biome.get("rock_weight", 0.0))
+			base_weight = float(biome.get("rock_weight", 0.0))
 		"bush":
-			return float(biome.get("bush_weight", 0.0))
+			base_weight = float(biome.get("bush_weight", 0.0))
 		"small_bush":
-			return float(biome.get("small_bush_weight", biome.get("bush_weight", 0.0)))
+			base_weight = float(biome.get("small_bush_weight", biome.get("bush_weight", 0.0)))
 		"dry_bush":
-			return float(biome.get("dry_bush_weight", biome.get("bush_weight", 0.0)))
+			base_weight = float(biome.get("dry_bush_weight", biome.get("bush_weight", 0.0)))
 		"berry_bush":
-			return float(biome.get("berry_bush_weight", biome.get("bush_weight", 0.0)))
+			base_weight = float(biome.get("berry_bush_weight", biome.get("bush_weight", 0.0)))
 		"grass_patch", "dense_grass":
-			return float(biome.get("grass_weight", 0.0))
+			base_weight = float(biome.get("grass_weight", 0.0))
 		_:
-			return 0.0
+			base_weight = 0.0
+	var modifier := 1.0
+	if world_topography != null and world_topography.has_method("get_resource_distribution_modifiers_at"):
+		var modifiers := Dictionary(world_topography.get_resource_distribution_modifiers_at(position))
+		modifier = float(modifiers.get(resource_kind, 1.0))
+	return maxf(base_weight * modifier, 0.0)
 
 
 func _get_biome_bounds(biome: Dictionary) -> Rect2:
@@ -2254,6 +3020,35 @@ func _is_valid_resource_position_with_min_distance(candidate: Vector2, used_posi
 		if candidate.distance_to(used_position) < min_distance:
 			return false
 	return true
+
+
+func _get_topography_resource_allowance(resource_kind: String, position: Vector2) -> float:
+	var terrain := get_topography_zone_at(position)
+	var elevation := get_elevation_band_at(position)
+	if terrain == "pond":
+		return 0.0
+	if terrain == "ridge" or elevation == "highland_peak":
+		if resource_kind == "rock":
+			return 1.0
+		if resource_kind in ["grass_patch", "dense_grass"]:
+			return 0.20
+		if resource_kind in ["tree", "leafy_tree", "berry_bush"]:
+			return 0.10
+		return 0.35
+	if terrain == "highland":
+		if resource_kind == "rock":
+			return 1.0
+		if resource_kind in ["tree", "leafy_tree", "berry_bush"]:
+			return 0.35
+		if resource_kind in ["grass_patch", "dense_grass"]:
+			return 0.45
+		return 0.55
+	if terrain == "wetland":
+		if resource_kind in ["grass_patch", "dense_grass", "bush", "small_bush", "berry_bush", "leafy_tree"]:
+			return 1.35
+		if resource_kind == "rock":
+			return 0.60
+	return 1.0
 
 
 func _is_resource_blocked_by_hill(resource_kind: String, candidate: Vector2) -> bool:
@@ -2613,20 +3408,23 @@ func _get_biome_for_position(target_position: Vector2) -> Dictionary:
 func _get_weighted_biome_for_resource(resource_kind: String) -> Dictionary:
 	var total_weight := 0.0
 	for biome_value in WORLD_CONFIG.get_biome_zones():
-		total_weight += _get_biome_resource_weight(Dictionary(biome_value), resource_kind)
+		total_weight += _get_biome_resource_weight(Dictionary(biome_value), resource_kind, Vector2.ZERO)
 	if total_weight <= 0.0:
 		return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
 	var roll := resource_rng.randf_range(0.0, total_weight)
 	var cursor := 0.0
 	for biome_value in WORLD_CONFIG.get_biome_zones():
 		var biome: Dictionary = Dictionary(biome_value)
-		cursor += _get_biome_resource_weight(biome, resource_kind)
+		cursor += _get_biome_resource_weight(biome, resource_kind, Vector2.ZERO)
 		if roll <= cursor:
 			return biome
 	return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
 
 
 func _get_biome_id(biome: Dictionary) -> String:
+	var biome_id := str(biome.get("id", ""))
+	if not biome_id.is_empty():
+		return biome_id
 	return str(biome.get("name", "biome")).to_snake_case()
 
 
@@ -2817,6 +3615,10 @@ func _try_spawn_resource_in_biome(
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			continue
+		if resource_rng.randf() > clampf(get_resource_density_at(candidate, resource_kind), 0.0, 2.5) / 2.5:
+			continue
+		if get_biome_id_at(candidate) != _get_biome_id(biome):
 			continue
 		if not _is_point_in_biome(candidate, biome):
 			continue
@@ -4210,13 +5012,6 @@ func _get_string_seed(text: String) -> int:
 	return pattern_seed
 
 
-func _draw_biome_blend_texture() -> void:
-	if not is_instance_valid(biome_blend_background) or not biome_blend_background.visible:
-		return
-	if biome_blend_background.texture:
-		draw_texture_rect(biome_blend_background.texture, WORLD_CONFIG.WORLD_RECT, false)
-
-
 func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
 	if delta <= 0.1:
 		return
@@ -4237,23 +5032,7 @@ func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> vo
 
 
 func _get_biome_surface_color_at(surface_position: Vector2, biome_zones: Array) -> Color:
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(surface_position)
-	match terrain_zone:
-		"deep_ocean":
-			return WORLD_CONFIG.OCEAN_COLOR
-		"shallow_water":
-			return Color(0.11, 0.30, 0.50)
-		"shore":
-			return Color(0.64, 0.60, 0.38)
-	for i in biome_zones.size():
-		var biome: Dictionary = biome_zones[i]
-		var bounds := Rect2(biome.get("bounds", Rect2()))
-		if not bounds.has_point(surface_position):
-			continue
-		if _is_point_in_biome(surface_position, biome):
-			var visual_color := _get_biome_visual_color(biome)
-			return _get_biome_terrain_color(biome, surface_position, visual_color)
-	return _get_nearest_biome_visual_color(surface_position, biome_zones)
+	return get_map_surface_color_at(surface_position)
 
 
 func _get_nearest_biome_visual_color(search_position: Vector2, biome_zones: Array) -> Color:
@@ -4267,6 +5046,14 @@ func _get_nearest_biome_visual_color(search_position: Vector2, biome_zones: Arra
 			best_distance = distance
 			best_color = _get_biome_visual_color(biome)
 	return best_color
+
+
+func _get_biome_zone_by_id(biome_zones: Array, biome_id: String) -> Dictionary:
+	for biome_value in biome_zones:
+		var biome: Dictionary = biome_value
+		if _get_biome_id(biome) == biome_id:
+			return biome
+	return {}
 
 
 func _get_point_polygon_edge_distance(point: Vector2, points: PackedVector2Array) -> float:
@@ -4290,7 +5077,7 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 func _get_biome_colors_key() -> String:
 	var parts: Array[String] = []
 	for biome in WORLD_CONFIG.get_biome_zones():
-		var color := Color(biome["color"])
+		var color := _get_biome_base_color(biome)
 		parts.append("%.3f:%.3f:%.3f:%s" % [color.r, color.g, color.b, _get_biome_terrain_texture_key(biome)])
 	parts.append("texture_balance:%.2f:%.2f:%.2f:%.2f:%d" % [
 		float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)),
@@ -4305,7 +5092,7 @@ func _get_biome_colors_key() -> String:
 
 
 func _get_biome_visual_color(biome: Dictionary) -> Color:
-	var base_color := Color(biome["color"])
+	var base_color := _get_biome_base_color(biome)
 	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
 		return base_color
 	var biome_state: Dictionary = ecosystem_director.get_biome_state(_get_biome_id(biome))
@@ -4319,6 +5106,27 @@ func _get_biome_visual_color(biome: Dictionary) -> Color:
 	var tint_strength := float(GAME_BALANCE.BIOME_VISUALS.get("biomass_tint_max_strength", 0.38))
 	var darkening_strength := float(GAME_BALANCE.BIOME_VISUALS.get("biomass_darkening_max_strength", 0.08))
 	return base_color.lerp(depleted_tint, stress * tint_strength).darkened(stress * darkening_strength)
+
+
+func _get_biome_base_color(biome: Dictionary) -> Color:
+	if biome.has("color"):
+		return Color(biome.get("color"))
+	var biome_id := _get_biome_id(biome)
+	match biome_id:
+		"westwood":
+			return Color(0.26, 0.46, 0.22)
+		"stoneback_ridge":
+			return Color(0.48, 0.44, 0.36)
+		"hearth_meadow":
+			return Color(0.37, 0.55, 0.28)
+		"south_thicket":
+			return Color(0.25, 0.42, 0.24)
+		"redfang_wilds":
+			return Color(0.45, 0.28, 0.22)
+		"shore":
+			return Color(0.75, 0.70, 0.46)
+		_:
+			return Color(0.35, 0.48, 0.30)
 
 
 func _get_biome_terrain_color(biome: Dictionary, world_position: Vector2, base_color: Color) -> Color:

@@ -433,6 +433,26 @@ func _build_world_text() -> String:
 		str(world_snapshot.get("world_seed", _get_world_seed_text())),
 		str(world_snapshot.get("current_biome_texture_id", _get_current_biome_texture_id_text()))
 	])
+	lines.append("Generation: %s" % _get_world_generation_summary_text())
+	var generation_debug := Dictionary(world_snapshot.get("world_generation_debug", {}))
+	if not generation_debug.is_empty():
+		var terrain := Dictionary(generation_debug.get("terrain", {}))
+		var coverage := Dictionary(generation_debug.get("terrain_coverage", {}))
+		lines.append("Terrain: ocean %.2f | land %.2f | pond %.2f | highland %.2f | moisture %.2f | danger %.2f" % [
+			float(coverage.get("ocean", 0.0)),
+			float(coverage.get("land", 0.0)),
+			float(coverage.get("pond", 0.0)),
+			float(coverage.get("highland", 0.0)),
+			float(generation_debug.get("moisture_average", 0.0)),
+			float(generation_debug.get("danger_average", 0.0))
+		])
+		lines.append("Terrain counts: ocean %d | shore %d | pond %d | highland %d | land %d" % [
+			int(terrain.get("deep_ocean", 0)) + int(terrain.get("shallow_water", 0)),
+			int(terrain.get("shore", 0)),
+			int(terrain.get("pond", 0)),
+			int(terrain.get("highland", 0)),
+			int(terrain.get("land", 0))
+		])
 	lines.append("Player position: %s" % _get_position_text(Vector2(Dictionary(snapshot.get("player", {})).get("position", player.global_position if player else Vector2.ZERO))))
 	lines.append("World bounds: %s" % str(WORLD_CONFIG.WORLD_RECT))
 	lines.append("creatures_out_of_bounds_count = %d" % int(world_snapshot.get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))
@@ -460,6 +480,7 @@ func _build_world_text() -> String:
 		_get_cached_group_nodes("pond_landmarks").size(),
 		_get_cached_group_nodes("water_sources").size()
 	])
+	lines.append("Topography: %s" % _get_topography_debug_text())
 	lines.append("Pond vegetation: %d" % _get_cached_group_nodes("pond_vegetation").size())
 	lines.append("Decorative vegetation: %s" % _get_decorative_vegetation_text())
 	lines.append("Biome texture cache: %s" % _get_biome_texture_cache_status_text())
@@ -629,9 +650,15 @@ func _get_position_text(world_position: Vector2) -> String:
 func _get_current_biome_name() -> String:
 	if not player:
 		return "unknown"
-	for biome in WORLD_CONFIG.get_biome_zones():
-		if Geometry2D.is_point_in_polygon(player.global_position, PackedVector2Array(biome.get("points", []))):
-			return str(biome.get("name", "Biome"))
+	var world: Node = _get_world_node()
+	if world != null and world.has_method("get_biome_lookup_debug") and world.has_method("get_biome_name_at"):
+		var lookup_debug := Dictionary(world.get_biome_lookup_debug(player.global_position))
+		var biome_name := str(world.get_biome_name_at(player.global_position))
+		if biome_name.is_empty():
+			if bool(lookup_debug.get("world_rect_has_point", false)) == true:
+				return "unknown (lookup error)"
+			return "outside world"
+		return biome_name
 	return "outside world"
 
 
@@ -683,6 +710,23 @@ func _get_resource_growth_text() -> String:
 		int(summary.get("sprout", 0)),
 		int(summary.get("young", 0)),
 		int(summary.get("mature", 0))
+	]
+
+
+func _get_topography_debug_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_topography_debug_summary"):
+		return "unavailable"
+	var summary: Dictionary = world.get_topography_debug_summary()
+	var feature_counts: Dictionary = Dictionary(summary.get("feature_counts", {}))
+	var sample: Dictionary = Dictionary(summary.get("sample", {}))
+	var band := str(sample.get("elevation_band", sample.get("terrain_zone", "unknown")))
+	return "pond %d | highland %d | rocky %d | sample %s=%s" % [
+		int(feature_counts.get("pond", 0)),
+		int(feature_counts.get("highland", 0)),
+		int(feature_counts.get("rocky_patch", 0)),
+		_get_position_text(Vector2(summary.get("sample_position", Vector2.ZERO))),
+		band
 	]
 
 
@@ -1780,6 +1824,13 @@ func _get_island_world_validation_summary_text(report: Dictionary = {}) -> Strin
 		errors.size(),
 		warnings.size()
 	]
+
+
+func _get_world_generation_summary_text() -> String:
+	var world := _get_world_node()
+	if world and world.has_method("get_world_generation_summary"):
+		return str(world.get_world_generation_summary())
+	return "unavailable"
 
 
 func _on_damage_player_pressed() -> void:

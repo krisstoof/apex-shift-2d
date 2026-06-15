@@ -95,7 +95,8 @@ func _process(_delta: float) -> void:
 		return
 	_log_hitch(_delta, "MapScreen", {
 		"texture_cached": biome_blend_texture != null,
-		"build_count": map_screen_texture_build_count
+		"build_count": map_screen_texture_build_count,
+		"last_build_ms": snappedf(map_screen_texture_last_build_ms, 0.01)
 	})
 	_sync_biome_texture()
 	var cache_changed := false
@@ -164,13 +165,27 @@ func _build_info_lines() -> Array[String]:
 	var evolution_snapshot := Dictionary(snapshot.get("evolution", {}))
 	var profile: Dictionary = Dictionary(evolution_snapshot.get("profile", evolution_director.get_profile() if evolution_director else {}))
 	var live_varnaks := int(Dictionary(snapshot.get("debug", {})).get("live_varnaks", cached_varnaks.size()))
-	var pond_count := _get_landmark_count("pond")
-	var hill_count := _get_landmark_count("hill")
 	var world_snapshot := Dictionary(snapshot.get("world", {}))
 	var player_snapshot := Dictionary(snapshot.get("player", {}))
 	var time_snapshot := Dictionary(snapshot.get("time", {}))
-	var zone_name := str(world_snapshot.get("current_biome_name", _get_player_zone_name()))
+	var active_world := _get_world()
+	var zone_name := _get_player_zone_name()
+	var terrain_zone := str(world_snapshot.get("current_terrain_zone", _get_player_topography_name()))
+	var topography_zone := terrain_zone
+	var biome_lookup_debug := Dictionary()
+	if active_world != null and is_instance_valid(player) and active_world.has_method("get_biome_lookup_debug"):
+		biome_lookup_debug = Dictionary(active_world.get_biome_lookup_debug(player.global_position))
+		if active_world.has_method("get_topography_zone_at"):
+			topography_zone = str(active_world.get_topography_zone_at(player.global_position))
+		var world_biome_name := str(active_world.get_biome_name_at(player.global_position)) if active_world.has_method("get_biome_name_at") else ""
+		if not world_biome_name.is_empty():
+			zone_name = world_biome_name
+		elif bool(biome_lookup_debug.get("world_rect_has_point", false)) == true:
+			zone_name = "unknown (lookup error)"
 	var time_label := str(time_snapshot.get("time_label", _get_time_label()))
+	var generation_debug := Dictionary(world_snapshot.get("world_generation_debug", {}))
+	var terrain := Dictionary(generation_debug.get("terrain", {}))
+	var terrain_coverage := Dictionary(generation_debug.get("terrain_coverage", {}))
 	var player_stats: Variant = player_snapshot if not player_snapshot.is_empty() else _get_player_stats()
 	var player_inventory: Variant = Dictionary(player_snapshot.get("inventory", {}))
 	if player_inventory.is_empty():
@@ -178,9 +193,20 @@ func _build_info_lines() -> Array[String]:
 	return [
 		"Field Map",
 		"",
-		"Zone: %s" % zone_name,
+		"Biome: %s" % zone_name,
 		"Day: %d  Time: %s %s" % [int(time_snapshot.get("day", day_night_system.get_day() if day_night_system else 1)), str(time_snapshot.get("clock_time", _get_clock_time())), time_label],
-		"Ponds: %d  Hills: %d" % [pond_count, hill_count],
+		"Topography: terrain %s | pond %.2f | ridge %.2f" % [
+			topography_zone,
+			float(terrain_coverage.get("pond", 0.0)),
+			float(terrain_coverage.get("highland", 0.0))
+		],
+		"Terrain counts: ocean %d | shore %d | pond %d | highland %d | land %d" % [
+			int(terrain.get("deep_ocean", 0)) + int(terrain.get("shallow_water", 0)),
+			int(terrain.get("shore", 0)),
+			int(terrain.get("pond", 0)),
+			int(terrain.get("highland", 0)),
+			int(terrain.get("land", 0))
+		],
 		"Live Varnaks: %d" % live_varnaks,
 		"",
 		"Player",
@@ -200,6 +226,15 @@ func _build_info_lines() -> Array[String]:
 		"Trap awareness: %.2f" % float(profile.get("trap_awareness", 0.0)),
 		"Pack: %.2f" % float(profile.get("pack_coordination", 0.0))
 	]
+
+
+func _get_player_topography_name() -> String:
+	if not is_instance_valid(player):
+		return "Unknown"
+	var world := _get_world()
+	if world and world.has_method("get_topography_zone_at"):
+		return str(world.get_topography_zone_at(player.global_position))
+	return "Unknown"
 
 
 func _get_player_stats() -> Variant:
@@ -300,15 +335,19 @@ func _draw_campfires(map_rect: Rect2) -> void:
 
 func _draw_landmarks(map_rect: Rect2) -> void:
 	for landmark in landmarks:
+		var landmark_type := str(landmark.get("type", ""))
+		if landmark_type in ["pond", "hill"]:
+			continue
 		var center := _world_to_map(Vector2(landmark.get("position", Vector2.ZERO)), map_rect)
 		var radius := _world_radius_to_map(float(landmark.get("radius", 80.0)), map_rect)
-		match str(landmark.get("type", "")):
-			"pond":
-				_draw_pond_marker(center, radius, landmark)
-				_draw_landmark_label(center, _get_landmark_label(landmark), Color(0.72, 0.92, 0.88))
-			"hill":
-				_draw_hill_marker(center, radius, landmark)
-				_draw_landmark_label(center, _get_landmark_label(landmark), Color(0.86, 0.82, 0.56))
+		_draw_landmark_marker(center, radius, landmark)
+		_draw_landmark_label(center, _get_landmark_label(landmark), Color(0.96, 0.86, 0.58))
+
+
+func _draw_landmark_marker(center: Vector2, radius: float, _landmark: Dictionary) -> void:
+	var marker_radius: float = clamp(radius, 6.0, 20.0)
+	draw_circle(center, marker_radius * 0.72, Color(0.93, 0.84, 0.56, 0.92))
+	draw_circle(center, marker_radius * 0.32, Color(0.20, 0.16, 0.10, 0.95))
 
 
 func _refresh_landmarks_from_world() -> bool:
@@ -477,12 +516,12 @@ func _draw_map_legend(map_rect: Rect2) -> void:
 	_draw_legend_entry(legend_rect.position + Vector2(12.0, 80.0), "Shore", TERRAIN_ZONE_COLORS["shore"])
 	_draw_legend_entry(legend_rect.position + Vector2(12.0, 100.0), "Land", TERRAIN_ZONE_COLORS["land"])
 	_draw_legend_entry(legend_rect.position + Vector2(12.0, 120.0), "Highland", TERRAIN_ZONE_COLORS["highland"])
-	_draw_legend_entry(legend_rect.position + Vector2(12.0, 140.0), "Pond", Color(0.12, 0.47, 0.56))
-	_draw_legend_entry(legend_rect.position + Vector2(92.0, 140.0), "Hill", Color(0.48, 0.45, 0.28))
-	_draw_legend_entry(legend_rect.position + Vector2(12.0, 158.0), "Varnak", Color(0.88, 0.22, 0.16))
-	_draw_legend_entry(legend_rect.position + Vector2(92.0, 158.0), "Campfire", Color(1.0, 0.46, 0.10))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 140.0), "Pond / wetland", Color(0.12, 0.47, 0.56))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 158.0), "Ridge / rocky", Color(0.48, 0.45, 0.28))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 176.0), "Varnak", Color(0.88, 0.22, 0.16))
+	_draw_legend_entry(legend_rect.position + Vector2(92.0, 176.0), "Campfire", Color(1.0, 0.46, 0.10))
 	if _should_show_resource_markers():
-		_draw_legend_entry(legend_rect.position + Vector2(12.0, 176.0), "Resource", Color(0.67, 0.95, 0.34))
+		_draw_legend_entry(legend_rect.position + Vector2(92.0, 158.0), "Resource", Color(0.67, 0.95, 0.34))
 
 
 func _draw_legend_entry(legend_position: Vector2, label: String, color: Color) -> void:
@@ -507,6 +546,11 @@ func _draw_player(map_rect: Rect2) -> void:
 
 
 func _sync_biome_texture() -> void:
+	var active_world := _get_world()
+	if active_world != null and active_world.has_method("get_surface_texture"):
+		biome_blend_texture = active_world.get_surface_texture()
+		biome_blend_colors_key = str(active_world.get_surface_texture_key()) if active_world.has_method("get_surface_texture_key") else ""
+		return
 	if biome_zones.is_empty():
 		biome_blend_texture = null
 		biome_blend_colors_key = ""
@@ -524,7 +568,7 @@ func _ensure_biome_texture() -> void:
 	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
 	var colors: Array[Color] = []
 	for biome in biome_zones:
-		colors.append(Color(biome["color"]))
+		colors.append(_get_biome_base_color(Dictionary(biome)))
 	for y in range(BIOME_BLEND_TEXTURE_SIZE.y):
 		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
 			var uv := Vector2(
@@ -532,44 +576,39 @@ func _ensure_biome_texture() -> void:
 				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
 			)
 			var world_position := world_rect.position + uv * world_rect.size
-			image.set_pixel(x, y, _get_direct_biome_color_at(world_position, biome_zones, colors))
+			image.set_pixel(x, y, _get_world_surface_color_at(world_position))
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
 	map_screen_texture_build_count += 1
 	map_screen_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
+	print("[MAP_SCREEN] surface texture build count=%d last_build_ms=%.2f key=%s" % [map_screen_texture_build_count, map_screen_texture_last_build_ms, current_key])
 
 
-func _get_direct_biome_color_at(world_position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
-	match terrain_zone:
-		"deep_ocean":
-			return TERRAIN_ZONE_COLORS["deep_ocean"]
-		"shallow_water":
-			return TERRAIN_ZONE_COLORS["shallow_water"]
-		"shore":
-			return TERRAIN_ZONE_COLORS["shore"]
-	var terrain_color := Color(TERRAIN_ZONE_COLORS.get(terrain_zone, TERRAIN_ZONE_COLORS["land"]))
-	var nearest_index := -1
-	var nearest_distance := INF
-	for i in range(zones.size()):
-		var points := PackedVector2Array(zones[i]["points"])
-		if Geometry2D.is_point_in_polygon(world_position, points):
-			return _get_land_biome_map_color(colors[i], terrain_color, terrain_zone)
-		var edge_distance := _get_point_polygon_edge_distance(world_position, points)
-		if edge_distance < nearest_distance:
-			nearest_distance = edge_distance
-			nearest_index = i
-	if nearest_index >= 0:
-		return _get_land_biome_map_color(colors[nearest_index], terrain_color, terrain_zone)
-	return terrain_color
+func _get_world_surface_color_at(world_position: Vector2) -> Color:
+	var active_world := _get_world()
+	if active_world != null and active_world.has_method("get_map_surface_color_at"):
+		return Color(active_world.get_map_surface_color_at(world_position))
+	return Color.MAGENTA
+
+
+func _get_biome_zone_points(zone: Dictionary) -> PackedVector2Array:
+	if zone.has("points"):
+		return PackedVector2Array(zone.get("points", []))
+	return PackedVector2Array()
+
+
+func _get_biome_zone_edge_distance(world_position: Vector2, zone: Dictionary, points: PackedVector2Array) -> float:
+	if not points.is_empty():
+		return _get_point_polygon_edge_distance(world_position, points)
+	return INF
 
 
 func _get_land_biome_map_color(biome_color: Color, terrain_color: Color, terrain_zone: String) -> Color:
 	match terrain_zone:
 		"highland":
-			return biome_color.darkened(0.28).lerp(terrain_color, 0.45)
+			return biome_color.lerp(terrain_color, 0.18)
 		"land":
-			return biome_color.darkened(0.10).lerp(terrain_color, 0.30)
+			return biome_color.lerp(terrain_color, 0.10)
 		_:
 			return terrain_color
 
@@ -591,29 +630,37 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 
 func _get_biome_texture_key() -> String:
-	var parts: Array[String] = [TERRAIN_PALETTE_VERSION]
-	parts.append("rect=%d,%d,%d,%d" % [
-		int(world_rect.position.x),
-		int(world_rect.position.y),
-		int(world_rect.size.x),
-		int(world_rect.size.y)
-	])
-	parts.append("scale=%.2f" % WORLD_CONFIG.WORLD_SCALE)
-	parts.append("island=%.3f:%.3f" % [WORLD_CONFIG.ISLAND_RADIUS_X_RATIO, WORLD_CONFIG.ISLAND_RADIUS_Y_RATIO])
-	parts.append("noise=%.5f:%.3f" % [WORLD_CONFIG.ISLAND_NOISE_SCALE, WORLD_CONFIG.ISLAND_NOISE_STRENGTH])
-	parts.append("thresholds=%.3f:%.3f:%.3f:%.3f" % [
-		WORLD_CONFIG.DEEP_OCEAN_THRESHOLD,
-		WORLD_CONFIG.SHALLOW_WATER_THRESHOLD,
-		WORLD_CONFIG.SHORE_THRESHOLD,
-		WORLD_CONFIG.HIGHLAND_THRESHOLD
-	])
-	for zone_name in TERRAIN_ZONE_COLORS.keys():
-		var color := Color(TERRAIN_ZONE_COLORS[zone_name])
-		parts.append("%s=%.3f:%.3f:%.3f" % [str(zone_name), color.r, color.g, color.b])
-	for biome in biome_zones:
-		var color := Color(biome["color"])
-		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
+	var parts: Array[String] = []
+	parts.append("map_surface_v4")
+	parts.append("world_rect=%s" % str(world_rect))
+	var active_world := _get_world()
+	if active_world != null:
+		if active_world.has_method("get_world_seed"):
+			parts.append("seed=%d" % int(active_world.get_world_seed()))
+		if active_world.has_method("get_map_surface_debug_key"):
+			parts.append(str(active_world.get_map_surface_debug_key()))
 	return "|".join(parts)
+
+
+func _get_biome_base_color(biome: Dictionary) -> Color:
+	if biome.has("color"):
+		return Color(biome.get("color"))
+	var biome_id := str(biome.get("id", ""))
+	match biome_id:
+		"westwood":
+			return Color(0.26, 0.46, 0.22)
+		"stoneback_ridge":
+			return Color(0.48, 0.44, 0.36)
+		"hearth_meadow":
+			return Color(0.37, 0.55, 0.28)
+		"south_thicket":
+			return Color(0.25, 0.42, 0.24)
+		"redfang_wilds":
+			return Color(0.45, 0.28, 0.22)
+		"shore":
+			return Color(0.75, 0.70, 0.46)
+		_:
+			return Color(0.35, 0.48, 0.30)
 
 
 func _should_show_resource_markers() -> bool:
@@ -653,9 +700,13 @@ func _world_radius_to_map(world_radius: float, map_rect: Rect2) -> float:
 func _get_player_zone_name() -> String:
 	if not is_instance_valid(player):
 		return "Unknown"
-	for biome in biome_zones:
-		if Geometry2D.is_point_in_polygon(player.global_position, PackedVector2Array(biome["points"])):
-			return str(biome.get("name", "Unknown"))
+	var active_world := _get_world()
+	if active_world != null and active_world.has_method("get_biome_name_at"):
+		var biome_name := str(active_world.get_biome_name_at(player.global_position))
+		if not biome_name.is_empty():
+			return biome_name
+		if active_world.has_method("get_biome_lookup_debug") and bool(Dictionary(active_world.get_biome_lookup_debug(player.global_position)).get("world_rect_has_point", false)) == true:
+			return "unknown (lookup error)"
 	return "Wilderness"
 
 

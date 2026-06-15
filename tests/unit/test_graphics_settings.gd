@@ -18,15 +18,18 @@ func run() -> Array[String]:
 func _test_low_end_rendering_defaults_and_preset_application(failures: Array[String]) -> void:
 	var settings := GRAPHICS_SETTINGS.new()
 	TEST_UTILS.expect_equal(bool(settings.low_end_rendering), true, failures, "Low-end rendering should default to enabled for the prototype build")
+	TEST_UTILS.expect_equal(bool(settings.low_end_static_surface_mode), true, failures, "Low-end rendering should default to static surface mode for emergency fallback")
 	TEST_UTILS.expect_equal(bool(settings.get_default_biome_textures_enabled()), true, failures, "Low-end rendering should keep biome textures enabled")
 	TEST_UTILS.expect_equal(bool(settings.get_default_landmark_debug_overlay_enabled()), false, failures, "Low-end rendering should disable the landmark debug overlay by default")
 	TEST_UTILS.expect_equal(bool(settings.get_default_biome_terrain_accents_enabled()), false, failures, "Low-end rendering should disable biome terrain accents by default")
 	settings.low_end_rendering = false
+	settings.low_end_static_surface_mode = false
 	settings.biome_textures_enabled = false
 	settings.landmark_debug_overlay_enabled = true
 	settings.biome_terrain_accents_enabled = true
 	settings.apply_low_end_rendering_defaults()
 	TEST_UTILS.expect_equal(bool(settings.low_end_rendering), true, failures, "Applying the low-end preset should force the low-end flag on")
+	TEST_UTILS.expect_equal(bool(settings.low_end_static_surface_mode), true, failures, "Applying the low-end preset should force static surface mode on")
 	TEST_UTILS.expect_equal(bool(settings.biome_textures_enabled), true, failures, "Applying the low-end preset should keep biome textures enabled")
 	TEST_UTILS.expect_equal(bool(settings.landmark_debug_overlay_enabled), false, failures, "Applying the low-end preset should turn off the landmark debug overlay")
 	TEST_UTILS.expect_equal(bool(settings.biome_terrain_accents_enabled), false, failures, "Applying the low-end preset should turn off biome terrain accents")

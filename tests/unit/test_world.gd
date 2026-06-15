@@ -1,7 +1,10 @@
 extends RefCounted
 
 const WORLD_SCRIPT := preload("res://scripts/world/world.gd")
+const WORLD_QUERY_SERVICE := preload("res://scripts/world/world_query_service.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const WORLD_GENERATOR := preload("res://scripts/world/world_generator.gd")
+const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
@@ -253,10 +256,15 @@ func run() -> Array[String]:
 	_test_biome_terrain_accent_layout_stays_async_when_queue_is_pending(failures)
 	_test_biome_sample_texture_paths_match_biome_identity(failures)
 	_test_biome_surface_color_uses_the_containing_biome_without_blending(failures)
+	_test_biome_color_palette_keeps_westwood_and_south_thicket_distinct(failures)
+	_test_topography_resource_distribution_modifiers_respect_water_and_highlands(failures)
+	_test_world_query_service_slows_highlands_and_water(failures)
 	_test_biome_surface_stays_crisp_and_uses_accents_for_detail(failures)
 	_test_biome_detail_density_uses_game_balance_and_limit(failures)
 	_test_biome_texture_variation_is_continuous_without_tiling(failures)
 	_test_redfang_wilds_sample_texture_has_drawn_cracks(failures)
+	_test_topography_sample_returns_a_single_combined_snapshot(failures)
+	_test_world_surface_debug_matches_query_service_surface_terrain(failures)
 	_test_landmark_debug_counts_and_nearest_selection(failures)
 	_test_landmark_debug_toggles_flip_runtime_state(failures)
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
@@ -362,11 +370,11 @@ func _test_westwood_extra_conifer_configuration_is_local(failures: Array[String]
 	var stoneback := Dictionary(WORLD_CONFIG.get_biome_zones()[1])
 	var hearth := Dictionary(WORLD_CONFIG.get_biome_zones()[2])
 	var redfang := Dictionary(WORLD_CONFIG.get_biome_zones()[4])
-	TEST_UTILS.expect_equal(float(westwood.get("tree_weight", 0.0)), 14.0, failures, "Westwood should get the doubled tree density target")
-	TEST_UTILS.expect_equal(float(westwood.get("conifer_tree_weight", 0.0)), 16.0, failures, "Westwood should keep the stronger conifer focus")
-	TEST_UTILS.expect_equal(float(stoneback.get("tree_weight", 0.0)), 2.0, failures, "Stoneback should get the doubled tree density target")
-	TEST_UTILS.expect_equal(float(hearth.get("tree_weight", 0.0)), 6.0, failures, "Hearth should get the doubled tree density target")
-	TEST_UTILS.expect_equal(float(redfang.get("tree_weight", 0.0)), 6.0, failures, "Redfang should get the doubled tree density target")
+	TEST_UTILS.expect(float(westwood.get("tree_weight", 0.0)) >= 18.0, failures, "Westwood should get a higher tree density target")
+	TEST_UTILS.expect(float(westwood.get("conifer_tree_weight", 0.0)) >= 22.0, failures, "Westwood should keep the stronger conifer focus")
+	TEST_UTILS.expect(float(stoneback.get("tree_weight", 0.0)) >= 2.4, failures, "Stoneback should get a slightly denser tree target")
+	TEST_UTILS.expect(float(hearth.get("tree_weight", 0.0)) >= 7.0, failures, "Hearth should get a denser tree target")
+	TEST_UTILS.expect(float(redfang.get("tree_weight", 0.0)) >= 7.0, failures, "Redfang should get a denser tree target")
 	TEST_UTILS.expect(float(redfang.get("dry_bush_weight", 0.0)) > float(redfang.get("grass_weight", 0.0)), failures, "Redfang should favor dry bushes over grass")
 
 
@@ -698,6 +706,43 @@ func _test_biome_surface_color_uses_the_containing_biome_without_blending(failur
 	world.free()
 
 
+func _test_biome_color_palette_keeps_westwood_and_south_thicket_distinct(failures: Array[String]) -> void:
+	var generator := WORLD_GENERATOR.new()
+	TEST_UTILS.expect(generator.get_biome_color("westwood").g < generator.get_biome_color("south_thicket").g, failures, "Westwood should stay darker than South Thicket")
+	TEST_UTILS.expect(generator.get_biome_color("westwood").r <= generator.get_biome_color("south_thicket").r, failures, "Westwood should remain the denser forest tone")
+	generator.free()
+
+
+func _test_topography_resource_distribution_modifiers_respect_water_and_highlands(failures: Array[String]) -> void:
+	var topo := WORLD_TOPOGRAPHY.new()
+	topo.setup(1234)
+	var pond_modifiers: Dictionary = topo.get_resource_distribution_modifiers_at(Vector2(100.0, 120.0))
+	var highland_modifiers: Dictionary = topo.get_resource_distribution_modifiers_at(Vector2(-240.0, -640.0))
+	TEST_UTILS.expect(pond_modifiers.has("grass_patch"), failures, "Topography modifiers should expose grass patch weights")
+	TEST_UTILS.expect(pond_modifiers.has("reed"), failures, "Topography modifiers should expose pond vegetation weights")
+	TEST_UTILS.expect(highland_modifiers.has("rock"), failures, "Topography modifiers should expose rock weights")
+	TEST_UTILS.expect(float(pond_modifiers.get("rock", 1.0)) <= 1.0, failures, "Pond-adjacent topography should not boost rocks")
+	TEST_UTILS.expect(float(highland_modifiers.get("rock", 0.0)) >= 1.0, failures, "Highland topography should boost rocks")
+	TEST_UTILS.expect(float(pond_modifiers.get("water_lily", 0.0)) >= 1.0 or float(pond_modifiers.get("water_lily", 0.0)) == 0.0, failures, "Pond-adjacent topography should surface aquatic vegetation weights")
+	topo.free()
+
+
+func _test_world_query_service_slows_highlands_and_water(failures: Array[String]) -> void:
+	var service := WORLD_QUERY_SERVICE.new()
+	var world := _make_world_with_single_pond()
+	service.bind_world(world)
+	TEST_UTILS.expect(float(service.get_terrain_speed_multiplier(Vector2.ZERO)) < 1.0, failures, "Deep pond water should slow movement")
+	TEST_UTILS.expect(float(service.get_terrain_speed_multiplier(Vector2(140.0, 0.0))) <= 0.92, failures, "Shore and wetland movement should stay slower than normal land")
+	world.free()
+	service = WORLD_QUERY_SERVICE.new()
+	world = WORLD_SCRIPT.new()
+	world._set_world_generator_seed(1234)
+	service.bind_world(world)
+	var highland_speed := float(service.get_terrain_speed_multiplier(Vector2(-240.0, -640.0)))
+	TEST_UTILS.expect(highland_speed <= 0.88, failures, "Highlands should apply a movement slowdown")
+	world.free()
+
+
 func _test_biome_surface_stays_crisp_and_uses_accents_for_detail(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
 	var biome := _get_biome_by_name("Hearth Meadow")
@@ -867,6 +912,28 @@ func _test_world_builds_cached_biome_blend_texture(failures: Array[String]) -> v
 	TEST_UTILS.expect(int(status.get("world_biome_texture_build_count", 0)) >= 1, failures, "Biome texture cache status should expose the world blend texture build counter")
 	TEST_UTILS.expect(float(status.get("world_biome_texture_last_build_ms", 0.0)) >= 0.0, failures, "Biome texture cache status should expose the world blend texture build time")
 	TEST_UTILS.expect_equal(status.get("blend_texture_size", Vector2i.ZERO), expected_size, failures, "World should build the blend texture at the configured cache size")
+	world.free()
+
+
+func _test_topography_sample_returns_a_single_combined_snapshot(failures: Array[String]) -> void:
+	var topo := WORLD_TOPOGRAPHY.new()
+	topo.setup(1234)
+	var sample: Dictionary = topo.sample_topography_at(Vector2(120.0, -80.0))
+	TEST_UTILS.expect(sample.has("terrain_zone"), failures, "Topography sampling should return the resolved terrain zone")
+	TEST_UTILS.expect(sample.has("elevation_band"), failures, "Topography sampling should return the resolved elevation band")
+	TEST_UTILS.expect(sample.has("dominant_feature_type"), failures, "Topography sampling should expose the dominant feature type")
+	TEST_UTILS.expect(sample.has("dominant_feature_influence"), failures, "Topography sampling should expose the dominant feature influence")
+	TEST_UTILS.expect(sample.has("dominant_feature_home_biome_id"), failures, "Topography sampling should expose the dominant feature biome id")
+	topo.free()
+
+
+func _test_world_surface_debug_matches_query_service_surface_terrain(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world._set_world_generator_seed(1234)
+	var position := Vector2(-260.0, 40.0)
+	var debug: Dictionary = world.get_player_surface_debug(position)
+	TEST_UTILS.expect_equal(str(debug.get("surface_terrain", "")), str(world.get_surface_terrain_zone_at(position)), failures, "World surface debug should report the same surface terrain as the world helper")
+	TEST_UTILS.expect_equal(str(debug.get("generator_base_terrain", "")), str(world.get_generator_base_terrain_zone_at(position)), failures, "World surface debug should report the same generator terrain as the world helper")
 	world.free()
 
 

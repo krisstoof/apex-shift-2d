@@ -7,7 +7,12 @@ const CLASS_INTERACTIVE := "interactive"
 
 const DECORATIVE_KINDS := {
 	"grass_patch": true,
-	"dense_grass": true
+	"dense_grass": true,
+	"reed": true,
+	"cattail": true,
+	"water_lily": true,
+	"pond_grass": true,
+	"wetland_grass": true
 }
 
 const EDIBLE_NODE_KINDS := {

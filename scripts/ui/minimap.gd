@@ -18,6 +18,7 @@ const MINIMAP_REDRAW_INTERVAL := 0.5
 const MINIMAP_VIEW_MARGIN_FACTOR := 1.22
 const MINIMAP_FALLBACK_VIEW_WORLD_SIZE := Vector2(1280.0, 760.0)
 const MINIMAP_MARKER_CACHE_INTERVAL := 1.0
+const MINIMAP_LABEL_HEIGHT := 30.0
 
 var player: Node2D
 var world: Node
@@ -82,7 +83,8 @@ func _process(delta: float) -> void:
 		return
 	_log_hitch(delta, "Minimap", {
 		"texture_cached": biome_blend_texture != null,
-		"build_count": minimap_texture_build_count
+		"build_count": minimap_texture_build_count,
+		"last_build_ms": snappedf(minimap_texture_last_build_ms, 0.01)
 	})
 	_sync_biome_texture()
 	minimap_redraw_timer += delta
@@ -98,7 +100,7 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	minimap_redraw_count += 1
 	var map_rect := Rect2(Vector2.ZERO, size)
-	var content_rect := map_rect.grow(-PADDING)
+	var content_rect := _get_content_rect(map_rect)
 	var view_world_rect := _get_minimap_view_world_rect(content_rect)
 
 	draw_rect(map_rect, Color(0.04, 0.05, 0.05, 0.86), true)
@@ -116,6 +118,16 @@ func _draw() -> void:
 	_draw_varnaks(content_rect, view_world_rect)
 	_draw_player(content_rect, view_world_rect)
 	_draw_zone_label(map_rect)
+
+
+func _get_content_rect(map_rect: Rect2) -> Rect2:
+	return Rect2(
+		map_rect.position + Vector2(PADDING, PADDING),
+		Vector2(
+			maxf(map_rect.size.x - PADDING * 2.0, 1.0),
+			maxf(map_rect.size.y - PADDING * 2.0 - MINIMAP_LABEL_HEIGHT, 1.0)
+		)
+	)
 
 
 func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
@@ -147,6 +159,11 @@ func _refresh_static_caches() -> void:
 
 
 func _sync_biome_texture() -> void:
+	var active_world := _get_world()
+	if active_world != null and active_world.has_method("get_surface_texture"):
+		biome_blend_texture = active_world.get_surface_texture()
+		biome_blend_colors_key = str(active_world.get_surface_texture_key()) if active_world.has_method("get_surface_texture_key") else ""
+		return
 	if biome_zones.is_empty():
 		biome_blend_texture = null
 		biome_blend_colors_key = ""
@@ -164,7 +181,7 @@ func _ensure_biome_texture() -> void:
 	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
 	var colors: Array[Color] = []
 	for biome in biome_zones:
-		colors.append(Color(biome["color"]))
+		colors.append(_get_biome_base_color(Dictionary(biome)))
 	for y in range(BIOME_BLEND_TEXTURE_SIZE.y):
 		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
 			var uv := Vector2(
@@ -172,36 +189,31 @@ func _ensure_biome_texture() -> void:
 				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
 			)
 			var world_position := world_rect.position + uv * world_rect.size
-			image.set_pixel(x, y, _get_direct_biome_color_at(world_position, biome_zones, colors))
+			image.set_pixel(x, y, _get_world_surface_color_at(world_position))
 	biome_blend_texture = ImageTexture.create_from_image(image)
 	biome_blend_colors_key = current_key
 	minimap_texture_build_count += 1
 	minimap_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
+	print("[MINIMAP] surface texture build count=%d last_build_ms=%.2f key=%s" % [minimap_texture_build_count, minimap_texture_last_build_ms, current_key])
 
 
-func _get_direct_biome_color_at(world_position: Vector2, zones: Array[Dictionary], colors: Array[Color]) -> Color:
-	var terrain_zone := WORLD_CONFIG.get_terrain_zone(world_position)
-	match terrain_zone:
-		"deep_ocean":
-			return TERRAIN_ZONE_COLORS["deep_ocean"]
-		"shallow_water":
-			return TERRAIN_ZONE_COLORS["shallow_water"]
-		"shore":
-			return TERRAIN_ZONE_COLORS["shore"]
-	var terrain_color := Color(TERRAIN_ZONE_COLORS.get(terrain_zone, TERRAIN_ZONE_COLORS["land"]))
-	var nearest_index := -1
-	var nearest_distance := INF
-	for i in range(zones.size()):
-		var points := PackedVector2Array(zones[i]["points"])
-		if Geometry2D.is_point_in_polygon(world_position, points):
-			return _get_land_biome_map_color(colors[i], terrain_color, terrain_zone)
-		var edge_distance := _get_point_polygon_edge_distance(world_position, points)
-		if edge_distance < nearest_distance:
-			nearest_distance = edge_distance
-			nearest_index = i
-	if nearest_index >= 0:
-		return _get_land_biome_map_color(colors[nearest_index], terrain_color, terrain_zone)
-	return terrain_color
+func _get_world_surface_color_at(world_position: Vector2) -> Color:
+	var active_world := _get_world()
+	if active_world != null and active_world.has_method("get_map_surface_color_at"):
+		return Color(active_world.get_map_surface_color_at(world_position))
+	return Color.MAGENTA
+
+
+func _get_biome_zone_points(zone: Dictionary) -> PackedVector2Array:
+	if zone.has("points"):
+		return PackedVector2Array(zone.get("points", []))
+	return PackedVector2Array()
+
+
+func _get_biome_zone_edge_distance(world_position: Vector2, zone: Dictionary, points: PackedVector2Array) -> float:
+	if not points.is_empty():
+		return _get_point_polygon_edge_distance(world_position, points)
+	return INF
 
 
 func _get_land_biome_map_color(biome_color: Color, terrain_color: Color, terrain_zone: String) -> Color:
@@ -231,29 +243,37 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 
 func _get_biome_texture_key() -> String:
-	var parts: Array[String] = [TERRAIN_PALETTE_VERSION]
-	parts.append("rect=%d,%d,%d,%d" % [
-		int(world_rect.position.x),
-		int(world_rect.position.y),
-		int(world_rect.size.x),
-		int(world_rect.size.y)
-	])
-	parts.append("scale=%.2f" % WORLD_CONFIG.WORLD_SCALE)
-	parts.append("island=%.3f:%.3f" % [WORLD_CONFIG.ISLAND_RADIUS_X_RATIO, WORLD_CONFIG.ISLAND_RADIUS_Y_RATIO])
-	parts.append("noise=%.5f:%.3f" % [WORLD_CONFIG.ISLAND_NOISE_SCALE, WORLD_CONFIG.ISLAND_NOISE_STRENGTH])
-	parts.append("thresholds=%.3f:%.3f:%.3f:%.3f" % [
-		WORLD_CONFIG.DEEP_OCEAN_THRESHOLD,
-		WORLD_CONFIG.SHALLOW_WATER_THRESHOLD,
-		WORLD_CONFIG.SHORE_THRESHOLD,
-		WORLD_CONFIG.HIGHLAND_THRESHOLD
-	])
-	for zone_name in TERRAIN_ZONE_COLORS.keys():
-		var color := Color(TERRAIN_ZONE_COLORS[zone_name])
-		parts.append("%s=%.3f:%.3f:%.3f" % [str(zone_name), color.r, color.g, color.b])
-	for biome in biome_zones:
-		var color := Color(biome["color"])
-		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
+	var parts: Array[String] = []
+	parts.append("map_surface_v4")
+	parts.append("world_rect=%s" % str(world_rect))
+	var active_world := _get_world()
+	if active_world != null:
+		if active_world.has_method("get_world_seed"):
+			parts.append("seed=%d" % int(active_world.get_world_seed()))
+		if active_world.has_method("get_map_surface_debug_key"):
+			parts.append(str(active_world.get_map_surface_debug_key()))
 	return "|".join(parts)
+
+
+func _get_biome_base_color(biome: Dictionary) -> Color:
+	if biome.has("color"):
+		return Color(biome.get("color"))
+	var biome_id := str(biome.get("id", ""))
+	match biome_id:
+		"westwood":
+			return Color(0.26, 0.46, 0.22)
+		"stoneback_ridge":
+			return Color(0.48, 0.44, 0.36)
+		"hearth_meadow":
+			return Color(0.37, 0.55, 0.28)
+		"south_thicket":
+			return Color(0.25, 0.42, 0.24)
+		"redfang_wilds":
+			return Color(0.45, 0.28, 0.22)
+		"shore":
+			return Color(0.75, 0.70, 0.46)
+		_:
+			return Color(0.35, 0.48, 0.30)
 
 
 func _should_show_resource_markers() -> bool:
@@ -298,6 +318,9 @@ func _draw_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:
 
 func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for landmark in landmarks:
+		var landmark_type := str(landmark.get("type", ""))
+		if landmark_type in ["pond", "hill"]:
+			continue
 		var world_position := Vector2(landmark.get("position", Vector2.ZERO))
 		var radius_world := float(landmark.get("radius", 80.0))
 		if not _intersects_view_circle(world_position, radius_world, view_world_rect):
@@ -307,11 +330,13 @@ func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 		var radius := _get_landmark_marker_radius(center, desired_radius, content_rect, landmark)
 		if radius < 2.0:
 			continue
-		match str(landmark.get("type", "")):
-			"pond":
-				_draw_pond_marker(center, radius, landmark)
-			"hill":
-				_draw_hill_marker(center, radius, landmark)
+		_draw_landmark_marker(center, radius, landmark)
+
+
+func _draw_landmark_marker(center: Vector2, radius: float, _landmark: Dictionary) -> void:
+	var marker_radius: float = clamp(radius, 5.0, 14.0)
+	draw_circle(center, marker_radius * 0.72, Color(0.93, 0.84, 0.56, 0.92))
+	draw_circle(center, marker_radius * 0.32, Color(0.20, 0.16, 0.10, 0.95))
 
 
 func _refresh_landmarks_from_world() -> bool:
@@ -491,7 +516,12 @@ func _draw_player(content_rect: Rect2, view_world_rect: Rect2) -> void:
 
 
 func _draw_zone_label(map_rect: Rect2) -> void:
-	var label_rect := Rect2(0.0, map_rect.size.y - 30.0, map_rect.size.x, 30.0)
+	var label_rect := Rect2(
+		map_rect.position.x + PADDING,
+		map_rect.end.y - PADDING - MINIMAP_LABEL_HEIGHT,
+		map_rect.size.x - PADDING * 2.0,
+		MINIMAP_LABEL_HEIGHT
+	)
 	draw_rect(label_rect, Color(0.03, 0.04, 0.04, 0.88), true)
 	draw_line(label_rect.position, label_rect.position + Vector2(label_rect.size.x, 0.0), Color(0.74, 0.78, 0.68, 0.55), 1.0)
 	draw_string(get_theme_default_font(), label_rect.position + Vector2(10.0, 21.0), "Zone: %s" % _get_player_zone_name(), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 15, Color(0.90, 0.92, 0.84))
@@ -500,9 +530,13 @@ func _draw_zone_label(map_rect: Rect2) -> void:
 func _get_player_zone_name() -> String:
 	if not is_instance_valid(player):
 		return "Unknown"
-	for biome in biome_zones:
-		if Geometry2D.is_point_in_polygon(player.global_position, PackedVector2Array(biome["points"])):
-			return str(biome.get("name", "Unknown"))
+	var active_world := _get_world()
+	if active_world != null and active_world.has_method("get_biome_name_at"):
+		var biome_name := str(active_world.get_biome_name_at(player.global_position))
+		if not biome_name.is_empty():
+			return biome_name
+		if active_world.has_method("get_biome_lookup_debug") and bool(Dictionary(active_world.get_biome_lookup_debug(player.global_position)).get("world_rect_has_point", false)) == true:
+			return "unknown (lookup error)"
 	return "Wilderness"
 
 
@@ -583,9 +617,13 @@ func _get_player_camera_world_size() -> Vector2:
 	if camera == null:
 		return MINIMAP_FALLBACK_VIEW_WORLD_SIZE
 	var zoom: Vector2 = camera.zoom
+	var safe_zoom := Vector2(
+		maxf(absf(zoom.x), 0.01),
+		maxf(absf(zoom.y), 0.01)
+	)
 	return Vector2(
-		maxf(viewport_size.x * absf(zoom.x), 1.0),
-		maxf(viewport_size.y * absf(zoom.y), 1.0)
+		maxf(viewport_size.x / safe_zoom.x, 1.0),
+		maxf(viewport_size.y / safe_zoom.y, 1.0)
 	)
 
 
@@ -614,7 +652,7 @@ func _world_rect_to_map_rect(target_world_rect: Rect2, content_rect: Rect2, view
 
 
 func _world_rect_to_texture_region(target_world_rect: Rect2) -> Rect2:
-	var texture_size := Vector2(float(BIOME_BLEND_TEXTURE_SIZE.x), float(BIOME_BLEND_TEXTURE_SIZE.y))
+	var texture_size := _get_active_biome_texture_size()
 	var start_uv := Vector2(
 		inverse_lerp(world_rect.position.x, world_rect.end.x, target_world_rect.position.x),
 		inverse_lerp(world_rect.position.y, world_rect.end.y, target_world_rect.position.y)
@@ -628,6 +666,14 @@ func _world_rect_to_texture_region(target_world_rect: Rect2) -> Rect2:
 	end_uv.x = clamp(end_uv.x, 0.0, 1.0)
 	end_uv.y = clamp(end_uv.y, 0.0, 1.0)
 	return Rect2(start_uv * texture_size, (end_uv - start_uv) * texture_size)
+
+
+func _get_active_biome_texture_size() -> Vector2:
+	if biome_blend_texture != null:
+		var actual_size: Vector2i = biome_blend_texture.get_size()
+		if actual_size.x > 0 and actual_size.y > 0:
+			return Vector2(actual_size)
+	return Vector2(float(BIOME_BLEND_TEXTURE_SIZE.x), float(BIOME_BLEND_TEXTURE_SIZE.y))
 
 
 func _intersects_view_circle(center: Vector2, radius: float, view_world_rect: Rect2) -> bool:
