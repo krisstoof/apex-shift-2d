@@ -9,6 +9,7 @@ const SIDE_MARGIN := 28.0
 var graphics_settings
 var resolution_option: OptionButton
 var display_mode_option: OptionButton
+var show_resource_markers_toggle: CheckButton
 var status_label: Label
 
 
@@ -84,6 +85,22 @@ func _build_ui() -> void:
 	display_mode_option.item_selected.connect(_on_display_mode_selected)
 	display_row.add_child(display_mode_option)
 
+	var markers_row := HBoxContainer.new()
+	markers_row.add_theme_constant_override("separation", 12)
+	stack.add_child(markers_row)
+
+	var markers_label := Label.new()
+	markers_label.text = "Maps"
+	markers_label.custom_minimum_size = Vector2(150.0, 0.0)
+	markers_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	markers_row.add_child(markers_label)
+
+	show_resource_markers_toggle = CheckButton.new()
+	show_resource_markers_toggle.text = "Show resource markers on map"
+	show_resource_markers_toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	show_resource_markers_toggle.toggled.connect(_on_show_resource_markers_toggled)
+	markers_row.add_child(show_resource_markers_toggle)
+
 	status_label = Label.new()
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_label.add_theme_font_size_override("font_size", 14)
@@ -127,6 +144,7 @@ func _sync_from_settings() -> void:
 	display_mode_option.add_item("Fullscreen")
 	display_mode_option.add_item("Borderless Fullscreen")
 	display_mode_option.select(clamp(int(graphics_settings.display_mode_index), 0, graphics_settings.get_display_mode_count() - 1))
+	show_resource_markers_toggle.button_pressed = graphics_settings.should_show_resource_markers_on_maps()
 
 	_refresh_resolution_availability()
 	_refresh_status_text()
@@ -157,6 +175,10 @@ func _on_resolution_selected(_index: int) -> void:
 func _on_display_mode_selected(_index: int) -> void:
 	_refresh_resolution_availability()
 	_refresh_status_text()
+
+
+func _on_show_resource_markers_toggled(enabled: bool) -> void:
+	graphics_settings.set_show_resource_markers_on_maps(enabled)
 
 
 func _refresh_resolution_availability() -> void:

@@ -143,7 +143,8 @@ func _draw_map_panel(rect: Rect2) -> void:
 	_is_drawing_biomes = false
 	_draw_grid(map_rect)
 	_draw_landmarks(map_rect)
-	_draw_resources(map_rect)
+	if _should_show_resource_markers():
+		_draw_resources(map_rect)
 	_draw_campfires(map_rect)
 	_draw_varnaks(map_rect)
 	_draw_player(map_rect)
@@ -478,9 +479,10 @@ func _draw_map_legend(map_rect: Rect2) -> void:
 	_draw_legend_entry(legend_rect.position + Vector2(12.0, 120.0), "Highland", TERRAIN_ZONE_COLORS["highland"])
 	_draw_legend_entry(legend_rect.position + Vector2(12.0, 140.0), "Pond", Color(0.12, 0.47, 0.56))
 	_draw_legend_entry(legend_rect.position + Vector2(92.0, 140.0), "Hill", Color(0.48, 0.45, 0.28))
-	_draw_legend_entry(legend_rect.position + Vector2(12.0, 158.0), "Resource", Color(0.67, 0.95, 0.34))
-	_draw_legend_entry(legend_rect.position + Vector2(92.0, 158.0), "Varnak", Color(0.88, 0.22, 0.16))
-	_draw_legend_entry(legend_rect.position + Vector2(12.0, 176.0), "Campfire", Color(1.0, 0.46, 0.10))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 158.0), "Varnak", Color(0.88, 0.22, 0.16))
+	_draw_legend_entry(legend_rect.position + Vector2(92.0, 158.0), "Campfire", Color(1.0, 0.46, 0.10))
+	if _should_show_resource_markers():
+		_draw_legend_entry(legend_rect.position + Vector2(12.0, 176.0), "Resource", Color(0.67, 0.95, 0.34))
 
 
 func _draw_legend_entry(legend_position: Vector2, label: String, color: Color) -> void:
@@ -612,6 +614,13 @@ func _get_biome_texture_key() -> String:
 		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
 	return "|".join(parts)
+
+
+func _should_show_resource_markers() -> bool:
+	var graphics_settings := get_node_or_null("/root/GraphicsSettings")
+	if graphics_settings != null and graphics_settings.has_method("should_show_resource_markers_on_maps"):
+		return graphics_settings.should_show_resource_markers_on_maps() == true
+	return false
 
 
 func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:

@@ -110,7 +110,8 @@ func _draw() -> void:
 	_is_drawing_biomes = false
 	_draw_landmarks(content_rect, view_world_rect)
 	_draw_grid(content_rect, view_world_rect)
-	_draw_resources(content_rect, view_world_rect)
+	if _should_show_resource_markers():
+		_draw_resources(content_rect, view_world_rect)
 	_draw_campfires(content_rect, view_world_rect)
 	_draw_varnaks(content_rect, view_world_rect)
 	_draw_player(content_rect, view_world_rect)
@@ -253,6 +254,13 @@ func _get_biome_texture_key() -> String:
 		var color := Color(biome["color"])
 		parts.append("%.3f:%.3f:%.3f" % [color.r, color.g, color.b])
 	return "|".join(parts)
+
+
+func _should_show_resource_markers() -> bool:
+	var graphics_settings := get_node_or_null("/root/GraphicsSettings")
+	if graphics_settings != null and graphics_settings.has_method("should_show_resource_markers_on_maps"):
+		return graphics_settings.should_show_resource_markers_on_maps() == true
+	return false
 
 
 func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:

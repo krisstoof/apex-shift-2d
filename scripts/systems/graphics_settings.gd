@@ -20,6 +20,7 @@ var low_end_rendering: bool = true
 var biome_textures_enabled: bool = true
 var landmark_debug_overlay_enabled: bool = false
 var biome_terrain_accents_enabled: bool = false
+var show_resource_markers_on_maps: bool = false
 
 func is_low_end_rendering_enabled() -> bool:
 	return low_end_rendering
@@ -33,6 +34,15 @@ func get_default_landmark_debug_overlay_enabled() -> bool:
 
 func get_default_biome_terrain_accents_enabled() -> bool:
 	return biome_terrain_accents_enabled
+
+
+func should_show_resource_markers_on_maps() -> bool:
+	return show_resource_markers_on_maps
+
+
+func set_show_resource_markers_on_maps(value: bool) -> void:
+	show_resource_markers_on_maps = value
+	save_settings()
 
 
 func apply_low_end_rendering_defaults() -> void:
@@ -84,6 +94,7 @@ func load_settings() -> void:
 		biome_textures_enabled = bool(config.get_value("graphics", "biome_textures_enabled", biome_textures_enabled))
 		landmark_debug_overlay_enabled = bool(config.get_value("graphics", "landmark_debug_overlay_enabled", landmark_debug_overlay_enabled))
 		biome_terrain_accents_enabled = bool(config.get_value("graphics", "biome_terrain_accents_enabled", biome_terrain_accents_enabled))
+		show_resource_markers_on_maps = bool(config.get_value("graphics", "show_resource_markers_on_maps", show_resource_markers_on_maps))
 
 
 func save_settings() -> void:
@@ -94,6 +105,7 @@ func save_settings() -> void:
 	config.set_value("graphics", "biome_textures_enabled", biome_textures_enabled)
 	config.set_value("graphics", "landmark_debug_overlay_enabled", landmark_debug_overlay_enabled)
 	config.set_value("graphics", "biome_terrain_accents_enabled", biome_terrain_accents_enabled)
+	config.set_value("graphics", "show_resource_markers_on_maps", show_resource_markers_on_maps)
 	config.save(SETTINGS_PATH)
 
 

@@ -130,7 +130,10 @@ func get_total_chunk_count() -> int:
 
 
 func get_active_chunk_coords() -> Array[Vector2i]:
-	return Array(active_chunk_coords.keys())
+	var coords: Array[Vector2i] = []
+	for key in active_chunk_coords.keys():
+		coords.append(Vector2i(key))
+	return coords
 
 
 func get_debug_data() -> Dictionary:
