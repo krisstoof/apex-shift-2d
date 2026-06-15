@@ -1940,9 +1940,19 @@ func _spawn_resources() -> void:
 	var dry_bush_count := int(ceil(float(bush_count) * 0.35))
 	var green_bush_count := bush_count - dry_bush_count
 
+	_set_boot_progress("Growing vegetation: pond aquatic plants...", 0.40)
 	await _spawn_pond_aquatic_vegetation(used_positions, player_position)
+	await _yield_initial_boot_step()
+
+	_set_boot_progress("Growing vegetation: pond shore plants...", 0.42)
 	await _spawn_pond_vegetation(used_positions, player_position)
+	await _yield_initial_boot_step()
+
+	_set_boot_progress("Growing vegetation: pond edge greenery...", 0.44)
 	await _spawn_pond_edge_greenery(used_positions, player_position)
+	await _yield_initial_boot_step()
+
+	_set_boot_progress("Growing vegetation: trees...", 0.46)
 	await _spawn_resource_kind("conifer_tree", conifer_count, used_positions, player_position)
 	await _spawn_resource_kind_in_biome(
 		"conifer_tree",
@@ -1955,13 +1965,22 @@ func _spawn_resources() -> void:
 	)
 	await _spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
 	await _spawn_resource_kind("dry_tree", int(ceil(float(tree_count) * 0.12)), used_positions, player_position)
+	await _yield_initial_boot_step()
+
+	_set_boot_progress("Growing vegetation: rocks and bushes...", 0.50)
 	await _spawn_resource_kind("rock", WORLD_CONFIG.get_rock_count(), used_positions, player_position)
 	await _spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
 	await _spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
 	await _spawn_resource_kind("small_bush", WORLD_CONFIG.get_small_bush_count(), used_positions, player_position)
 	await _spawn_resource_kind("berry_bush", WORLD_CONFIG.get_berry_bush_count(), used_positions, player_position)
+	await _yield_initial_boot_step()
+
+	_set_boot_progress("Growing vegetation: grass...", 0.53)
 	await _spawn_grass_kind_mixed("grass_patch", WORLD_CONFIG.get_grass_patch_count(), used_positions, player_position)
 	await _spawn_grass_kind_mixed("dense_grass", WORLD_CONFIG.get_dense_grass_count(), used_positions, player_position)
+	await _yield_initial_boot_step()
+
+	_set_boot_progress("Growing vegetation: terrain details...", 0.55)
 	await _spawn_highland_rocks(used_positions, player_position)
 	await _spawn_outer_island_vegetation(used_positions, player_position)
 	await _spawn_biome_fill_vegetation(used_positions, player_position)
@@ -2060,7 +2079,8 @@ func _spawn_biome_fill_vegetation(used_positions: Array[Vector2], player_positio
 		var biome_id := _get_biome_id(biome)
 		await _spawn_resource_kind_in_biome("grass_patch", 18, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70)
 		await _spawn_resource_kind_in_biome("small_bush", 6, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.85)
-	await _fill_sparse_land_areas(used_positions, player_position)
+	# TEMP: disabled during boot because full-map sparse scan can freeze loading.
+	# await _fill_sparse_land_areas(used_positions, player_position)
 
 
 func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -2093,6 +2113,8 @@ func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: 
 				topography_resource_distribution_debug["pond_edge_greenery_spawned"] = int(topography_resource_distribution_debug.get("pond_edge_greenery_spawned", 0)) + 1
 				if spawned >= target_count:
 					break
+			if _i % 12 == 0:
+				await get_tree().process_frame
 
 
 func _spawn_pond_aquatic_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -2128,6 +2150,8 @@ func _spawn_pond_aquatic_vegetation(used_positions: Array[Vector2], player_posit
 			_spawn_decorative_vegetation_visual(kind, candidate, str(pond.get("biome_id", "")), _get_biome_visual_scale(kind) * 1.25)
 			topography_resource_distribution_debug["pond_aquatic_vegetation_spawned"] = int(topography_resource_distribution_debug.get("pond_aquatic_vegetation_spawned", 0)) + 1
 			spawned += 1
+			if _i % 16 == 0:
+				await get_tree().process_frame
 		if spawned == 0:
 			push_warning("No aquatic vegetation spawned for pond %s" % str(pond.get("id", "pond")))
 
@@ -2163,6 +2187,8 @@ func _spawn_highland_rocks(used_positions: Array[Vector2], player_position: Vect
 			topography_resource_distribution_debug["highland_rocks_spawned"] = int(topography_resource_distribution_debug.get("highland_rocks_spawned", 0)) + 1
 			if spawned >= target_count:
 				break
+			if _i % 10 == 0:
+				await get_tree().process_frame
 
 
 func _spawn_resource_or_decorative_visual(resource_kind: String, position: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
