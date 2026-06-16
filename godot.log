@@ -1,0 +1,15 @@
+Godot Engine v4.6.3.stable.steam.7d41c59c4 - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce RTX 5060 Laptop GPU
+
+[APP] Apex Shift 2D v0.1.2
+[VIEW_SCALE_DEBUG] window_size=(2548, 1320) viewport_size=(2548.0, 1320.0) camera_zoom=(1.5, 1.5) player_scale=(1.0, 1.0) main_scale=(1.0, 1.0) world_scale=(1.0, 1.0) hud_scale=(1.0, 1.0)
+[LIGHTING] Torch light created
+[HITCH] World delta=0.150 biome_textures_enabled=true background_visible=false visibility_culling_enabled=true surface_texture_builds=0 surface_texture_last_build_ms=0.0 visible_resources=0 hidden_resources=0 visible_creatures=0 hidden_creatures=0
+[HITCH] World delta=0.150 biome_textures_enabled=true background_visible=true visibility_culling_enabled=true surface_texture_builds=0 surface_texture_last_build_ms=0.0 visible_resources=0 hidden_resources=0 visible_creatures=0 hidden_creatures=0
+[HITCH] World delta=0.119 biome_textures_enabled=true background_visible=true visibility_culling_enabled=true surface_texture_builds=0 surface_texture_last_build_ms=0.0 visible_resources=0 hidden_resources=0 visible_creatures=0 hidden_creatures=0
+[HITCH] World delta=0.141 biome_textures_enabled=true background_visible=true visibility_culling_enabled=true surface_texture_builds=0 surface_texture_last_build_ms=0.0 visible_resources=0 hidden_resources=0 visible_creatures=0 hidden_creatures=0
+[WORLD] surface texture cache key changed old= new=surface_v13|seed=1871682360|generator_key=biome_ownership_v7|seed=1871682360|anchors=5|ownership=256x192|topography_rules=v6|ponds=1|highlands=3|rocks=2
+[WORLD] surface texture build count=1 last_build_ms=3549.00 key=surface_v13|seed=1871682360|generator_key=biome_ownership_v7|seed=1871682360|anchors=5|ownership=256x192|topography_rules=v6|ponds=1|highlands=3|rocks=2
+[HITCH] World delta=0.134 biome_textures_enabled=true background_visible=true visibility_culling_enabled=true surface_texture_builds=1 surface_texture_last_build_ms=3549.0 visible_resources=10 hidden_resources=0 visible_creatures=3 hidden_creatures=0
+[HITCH] HUD delta=0.134 map_screen_open=false pause_menu_open=false refresh_timer=0.012877
+[HITCH] Minimap delta=0.134 texture_cached=true build_count=0 last_build_ms=0.0
