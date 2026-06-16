@@ -96,6 +96,23 @@ class FixedRenderControllerStub:
 		return should_redraw
 
 
+class TerrainRendererStub:
+	extends TerrainChunkRenderer
+
+	var bind_calls := 0
+	var process_visibility_calls := 0
+	var rebuild_calls: Array[bool] = []
+
+	func bind(_assigned_cell_map: TerrainCellMap, _assigned_player: Node2D, _assigned_camera: Camera2D) -> void:
+		bind_calls += 1
+
+	func process_visibility(_delta: float) -> void:
+		process_visibility_calls += 1
+
+	func rebuild_visible_chunks(force := false) -> void:
+		rebuild_calls.append(force)
+
+
 class MockSmallPreyEcosystemDirector:
 	extends Node
 
@@ -279,6 +296,7 @@ func run() -> Array[String]:
 	_test_world_biome_texture_cache_status_reports_visual_feature_count(failures)
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
 	_test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures)
+	_test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures)
 	_test_small_prey_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_varnak_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
@@ -1060,6 +1078,28 @@ func _test_world_process_only_syncs_biome_background_when_redraw_is_requested(fa
 	controller.should_redraw = true
 	world._process(0.05)
 	TEST_UTILS.expect_equal(world.sync_calls, 1, failures, "World process should sync the biome background only when the render controller requests a redraw")
+	world.free()
+
+
+func _test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.world_generator = WORLD_GENERATOR.new()
+	world.world_topography = WORLD_TOPOGRAPHY.new()
+	world.world_generator.generate_world(13579)
+	world.world_topography.setup(13579)
+	world.terrain_chunk_renderer = TerrainRendererStub.new()
+	world.terrain_renderer_bound = true
+	world.terrain_cell_map_dirty = true
+	world._sync_terrain_renderer(false)
+	var renderer: TerrainRendererStub = world.terrain_chunk_renderer
+	TEST_UTILS.expect_equal(world.terrain_cell_map_dirty, false, failures, "Terrain sync should clear the dirty flag after rebuilding the cell map")
+	TEST_UTILS.expect_equal(renderer.bind_calls, 1, failures, "Terrain sync should bind the renderer when the terrain map is rebuilt")
+	TEST_UTILS.expect_equal(renderer.process_visibility_calls, 1, failures, "Terrain sync should update terrain visibility after rebuilding")
+	TEST_UTILS.expect_equal(renderer.rebuild_calls, [false], failures, "Terrain sync should only request a lazy visible-chunk refresh")
+	world._sync_terrain_renderer(false)
+	TEST_UTILS.expect_equal(renderer.bind_calls, 1, failures, "Terrain sync should not rebind when the renderer stays clean")
+	TEST_UTILS.expect_equal(renderer.process_visibility_calls, 2, failures, "Terrain sync should continue to update visibility on subsequent timer ticks")
+	TEST_UTILS.expect_equal(renderer.rebuild_calls, [false, false], failures, "Terrain sync should keep visible chunk rebuilds lazy on repeated redraws")
 	world.free()
 
 

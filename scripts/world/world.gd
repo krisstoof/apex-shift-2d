@@ -100,6 +100,7 @@ const BIOME_TERRAIN_TEXTURES := {
 }
 const WORLD_BACKGROUND_REDRAW_INTERVAL := 0.20
 const NIGHT_REDRAW_MIN_DELTA := 0.03
+const TERRAIN_RENDERER_UPDATE_INTERVAL := 0.15
 const PLANT_RESOURCE_KINDS := [
 	"conifer_tree",
 	"leafy_tree",
@@ -270,6 +271,11 @@ var resource_service = RESOURCE_SERVICE_SCRIPT.new()
 var render_controller = WORLD_RENDER_CONTROLLER_SCRIPT.new()
 var terrain_cell_map: TerrainCellMap
 var terrain_chunk_renderer: TerrainChunkRenderer
+var terrain_cell_map_dirty := true
+var terrain_renderer_bound := false
+var terrain_renderer_update_timer := 0.0
+var terrain_renderer_sync_count := 0
+var terrain_renderer_forced_sync_count := 0
 const GROUP_CACHE_TTL_SECONDS := 0.12
 
 signal world_initialized
@@ -346,7 +352,7 @@ func _ready() -> void:
 	_update_decorative_vegetation_visible_rect()
 	_rebuild_chunk_assignments()
 	decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
-	_sync_terrain_renderer()
+	_sync_terrain_renderer(true)
 	_update_biome_detail_overlay(0.0, true)
 	_initialize_visibility_controller()
 	_update_world_object_visibility()
@@ -368,6 +374,7 @@ func _process(delta: float) -> void:
 	})
 	if is_restoring_save:
 		return
+	_update_terrain_renderer(delta)
 	_update_spatial_index_debug_cache(delta)
 	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
 		small_prey_failed_spawn_retry_timer = maxf(0.0, small_prey_failed_spawn_retry_timer - delta)
@@ -389,7 +396,6 @@ func _process(delta: float) -> void:
 	var current_night_amount := _get_night_amount()
 	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
 	if should_redraw_background:
-		_sync_terrain_renderer()
 		queue_redraw()
 	if boot_ready and visibility_controller != null:
 		visibility_controller.process(delta)
@@ -538,6 +544,7 @@ func _set_world_generator_seed(seed: int) -> void:
 	world_seed = int(world_layout.get("seed", seed))
 	procedural_world_restore_mode = "full_layout"
 	_setup_topography()
+	_mark_terrain_renderer_dirty()
 
 
 func _apply_world_layout(layout: Dictionary) -> void:
@@ -549,6 +556,7 @@ func _apply_world_layout(layout: Dictionary) -> void:
 		world_generator = WORLD_GENERATOR.new()
 	world_generator.generate_world(world_seed if world_seed != 0 else int(world_layout.get("seed", 1)))
 	_setup_topography()
+	_mark_terrain_renderer_dirty()
 	if render_controller and render_controller.has_method("invalidate_biome_blend_texture"):
 		render_controller.invalidate_biome_blend_texture()
 	_invalidate_surface_texture_cache()
@@ -1939,17 +1947,43 @@ func _ensure_terrain_chunk_renderer() -> TerrainChunkRenderer:
 	return terrain_chunk_renderer
 
 
-func _sync_terrain_renderer() -> void:
+func _mark_terrain_renderer_dirty() -> void:
+	terrain_cell_map_dirty = true
+	terrain_renderer_bound = false
+	terrain_renderer_update_timer = 0.0
+
+
+func _update_terrain_renderer(delta: float) -> void:
+	terrain_renderer_update_timer -= delta
+	if terrain_renderer_update_timer > 0.0:
+		return
+	terrain_renderer_update_timer = TERRAIN_RENDERER_UPDATE_INTERVAL
+	if is_instance_valid(terrain_chunk_renderer):
+		terrain_chunk_renderer.process_visibility(delta)
+		terrain_chunk_renderer.rebuild_visible_chunks(false)
+
+
+func _sync_terrain_renderer(force_rebuild_cell_map := false) -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", true)):
+		return
 	var cell_map := _ensure_terrain_cell_map()
 	var renderer := _ensure_terrain_chunk_renderer()
 	if world_generator == null or world_topography == null:
 		return
+	terrain_renderer_sync_count += 1
+	if force_rebuild_cell_map:
+		terrain_renderer_forced_sync_count += 1
 	var player_node := get_tree().get_first_node_in_group("player") as Node2D
-	cell_map.build(WORLD_CONFIG.WORLD_RECT, float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_cell_size", 96.0)), world_generator, world_topography, world_seed)
-	if renderer.has_method("bind"):
+	if force_rebuild_cell_map or terrain_cell_map_dirty or cell_map.grid_size == Vector2i.ZERO:
+		cell_map.build(WORLD_CONFIG.WORLD_RECT, float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_cell_size", 96.0)), world_generator, world_topography, world_seed)
+		terrain_cell_map_dirty = false
+	if renderer.has_method("bind") and (force_rebuild_cell_map or terrain_cell_map_dirty or not terrain_renderer_bound):
 		renderer.bind(cell_map, player_node, _get_active_camera(player_node))
+		terrain_renderer_bound = true
+	if renderer.has_method("process_visibility"):
 		renderer.process_visibility(0.0)
-		renderer.rebuild_visible_chunks(true)
+	if renderer.has_method("rebuild_visible_chunks"):
+		renderer.rebuild_visible_chunks(false)
 
 
 func _get_active_camera(player_node: Node2D) -> Camera2D:
@@ -2033,6 +2067,8 @@ func get_terrain_renderer_debug() -> Dictionary:
 		debug.merge(terrain_cell_map.get_debug_data(), true)
 	if terrain_chunk_renderer != null and terrain_chunk_renderer.has_method("get_debug_data"):
 		debug.merge(terrain_chunk_renderer.get_debug_data(), true)
+	debug["terrain_renderer_sync_count"] = terrain_renderer_sync_count
+	debug["terrain_renderer_forced_sync_count"] = terrain_renderer_forced_sync_count
 	debug["terrain_global_surface_texture_enabled"] = false
 	debug["terrain_global_surface_texture_build_ms"] = world_surface_texture_last_build_ms
 	return debug
@@ -2206,6 +2242,8 @@ func restore_landmarks(landmark_data: Array, restored_world_seed: int = 0) -> vo
 	world_seed = int(restored_layout.get("world_seed", world_seed))
 	landmarks = Array(restored_layout.get("landmarks", []))
 	_rebuild_landmark_runtime_state()
+	_mark_terrain_renderer_dirty()
+	_sync_terrain_renderer(true)
 	clear_cached_group_nodes()
 	queue_redraw()
 
@@ -2257,6 +2295,8 @@ func debug_regenerate_landmarks() -> void:
 	world_seed = new_seed
 	landmarks = WORLD_CONFIG.generate_landmarks(world_seed)
 	_rebuild_landmark_runtime_state()
+	_mark_terrain_renderer_dirty()
+	_sync_terrain_renderer(true)
 	await _respawn_pond_vegetation_for_current_landmarks()
 	_sync_all_biome_vegetation()
 	var game_session: Node = _get_game_session()

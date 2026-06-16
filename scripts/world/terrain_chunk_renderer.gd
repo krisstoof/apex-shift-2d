@@ -1,6 +1,7 @@
 extends Node2D
 class_name TerrainChunkRenderer
 
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const CHUNK_CELLS := 16
 
 var cell_map: TerrainCellMap
@@ -14,7 +15,10 @@ var last_build_ms := 0.0
 var max_build_ms := 0.0
 var terrain_chunk_count_visible := 0
 var terrain_chunk_count_cached := 0
+var terrain_chunk_drawn_cell_count := 0
 var terrain_render_mode := "cell_chunk"
+var last_visible_chunk_bounds := Rect2i()
+var last_visible_chunk_signature := ""
 
 
 func bind(assigned_cell_map: TerrainCellMap, assigned_player: Node2D, assigned_camera: Camera2D) -> void:
@@ -27,41 +31,77 @@ func process_visibility(_delta: float) -> void:
 	if cell_map == null:
 		return
 	var rect := _get_visible_world_rect()
-	if rect == visible_rect:
+	var chunk_bounds := _get_visible_chunk_bounds(rect)
+	if rect == visible_rect and chunk_bounds == last_visible_chunk_bounds:
 		return
 	visible_rect = rect
+	last_visible_chunk_bounds = chunk_bounds
 	queue_redraw()
 
 
 func rebuild_visible_chunks(force := false) -> void:
 	if cell_map == null:
 		return
-	var start_ms := Time.get_ticks_msec()
-	chunks_built_last_frame = 0
-	visible_chunks.clear()
+	var visible_keys: Array[String] = []
+	var visible_keys_set: Dictionary = {}
 	var grid := cell_map.get_grid_size()
 	var start_x := clampi(int(floor((visible_rect.position.x - cell_map.world_rect.position.x) / cell_map.cell_size)) - 1, 0, grid.x - 1)
 	var end_x := clampi(int(ceil((visible_rect.end.x - cell_map.world_rect.position.x) / cell_map.cell_size)) + 1, 0, grid.x - 1)
 	var start_y := clampi(int(floor((visible_rect.position.y - cell_map.world_rect.position.y) / cell_map.cell_size)) - 1, 0, grid.y - 1)
 	var end_y := clampi(int(ceil((visible_rect.end.y - cell_map.world_rect.position.y) / cell_map.cell_size)) + 1, 0, grid.y - 1)
-	var built_this_call := 0
 	for y in range(start_y, end_y + 1):
 		for x in range(start_x, end_x + 1):
 			var chunk_x := int(floor(float(x) / CHUNK_CELLS))
 			var chunk_y := int(floor(float(y) / CHUNK_CELLS))
-			var key := Vector2i(chunk_x, chunk_y)
-			visible_chunks[key] = true
-			if not force and chunk_cache.has(key):
+			var key := "%d,%d" % [chunk_x, chunk_y]
+			if visible_keys_set.has(key):
 				continue
-			if built_this_call >= 2:
-				continue
-			chunk_cache[key] = _build_chunk_data(chunk_x, chunk_y)
-			built_this_call += 1
+			visible_keys_set[key] = true
+			visible_keys.append(key)
+	visible_keys.sort()
+	var signature := "|".join(visible_keys)
+	if not force and signature == last_visible_chunk_signature:
+		return
+	last_visible_chunk_signature = signature
+	visible_chunks.clear()
+	for key_string in visible_keys:
+		var parts := key_string.split(",")
+		var chunk_key := Vector2i(int(parts[0]), int(parts[1]))
+		visible_chunks[chunk_key] = true
+	if force:
+		clear_cache()
+	var start_ms := Time.get_ticks_msec()
+	chunks_built_last_frame = 0
+	var built_this_call := 0
+	for key_string in visible_keys:
+		var parts := key_string.split(",")
+		var chunk_x := int(parts[0])
+		var chunk_y := int(parts[1])
+		var chunk_key := Vector2i(chunk_x, chunk_y)
+		if not force and chunk_cache.has(chunk_key):
+			continue
+		if built_this_call >= 2:
+			continue
+		chunk_cache[chunk_key] = _build_chunk_data(chunk_x, chunk_y)
+		built_this_call += 1
 	chunks_built_last_frame = built_this_call
 	terrain_chunk_count_visible = visible_chunks.size()
 	terrain_chunk_count_cached = chunk_cache.size()
+	terrain_chunk_drawn_cell_count = _count_visible_drawn_cells()
 	last_build_ms = float(Time.get_ticks_msec() - start_ms)
 	max_build_ms = maxf(max_build_ms, last_build_ms)
+	queue_redraw()
+
+
+func clear_cache() -> void:
+	chunk_cache.clear()
+	visible_chunks.clear()
+	chunks_built_last_frame = 0
+	terrain_chunk_count_visible = 0
+	terrain_chunk_count_cached = 0
+	terrain_chunk_drawn_cell_count = 0
+	last_visible_chunk_signature = ""
+	last_visible_chunk_bounds = Rect2i()
 	queue_redraw()
 
 
@@ -71,9 +111,11 @@ func get_debug_data() -> Dictionary:
 		"terrain_chunk_count_visible": terrain_chunk_count_visible,
 		"terrain_chunk_count_cached": terrain_chunk_count_cached,
 		"terrain_chunks_built_last_frame": chunks_built_last_frame,
+		"terrain_chunk_drawn_cell_count": terrain_chunk_drawn_cell_count,
 		"terrain_chunk_last_build_ms": last_build_ms,
 		"terrain_chunk_max_build_ms": max_build_ms,
-		"terrain_render_mode": terrain_render_mode
+		"terrain_render_mode": terrain_render_mode,
+		"terrain_visible_chunk_signature": last_visible_chunk_signature
 	}
 
 
@@ -97,7 +139,9 @@ func _draw_chunk(chunk: Dictionary) -> void:
 		var terrain_id := str(cell_data.get("terrain_id", "land"))
 		var variant := int(cell_data.get("variant", 0))
 		draw_rect(rect, _get_cell_color(biome_id, terrain_id, variant), true)
-		_draw_cell_detail(rect, biome_id, terrain_id, variant)
+		terrain_chunk_drawn_cell_count += 1
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_detail_enabled", false)):
+			_draw_cell_detail(rect, biome_id, terrain_id, variant)
 
 
 func _draw_cell_detail(rect: Rect2, biome_id: String, terrain_id: String, variant: int) -> void:
@@ -138,6 +182,27 @@ func _get_visible_world_rect() -> Rect2:
 	if player != null and is_instance_valid(player):
 		return Rect2(player.global_position - Vector2(640.0, 360.0), Vector2(1280.0, 720.0)).grow(192.0)
 	return cell_map.world_rect
+
+
+func _get_visible_chunk_bounds(rect: Rect2) -> Rect2i:
+	if cell_map == null or cell_map.cell_size <= 0.0:
+		return Rect2i()
+	var grid := cell_map.get_grid_size()
+	if grid == Vector2i.ZERO:
+		return Rect2i()
+	var start_x := clampi(int(floor((rect.position.x - cell_map.world_rect.position.x) / cell_map.cell_size / CHUNK_CELLS)), 0, maxi(0, int(ceil(float(grid.x) / CHUNK_CELLS)) - 1))
+	var end_x := clampi(int(floor((rect.end.x - cell_map.world_rect.position.x) / cell_map.cell_size / CHUNK_CELLS)), 0, maxi(0, int(ceil(float(grid.x) / CHUNK_CELLS)) - 1))
+	var start_y := clampi(int(floor((rect.position.y - cell_map.world_rect.position.y) / cell_map.cell_size / CHUNK_CELLS)), 0, maxi(0, int(ceil(float(grid.y) / CHUNK_CELLS)) - 1))
+	var end_y := clampi(int(floor((rect.end.y - cell_map.world_rect.position.y) / cell_map.cell_size / CHUNK_CELLS)), 0, maxi(0, int(ceil(float(grid.y) / CHUNK_CELLS)) - 1))
+	return Rect2i(Vector2i(start_x, start_y), Vector2i(end_x - start_x + 1, end_y - start_y + 1))
+
+
+func _count_visible_drawn_cells() -> int:
+	var count := 0
+	for chunk_key in visible_chunks.keys():
+		var chunk := Dictionary(chunk_cache.get(chunk_key, {}))
+		count += Array(chunk.get("cells", [])).size()
+	return count
 
 
 func _get_cell_color(biome_id: String, terrain_id: String, variant: int) -> Color:

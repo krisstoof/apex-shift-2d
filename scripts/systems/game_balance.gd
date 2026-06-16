@@ -419,7 +419,7 @@ const BIOME_TEXTURES := {
 	"max_terrain_chunks_built_per_frame": 2,
 	"terrain_texture_filter_nearest": true,
 	"terrain_edge_noise_enabled": true,
-	"terrain_detail_enabled": true,
+	"terrain_detail_enabled": false,
 	"transition_textures_enabled": false,
 	"transition_texture_strength": 0.18,
 	"transition_texture_width": 48.0,

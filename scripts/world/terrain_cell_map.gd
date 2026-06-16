@@ -8,9 +8,12 @@ var world_rect := Rect2()
 var grid_size := Vector2i.ZERO
 var cells: Array[Array] = []
 var seed: int = 0
+var terrain_cell_map_rebuild_count := 0
+var terrain_cell_map_last_build_ms := 0.0
 
 
 func build(assigned_world_rect: Rect2, assigned_cell_size: float, world_generator: RefCounted, world_topography: RefCounted, assigned_seed: int) -> void:
+	var start_ms := Time.get_ticks_msec()
 	world_rect = assigned_world_rect
 	cell_size = maxf(assigned_cell_size, 32.0)
 	seed = assigned_seed
@@ -49,6 +52,8 @@ func build(assigned_world_rect: Rect2, assigned_cell_size: float, world_generato
 			}
 			row.append(cell)
 		cells.append(row)
+	terrain_cell_map_rebuild_count += 1
+	terrain_cell_map_last_build_ms = float(Time.get_ticks_msec() - start_ms)
 
 
 func get_cell_at_world_position(position: Vector2) -> Dictionary:
@@ -87,7 +92,9 @@ func get_debug_data() -> Dictionary:
 		"terrain_cell_map_cell_count": grid_size.x * grid_size.y,
 		"terrain_cell_size": cell_size,
 		"terrain_grid_size": grid_size,
-		"terrain_render_mode": "cell_map"
+		"terrain_render_mode": "cell_map",
+		"terrain_cell_map_rebuild_count": terrain_cell_map_rebuild_count,
+		"terrain_cell_map_last_build_ms": terrain_cell_map_last_build_ms
 	}
 
 
