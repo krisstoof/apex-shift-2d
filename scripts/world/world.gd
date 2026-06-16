@@ -1900,7 +1900,9 @@ func _clear_pond_vegetation_resources() -> void:
 func _respawn_pond_vegetation_for_current_landmarks() -> void:
 	await get_tree().process_frame
 	var used_positions := _get_existing_resource_positions()
+	await _spawn_pond_aquatic_vegetation(used_positions, _get_player_position())
 	await _spawn_pond_vegetation(used_positions, _get_player_position())
+	await _spawn_pond_edge_greenery(used_positions, _get_player_position())
 
 
 func _create_landmark_area(landmark: Dictionary, group_name: String) -> void:
@@ -2021,7 +2023,8 @@ func _spawn_grass_kind_mixed(resource_kind: String, count: int, used_positions: 
 	var edible_budget := _get_kind_budget_count(resource_kind, count)
 	var spawned_edible_nodes := 0
 	var spawned_since_yield := 0
-	for _i in count:
+	var spawn_target := mini(count, 40 if resource_kind == "grass_patch" else 28)
+	for _i in spawn_target:
 		if spawned_edible_nodes < edible_budget and _should_keep_edible_grass_node(resource_kind):
 			if _try_spawn_resource(resource_kind, used_positions, player_position):
 				spawned_edible_nodes += 1
@@ -2032,7 +2035,7 @@ func _spawn_grass_kind_mixed(resource_kind: String, count: int, used_positions: 
 			if not _try_spawn_decorative_grass_visual(resource_kind, used_positions, player_position):
 				push_warning("Could not find a valid decorative vegetation position for %s" % resource_kind)
 		spawned_since_yield += 1
-		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
+		if spawned_since_yield >= 4:
 			spawned_since_yield = 0
 			await get_tree().process_frame
 
@@ -2102,10 +2105,7 @@ func _spawn_biome_fill_vegetation(used_positions: Array[Vector2], player_positio
 
 
 func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: Vector2) -> void:
-	if world_topography == null or not world_topography.has_method("get_topography_features_by_type"):
-		return
-	var ponds := Array(world_topography.get_topography_features_by_type("pond"))
-	for pond_value in ponds:
+	for pond_value in pond_landmarks:
 		var pond := Dictionary(pond_value)
 		var center := Vector2(pond.get("position", Vector2.ZERO))
 		var radius := float(pond.get("radius", 0.0))
@@ -2113,10 +2113,14 @@ func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: 
 			continue
 		var target_count := clampi(int(radius / 48.0), 10, 30)
 		var spawned := 0
-		for _i in range(target_count):
+		for i in range(target_count * 8):
+			if spawned >= target_count:
+				break
 			var angle := TAU * resource_rng.randf()
-			var distance := radius * resource_rng.randf_range(0.94, 1.52)
-			var candidate := center + Vector2(cos(angle), sin(angle)) * distance
+			var ring := resource_rng.randf_range(1.16, 1.55)
+			var candidate := _get_pond_shape_position(pond, angle, ring)
+			if candidate.distance_to(center) <= 0.0:
+				continue
 			if not _is_valid_sparse_land_fill_position(candidate):
 				continue
 			if is_resource_position_blocked_by_water("grass_patch", candidate):
@@ -2129,9 +2133,7 @@ func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: 
 			if _spawn_resource_or_decorative_visual(kind, candidate, used_positions, player_position):
 				spawned += 1
 				topography_resource_distribution_debug["pond_edge_greenery_spawned"] = int(topography_resource_distribution_debug.get("pond_edge_greenery_spawned", 0)) + 1
-				if spawned >= target_count:
-					break
-			if _i % 12 == 0:
+			if i % 12 == 0:
 				await get_tree().process_frame
 
 
