@@ -256,6 +256,7 @@ func _capture_world_stats() -> Dictionary:
 	stats["vegetation"] = _capture_world_vegetation_stats()
 	stats["resource_render_mode"] = _capture_world_resource_render_mode_stats()
 	stats["creature_simulation"] = _capture_creature_simulation_stats()
+	stats["biome_query"] = _capture_world_biome_query_stats()
 	stats["total_creatures"] = _sum_group_counts(stats["creature_counts"])
 	stats["total_resources"] = _sum_group_counts(stats["resource_counts"])
 	return stats
@@ -384,6 +385,12 @@ func _capture_world_biome_texture_cache_stats() -> Dictionary:
 		"biome_detail_overlay_last_prune_ms": float(cache_status.get("biome_detail_overlay_last_prune_ms", 0.0)),
 		"biome_detail_overlay_last_camera_move_distance": float(cache_status.get("biome_detail_overlay_last_camera_move_distance", 0.0))
 	}
+
+
+func _capture_world_biome_query_stats() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_biome_query_debug_data"):
+		return {}
+	return Dictionary(world.get_biome_query_debug_data())
 
 
 func _capture_world_small_prey_spawn_sync_stats() -> Dictionary:
@@ -1143,6 +1150,7 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 	var registry_stats: Dictionary = Dictionary(world_stats.get("registry", {}))
 	var render_flags: Dictionary = Dictionary(world_stats.get("render_flags", {}))
 	var visibility_culling: Dictionary = Dictionary(world_stats.get("visibility_culling", {}))
+	var biome_query: Dictionary = Dictionary(world_stats.get("biome_query", {}))
 	var diagnostics: Array[String] = []
 	if not boot_stats.is_empty():
 		diagnostics.append("boot=%s %.0f%% \"%s\"" % [
@@ -1186,6 +1194,14 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			int(visibility_culling.get("hidden_resources", 0)),
 			int(visibility_culling.get("visible_creatures", 0)),
 			int(visibility_culling.get("hidden_creatures", 0))
+		])
+	if not biome_query.is_empty():
+		diagnostics.append("biome_query cell_size=%.0f cache=%d hits=%d misses=%d polygon_checks=%d" % [
+			float(biome_query.get("cell_size", 0.0)),
+			int(biome_query.get("cache_size", 0)),
+			int(biome_query.get("cache_hit_count", 0)),
+			int(biome_query.get("cache_miss_count", 0)),
+			int(biome_query.get("polygon_check_count", 0))
 		])
 	var resource_render_mode: Dictionary = Dictionary(world_stats.get("resource_render_mode", {}))
 	if not resource_render_mode.is_empty():

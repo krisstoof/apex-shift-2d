@@ -1016,14 +1016,23 @@ func _get_current_ecosystem_state() -> Dictionary:
 
 
 func _get_biome_id_for_position(world_position: Vector2) -> String:
-	for biome in WORLD_CONFIG.get_biome_zones():
-		if Geometry2D.is_point_in_polygon(world_position, PackedVector2Array(biome["points"])):
-			return _get_biome_id(biome)
+	var world := _get_world()
+	if world != null and world.has_method("get_biome_id_at"):
+		return str(world.get_biome_id_at(world_position))
 	return ""
 
 
 func _get_biome_id(biome: Dictionary) -> String:
 	return str(biome.get("name", "biome")).to_snake_case()
+
+
+func _get_world() -> Node:
+	if not is_inside_tree():
+		return null
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return null
+	return tree.current_scene.get_node_or_null("World")
 
 
 func _move_toward(target: Vector2, move_speed: float) -> void:

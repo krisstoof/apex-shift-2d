@@ -1120,18 +1120,15 @@ func _get_biome_id_for_position(pos: Vector2) -> String:
 	var world := _get_world()
 	if world != null and world.has_method("get_biome_id_at"):
 		return str(world.get_biome_id_at(pos))
-	for biome in WORLD_CONFIG.get_biome_zones():
-		if Geometry2D.is_point_in_polygon(pos, PackedVector2Array(biome["points"])):
-			return _get_biome_id(biome)
 	return ""
 
 
 func _is_position_in_biome(pos: Vector2, target_biome_id: String) -> bool:
 	if target_biome_id.is_empty():
 		return WORLD_CONFIG.WORLD_RECT.has_point(pos)
-	for biome in WORLD_CONFIG.get_biome_zones():
-		if _get_biome_id(biome) == target_biome_id:
-			return Geometry2D.is_point_in_polygon(pos, PackedVector2Array(biome["points"]))
+	var world := _get_world()
+	if world != null and world.has_method("get_biome_id_at"):
+		return str(world.get_biome_id_at(pos)) == target_biome_id
 	return false
 
 

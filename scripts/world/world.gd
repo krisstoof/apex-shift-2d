@@ -17,6 +17,7 @@ const ISLAND_WORLD_VALIDATOR_SCRIPT := preload("res://scripts/world/island_world
 const CHUNK_MANAGER_SCRIPT := preload("res://scripts/world/chunk_manager.gd")
 const VEGETATION_VISUAL_LAYER_SCRIPT := preload("res://scripts/world/vegetation_visual_layer.gd")
 const VEGETATION_CATALOG := preload("res://scripts/world/vegetation_catalog.gd")
+const WORLD_BIOME_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_biome_query_service.gd")
 const POOL_MANAGER_SCRIPT := preload("res://scripts/systems/pool_manager.gd")
 const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
@@ -173,6 +174,7 @@ var world_seed := 0
 var world_layout: Dictionary = {}
 var world_generator: RefCounted
 var world_topography: RefCounted
+var biome_query_service: RefCounted
 var landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
 var pond_landmarks: Array[Dictionary] = []
@@ -290,6 +292,7 @@ func _ready() -> void:
 	if event_bus and event_bus.has_signal("game_event"):
 		event_bus.game_event.connect(_on_game_event)
 	_ensure_render_controller()
+	_initialize_biome_query_service()
 	_setup_topography()
 	_set_boot_progress("Generating landmarks...", 0.18)
 	_create_landmarks()
@@ -326,11 +329,11 @@ func _ready() -> void:
 	_set_boot_progress("World ready", 1.0)
 	_update_decorative_vegetation_visible_rect()
 	_rebuild_chunk_assignments()
-	_update_world_object_visibility()
 	decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
 	_sync_biome_blend_background()
 	_update_biome_detail_overlay(0.0, true)
 	_initialize_visibility_controller()
+	_update_world_object_visibility()
 	world_initialized.emit()
 	queue_redraw()
 
@@ -675,6 +678,8 @@ func is_rocky_patch_at(position: Vector2) -> bool:
 
 
 func get_biome_id_at(position: Vector2) -> String:
+	if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position"):
+		return str(biome_query_service.get_biome_id_for_position(position))
 	if world_generator and world_generator.has_method("get_biome_id_at"):
 		return str(world_generator.get_biome_id_at(position))
 	return _get_biome_id_for_position(position)
@@ -1248,6 +1253,18 @@ func get_spatial_index_debug_data() -> Dictionary:
 	return Dictionary(world_registry.get_spatial_index_debug_data())
 
 
+func get_biome_query_debug_data() -> Dictionary:
+	if biome_query_service != null and biome_query_service.has_method("get_debug_counts"):
+		return Dictionary(biome_query_service.get_debug_counts())
+	return {
+		"cell_size": 0.0,
+		"cache_size": 0,
+		"cache_hit_count": 0,
+		"cache_miss_count": 0,
+		"polygon_check_count": 0
+	}
+
+
 func get_all_registered_resources() -> Array:
 	return _ensure_registry().get_all_registered_resources()
 
@@ -1573,6 +1590,13 @@ func _initialize_visibility_controller() -> void:
 		"interval_seconds": VISIBILITY_CULL_INTERVAL_SECONDS,
 		"margin": VISIBILITY_CULL_MARGIN
 	})
+
+
+func _initialize_biome_query_service() -> void:
+	if biome_query_service != null:
+		return
+	biome_query_service = WORLD_BIOME_QUERY_SERVICE_SCRIPT.new()
+	biome_query_service.bind_biomes(get_biome_zones())
 
 
 func _ensure_biome_blend_background() -> Sprite2D:
@@ -3511,6 +3535,14 @@ func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vec
 
 
 func _get_biome_for_position(target_position: Vector2) -> Dictionary:
+	if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position"):
+		var biome_id := str(biome_query_service.get_biome_id_for_position(target_position))
+		if biome_id.is_empty():
+			return {}
+		for biome in get_biome_zones():
+			if _get_biome_id(biome) == biome_id:
+				return biome
+		return {}
 	for biome in WORLD_CONFIG.get_biome_zones():
 		if _is_point_in_biome(target_position, biome):
 			return biome
@@ -3541,6 +3573,8 @@ func _get_biome_id(biome: Dictionary) -> String:
 
 
 func _get_biome_id_for_position(target_position: Vector2) -> String:
+	if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position"):
+		return str(biome_query_service.get_biome_id_for_position(target_position))
 	var biome := _get_biome_for_position(target_position)
 	if biome.is_empty():
 		return ""
@@ -3749,7 +3783,9 @@ func _try_spawn_resource_in_biome(
 
 
 func _get_scaled_biome_bounds(biome: Dictionary) -> Rect2:
-	var points := PackedVector2Array(biome["points"])
+	var points := PackedVector2Array(biome.get("points", []))
+	if points.is_empty():
+		return Rect2()
 	var bounds := Rect2(points[0], Vector2.ZERO)
 	for point in points:
 		bounds = bounds.expand(point)
@@ -3757,7 +3793,8 @@ func _get_scaled_biome_bounds(biome: Dictionary) -> Rect2:
 
 
 func _is_point_in_scaled_biome(point: Vector2, biome: Dictionary) -> bool:
-	return Geometry2D.is_point_in_polygon(point, PackedVector2Array(biome["points"]))
+	var points := PackedVector2Array(biome.get("points", []))
+	return points.size() >= 3 and Geometry2D.is_point_in_polygon(point, points)
 
 
 func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
