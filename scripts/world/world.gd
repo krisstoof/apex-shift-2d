@@ -22,6 +22,8 @@ const POOL_MANAGER_SCRIPT := preload("res://scripts/systems/pool_manager.gd")
 const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 const WORLD_VISIBILITY_CONTROLLER_SCRIPT := preload("res://scripts/world/world_visibility_controller.gd")
+const TERRAIN_CELL_MAP_SCRIPT := preload("res://scripts/world/terrain_cell_map.gd")
+const TERRAIN_CHUNK_RENDERER_SCRIPT := preload("res://scripts/world/terrain_chunk_renderer.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS := 5.0
@@ -266,6 +268,8 @@ var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
 var landmark_service = LANDMARK_SERVICE_SCRIPT.new()
 var resource_service = RESOURCE_SERVICE_SCRIPT.new()
 var render_controller = WORLD_RENDER_CONTROLLER_SCRIPT.new()
+var terrain_cell_map: TerrainCellMap
+var terrain_chunk_renderer: TerrainChunkRenderer
 const GROUP_CACHE_TTL_SECONDS := 0.12
 
 signal world_initialized
@@ -302,6 +306,8 @@ func _ready() -> void:
 	if event_bus and event_bus.has_signal("game_event"):
 		event_bus.game_event.connect(_on_game_event)
 	_ensure_render_controller()
+	_ensure_terrain_cell_map()
+	_ensure_terrain_chunk_renderer()
 	_initialize_biome_query_service()
 	_setup_topography()
 	_set_boot_progress("Generating landmarks...", 0.18)
@@ -340,7 +346,7 @@ func _ready() -> void:
 	_update_decorative_vegetation_visible_rect()
 	_rebuild_chunk_assignments()
 	decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
-	_sync_biome_blend_background()
+	_sync_terrain_renderer()
 	_update_biome_detail_overlay(0.0, true)
 	_initialize_visibility_controller()
 	_update_world_object_visibility()
@@ -383,7 +389,7 @@ func _process(delta: float) -> void:
 	var current_night_amount := _get_night_amount()
 	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
 	if should_redraw_background:
-		_sync_biome_blend_background()
+		_sync_terrain_renderer()
 		queue_redraw()
 	if boot_ready and visibility_controller != null:
 		visibility_controller.process(delta)
@@ -1916,6 +1922,44 @@ func _ensure_query_service():
 	return query_service
 
 
+func _ensure_terrain_cell_map() -> TerrainCellMap:
+	if terrain_cell_map != null:
+		return terrain_cell_map
+	terrain_cell_map = TERRAIN_CELL_MAP_SCRIPT.new()
+	return terrain_cell_map
+
+
+func _ensure_terrain_chunk_renderer() -> TerrainChunkRenderer:
+	if is_instance_valid(terrain_chunk_renderer):
+		return terrain_chunk_renderer
+	terrain_chunk_renderer = TERRAIN_CHUNK_RENDERER_SCRIPT.new()
+	terrain_chunk_renderer.name = "TerrainChunkRenderer"
+	terrain_chunk_renderer.visible = true
+	add_child(terrain_chunk_renderer)
+	return terrain_chunk_renderer
+
+
+func _sync_terrain_renderer() -> void:
+	var cell_map := _ensure_terrain_cell_map()
+	var renderer := _ensure_terrain_chunk_renderer()
+	if world_generator == null or world_topography == null:
+		return
+	var player_node := get_tree().get_first_node_in_group("player") as Node2D
+	cell_map.build(WORLD_CONFIG.WORLD_RECT, float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_cell_size", 96.0)), world_generator, world_topography, world_seed)
+	if renderer.has_method("bind"):
+		renderer.bind(cell_map, player_node, _get_active_camera(player_node))
+		renderer.process_visibility(0.0)
+		renderer.rebuild_visible_chunks(true)
+
+
+func _get_active_camera(player_node: Node2D) -> Camera2D:
+	if player_node != null and is_instance_valid(player_node):
+		var camera := player_node.get_node_or_null("Camera2D") as Camera2D
+		if camera != null and is_instance_valid(camera):
+			return camera
+	return null
+
+
 func _set_boot_progress(stage_message: String, progress: float) -> void:
 	boot_status_message = stage_message
 	boot_status_progress = clampf(progress, 0.0, 1.0)
@@ -1925,6 +1969,8 @@ func _set_boot_progress(stage_message: String, progress: float) -> void:
 func _prepare_boot_render_cache() -> void:
 	if is_instance_valid(biome_blend_background):
 		biome_blend_background.visible = false
+	if is_instance_valid(terrain_chunk_renderer):
+		terrain_chunk_renderer.visible = true
 	queue_redraw()
 
 
@@ -1939,6 +1985,11 @@ func _get_world_biome_blend_texture_size() -> Vector2i:
 
 
 func _sync_biome_blend_background() -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("disable_global_biome_blend_texture", true)):
+		if is_instance_valid(biome_blend_background):
+			biome_blend_background.visible = false
+			biome_blend_background.texture = null
+		return
 	var background := _ensure_biome_blend_background()
 	if not biome_textures_enabled:
 		background.visible = false
@@ -1965,11 +2016,26 @@ func _sync_biome_blend_background() -> void:
 
 
 func get_surface_texture() -> ImageTexture:
-	return _ensure_surface_texture()
+	return null
 
 
 func get_surface_texture_key() -> String:
-	return _ensure_surface_texture_key()
+	return get_map_surface_debug_key()
+
+
+func get_terrain_cell_map() -> TerrainCellMap:
+	return _ensure_terrain_cell_map()
+
+
+func get_terrain_renderer_debug() -> Dictionary:
+	var debug := {}
+	if terrain_cell_map != null:
+		debug.merge(terrain_cell_map.get_debug_data(), true)
+	if terrain_chunk_renderer != null and terrain_chunk_renderer.has_method("get_debug_data"):
+		debug.merge(terrain_chunk_renderer.get_debug_data(), true)
+	debug["terrain_global_surface_texture_enabled"] = false
+	debug["terrain_global_surface_texture_build_ms"] = world_surface_texture_last_build_ms
+	return debug
 
 
 func _ensure_surface_texture_key() -> String:
@@ -1981,6 +2047,8 @@ func _ensure_surface_texture_key() -> String:
 
 
 func _ensure_surface_texture() -> ImageTexture:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("disable_global_surface_texture_on_boot", true)):
+		return null
 	var current_key := _ensure_surface_texture_key()
 	if world_surface_texture != null and world_surface_texture_key == current_key:
 		return world_surface_texture

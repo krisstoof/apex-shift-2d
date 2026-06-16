@@ -28,6 +28,7 @@ var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
+var terrain_cell_map: TerrainCellMap
 var shoreline_segments: Array[Dictionary] = []
 var shoreline_segments_key := ""
 var shoreline_segments_build_count := 0
@@ -86,6 +87,7 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
+	terrain_cell_map = world.get_terrain_cell_map() if world != null and world.has_method("get_terrain_cell_map") else null
 	_sync_biome_texture()
 	_sync_shoreline_overlay_cache()
 	if _update_marker_cache():
@@ -150,6 +152,9 @@ func _get_content_rect(map_rect: Rect2) -> Rect2:
 
 
 func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	if terrain_cell_map != null:
+		_draw_cell_map(content_rect, view_world_rect)
+		return
 	if biome_zones.is_empty():
 		return
 	if not _is_drawing_biomes:
@@ -194,9 +199,10 @@ func _refresh_static_caches() -> void:
 
 func _sync_biome_texture() -> void:
 	var active_world := _get_world()
-	if active_world != null and active_world.has_method("get_surface_texture"):
-		biome_blend_texture = active_world.get_surface_texture()
-		biome_blend_colors_key = str(active_world.get_surface_texture_key()) if active_world.has_method("get_surface_texture_key") else ""
+	terrain_cell_map = active_world.get_terrain_cell_map() if active_world != null and active_world.has_method("get_terrain_cell_map") else null
+	if terrain_cell_map != null:
+		biome_blend_texture = null
+		biome_blend_colors_key = "cell_map"
 		return
 	if biome_zones.is_empty():
 		biome_blend_texture = null
@@ -294,7 +300,7 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 func _get_biome_texture_key() -> String:
 	var parts: Array[String] = []
-	parts.append("map_surface_v4")
+	parts.append("map_surface_v5")
 	parts.append("world_rect=%s" % str(world_rect))
 	var active_world := _get_world()
 	if active_world != null:
@@ -324,6 +330,45 @@ func _get_biome_base_color(biome: Dictionary) -> Color:
 			return Color(0.75, 0.70, 0.46)
 		_:
 			return Color(0.35, 0.48, 0.30)
+
+
+func _draw_cell_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	if terrain_cell_map == null:
+		return
+	var grid := terrain_cell_map.get_grid_size()
+	if grid == Vector2i.ZERO:
+		return
+	for y in range(grid.y):
+		for x in range(grid.x):
+			var cell := terrain_cell_map.get_cell(x, y)
+			if cell.is_empty():
+				continue
+			var cell_rect := terrain_cell_map.get_cell_world_rect(x, y)
+			if not view_world_rect.intersects(cell_rect):
+				continue
+			var destination_rect := _world_rect_to_map_rect(cell_rect.intersection(view_world_rect), content_rect, view_world_rect)
+			if destination_rect.size.x <= 0.0 or destination_rect.size.y <= 0.0:
+				continue
+			draw_rect(destination_rect, _get_cell_map_color(cell), true)
+
+
+func _get_cell_map_color(cell: Dictionary) -> Color:
+	var biome_id := str(cell.get("biome_id", "hearth_meadow"))
+	var terrain_id := str(cell.get("terrain_id", "land"))
+	var variant := int(cell.get("variant", 0))
+	var color := _get_biome_base_color({"id": biome_id})
+	match terrain_id:
+		"highland":
+			color = color.lerp(Color(0.52, 0.48, 0.34), 0.22)
+		"pond":
+			color = Color(0.12, 0.40, 0.52)
+		"rocky_patch":
+			color = color.lerp(Color(0.42, 0.40, 0.34), 0.30)
+		"wetland":
+			color = color.lerp(Color(0.18, 0.32, 0.18), 0.25)
+	if variant % 2 == 0:
+		color = color.lightened(0.03)
+	return color
 
 
 func _should_show_resource_markers() -> bool:

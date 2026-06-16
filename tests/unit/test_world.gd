@@ -5,6 +5,7 @@ const WORLD_QUERY_SERVICE := preload("res://scripts/world/world_query_service.gd
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const WORLD_GENERATOR := preload("res://scripts/world/world_generator.gd")
 const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
+const TERRAIN_CELL_MAP := preload("res://scripts/world/terrain_cell_map.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
@@ -273,6 +274,7 @@ func run() -> Array[String]:
 	_test_world_biome_blend_texture_size_uses_configurable_scale(failures)
 	_test_visual_biome_query_uses_generator_source(failures)
 	_test_visual_biome_influence_scores_vary_across_space(failures)
+	_test_terrain_cell_map_builds_and_looks_up_cells(failures)
 	_test_world_biome_texture_cache_status_reports_visual_settings(failures)
 	_test_world_biome_texture_cache_status_reports_visual_feature_count(failures)
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
@@ -959,6 +961,35 @@ func _test_visual_biome_influence_scores_vary_across_space(failures: Array[Strin
 			break
 	TEST_UTILS.expect(differs, failures, "Visual biome influence scores should vary across the map instead of staying flat")
 	generator.free()
+
+
+func _test_terrain_cell_map_builds_and_looks_up_cells(failures: Array[String]) -> void:
+	var generator := WORLD_GENERATOR.new()
+	var topo := WORLD_TOPOGRAPHY.new()
+	generator.generate_world(13579)
+	topo.setup(13579)
+	var cell_map := TERRAIN_CELL_MAP.new()
+	cell_map.build(WORLD_CONFIG.WORLD_RECT, 96.0, generator, topo, 13579)
+	var grid_size := cell_map.get_grid_size()
+	TEST_UTILS.expect(grid_size.x > 0 and grid_size.y > 0, failures, "Terrain cell map should build a positive grid size")
+	var sample_cell := cell_map.get_cell(0, 0)
+	TEST_UTILS.expect(sample_cell.has("terrain_id"), failures, "Terrain cell map cells should expose terrain ids")
+	TEST_UTILS.expect(sample_cell.has("biome_id"), failures, "Terrain cell map cells should expose biome ids")
+	TEST_UTILS.expect(not cell_map.get_cell_at_world_position(Vector2.ZERO).is_empty(), failures, "Terrain cell lookup by world position should work")
+	var repeat_map := TERRAIN_CELL_MAP.new()
+	repeat_map.build(WORLD_CONFIG.WORLD_RECT, 96.0, generator, topo, 13579)
+	TEST_UTILS.expect_equal(cell_map.get_cell(2, 2).get("biome_id", ""), repeat_map.get_cell(2, 2).get("biome_id", ""), failures, "Same seed should produce the same terrain cell map")
+	var other_generator := WORLD_GENERATOR.new()
+	var other_topo := WORLD_TOPOGRAPHY.new()
+	other_generator.generate_world(24680)
+	other_topo.setup(24680)
+	var other_map := TERRAIN_CELL_MAP.new()
+	other_map.build(WORLD_CONFIG.WORLD_RECT, 96.0, other_generator, other_topo, 24680)
+	TEST_UTILS.expect(cell_map.get_cell(2, 2).get("biome_id", "") != other_map.get_cell(2, 2).get("biome_id", "") or cell_map.get_cell(2, 2).get("terrain_id", "") != other_map.get_cell(2, 2).get("terrain_id", ""), failures, "Different seeds should produce different terrain cell maps")
+	generator.free()
+	topo.free()
+	other_generator.free()
+	other_topo.free()
 
 
 func _test_world_biome_texture_cache_status_reports_visual_settings(failures: Array[String]) -> void:
