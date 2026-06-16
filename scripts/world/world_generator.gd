@@ -3,6 +3,7 @@ class_name WorldGenerator
 
 const GEN_CONFIG := preload("res://scripts/world/world_generation_config.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const GENERATOR_RULES_VERSION := "v4"
 
 var seed: int = 0
@@ -24,6 +25,7 @@ const BIOME_OWNERSHIP_MAP_HEIGHT := 192
 const USE_RANDOMIZED_BIOME_LAYOUT := true
 
 var biome_region_anchors: Array[Dictionary] = []
+var visual_biome_features: Array[Dictionary] = []
 var biome_ownership_map: Array[Array] = []
 var topography_features: Array[Dictionary] = []
 var island_shape_profile: Dictionary = {}
@@ -40,6 +42,7 @@ func generate_world(p_seed: int = 0) -> Dictionary:
 	_configure_rng_and_noise(seed)
 	_build_island_shape_profile()
 	_build_biome_region_anchors()
+	_build_visual_biome_features()
 	_build_biome_ownership_map()
 	var layout := {
 		"version": 1,
@@ -141,7 +144,29 @@ func get_biome_id_at(position: Vector2) -> String:
 	return _sample_biome_ownership_map(position)
 
 
+func get_visual_biome_id_at(position: Vector2) -> String:
+	if get_base_terrain_zone(position) in ["deep_ocean", "shallow_water", "shore"]:
+		return get_biome_id_at(position)
+	return _get_dominant_visual_biome_id(get_visual_biome_influence_scores(position))
+
+
+func get_visual_biome_scores_at(position: Vector2) -> Dictionary:
+	return get_visual_biome_influence_scores(position)
+
+
+func get_visual_biome_influence_scores(position: Vector2) -> Dictionary:
+	if visual_biome_features.is_empty():
+		_build_visual_biome_features()
+	return _get_visual_biome_influence_scores(position)
+
+
+func get_visual_biome_feature_count() -> int:
+	return visual_biome_features.size()
+
+
 func get_biome_visual_color_at(position: Vector2) -> Color:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shapes_enabled", true)):
+		return _boost_color_saturation(get_biome_color(get_biome_id_at(position)), 0.08)
 	var base_terrain := get_base_terrain_zone(position)
 	match base_terrain:
 		"deep_ocean":
@@ -151,7 +176,8 @@ func get_biome_visual_color_at(position: Vector2) -> Color:
 		"shore":
 			return Color(0.64, 0.61, 0.38)
 
-	var biome_id := get_biome_id_at(position)
+	var scores := get_visual_biome_influence_scores(position)
+	var biome_id := _get_dominant_visual_biome_id(scores)
 	var color := _boost_color_saturation(get_biome_color(biome_id), 0.12)
 	var variation := biome_detail_noise.get_noise_2d(position.x * 1.2 + 71.0, position.y * 1.2 - 29.0)
 	if variation > 0.0:
@@ -159,15 +185,16 @@ func get_biome_visual_color_at(position: Vector2) -> Color:
 	else:
 		color = color.darkened(absf(variation) * 0.024)
 	var terrain := get_terrain_zone(position)
+	var mix_color := _get_secondary_visual_biome_color(scores, biome_id)
 	match terrain:
 		"pond":
-			return Color(0.05, 0.28, 0.44)
+			return _mix_visual_biome_colors(Color(0.05, 0.28, 0.44), mix_color, position, 0.04)
 		"rocky_patch":
-			return color.lerp(Color(0.43, 0.42, 0.38), 0.55)
+			return _mix_visual_biome_colors(color.lerp(Color(0.43, 0.42, 0.38), 0.55), mix_color, position, 0.08)
 		"highland":
-			return color.lerp(Color(0.52, 0.46, 0.30), 0.42)
+			return _mix_visual_biome_colors(color.lerp(Color(0.52, 0.46, 0.30), 0.42), mix_color, position, 0.10)
 		_:
-			return color
+			return _mix_visual_biome_colors(color, mix_color, position, 0.14)
 
 
 func _boost_color_saturation(color: Color, amount: float = 0.12) -> Color:
@@ -178,6 +205,45 @@ func _boost_color_saturation(color: Color, amount: float = 0.12) -> Color:
 		clampf(lerpf(avg, color.b, 1.0 + amount), 0.0, 1.0),
 		color.a
 	)
+
+
+func _get_dominant_visual_biome_id(scores: Dictionary) -> String:
+	var best_id := ""
+	var best_score := -INF
+	for biome_id in BIOME_IDS:
+		var score := float(scores.get(biome_id, -INF))
+		if score > best_score:
+			best_score = score
+			best_id = biome_id
+	return best_id if not best_id.is_empty() else "hearth_meadow"
+
+
+func _get_secondary_visual_biome_color(scores: Dictionary, dominant_biome_id: String) -> Color:
+	var best_score := float(scores.get(dominant_biome_id, -INF))
+	var candidate_id := ""
+	var candidate_score := -INF
+	for biome_id in BIOME_IDS:
+		if biome_id == dominant_biome_id:
+			continue
+		var score := float(scores.get(biome_id, -INF))
+		if score > candidate_score:
+			candidate_score = score
+			candidate_id = biome_id
+	if candidate_id.is_empty():
+		return Color(0.0, 0.0, 0.0, 0.0)
+	var closeness := clampf(1.0 - (best_score - candidate_score) * 1.8, 0.0, 1.0)
+	if closeness <= 0.0:
+		return Color(0.0, 0.0, 0.0, 0.0)
+	var candidate_color := _boost_color_saturation(get_biome_color(candidate_id), 0.10)
+	return Color(candidate_color.r, candidate_color.g, candidate_color.b, closeness)
+
+
+func _mix_visual_biome_colors(base_color: Color, mix_color: Color, position: Vector2, max_amount: float) -> Color:
+	if mix_color.a <= 0.0:
+		return base_color
+	var noise := biome_detail_noise.get_noise_2d(position.x * 0.021 + 13.0, position.y * 0.021 - 17.0) * 0.5 + 0.5
+	var amount := clampf(max_amount * mix_color.a * (0.18 + noise * 0.82), 0.0, max_amount)
+	return base_color.lerp(mix_color, amount)
 
 
 func get_biome_color(biome_id: String) -> Color:
@@ -537,6 +603,76 @@ func _build_biome_region_anchors() -> void:
 		_add_biome_anchor(biome_id, pos, _get_random_biome_radius(biome_id), rng.randf_range(1.05, 1.35))
 
 
+func _build_visual_biome_features() -> void:
+	visual_biome_features.clear()
+	for anchor_value in biome_region_anchors:
+		var anchor := Dictionary(anchor_value)
+		var biome_id := str(anchor.get("biome_id", ""))
+		if biome_id.is_empty():
+			continue
+		var anchor_pos := Vector2(anchor.get("position", Vector2.ZERO))
+		var anchor_radius := float(anchor.get("radius", 3000.0))
+		var anchor_strength := float(anchor.get("strength", 1.0))
+		_add_visual_biome_feature(biome_id, anchor_pos, anchor_radius * rng.randf_range(0.88, 1.05), anchor_strength * rng.randf_range(1.06, 1.28), "core", Vector2.ZERO, rng.randf_range(0.05, 0.11))
+		if rng.randf() < 0.8:
+			_add_visual_biome_feature(biome_id, anchor_pos + _random_feature_offset(anchor_radius * 0.20), anchor_radius * rng.randf_range(0.32, 0.58), anchor_strength * rng.randf_range(0.62, 0.92), "core", _random_feature_warp_offset(), rng.randf_range(0.05, 0.12))
+		var lobe_count := rng.randi_range(2, 5)
+		for _i in range(lobe_count):
+			_add_visual_biome_feature(
+				biome_id,
+				anchor_pos + _random_feature_offset(anchor_radius * rng.randf_range(0.18, 0.55)),
+				anchor_radius * rng.randf_range(0.14, 0.30),
+				anchor_strength * rng.randf_range(0.28, 0.58),
+				"lobe",
+				_random_feature_warp_offset(),
+				rng.randf_range(0.08, 0.18)
+			)
+		if rng.randf() < 0.7:
+			_add_visual_biome_feature(
+				biome_id,
+				anchor_pos + _random_feature_offset(anchor_radius * rng.randf_range(0.12, 0.36)),
+				anchor_radius * rng.randf_range(0.10, 0.20),
+				anchor_strength * rng.randf_range(0.20, 0.40),
+				"bridge",
+				_random_feature_warp_offset(),
+				rng.randf_range(0.14, 0.24)
+			)
+		if rng.randf() < 0.9:
+			_add_visual_biome_feature(
+				biome_id,
+				anchor_pos + _random_feature_offset(anchor_radius * rng.randf_range(0.16, 0.42)),
+				anchor_radius * rng.randf_range(0.12, 0.24),
+				anchor_strength * rng.randf_range(0.12, 0.26),
+				"erosion",
+				_random_feature_warp_offset(),
+				rng.randf_range(0.16, 0.30)
+			)
+
+
+func _add_visual_biome_feature(biome_id: String, position: Vector2, radius: float, strength: float, shape_type: String, warp_offset: Vector2, warp_strength: float) -> void:
+	visual_biome_features.append({
+		"biome_id": biome_id,
+		"position": position,
+		"radius": maxf(radius, 1.0),
+		"strength": maxf(strength, 0.0),
+		"shape_type": shape_type,
+		"warp_offset": warp_offset,
+		"warp_strength": maxf(warp_strength, 0.0)
+	})
+
+
+func _random_feature_offset(distance: float) -> Vector2:
+	var angle := rng.randf_range(0.0, TAU)
+	return Vector2(cos(angle), sin(angle)) * distance
+
+
+func _random_feature_warp_offset() -> Vector2:
+	return Vector2(
+		rng.randf_range(-1.0, 1.0),
+		rng.randf_range(-1.0, 1.0)
+	)
+
+
 func _add_biome_anchor(biome_id: String, position: Vector2, radius: float, strength: float) -> void:
 	biome_region_anchors.append({
 		"biome_id": biome_id,
@@ -657,6 +793,53 @@ func _get_biome_scores(position: Vector2) -> Dictionary:
 		"south_thicket": _get_macro_biome_score(warped, "south_thicket") * 5.0 + ny * 0.02,
 		"redfang_wilds": _get_macro_biome_score(warped, "redfang_wilds") * 5.0 + nx * 0.02
 	}
+
+
+func _get_visual_biome_influence_scores(position: Vector2) -> Dictionary:
+	var scores := _get_biome_scores(position)
+	if visual_biome_features.is_empty():
+		return scores
+	var warped := _get_warped_biome_position(position)
+	var edge_noise_strength := float(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shape_edge_noise_strength", 0.08))
+	var edge_noise_scale := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shape_edge_noise_scale", 220.0)), 1.0)
+	for feature_value in visual_biome_features:
+		var feature := Dictionary(feature_value)
+		var biome_id := str(feature.get("biome_id", ""))
+		if biome_id.is_empty():
+			continue
+		var feature_pos := Vector2(feature.get("position", Vector2.ZERO))
+		var radius := maxf(float(feature.get("radius", 1.0)), 1.0)
+		var strength := maxf(float(feature.get("strength", 0.0)), 0.0)
+		var shape_type := str(feature.get("shape_type", "core"))
+		var warp_offset := Vector2(feature.get("warp_offset", Vector2.ZERO))
+		var warp_strength := maxf(float(feature.get("warp_strength", 0.0)), 0.0)
+		var sample_pos := warped
+		if warp_strength > 0.0:
+			var warp_noise := Vector2(
+				biome_detail_noise.get_noise_2d((warped.x + warp_offset.x * 113.0) / edge_noise_scale, (warped.y + warp_offset.y * 113.0) / edge_noise_scale),
+				biome_detail_noise.get_noise_2d((warped.x - warp_offset.y * 91.0) / edge_noise_scale, (warped.y + warp_offset.x * 91.0) / edge_noise_scale)
+			)
+			sample_pos += warp_noise * warp_strength * radius * 0.28
+		var distance := sample_pos.distance_to(feature_pos)
+		var normalized := clampf(1.0 - distance / radius, 0.0, 1.0)
+		if normalized <= 0.0:
+			continue
+		var exponent := 1.35
+		match shape_type:
+			"core":
+				exponent = 1.05
+			"lobe":
+				exponent = 1.55
+			"bridge":
+				exponent = 2.10
+			"erosion":
+				exponent = 2.65
+		var influence := pow(normalized, exponent) * strength
+		if shape_type == "erosion":
+			influence = -influence
+		influence += (biome_detail_noise.get_noise_2d(position.x / edge_noise_scale, position.y / edge_noise_scale) * 0.5 + 0.5) * edge_noise_strength * 0.02
+		scores[biome_id] = float(scores.get(biome_id, 0.0)) + influence
+	return scores
 
 
 func _get_raw_biome_id_at(position: Vector2) -> String:
@@ -893,9 +1076,10 @@ func get_biome_coverage_debug() -> Dictionary:
 
 
 func get_debug_generation_key() -> String:
-	return "biome_ownership_v7|seed=%d|anchors=%d|ownership=%dx%d" % [
+	return "biome_ownership_v8|seed=%d|anchors=%d|visual_features=%d|ownership=%dx%d" % [
 		seed,
 		biome_region_anchors.size(),
+		visual_biome_features.size(),
 		BIOME_OWNERSHIP_MAP_WIDTH,
 		BIOME_OWNERSHIP_MAP_HEIGHT
 	]

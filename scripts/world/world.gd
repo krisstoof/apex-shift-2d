@@ -22,6 +22,11 @@ const POOL_MANAGER_SCRIPT := preload("res://scripts/systems/pool_manager.gd")
 const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 const WORLD_VISIBILITY_CONTROLLER_SCRIPT := preload("res://scripts/world/world_visibility_controller.gd")
+const TERRAIN_CELL_MAP_SCRIPT := preload("res://scripts/world/terrain_cell_map.gd")
+const TERRAIN_CHUNK_RENDERER_SCRIPT := preload("res://scripts/world/terrain_chunk_renderer.gd")
+const TERRAIN_SURFACE_CHUNK_RENDERER_SCRIPT := preload("res://scripts/world/terrain_surface_chunk_renderer.gd")
+const BIOME_SHAPE_MAP_SCRIPT := preload("res://scripts/world/biome_shape_map.gd")
+const BIOME_SHAPE_RENDERER_SCRIPT := preload("res://scripts/world/biome_shape_renderer.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS := 5.0
@@ -52,6 +57,7 @@ const SPATIAL_INDEX_DEBUG_REFRESH_INTERVAL_SECONDS := 0.75
 const VISIBILITY_CULL_GROUPS := ["resources", "small_prey", "grazer", "varnak"]
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
 const SURFACE_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
+const TERRAIN_SURFACE_RENDERER_UPDATE_INTERVAL := 0.10
 const BIOME_DETAIL_CHUNK_WORLD_SIZE := 768.0
 const BIOME_DETAIL_CHUNK_TEXTURE_SIZE := Vector2i(64, 64)
 const BIOME_DETAIL_VISIBLE_CHUNK_RADIUS := 1
@@ -98,6 +104,7 @@ const BIOME_TERRAIN_TEXTURES := {
 }
 const WORLD_BACKGROUND_REDRAW_INTERVAL := 0.20
 const NIGHT_REDRAW_MIN_DELTA := 0.03
+const TERRAIN_RENDERER_UPDATE_INTERVAL := 0.15
 const PLANT_RESOURCE_KINDS := [
 	"conifer_tree",
 	"leafy_tree",
@@ -266,6 +273,21 @@ var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
 var landmark_service = LANDMARK_SERVICE_SCRIPT.new()
 var resource_service = RESOURCE_SERVICE_SCRIPT.new()
 var render_controller = WORLD_RENDER_CONTROLLER_SCRIPT.new()
+var terrain_cell_map: TerrainCellMap
+var terrain_chunk_renderer: TerrainChunkRenderer
+var terrain_surface_chunk_renderer: TerrainSurfaceChunkRenderer
+var biome_shape_map
+var biome_shape_renderer
+var terrain_cell_map_dirty := true
+var terrain_renderer_bound := false
+var terrain_renderer_update_timer := 0.0
+var terrain_surface_renderer_update_timer := 0.0
+var biome_shape_map_dirty := true
+var biome_shape_renderer_bound := false
+var biome_shape_renderer_update_timer := 0.0
+const BIOME_SHAPE_RENDERER_UPDATE_INTERVAL := 0.15
+var terrain_renderer_sync_count := 0
+var terrain_renderer_forced_sync_count := 0
 const GROUP_CACHE_TTL_SECONDS := 0.12
 
 signal world_initialized
@@ -302,6 +324,11 @@ func _ready() -> void:
 	if event_bus and event_bus.has_signal("game_event"):
 		event_bus.game_event.connect(_on_game_event)
 	_ensure_render_controller()
+	_ensure_terrain_cell_map()
+	_ensure_terrain_chunk_renderer()
+	_ensure_terrain_surface_chunk_renderer()
+	_ensure_biome_shape_map()
+	_ensure_biome_shape_renderer()
 	_initialize_biome_query_service()
 	_setup_topography()
 	_set_boot_progress("Generating landmarks...", 0.18)
@@ -340,7 +367,13 @@ func _ready() -> void:
 	_update_decorative_vegetation_visible_rect()
 	_rebuild_chunk_assignments()
 	decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
-	_sync_biome_blend_background()
+	_ensure_biome_shape_map_built(true)
+	_sync_biome_shape_renderer(true)
+	_sync_terrain_surface_chunk_renderer(true)
+	if is_instance_valid(terrain_chunk_renderer):
+		terrain_chunk_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
+	if is_instance_valid(biome_shape_renderer):
+		biome_shape_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer_in_world", false))
 	_update_biome_detail_overlay(0.0, true)
 	_initialize_visibility_controller()
 	_update_world_object_visibility()
@@ -362,6 +395,19 @@ func _process(delta: float) -> void:
 	})
 	if is_restoring_save:
 		return
+	terrain_surface_renderer_update_timer -= delta
+	if terrain_surface_renderer_update_timer <= 0.0:
+		terrain_surface_renderer_update_timer = TERRAIN_SURFACE_RENDERER_UPDATE_INTERVAL
+		if is_instance_valid(terrain_surface_chunk_renderer):
+			terrain_surface_chunk_renderer.process_visibility(delta)
+	if is_instance_valid(terrain_surface_chunk_renderer):
+		terrain_surface_chunk_renderer.process_build_queue()
+	biome_shape_renderer_update_timer -= delta
+	if biome_shape_renderer_update_timer <= 0.0:
+		biome_shape_renderer_update_timer = BIOME_SHAPE_RENDERER_UPDATE_INTERVAL
+		if is_instance_valid(biome_shape_renderer):
+			biome_shape_renderer.process_visibility(delta)
+	_update_terrain_renderer(delta)
 	_update_spatial_index_debug_cache(delta)
 	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
 		small_prey_failed_spawn_retry_timer = maxf(0.0, small_prey_failed_spawn_retry_timer - delta)
@@ -383,7 +429,6 @@ func _process(delta: float) -> void:
 	var current_night_amount := _get_night_amount()
 	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
 	if should_redraw_background:
-		_sync_biome_blend_background()
 		queue_redraw()
 	if boot_ready and visibility_controller != null:
 		visibility_controller.process(delta)
@@ -391,8 +436,11 @@ func _process(delta: float) -> void:
 	if decorative_vegetation_visibility_timer <= 0.0:
 		decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
 		_update_decorative_vegetation_visible_rect()
-	_update_biome_detail_overlay(delta)
-	_build_pending_biome_detail_overlay_chunks()
+	var use_surface_renderer := bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
+	var allow_legacy_overlay := bool(GAME_BALANCE.BIOME_TEXTURES.get("legacy_biome_detail_overlay_enabled_with_surface_renderer", false))
+	if not use_surface_renderer or allow_legacy_overlay:
+		_update_biome_detail_overlay(delta)
+		_build_pending_biome_detail_overlay_chunks()
 	_update_night_overlay(current_night_amount)
 
 
@@ -492,8 +540,31 @@ func get_landmarks() -> Array[Dictionary]:
 	return _ensure_landmark_service().get_landmarks()
 
 
+func get_topography_features() -> Array[Dictionary]:
+	if world_topography == null or not world_topography.has_method("get_topography_features_by_type"):
+		return []
+	var result: Array[Dictionary] = []
+	for feature_type in ["pond", "highland", "rocky_patch"]:
+		for feature_value in Array(world_topography.get_topography_features_by_type(feature_type)):
+			result.append(Dictionary(feature_value).duplicate(true))
+	return result
+
+
+func get_topography_features_by_type(feature_type: String) -> Array[Dictionary]:
+	if world_topography == null or not world_topography.has_method("get_topography_features_by_type"):
+		return []
+	return world_topography.get_topography_features_by_type(feature_type)
+
+
 func get_safe_player_start_position() -> Vector2:
-	return WORLD_CONFIG.get_safe_player_start_position(landmarks)
+	return _get_safe_player_start_position()
+
+
+func _get_safe_player_start_position() -> Vector2:
+	var safe_landmarks: Array[Dictionary] = []
+	safe_landmarks.append_array(get_topography_features_by_type("pond"))
+	safe_landmarks.append_array(get_topography_features_by_type("highland"))
+	return WORLD_CONFIG.get_safe_player_start_position(safe_landmarks)
 
 
 func get_world_seed() -> int:
@@ -510,6 +581,12 @@ func get_world_generation_debug() -> Dictionary:
 	debug["generator_rules_version"] = str(world_layout.get("generator_rules_version", "v1"))
 	debug["topography_rules_version"] = str(WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION)
 	debug["procedural_world_restore_mode"] = procedural_world_restore_mode
+	debug["cell_terrain_renderer_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
+	debug["biome_shape_renderer_in_world_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer_in_world", false))
+	debug["biome_shape_map_for_maps_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true))
+	debug["landmark_count"] = landmarks.size()
+	debug["poi_landmark_count"] = landmarks.size()
+	debug["topography_feature_counts"] = get_topography_debug_summary().get("topography_feature_counts", {})
 	return debug
 
 
@@ -521,7 +598,7 @@ func get_world_generation_summary() -> String:
 		int(debug.get("seed", world_seed)),
 		int(debug.get("version", 0)),
 		int(debug.get("biomes", 0)),
-		int(debug.get("landmarks", 0)),
+		int(debug.get("poi_landmark_count", debug.get("landmarks", 0))),
 		int(debug.get("creature_spawn_zones", 0))
 	]
 
@@ -532,6 +609,12 @@ func _set_world_generator_seed(seed: int) -> void:
 	world_seed = int(world_layout.get("seed", seed))
 	procedural_world_restore_mode = "full_layout"
 	_setup_topography()
+	biome_shape_map_dirty = true
+	biome_shape_renderer_bound = false
+	terrain_cell_map_dirty = true
+	_mark_terrain_renderer_dirty()
+	if is_instance_valid(terrain_surface_chunk_renderer):
+		terrain_surface_chunk_renderer.mark_dirty("world_seed_changed")
 
 
 func _apply_world_layout(layout: Dictionary) -> void:
@@ -543,6 +626,12 @@ func _apply_world_layout(layout: Dictionary) -> void:
 		world_generator = WORLD_GENERATOR.new()
 	world_generator.generate_world(world_seed if world_seed != 0 else int(world_layout.get("seed", 1)))
 	_setup_topography()
+	biome_shape_map_dirty = true
+	biome_shape_renderer_bound = false
+	terrain_cell_map_dirty = true
+	_mark_terrain_renderer_dirty()
+	if is_instance_valid(terrain_surface_chunk_renderer):
+		terrain_surface_chunk_renderer.mark_dirty("world_layout_changed")
 	if render_controller and render_controller.has_method("invalidate_biome_blend_texture"):
 		render_controller.invalidate_biome_blend_texture()
 	_invalidate_surface_texture_cache()
@@ -608,7 +697,7 @@ func get_surface_terrain_zone_at(position: Vector2) -> String:
 func get_topography_debug_summary() -> Dictionary:
 	if world_topography == null:
 		return {
-			"feature_counts": {},
+			"topography_feature_counts": {},
 			"sample_position": Vector2.ZERO,
 			"sample": {}
 		}
@@ -616,7 +705,7 @@ func get_topography_debug_summary() -> Dictionary:
 	if sample_position == Vector2.ZERO:
 		sample_position = WORLD_CONFIG.WORLD_RECT.get_center()
 	return {
-		"feature_counts": Dictionary(world_topography.get_topography_feature_counts_debug()) if world_topography.has_method("get_topography_feature_counts_debug") else {},
+		"topography_feature_counts": Dictionary(world_topography.get_topography_feature_counts_debug()) if world_topography.has_method("get_topography_feature_counts_debug") else {},
 		"sample_position": sample_position,
 		"sample": get_topography_debug_at(sample_position)
 	}
@@ -713,6 +802,12 @@ func get_biome_name_at(position: Vector2) -> String:
 
 
 func get_visual_biome_id_at(position: Vector2) -> String:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_query_bypasses_cell_cache", true)):
+		return get_biome_id_at(position)
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shapes_enabled", true)):
+		return get_biome_id_at(position)
+	if world_generator != null and world_generator.has_method("get_visual_biome_id_at"):
+		return str(world_generator.get_visual_biome_id_at(position))
 	if world_generator and world_generator.has_method("get_biome_id_at"):
 		return str(world_generator.get_biome_id_at(position))
 	return get_biome_id_at(position)
@@ -720,6 +815,12 @@ func get_visual_biome_id_at(position: Vector2) -> String:
 
 func get_visual_biome_name_at(position: Vector2) -> String:
 	return _get_biome_display_name(get_visual_biome_id_at(position))
+
+
+func get_visual_biome_influence_scores_at(position: Vector2) -> Dictionary:
+	if world_generator != null and world_generator.has_method("get_visual_biome_influence_scores"):
+		return Dictionary(world_generator.get_visual_biome_influence_scores(position))
+	return {}
 
 
 func get_display_biome_name_at(position: Vector2) -> String:
@@ -739,7 +840,7 @@ func get_map_surface_color_at(position: Vector2) -> Color:
 		var color: Color = Color(world_generator.get_biome_visual_color_at(position))
 		if world_topography != null and world_topography.has_method("sample_topography_at"):
 			var topo_sample := Dictionary(world_topography.sample_topography_at(position))
-			var biome_id := get_biome_id_at(position)
+			var biome_id := get_visual_biome_id_at(position)
 			var terrain := str(topo_sample.get("terrain_zone", "land"))
 			var elevation_band := str(topo_sample.get("elevation_band", terrain))
 			var blend_strength := _get_topography_biome_blend_strength(topo_sample, biome_id)
@@ -775,14 +876,14 @@ func get_map_surface_debug_key() -> String:
 	var generator_key := "no_generator"
 	if world_generator != null and world_generator.has_method("get_debug_generation_key"):
 		generator_key = str(world_generator.get_debug_generation_key())
-	var feature_counts := {}
+	var topography_feature_counts := {}
 	if world_topography != null and world_topography.has_method("get_topography_feature_counts_debug"):
-		feature_counts = Dictionary(world_topography.get_topography_feature_counts_debug())
-	var ponds := int(feature_counts.get("pond", 0))
-	var highlands := int(feature_counts.get("highland", 0))
-	var rocks := int(feature_counts.get("rocky_patch", 0))
+		topography_feature_counts = Dictionary(world_topography.get_topography_feature_counts_debug())
+	var ponds := int(topography_feature_counts.get("pond", 0))
+	var highlands := int(topography_feature_counts.get("highland", 0))
+	var rocks := int(topography_feature_counts.get("rocky_patch", 0))
 	var transition_version := _get_biome_transition_texture_version_key()
-	return "surface_v14|seed=%d|generator_key=%s|topography_rules=%s|transition=%s|ponds=%d|highlands=%d|rocks=%d" % [
+	return "surface_v15|seed=%d|generator_key=%s|topography_rules=%s|transition=%s|ponds=%d|highlands=%d|rocks=%d" % [
 		world_seed,
 		generator_key,
 		WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION,
@@ -827,7 +928,7 @@ func _apply_biome_transition_texture(base_color: Color, world_position: Vector2)
 func _get_biome_transition_debug_at(world_position: Vector2) -> Dictionary:
 	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("transition_textures_enabled", false)):
 		return {}
-	var primary_id := get_biome_id_at(world_position)
+	var primary_id := get_visual_biome_id_at(world_position)
 	if primary_id.is_empty() or primary_id in ["deep_ocean", "shallow_water", "shore"]:
 		return {}
 	var base_width := float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_width", 220.0))
@@ -852,7 +953,7 @@ func _get_biome_transition_debug_at(world_position: Vector2) -> Dictionary:
 			if not WORLD_CONFIG.WORLD_RECT.has_point(sample_position):
 				distance += 80.0
 				continue
-			var sampled_id := get_biome_id_at(sample_position)
+			var sampled_id := get_visual_biome_id_at(sample_position)
 			if sampled_id.is_empty() or sampled_id == primary_id or sampled_id in ["deep_ocean", "shallow_water", "shore"]:
 				distance += 80.0
 				continue
@@ -1238,6 +1339,12 @@ func get_landmark_counts() -> Dictionary:
 	return _ensure_landmark_service().get_landmark_counts()
 
 
+func get_topography_feature_counts() -> Dictionary:
+	if world_topography != null and world_topography.has_method("get_topography_feature_counts_debug"):
+		return Dictionary(world_topography.get_topography_feature_counts_debug())
+	return {}
+
+
 func get_nearest_landmark_data(world_position: Vector2) -> Dictionary:
 	return _ensure_landmark_service().get_nearest_landmark_data(world_position)
 
@@ -1253,6 +1360,9 @@ func get_biome_texture_cache_status() -> Dictionary:
 	var render_state: Dictionary = _ensure_render_controller().get_biome_texture_cache_status()
 	world_biome_texture_build_count = int(render_state.get("rebuild_count", world_biome_texture_build_count))
 	world_biome_texture_last_build_ms = float(render_state.get("last_build_ms", world_biome_texture_last_build_ms))
+	var visual_feature_count := 0
+	if world_generator != null and world_generator.has_method("get_visual_biome_feature_count"):
+		visual_feature_count = int(world_generator.get_visual_biome_feature_count())
 	return {
 		"sample_image_cache_count": biome_sample_images.size(),
 		"accent_cache_count": biome_terrain_accent_cache.size(),
@@ -1262,6 +1372,15 @@ func get_biome_texture_cache_status() -> Dictionary:
 		"has_blend_texture": bool(render_state.get("has_texture", false)),
 		"blend_colors_key": str(render_state.get("colors_key", "")),
 		"blend_texture_size": render_state.get("size", Vector2i.ZERO),
+		"biome_visual_texture_size": render_state.get("size", Vector2i.ZERO),
+		"biome_visual_filter_mode": "linear" if bool(GAME_BALANCE.BIOME_TEXTURES.get("blend_texture_filter_linear", true)) else "nearest",
+		"biome_query_cache_cell_size": float(biome_query_service.cell_size) if biome_query_service != null else 0.0,
+		"visual_biome_query_bypasses_cell_cache": bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_query_bypasses_cell_cache", true)),
+		"visual_biome_shapes_enabled": bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shapes_enabled", true)),
+		"visual_biome_shape_use_raw_scores": bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shape_use_raw_scores", true)),
+		"visual_biome_query_source": "world_generator_visual_masks",
+		"visual_biome_feature_count": visual_feature_count,
+		"gameplay_biome_query_still_cached": biome_query_service != null,
 		"rebuild_blocked_count": int(render_state.get("rebuild_blocked_count", 0)),
 		"dirty_key_pending": bool(render_state.get("dirty_key_pending", false)),
 		"freeze_after_first_build": bool(render_state.get("freeze_after_first_build", false)),
@@ -1840,7 +1959,8 @@ func _ensure_biome_blend_background() -> Sprite2D:
 	biome_blend_background.centered = false
 	biome_blend_background.show_behind_parent = true
 	biome_blend_background.z_index = -100
-	biome_blend_background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var use_linear_filter := bool(GAME_BALANCE.BIOME_TEXTURES.get("blend_texture_filter_linear", true))
+	biome_blend_background.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR if use_linear_filter else CanvasItem.TEXTURE_FILTER_NEAREST
 	biome_blend_background.visible = false
 	add_child(biome_blend_background)
 	return biome_blend_background
@@ -1891,6 +2011,178 @@ func _ensure_query_service():
 	return query_service
 
 
+func _ensure_terrain_cell_map() -> TerrainCellMap:
+	if terrain_cell_map != null:
+		return terrain_cell_map
+	terrain_cell_map = TERRAIN_CELL_MAP_SCRIPT.new()
+	return terrain_cell_map
+
+
+func _ensure_terrain_chunk_renderer() -> TerrainChunkRenderer:
+	if is_instance_valid(terrain_chunk_renderer):
+		return terrain_chunk_renderer
+	terrain_chunk_renderer = TERRAIN_CHUNK_RENDERER_SCRIPT.new()
+	terrain_chunk_renderer.name = "TerrainChunkRenderer"
+	terrain_chunk_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
+	add_child(terrain_chunk_renderer)
+	return terrain_chunk_renderer
+
+
+func _ensure_terrain_surface_chunk_renderer() -> TerrainSurfaceChunkRenderer:
+	if is_instance_valid(terrain_surface_chunk_renderer):
+		return terrain_surface_chunk_renderer
+	terrain_surface_chunk_renderer = TERRAIN_SURFACE_CHUNK_RENDERER_SCRIPT.new()
+	terrain_surface_chunk_renderer.name = "TerrainSurfaceChunkRenderer"
+	terrain_surface_chunk_renderer.z_index = -120
+	terrain_surface_chunk_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
+	add_child(terrain_surface_chunk_renderer)
+	return terrain_surface_chunk_renderer
+
+
+func _ensure_biome_shape_map():
+	if biome_shape_map != null:
+		return biome_shape_map
+	biome_shape_map = BIOME_SHAPE_MAP_SCRIPT.new()
+	return biome_shape_map
+
+
+func _ensure_biome_shape_map_built(force_rebuild := false) -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		return
+	if world_generator == null or world_topography == null:
+		return
+	var shape_map = _ensure_biome_shape_map()
+	var build_count := 0
+	if shape_map != null and shape_map.has_method("get_debug_data"):
+		build_count = int(Dictionary(shape_map.get_debug_data()).get("biome_shape_map_build_count", 0))
+	if force_rebuild or biome_shape_map_dirty or build_count == 0:
+		shape_map.build(WORLD_CONFIG.WORLD_RECT, world_generator, world_topography, world_seed)
+		biome_shape_map_dirty = false
+		if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("mark_dirty"):
+			terrain_surface_chunk_renderer.mark_dirty("biome_shape_map_rebuilt")
+
+
+func _ensure_biome_shape_renderer():
+	if is_instance_valid(biome_shape_renderer):
+		return biome_shape_renderer
+	biome_shape_renderer = BIOME_SHAPE_RENDERER_SCRIPT.new()
+	biome_shape_renderer.name = "BiomeShapeRenderer"
+	biome_shape_renderer.z_index = -110
+	biome_shape_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer", true))
+	add_child(biome_shape_renderer)
+	return biome_shape_renderer
+
+
+func _sync_biome_shape_renderer(force_rebuild_map := false) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		_ensure_biome_shape_map_built(force_rebuild_map)
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer_in_world", false)):
+		if is_instance_valid(biome_shape_renderer):
+			biome_shape_renderer.visible = false
+		return
+	if world_generator == null or world_topography == null:
+		return
+	var shape_map: Object = _ensure_biome_shape_map()
+	var renderer: Object = _ensure_biome_shape_renderer()
+	renderer.visible = true
+	if force_rebuild_map or biome_shape_map_dirty or shape_map.get_debug_data().get("biome_shape_map_build_count", 0) == 0:
+		_ensure_biome_shape_map_built(force_rebuild_map)
+		if renderer.has_method("clear_cache"):
+			renderer.clear_cache()
+	var player_node := get_tree().get_first_node_in_group("player") as Node2D
+	if force_rebuild_map or not biome_shape_renderer_bound:
+		renderer.bind(shape_map, player_node, _get_active_camera(player_node))
+		biome_shape_renderer_bound = true
+	else:
+		renderer.process_visibility(0.0)
+
+
+func _mark_terrain_renderer_dirty() -> void:
+	terrain_cell_map_dirty = true
+	terrain_renderer_bound = false
+	terrain_renderer_update_timer = 0.0
+
+
+func _update_terrain_renderer(delta: float) -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false)):
+		return
+	terrain_renderer_update_timer -= delta
+	if terrain_renderer_update_timer > 0.0:
+		return
+	terrain_renderer_update_timer = TERRAIN_RENDERER_UPDATE_INTERVAL
+	if is_instance_valid(terrain_chunk_renderer):
+		terrain_chunk_renderer.process_visibility(delta)
+		terrain_chunk_renderer.rebuild_visible_chunks(false)
+
+
+func _sync_terrain_renderer(force_rebuild_cell_map := false) -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", true)):
+		if is_instance_valid(terrain_chunk_renderer):
+			terrain_chunk_renderer.visible = false
+		return
+	var cell_map := _ensure_terrain_cell_map()
+	var renderer := _ensure_terrain_chunk_renderer()
+	if world_generator == null or world_topography == null:
+		return
+	terrain_renderer_sync_count += 1
+	if force_rebuild_cell_map:
+		terrain_renderer_forced_sync_count += 1
+	var player_node := get_tree().get_first_node_in_group("player") as Node2D
+	if force_rebuild_cell_map or terrain_cell_map_dirty or cell_map.grid_size == Vector2i.ZERO:
+		cell_map.build(WORLD_CONFIG.WORLD_RECT, float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_cell_size", 96.0)), world_generator, world_topography, world_seed)
+		terrain_cell_map_dirty = false
+	if renderer.has_method("bind") and (force_rebuild_cell_map or terrain_cell_map_dirty or not terrain_renderer_bound):
+		renderer.bind(cell_map, player_node, _get_active_camera(player_node))
+		terrain_renderer_bound = true
+	if renderer.has_method("process_visibility"):
+		renderer.process_visibility(0.0)
+	if renderer.has_method("rebuild_visible_chunks"):
+		renderer.rebuild_visible_chunks(false)
+
+
+func _sync_terrain_surface_chunk_renderer(force_rebuild := false) -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+		if is_instance_valid(terrain_surface_chunk_renderer):
+			terrain_surface_chunk_renderer.visible = false
+		return
+	var renderer := _ensure_terrain_surface_chunk_renderer()
+	renderer.visible = true
+	var player_node := get_tree().get_first_node_in_group("player") as Node2D
+	var camera_node := _get_active_camera(player_node)
+	renderer.bind(self, player_node, camera_node)
+	if force_rebuild and renderer.has_method("mark_dirty"):
+		renderer.mark_dirty("world_sync_force_rebuild")
+	renderer.process_visibility(0.0)
+
+
+func get_biome_shape_map():
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		_ensure_biome_shape_map_built(false)
+	return _ensure_biome_shape_map()
+
+
+func get_biome_shape_debug() -> Dictionary:
+	var debug := {}
+	if biome_shape_map != null:
+		debug.merge(biome_shape_map.get_debug_data(), true)
+	if biome_shape_renderer != null and biome_shape_renderer.has_method("get_debug_data"):
+		debug.merge(biome_shape_renderer.get_debug_data(), true)
+	debug["biome_shape_map_build_independent_from_renderer"] = true
+	debug["biome_shape_map_for_maps_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true))
+	debug["biome_shape_renderer_in_world_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer_in_world", false))
+	debug["biome_shape_map_dirty"] = biome_shape_map_dirty
+	debug["biome_shape_renderer_bound"] = biome_shape_renderer_bound
+	return debug
+
+
+func _get_active_camera(player_node: Node2D) -> Camera2D:
+	if player_node != null and is_instance_valid(player_node):
+		var camera := player_node.get_node_or_null("Camera2D") as Camera2D
+		if camera != null and is_instance_valid(camera):
+			return camera
+	return null
+
+
 func _set_boot_progress(stage_message: String, progress: float) -> void:
 	boot_status_message = stage_message
 	boot_status_progress = clampf(progress, 0.0, 1.0)
@@ -1900,11 +2192,23 @@ func _set_boot_progress(stage_message: String, progress: float) -> void:
 func _prepare_boot_render_cache() -> void:
 	if is_instance_valid(biome_blend_background):
 		biome_blend_background.visible = false
+		biome_blend_background.texture = null
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+		world_surface_texture = null
+		world_surface_texture_key = ""
+	if is_instance_valid(biome_shape_renderer):
+		biome_shape_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer_in_world", false))
+	if is_instance_valid(terrain_chunk_renderer):
+		terrain_chunk_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
+	if is_instance_valid(terrain_surface_chunk_renderer):
+		terrain_surface_chunk_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
 	queue_redraw()
 
 
 func _get_world_biome_blend_texture_size() -> Vector2i:
-	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 0.35)), 0.35, 0.35)
+	var min_scale := float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale_min", 0.35))
+	var max_scale := float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale_max", 0.85))
+	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 0.65)), min_scale, max_scale)
 	return Vector2i(
 		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.x) * cache_scale)), 1),
 		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.y) * cache_scale)), 1)
@@ -1912,6 +2216,16 @@ func _get_world_biome_blend_texture_size() -> Vector2i:
 
 
 func _sync_biome_blend_background() -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+		if is_instance_valid(biome_blend_background):
+			biome_blend_background.visible = false
+			biome_blend_background.texture = null
+		return
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("disable_global_biome_blend_texture", true)):
+		if is_instance_valid(biome_blend_background):
+			biome_blend_background.visible = false
+			biome_blend_background.texture = null
+		return
 	var background := _ensure_biome_blend_background()
 	if not biome_textures_enabled:
 		background.visible = false
@@ -1938,11 +2252,43 @@ func _sync_biome_blend_background() -> void:
 
 
 func get_surface_texture() -> ImageTexture:
-	return _ensure_surface_texture()
+	return null
 
 
 func get_surface_texture_key() -> String:
-	return _ensure_surface_texture_key()
+	return get_map_surface_debug_key()
+
+
+func get_terrain_cell_map() -> TerrainCellMap:
+	return _ensure_terrain_cell_map()
+
+
+func get_terrain_surface_debug() -> Dictionary:
+	if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("get_debug_data"):
+		return terrain_surface_chunk_renderer.get_debug_data()
+	return {
+		"terrain_surface_chunk_renderer_enabled": false
+	}
+
+
+func get_terrain_renderer_debug() -> Dictionary:
+	var debug := {}
+	if terrain_cell_map != null:
+		debug.merge(terrain_cell_map.get_debug_data(), true)
+	if terrain_chunk_renderer != null and terrain_chunk_renderer.has_method("get_debug_data"):
+		debug.merge(terrain_chunk_renderer.get_debug_data(), true)
+	if terrain_surface_chunk_renderer != null and terrain_surface_chunk_renderer.has_method("get_debug_data"):
+		debug.merge(terrain_surface_chunk_renderer.get_debug_data(), true)
+	if biome_shape_map != null:
+		debug.merge(biome_shape_map.get_debug_data(), true)
+	if biome_shape_renderer != null and biome_shape_renderer.has_method("get_debug_data"):
+		debug.merge(biome_shape_renderer.get_debug_data(), true)
+	debug["terrain_renderer_sync_count"] = terrain_renderer_sync_count
+	debug["terrain_renderer_forced_sync_count"] = terrain_renderer_forced_sync_count
+	debug["terrain_global_surface_texture_enabled"] = false
+	debug["terrain_global_surface_texture_build_ms"] = world_surface_texture_last_build_ms
+	debug["terrain_surface_renderer_update_timer"] = terrain_surface_renderer_update_timer
+	return debug
 
 
 func _ensure_surface_texture_key() -> String:
@@ -1954,6 +2300,8 @@ func _ensure_surface_texture_key() -> String:
 
 
 func _ensure_surface_texture() -> ImageTexture:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("disable_global_surface_texture_on_boot", true)):
+		return null
 	var current_key := _ensure_surface_texture_key()
 	if world_surface_texture != null and world_surface_texture_key == current_key:
 		return world_surface_texture
@@ -2082,7 +2430,7 @@ func _place_player_on_safe_start() -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null or not (player is Node2D):
 		return
-	var safe_start := WORLD_CONFIG.get_safe_player_start_position(landmarks)
+	var safe_start := get_safe_player_start_position()
 	if safe_start == Vector2.INF:
 		return
 	(player as Node2D).global_position = safe_start
@@ -2090,14 +2438,34 @@ func _place_player_on_safe_start() -> void:
 
 func _rebuild_landmark_runtime_state() -> void:
 	_ensure_landmark_service()
-	hill_landmarks.clear()
-	pond_landmarks.clear()
-	pond_water_search_radius = 0.0
 	landmark_service.sync_runtime_landmarks(landmarks, Callable(self, "_create_landmark_area"))
-	hill_landmarks = landmark_service.get_hill_landmarks()
-	pond_landmarks = landmark_service.get_pond_landmarks()
-	pond_water_search_radius = landmark_service.get_pond_water_search_radius()
+	_sync_topography_landmark_runtime_state()
 	_ensure_query_service()
+
+
+func _sync_topography_landmark_runtime_state() -> void:
+	hill_landmarks = _get_topography_landmarks_as_runtime_entries("highland", "hill")
+	pond_landmarks = _get_topography_landmarks_as_runtime_entries("pond", "pond")
+	pond_water_search_radius = _get_topography_pond_water_search_radius()
+
+
+func _get_topography_landmarks_as_runtime_entries(feature_type: String, runtime_type: String) -> Array[Dictionary]:
+	var runtime_landmarks: Array[Dictionary] = []
+	if world_topography == null or not world_topography.has_method("get_topography_features_by_type"):
+		return runtime_landmarks
+	for feature_value in Array(world_topography.get_topography_features_by_type(feature_type)):
+		var feature := Dictionary(feature_value).duplicate(true)
+		feature["type"] = runtime_type
+		feature["gameplay_tags"] = Array(feature.get("gameplay_tags", []))
+		runtime_landmarks.append(feature)
+	return runtime_landmarks
+
+
+func _get_topography_pond_water_search_radius() -> float:
+	var max_radius := 0.0
+	for pond in pond_landmarks:
+		max_radius = maxf(max_radius, float(pond.get("radius", 0.0)))
+	return maxf(max_radius * 1.2, 0.0)
 
 
 func restore_landmarks(landmark_data: Array, restored_world_seed: int = 0) -> void:
@@ -2111,6 +2479,9 @@ func restore_landmarks(landmark_data: Array, restored_world_seed: int = 0) -> vo
 	world_seed = int(restored_layout.get("world_seed", world_seed))
 	landmarks = Array(restored_layout.get("landmarks", []))
 	_rebuild_landmark_runtime_state()
+	_mark_terrain_renderer_dirty()
+	_sync_biome_shape_renderer(true)
+	_sync_terrain_renderer(true)
 	clear_cached_group_nodes()
 	queue_redraw()
 
@@ -2162,6 +2533,9 @@ func debug_regenerate_landmarks() -> void:
 	world_seed = new_seed
 	landmarks = WORLD_CONFIG.generate_landmarks(world_seed)
 	_rebuild_landmark_runtime_state()
+	_mark_terrain_renderer_dirty()
+	_sync_biome_shape_renderer(true)
+	_sync_terrain_renderer(true)
 	await _respawn_pond_vegetation_for_current_landmarks()
 	_sync_all_biome_vegetation()
 	var game_session: Node = _get_game_session()
@@ -5077,7 +5451,12 @@ func _draw() -> void:
 		and biome_blend_background.visible
 		and biome_blend_background.texture != null
 	)
-	if not has_biome_blend_background:
+	var has_chunk_surface_renderer := (
+		bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
+		and is_instance_valid(terrain_surface_chunk_renderer)
+		and terrain_surface_chunk_renderer.visible
+	)
+	if not has_biome_blend_background and not has_chunk_surface_renderer:
 		draw_rect(WORLD_CONFIG.WORLD_RECT, WORLD_CONFIG.OCEAN_COLOR, true)
 	_draw_biomes()
 	_draw_biome_detail_overlay()
@@ -5094,6 +5473,8 @@ func _get_night_amount() -> float:
 
 
 func _draw_biomes() -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+		return
 	if biome_textures_enabled:
 		if is_instance_valid(biome_blend_background) and biome_blend_background.visible and biome_blend_background.texture != null:
 			return
@@ -6073,6 +6454,8 @@ func _get_biome_texture_position(terrain_pattern: Dictionary, world_position: Ve
 
 
 func _draw_landmarks() -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)):
+		return
 	for landmark in landmarks:
 		match str(landmark.get("type", "")):
 			"hill":
@@ -6082,6 +6465,8 @@ func _draw_landmarks() -> void:
 
 
 func _draw_landmark_debug_overlay() -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_topography_labels_on_map", false)):
+		return
 	var font := ThemeDB.fallback_font
 	for landmark_value in landmarks:
 		var landmark := Dictionary(landmark_value)

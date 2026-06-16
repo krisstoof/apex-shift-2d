@@ -60,6 +60,38 @@ class MockSnapshotService:
 		return snapshot
 
 
+class ShapeMapNoUnderlayStub:
+	extends RefCounted
+
+	var sample_grid_size_calls := 0
+	var sample_grid_cell_world_rect_calls := 0
+
+	func has_renderable_polygons() -> bool:
+		return true
+
+	func get_polygons_by_layer() -> Dictionary:
+		return {
+			"biome:test|terrain:land": [
+				{
+					"biome_id": "test_biome",
+					"terrain_id": "land",
+					"points": PackedVector2Array([Vector2.ZERO, Vector2(64.0, 0.0), Vector2(0.0, 64.0)])
+				}
+			]
+		}
+
+	func get_sample_grid_size() -> Vector2i:
+		sample_grid_size_calls += 1
+		return Vector2i(4, 4)
+
+	func get_sample_grid_cell_world_rect(_x: int, _y: int) -> Rect2:
+		sample_grid_cell_world_rect_calls += 1
+		return Rect2(Vector2.ZERO, Vector2(16.0, 16.0))
+
+	func get_sample_grid_cell(_x: int, _y: int) -> Dictionary:
+		return {"biome_id": "test_biome", "terrain_id": "land"}
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_minimap_view_rect_follows_player_and_stays_larger_than_camera(failures)
@@ -68,6 +100,7 @@ func run() -> Array[String]:
 	_test_landmark_markers_stay_inside_minimap_content(failures)
 	_test_minimap_reads_registry_resources_and_varnaks(failures)
 	_test_minimap_builds_texture_outside_draw_path(failures)
+	_test_minimap_shape_map_skips_sample_grid_underlay_when_polygons_exist(failures)
 	_test_minimap_reuses_world_surface_texture_when_available(failures)
 	_test_minimap_camera_world_size_scales_inversely_with_zoom(failures)
 	_test_minimap_content_rect_reserves_footer_space(failures)
@@ -198,6 +231,18 @@ func _test_minimap_builds_texture_outside_draw_path(failures: Array[String]) -> 
 	draw_spy.call("_draw_biomes", Rect2(Vector2.ZERO, Vector2(160.0, 100.0)), Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0)))
 	TEST_UTILS.expect_equal(draw_spy.ensure_calls, ensure_calls_before, failures, "Minimap draw path should reuse the cached biome texture instead of rebuilding it")
 	draw_spy.free()
+
+
+func _test_minimap_shape_map_skips_sample_grid_underlay_when_polygons_exist(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	var shape_map := ShapeMapNoUnderlayStub.new()
+	minimap.set("biome_shape_map", shape_map)
+	minimap.set("terrain_cell_map", null)
+	minimap.set("biome_zones", [])
+	minimap.call("_draw_shape_map", Rect2(Vector2.ZERO, Vector2(160.0, 100.0)), Rect2(Vector2.ZERO, Vector2(160.0, 100.0)))
+	TEST_UTILS.expect_equal(shape_map.sample_grid_size_calls, 0, failures, "Minimap should not draw the sample grid underlay when renderable polygons already exist")
+	TEST_UTILS.expect_equal(shape_map.sample_grid_cell_world_rect_calls, 0, failures, "Minimap should not probe sample grid cells when renderable polygons already exist")
+	minimap.free()
 
 
 func _test_minimap_reuses_world_surface_texture_when_available(failures: Array[String]) -> void:

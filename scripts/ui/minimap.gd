@@ -28,6 +28,8 @@ var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
+var biome_shape_map
+var terrain_cell_map: TerrainCellMap
 var shoreline_segments: Array[Dictionary] = []
 var shoreline_segments_key := ""
 var shoreline_segments_build_count := 0
@@ -86,6 +88,8 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
+	biome_shape_map = world.get_biome_shape_map() if world != null and world.has_method("get_biome_shape_map") else null
+	terrain_cell_map = world.get_terrain_cell_map() if world != null and world.has_method("get_terrain_cell_map") else null
 	_sync_biome_texture()
 	_sync_shoreline_overlay_cache()
 	if _update_marker_cache():
@@ -129,7 +133,8 @@ func _draw() -> void:
 	_is_drawing_biomes = false
 	_draw_shoreline_overlay(content_rect, view_world_rect)
 	_draw_landmarks(content_rect, view_world_rect)
-	_draw_grid(content_rect, view_world_rect)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_grid_overlay", false)):
+		_draw_grid(content_rect, view_world_rect)
 	if _should_show_resource_markers():
 		_draw_resources(content_rect, view_world_rect)
 	_draw_campfires(content_rect, view_world_rect)
@@ -150,6 +155,13 @@ func _get_content_rect(map_rect: Rect2) -> Rect2:
 
 
 func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	if biome_shape_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		if biome_shape_map.has_method("has_renderable_polygons") and biome_shape_map.has_renderable_polygons():
+			_draw_shape_map(content_rect, view_world_rect)
+			return
+	if terrain_cell_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_cell_map_fallback", true)):
+		_draw_cell_map(content_rect, view_world_rect)
+		return
 	if biome_zones.is_empty():
 		return
 	if not _is_drawing_biomes:
@@ -194,9 +206,18 @@ func _refresh_static_caches() -> void:
 
 func _sync_biome_texture() -> void:
 	var active_world := _get_world()
-	if active_world != null and active_world.has_method("get_surface_texture"):
-		biome_blend_texture = active_world.get_surface_texture()
-		biome_blend_colors_key = str(active_world.get_surface_texture_key()) if active_world.has_method("get_surface_texture_key") else ""
+	biome_shape_map = active_world.get_biome_shape_map() if active_world != null and active_world.has_method("get_biome_shape_map") else null
+	terrain_cell_map = active_world.get_terrain_cell_map() if active_world != null and active_world.has_method("get_terrain_cell_map") else null
+	var has_shape_polygons := false
+	if biome_shape_map != null and biome_shape_map.has_method("has_renderable_polygons"):
+		has_shape_polygons = biome_shape_map.has_renderable_polygons()
+	if has_shape_polygons and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		biome_blend_texture = null
+		biome_blend_colors_key = "shape_map"
+		return
+	if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
+		biome_blend_texture = null
+		biome_blend_colors_key = "cell_map"
 		return
 	if biome_zones.is_empty():
 		biome_blend_texture = null
@@ -294,7 +315,7 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 func _get_biome_texture_key() -> String:
 	var parts: Array[String] = []
-	parts.append("map_surface_v4")
+	parts.append("map_surface_v5")
 	parts.append("world_rect=%s" % str(world_rect))
 	var active_world := _get_world()
 	if active_world != null:
@@ -324,6 +345,289 @@ func _get_biome_base_color(biome: Dictionary) -> Color:
 			return Color(0.75, 0.70, 0.46)
 		_:
 			return Color(0.35, 0.48, 0.30)
+
+
+func _draw_cell_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	if terrain_cell_map == null:
+		return
+	var grid := terrain_cell_map.get_grid_size()
+	if grid == Vector2i.ZERO:
+		return
+	for y in range(grid.y):
+		for x in range(grid.x):
+			var cell := terrain_cell_map.get_cell(x, y)
+			if cell.is_empty():
+				continue
+			var cell_rect := terrain_cell_map.get_cell_world_rect(x, y)
+			if not view_world_rect.intersects(cell_rect):
+				continue
+			var destination_rect := _world_rect_to_map_rect(cell_rect.intersection(view_world_rect), content_rect, view_world_rect)
+			if destination_rect.size.x <= 0.0 or destination_rect.size.y <= 0.0:
+				continue
+			draw_rect(destination_rect, _get_cell_map_color(cell), true)
+
+
+func _draw_shape_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	if biome_shape_map == null:
+		return
+	var has_renderable_polygons: bool = biome_shape_map.has_method("has_renderable_polygons") and biome_shape_map.has_renderable_polygons()
+	if has_renderable_polygons:
+		draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
+	else:
+		if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_cell_map_fallback", true)):
+			_draw_cell_map(content_rect, view_world_rect)
+		elif biome_shape_map.has_method("get_sample_grid_size") and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_sample_grid_underlay", false)):
+			_draw_shape_map_sample_grid(content_rect, view_world_rect)
+		else:
+			draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
+	var polygons_by_layer: Dictionary = biome_shape_map.get_polygons_by_layer()
+	for layer_id in _get_shape_map_draw_order(polygons_by_layer):
+		for polygon_value in Array(polygons_by_layer.get(layer_id, [])):
+			var polygon := Dictionary(polygon_value)
+			if str(polygon.get("terrain_id", "")) == "deep_ocean":
+				continue
+			var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
+			if points.size() < 3:
+				continue
+			var bounds := _get_polygon_bounds(points)
+			if not bounds.intersects(view_world_rect):
+				continue
+			var clipped := _clip_polygon_to_rect(points, view_world_rect)
+			if clipped.size() < 3:
+				continue
+			var clipped_bounds := _get_polygon_bounds(clipped)
+			var world_area := maxf(view_world_rect.size.x * view_world_rect.size.y, 1.0)
+			var bounds_area := clipped_bounds.size.x * clipped_bounds.size.y
+			if str(polygon.get("terrain_id", "land")) not in ["deep_ocean", "shallow_water"] and bounds_area / world_area > 0.85:
+				continue
+			var mapped := PackedVector2Array()
+			for p in clipped:
+				mapped.append(_world_to_map(p, content_rect, view_world_rect))
+			mapped = _sanitize_polygon_points(mapped)
+			if mapped.size() < 3 or not _is_polygon_triangulatable(mapped):
+				continue
+			draw_colored_polygon(mapped, _get_shape_map_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
+
+
+func _draw_shape_map_sample_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	var grid_size: Vector2i = biome_shape_map.get_sample_grid_size()
+	if grid_size == Vector2i.ZERO:
+		draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
+		return
+	for y in range(grid_size.y):
+		for x in range(grid_size.x):
+			var cell_rect: Rect2 = biome_shape_map.get_sample_grid_cell_world_rect(x, y)
+			if not view_world_rect.intersects(cell_rect):
+				continue
+			var clipped_rect := cell_rect.intersection(view_world_rect)
+			var destination_rect := _world_rect_to_map_rect(clipped_rect, content_rect, view_world_rect)
+			if destination_rect.size.x <= 0.0 or destination_rect.size.y <= 0.0:
+				continue
+			var cell := _get_world_surface_cell(cell_rect.get_center())
+			if cell.is_empty():
+				cell = Dictionary(biome_shape_map.get_sample_grid_cell(x, y))
+			draw_rect(destination_rect, _get_shape_map_color(str(cell.get("biome_id", "")), str(cell.get("terrain_id", "deep_ocean"))), true)
+
+
+func _get_world_surface_cell(world_position: Vector2) -> Dictionary:
+	var active_world := _get_world()
+	if active_world == null:
+		return {}
+	var terrain_id := ""
+	var biome_id := ""
+	if active_world.has_method("get_surface_terrain_zone_at"):
+		terrain_id = str(active_world.get_surface_terrain_zone_at(world_position))
+	elif active_world.has_method("get_topography_zone_at"):
+		terrain_id = str(active_world.get_topography_zone_at(world_position))
+	if active_world.has_method("get_visual_biome_id_at"):
+		biome_id = str(active_world.get_visual_biome_id_at(world_position))
+	elif active_world.has_method("get_biome_id_at"):
+		biome_id = str(active_world.get_biome_id_at(world_position))
+	if terrain_id.is_empty() and biome_id.is_empty():
+		return {}
+	return {
+		"terrain_id": terrain_id if not terrain_id.is_empty() else "land",
+		"biome_id": biome_id if not biome_id.is_empty() else "hearth_meadow"
+	}
+
+
+func _get_shape_map_draw_order(polygons_by_layer: Dictionary) -> Array[String]:
+	var ordered: Array[String] = [
+		"terrain:deep_ocean",
+		"terrain:shallow_water",
+		"terrain:shore"
+	]
+	var biome_layers: Array[String] = []
+	var other_layers: Array[String] = []
+	for layer_id in polygons_by_layer.keys():
+		var layer := str(layer_id)
+		if ordered.has(layer):
+			continue
+		if layer.begins_with("biome:") and layer.ends_with("|terrain:land"):
+			biome_layers.append(layer)
+		else:
+			other_layers.append(layer)
+	biome_layers.sort()
+	var wetland_layers: Array[String] = []
+	var rocky_layers: Array[String] = []
+	var highland_layers: Array[String] = []
+	var pond_layers: Array[String] = []
+	var remaining_other: Array[String] = []
+	for layer in other_layers:
+		if layer.ends_with("|terrain:wetland"):
+			wetland_layers.append(layer)
+		elif layer.ends_with("|terrain:rocky_patch"):
+			rocky_layers.append(layer)
+		elif layer.ends_with("|terrain:highland"):
+			highland_layers.append(layer)
+		elif layer.ends_with("|terrain:pond") or layer == "terrain:pond":
+			pond_layers.append(layer)
+		else:
+			remaining_other.append(layer)
+	ordered.append_array(biome_layers)
+	ordered.append_array(wetland_layers)
+	ordered.append_array(rocky_layers)
+	ordered.append_array(highland_layers)
+	ordered.append_array(pond_layers)
+	remaining_other.sort()
+	ordered.append_array(remaining_other)
+	return ordered
+
+
+func _clip_polygon_to_rect(points: PackedVector2Array, clip_rect: Rect2) -> PackedVector2Array:
+	var result := points
+	result = _clip_polygon_against_edge(result, "left", clip_rect.position.x)
+	result = _clip_polygon_against_edge(result, "right", clip_rect.end.x)
+	result = _clip_polygon_against_edge(result, "top", clip_rect.position.y)
+	result = _clip_polygon_against_edge(result, "bottom", clip_rect.end.y)
+	return result
+
+
+func _clip_polygon_against_edge(points: PackedVector2Array, edge: String, value: float) -> PackedVector2Array:
+	if points.size() < 3:
+		return PackedVector2Array()
+	var output := PackedVector2Array()
+	var previous := points[points.size() - 1]
+	var previous_inside := _is_point_inside_clip_edge(previous, edge, value)
+	for current in points:
+		var current_inside := _is_point_inside_clip_edge(current, edge, value)
+		if current_inside:
+			if not previous_inside:
+				output.append(_line_clip_intersection(previous, current, edge, value))
+			output.append(current)
+		elif previous_inside:
+			output.append(_line_clip_intersection(previous, current, edge, value))
+		previous = current
+		previous_inside = current_inside
+	return output
+
+
+func _is_point_inside_clip_edge(point: Vector2, edge: String, value: float) -> bool:
+	match edge:
+		"left":
+			return point.x >= value
+		"right":
+			return point.x <= value
+		"top":
+			return point.y >= value
+		"bottom":
+			return point.y <= value
+	return true
+
+
+func _line_clip_intersection(a: Vector2, b: Vector2, edge: String, value: float) -> Vector2:
+	var delta := b - a
+	match edge:
+		"left", "right":
+			var t := 0.0 if absf(delta.x) < 0.0001 else (value - a.x) / delta.x
+			return a + delta * clampf(t, 0.0, 1.0)
+		"top", "bottom":
+			var t := 0.0 if absf(delta.y) < 0.0001 else (value - a.y) / delta.y
+			return a + delta * clampf(t, 0.0, 1.0)
+	return a
+
+
+func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
+	if points.is_empty():
+		return Rect2()
+	var rect := Rect2(points[0], Vector2.ZERO)
+	for p in points:
+		rect = rect.expand(p)
+	return rect
+
+
+func _sanitize_polygon_points(points: PackedVector2Array) -> PackedVector2Array:
+	if points.size() < 3:
+		return PackedVector2Array()
+	var sanitized := PackedVector2Array()
+	var last := Vector2.INF
+	for point in points:
+		if last != Vector2.INF and point.distance_to(last) < 0.5:
+			continue
+		sanitized.append(point)
+		last = point
+	if sanitized.size() >= 3 and sanitized[0].distance_to(sanitized[sanitized.size() - 1]) < 0.5:
+		sanitized.remove_at(sanitized.size() - 1)
+	if sanitized.size() < 3:
+		return PackedVector2Array()
+	if absf(_polygon_area(sanitized)) < 1.0:
+		return PackedVector2Array()
+	return sanitized
+
+
+func _polygon_area(points: PackedVector2Array) -> float:
+	var area := 0.0
+	for i in range(points.size()):
+		var a := points[i]
+		var b := points[(i + 1) % points.size()]
+		area += a.x * b.y - b.x * a.y
+	return absf(area) * 0.5
+
+
+func _is_polygon_triangulatable(points: PackedVector2Array) -> bool:
+	if points.size() < 3:
+		return false
+	var indices := Geometry2D.triangulate_polygon(points)
+	return not indices.is_empty()
+
+
+func _get_shape_map_color(biome_id: String, terrain_id: String) -> Color:
+	match terrain_id:
+		"deep_ocean":
+			return Color(0.06, 0.18, 0.36)
+		"shallow_water":
+			return Color(0.10, 0.32, 0.52)
+		"shore":
+			return Color(0.70, 0.66, 0.43)
+		"pond":
+			return Color(0.07, 0.31, 0.43)
+		"highland":
+			return _get_biome_base_color({"id": biome_id}).lerp(Color(0.52, 0.47, 0.32), 0.38)
+		"rocky_patch":
+			return _get_biome_base_color({"id": biome_id}).lerp(Color(0.43, 0.41, 0.35), 0.42)
+		"wetland":
+			return _get_biome_base_color({"id": biome_id}).lerp(Color(0.16, 0.30, 0.18), 0.32)
+		_:
+			return _get_biome_base_color({"id": biome_id})
+
+
+func _get_cell_map_color(cell: Dictionary) -> Color:
+	var biome_id := str(cell.get("biome_id", "hearth_meadow"))
+	var terrain_id := str(cell.get("terrain_id", "land"))
+	var variant := int(cell.get("variant", 0))
+	var color := _get_biome_base_color({"id": biome_id})
+	match terrain_id:
+		"highland":
+			color = color.lerp(Color(0.52, 0.48, 0.34), 0.22)
+		"pond":
+			color = Color(0.12, 0.40, 0.52)
+		"rocky_patch":
+			color = color.lerp(Color(0.42, 0.40, 0.34), 0.30)
+		"wetland":
+			color = color.lerp(Color(0.18, 0.32, 0.18), 0.25)
+	if variant % 2 == 0:
+		color = color.lightened(0.03)
+	return color
 
 
 func _should_show_resource_markers() -> bool:
@@ -369,6 +673,8 @@ func _draw_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:
 func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for landmark in landmarks:
 		var landmark_type := str(landmark.get("type", ""))
+		if landmark_type in ["pond", "hill"] and not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)):
+			continue
 		var world_position := Vector2(landmark.get("position", Vector2.ZERO))
 		var radius_world := float(landmark.get("radius", 80.0))
 		if not _intersects_view_circle(world_position, radius_world, view_world_rect):
@@ -861,7 +1167,8 @@ func get_minimap_performance_debug() -> Dictionary:
 		"texture_last_build_ms": minimap_texture_last_build_ms,
 		"shoreline_build_count": shoreline_segments_build_count,
 		"shoreline_last_build_ms": shoreline_segments_last_build_ms,
-		"shoreline_segment_count": shoreline_segments.size()
+		"shoreline_segment_count": shoreline_segments.size(),
+		"minimap_shape_polygons_clipped": true
 	}
 
 

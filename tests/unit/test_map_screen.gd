@@ -123,6 +123,38 @@ class MockSnapshotService:
 		return snapshot
 
 
+class ShapeMapNoUnderlayStub:
+	extends RefCounted
+
+	var sample_grid_size_calls := 0
+	var sample_grid_cell_world_rect_calls := 0
+
+	func has_renderable_polygons() -> bool:
+		return true
+
+	func get_polygons_by_layer() -> Dictionary:
+		return {
+			"biome:test|terrain:land": [
+				{
+					"biome_id": "test_biome",
+					"terrain_id": "land",
+					"points": PackedVector2Array([Vector2.ZERO, Vector2(64.0, 0.0), Vector2(0.0, 64.0)])
+				}
+			]
+		}
+
+	func get_sample_grid_size() -> Vector2i:
+		sample_grid_size_calls += 1
+		return Vector2i(4, 4)
+
+	func get_sample_grid_cell_world_rect(_x: int, _y: int) -> Rect2:
+		sample_grid_cell_world_rect_calls += 1
+		return Rect2(Vector2.ZERO, Vector2(16.0, 16.0))
+
+	func get_sample_grid_cell(_x: int, _y: int) -> Dictionary:
+		return {"biome_id": "test_biome", "terrain_id": "land"}
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_info_lines_fall_back_when_player_is_missing(failures)
@@ -134,6 +166,7 @@ func run() -> Array[String]:
 	_test_map_screen_skips_updates_while_hidden(failures)
 	_test_map_screen_reads_registry_resources_and_varnaks(failures)
 	_test_map_screen_builds_texture_outside_draw_path(failures)
+	_test_map_screen_shape_map_skips_sample_grid_underlay_when_polygons_exist(failures)
 	_test_map_screen_reuses_world_surface_texture_when_available(failures)
 	return failures
 
@@ -310,6 +343,18 @@ func _test_map_screen_builds_texture_outside_draw_path(failures: Array[String]) 
 	draw_spy.call("_draw_biomes", Rect2(Vector2.ZERO, Vector2(300.0, 180.0)))
 	TEST_UTILS.expect_equal(draw_spy.ensure_calls, ensure_calls_before, failures, "Map screen draw path should reuse the cached biome texture instead of rebuilding it")
 	draw_spy.free()
+
+
+func _test_map_screen_shape_map_skips_sample_grid_underlay_when_polygons_exist(failures: Array[String]) -> void:
+	var map_screen := _make_map_screen()
+	var shape_map := ShapeMapNoUnderlayStub.new()
+	map_screen.set("biome_shape_map", shape_map)
+	map_screen.set("terrain_cell_map", null)
+	map_screen.set("biome_zones", [])
+	map_screen.call("_draw_shape_map", Rect2(Vector2.ZERO, Vector2(160.0, 100.0)))
+	TEST_UTILS.expect_equal(shape_map.sample_grid_size_calls, 0, failures, "Map screen should not draw the sample grid underlay when renderable polygons already exist")
+	TEST_UTILS.expect_equal(shape_map.sample_grid_cell_world_rect_calls, 0, failures, "Map screen should not probe sample grid cells when renderable polygons already exist")
+	map_screen.free()
 
 
 func _test_map_screen_reuses_world_surface_texture_when_available(failures: Array[String]) -> void:

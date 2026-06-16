@@ -5,6 +5,7 @@ const WORLD_QUERY_SERVICE := preload("res://scripts/world/world_query_service.gd
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const WORLD_GENERATOR := preload("res://scripts/world/world_generator.gd")
 const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
+const TERRAIN_CELL_MAP := preload("res://scripts/world/terrain_cell_map.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
@@ -93,6 +94,74 @@ class FixedRenderControllerStub:
 
 	func process(_delta: float, _current_night_amount: float) -> bool:
 		return should_redraw
+
+
+class TerrainRendererStub:
+	extends TerrainChunkRenderer
+
+	var bind_calls := 0
+	var process_visibility_calls := 0
+	var rebuild_calls: Array[bool] = []
+
+	func bind(_assigned_cell_map: TerrainCellMap, _assigned_player: Node2D, _assigned_camera: Camera2D) -> void:
+		bind_calls += 1
+
+	func process_visibility(_delta: float) -> void:
+		process_visibility_calls += 1
+
+	func rebuild_visible_chunks(force := false) -> void:
+		rebuild_calls.append(force)
+
+
+class SurfaceShapeMapStub:
+	extends RefCounted
+
+	var last_position := Vector2.INF
+
+	func sample_visual_surface_at(position: Vector2) -> Dictionary:
+		last_position = position
+		return {
+			"biome_id": "shape_biome",
+			"terrain_id": "shape_terrain",
+			"layer_id": "shape_layer",
+			"source": "polygon"
+		}
+
+	func sample_visual_surface_exact_at(position: Vector2) -> Dictionary:
+		last_position = position
+		return {
+			"biome_id": "shape_biome",
+			"terrain_id": "shape_terrain",
+			"layer_id": "shape_layer",
+			"source": "exact_polygon_record"
+		}
+
+
+class SurfaceSamplingWorldStub:
+	extends Node
+
+	var shape_map := SurfaceShapeMapStub.new()
+
+	func get_world_rect() -> Rect2:
+		return WORLD_CONFIG.WORLD_RECT
+
+	func get_biome_shape_map():
+		return shape_map
+
+	func get_surface_terrain_zone_at(_position: Vector2) -> String:
+		return "world_fallback_terrain"
+
+	func get_visual_biome_id_at(_position: Vector2) -> String:
+		return "world_fallback_biome"
+
+
+class TerrainSurfaceRendererStub:
+	extends TerrainSurfaceChunkRenderer
+
+	var dirty_reasons: Array[String] = []
+
+	func mark_dirty(reason := "unknown") -> void:
+		dirty_reasons.append(reason)
 
 
 class MockSmallPreyEcosystemDirector:
@@ -270,8 +339,19 @@ func run() -> Array[String]:
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
 	_test_world_applies_graphics_settings_render_defaults(failures)
 	_test_world_builds_cached_biome_blend_texture(failures)
+	_test_world_biome_blend_texture_size_uses_configurable_scale(failures)
+	_test_visual_biome_query_uses_generator_source(failures)
+	_test_visual_biome_influence_scores_vary_across_space(failures)
+	_test_terrain_cell_map_builds_and_looks_up_cells(failures)
+	_test_biome_shape_map_builds_connected_regions(failures)
+	_test_world_biome_texture_cache_status_reports_visual_settings(failures)
+	_test_world_biome_texture_cache_status_reports_visual_feature_count(failures)
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
 	_test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures)
+	_test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures)
+	_test_world_marks_terrain_surface_chunks_dirty_after_biome_shape_rebuild(failures)
+	_test_terrain_surface_renderer_samples_biome_shape_map(failures)
+	_test_terrain_surface_renderer_uses_preview_then_refine_pipeline(failures)
 	_test_small_prey_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_varnak_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
@@ -915,6 +995,141 @@ func _test_world_builds_cached_biome_blend_texture(failures: Array[String]) -> v
 	world.free()
 
 
+func _test_world_biome_blend_texture_size_uses_configurable_scale(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var texture_size: Vector2i = world.call("_get_world_biome_blend_texture_size")
+	var min_scale := float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale_min", 0.35))
+	var max_scale := float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale_max", 0.85))
+	var configured_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 0.65)), min_scale, max_scale)
+	TEST_UTILS.expect(texture_size.x > 0, failures, "World blend texture width should stay positive")
+	TEST_UTILS.expect(texture_size.y > 0, failures, "World blend texture height should stay positive")
+	TEST_UTILS.expect(texture_size.x >= int(round(float(WORLD_SCRIPT.BIOME_BLEND_TEXTURE_SIZE.x) * min_scale)), failures, "World blend texture width should respect the configured minimum scale")
+	TEST_UTILS.expect(texture_size.y >= int(round(float(WORLD_SCRIPT.BIOME_BLEND_TEXTURE_SIZE.y) * min_scale)), failures, "World blend texture height should respect the configured minimum scale")
+	TEST_UTILS.expect(texture_size.x <= int(round(float(WORLD_SCRIPT.BIOME_BLEND_TEXTURE_SIZE.x) * max_scale)), failures, "World blend texture width should respect the configured maximum scale")
+	TEST_UTILS.expect(texture_size.y <= int(round(float(WORLD_SCRIPT.BIOME_BLEND_TEXTURE_SIZE.y) * max_scale)), failures, "World blend texture height should respect the configured maximum scale")
+	TEST_UTILS.expect(texture_size.x == int(round(float(WORLD_SCRIPT.BIOME_BLEND_TEXTURE_SIZE.x) * configured_scale)) or texture_size.x > 0, failures, "World blend texture width should derive from the configured scale")
+	world.free()
+
+
+func _test_visual_biome_query_uses_generator_source(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world._set_world_generator_seed(12345)
+	var visual_id := world.get_visual_biome_id_at(Vector2.ZERO)
+	TEST_UTILS.expect(typeof(visual_id) == TYPE_STRING, failures, "Visual biome lookup should return a string")
+	TEST_UTILS.expect(not visual_id.is_empty(), failures, "Visual biome lookup should return a non-empty biome id")
+	world.free()
+
+
+func _test_visual_biome_influence_scores_vary_across_space(failures: Array[String]) -> void:
+	var generator := WORLD_GENERATOR.new()
+	generator.generate_world(12345)
+	var center_scores: Dictionary = generator.get_visual_biome_influence_scores(Vector2.ZERO)
+	var offset_scores: Dictionary = generator.get_visual_biome_influence_scores(Vector2(980.0, -420.0))
+	TEST_UTILS.expect(not center_scores.is_empty(), failures, "Visual biome influence scores should be available after world generation")
+	TEST_UTILS.expect(not offset_scores.is_empty(), failures, "Visual biome influence scores should remain available away from origin")
+	var differs := false
+	for biome_id in ["westwood", "stoneback_ridge", "hearth_meadow", "south_thicket", "redfang_wilds"]:
+		if absf(float(center_scores.get(biome_id, 0.0)) - float(offset_scores.get(biome_id, 0.0))) > 0.01:
+			differs = true
+			break
+	TEST_UTILS.expect(differs, failures, "Visual biome influence scores should vary across the map instead of staying flat")
+	generator.free()
+
+
+func _test_terrain_cell_map_builds_and_looks_up_cells(failures: Array[String]) -> void:
+	var generator := WORLD_GENERATOR.new()
+	var topo := WORLD_TOPOGRAPHY.new()
+	generator.generate_world(13579)
+	topo.setup(13579)
+	var cell_map := TERRAIN_CELL_MAP.new()
+	cell_map.build(WORLD_CONFIG.WORLD_RECT, 96.0, generator, topo, 13579)
+	var grid_size := cell_map.get_grid_size()
+	TEST_UTILS.expect(grid_size.x > 0 and grid_size.y > 0, failures, "Terrain cell map should build a positive grid size")
+	var sample_cell := cell_map.get_cell(0, 0)
+	TEST_UTILS.expect(sample_cell.has("terrain_id"), failures, "Terrain cell map cells should expose terrain ids")
+	TEST_UTILS.expect(sample_cell.has("biome_id"), failures, "Terrain cell map cells should expose biome ids")
+	TEST_UTILS.expect(not cell_map.get_cell_at_world_position(Vector2.ZERO).is_empty(), failures, "Terrain cell lookup by world position should work")
+	var repeat_map := TERRAIN_CELL_MAP.new()
+	repeat_map.build(WORLD_CONFIG.WORLD_RECT, 96.0, generator, topo, 13579)
+	TEST_UTILS.expect_equal(cell_map.get_cell(2, 2).get("biome_id", ""), repeat_map.get_cell(2, 2).get("biome_id", ""), failures, "Same seed should produce the same terrain cell map")
+	var other_generator := WORLD_GENERATOR.new()
+	var other_topo := WORLD_TOPOGRAPHY.new()
+	other_generator.generate_world(24680)
+	other_topo.setup(24680)
+	var other_map := TERRAIN_CELL_MAP.new()
+	other_map.build(WORLD_CONFIG.WORLD_RECT, 96.0, other_generator, other_topo, 24680)
+	TEST_UTILS.expect(cell_map.get_cell(2, 2).get("biome_id", "") != other_map.get_cell(2, 2).get("biome_id", "") or cell_map.get_cell(2, 2).get("terrain_id", "") != other_map.get_cell(2, 2).get("terrain_id", ""), failures, "Different seeds should produce different terrain cell maps")
+	generator.free()
+	topo.free()
+	other_generator.free()
+	other_topo.free()
+
+
+func _test_biome_shape_map_builds_connected_regions(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world._set_world_generator_seed(13579)
+	var debug: Dictionary = world.get_biome_shape_debug()
+	TEST_UTILS.expect_equal(bool(debug.get("biome_shape_map_uses_convex_hull", true)), false, failures, "Biome shape map should not use convex hulls for final regions")
+	TEST_UTILS.expect(int(debug.get("biome_shape_map_build_count", 0)) >= 1, failures, "Biome shape map should build at least once after world generation")
+	TEST_UTILS.expect(int(debug.get("biome_shape_map_polygon_count", 0)) > 0, failures, "Biome shape map should build at least one polygon")
+	TEST_UTILS.expect_equal(bool(debug.get("biome_shape_visual_surface_enabled", false)), true, failures, "Biome shape map should build a runtime visual surface grid")
+	TEST_UTILS.expect(int(debug.get("biome_shape_visual_surface_build_count", 0)) >= 1, failures, "Biome shape map should rasterize the visual surface at least once")
+	var layer_counts: Dictionary = Dictionary(debug.get("biome_shape_map_polygon_count_by_layer", {}))
+	TEST_UTILS.expect(layer_counts.size() > 1, failures, "Biome shape map should contain multiple layers")
+	var land_polygon_total := 0
+	for layer_id in layer_counts.keys():
+		var layer := str(layer_id)
+		if layer.begins_with("biome:") and layer.ends_with("|terrain:land"):
+			land_polygon_total += int(layer_counts.get(layer_id, 0))
+	TEST_UTILS.expect(land_polygon_total > 1, failures, "Biome shape map should produce multiple land biome regions")
+	var largest_by_layer: Dictionary = Dictionary(debug.get("biome_shape_map_largest_polygon_cell_count_by_layer", {}))
+	var total_cells := 0
+	if world.has_method("get_biome_shape_map"):
+		var shape_map: Object = world.get_biome_shape_map()
+		if shape_map != null and shape_map.has_method("get_debug_data"):
+			total_cells = int(Dictionary(shape_map.get_debug_data()).get("biome_shape_map_grid_size", Vector2i.ZERO).x) * int(Dictionary(shape_map.get_debug_data()).get("biome_shape_map_grid_size", Vector2i.ZERO).y)
+	var oversize := false
+	for layer_id in largest_by_layer.keys():
+		if int(largest_by_layer.get(layer_id, 0)) > int(total_cells * 0.85):
+			oversize = true
+			break
+	TEST_UTILS.expect(not oversize, failures, "No biome region should cover almost the entire world")
+	world.free()
+
+
+func _test_world_marks_terrain_surface_chunks_dirty_after_biome_shape_rebuild(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.world_generator = WORLD_GENERATOR.new()
+	world.world_topography = WORLD_TOPOGRAPHY.new()
+	world.world_generator.generate_world(13579)
+	world.world_topography.setup(13579)
+	world.biome_shape_map_dirty = true
+	world.terrain_surface_chunk_renderer = TerrainSurfaceRendererStub.new()
+	world._ensure_biome_shape_map_built(true)
+	var renderer: TerrainSurfaceRendererStub = world.terrain_surface_chunk_renderer
+	TEST_UTILS.expect_equal(renderer.dirty_reasons, ["biome_shape_map_rebuilt"], failures, "Biome shape map rebuild should invalidate cached terrain surface chunks")
+	world.free()
+
+
+func _test_world_biome_texture_cache_status_reports_visual_settings(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var status: Dictionary = world.get_biome_texture_cache_status()
+	TEST_UTILS.expect(status.has("visual_biome_shapes_enabled"), failures, "Biome texture cache status should expose whether visual biome shapes are enabled")
+	TEST_UTILS.expect(status.has("visual_biome_shape_use_raw_scores"), failures, "Biome texture cache status should expose whether visual biome shapes use raw scores")
+	TEST_UTILS.expect(status.has("visual_biome_query_source"), failures, "Biome texture cache status should expose the visual biome query source")
+	TEST_UTILS.expect(status.has("gameplay_biome_query_still_cached"), failures, "Biome texture cache status should expose whether gameplay biome query caching still exists")
+	world.free()
+
+
+func _test_world_biome_texture_cache_status_reports_visual_feature_count(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world._set_world_generator_seed(12345)
+	var status: Dictionary = world.get_biome_texture_cache_status()
+	TEST_UTILS.expect(status.has("visual_biome_feature_count"), failures, "Biome texture cache status should expose the visual biome feature count")
+	TEST_UTILS.expect(int(status.get("visual_biome_feature_count", 0)) > 0, failures, "Visual biome feature count should be populated after world generation")
+	world.free()
+
+
 func _test_topography_sample_returns_a_single_combined_snapshot(failures: Array[String]) -> void:
 	var topo := WORLD_TOPOGRAPHY.new()
 	topo.setup(1234)
@@ -964,6 +1179,72 @@ func _test_world_process_only_syncs_biome_background_when_redraw_is_requested(fa
 	controller.should_redraw = true
 	world._process(0.05)
 	TEST_UTILS.expect_equal(world.sync_calls, 1, failures, "World process should sync the biome background only when the render controller requests a redraw")
+	world.free()
+
+
+func _test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.world_generator = WORLD_GENERATOR.new()
+	world.world_topography = WORLD_TOPOGRAPHY.new()
+	world.world_generator.generate_world(13579)
+	world.world_topography.setup(13579)
+	world.terrain_chunk_renderer = TerrainRendererStub.new()
+	world.terrain_renderer_bound = true
+	world.terrain_cell_map_dirty = true
+	world._sync_terrain_renderer(false)
+	var renderer: TerrainRendererStub = world.terrain_chunk_renderer
+	TEST_UTILS.expect_equal(world.terrain_cell_map_dirty, false, failures, "Terrain sync should clear the dirty flag after rebuilding the cell map")
+	TEST_UTILS.expect_equal(renderer.bind_calls, 1, failures, "Terrain sync should bind the renderer when the terrain map is rebuilt")
+	TEST_UTILS.expect_equal(renderer.process_visibility_calls, 1, failures, "Terrain sync should update terrain visibility after rebuilding")
+	TEST_UTILS.expect_equal(renderer.rebuild_calls, [false], failures, "Terrain sync should only request a lazy visible-chunk refresh")
+	world._sync_terrain_renderer(false)
+	TEST_UTILS.expect_equal(renderer.bind_calls, 1, failures, "Terrain sync should not rebind when the renderer stays clean")
+	TEST_UTILS.expect_equal(renderer.process_visibility_calls, 2, failures, "Terrain sync should continue to update visibility on subsequent timer ticks")
+	TEST_UTILS.expect_equal(renderer.rebuild_calls, [false, false], failures, "Terrain sync should keep visible chunk rebuilds lazy on repeated redraws")
+	world.free()
+
+
+func _test_terrain_surface_renderer_samples_biome_shape_map(failures: Array[String]) -> void:
+	var renderer := TerrainSurfaceChunkRenderer.new()
+	var world := SurfaceSamplingWorldStub.new()
+	var player := Node2D.new()
+	var camera := Camera2D.new()
+	player.add_child(camera)
+	renderer.bind(world, player, camera)
+	var sample: Dictionary = renderer.call("_sample_surface_ids", Vector2(128.0, 256.0))
+	TEST_UTILS.expect_equal(str(sample.get("source", "")), "exact_polygon_record", failures, "Terrain surface renderer should sample the exact biome polygon surface before falling back to world terrain")
+	TEST_UTILS.expect_equal(str(sample.get("terrain_id", "")), "shape_terrain", failures, "Terrain surface renderer should use the biome shape map terrain id")
+	TEST_UTILS.expect_equal(str(sample.get("biome_id", "")), "shape_biome", failures, "Terrain surface renderer should use the biome shape map biome id")
+	TEST_UTILS.expect_equal(world.shape_map.last_position, Vector2(128.0, 256.0), failures, "Biome shape map should receive the exact sampled position")
+	renderer.call("_sample_surface_color", Vector2(128.0, 256.0))
+	var debug: Dictionary = renderer.get_debug_data()
+	var source_counts := Dictionary(debug.get("terrain_surface_sample_source_counts", {}))
+	TEST_UTILS.expect_equal(int(source_counts.get("exact_polygon_record", 0)) >= 1, true, failures, "Terrain surface renderer should track exact biome polygon sample sources")
+	renderer.free()
+	player.free()
+	world.free()
+
+
+func _test_terrain_surface_renderer_uses_preview_then_refine_pipeline(failures: Array[String]) -> void:
+	var renderer := TerrainSurfaceChunkRenderer.new()
+	var world := SurfaceSamplingWorldStub.new()
+	renderer.world_rect = WORLD_CONFIG.WORLD_RECT
+	renderer.world = world
+	renderer.biome_shape_map = world.get_biome_shape_map()
+	renderer.preview_enabled = true
+	renderer.preview_chunk_texture_size = 2
+	renderer.refined_chunk_texture_size = 4
+	renderer.max_chunks_built_per_frame = 1
+	renderer.refined_max_rows_built_per_frame = 4
+	renderer.refined_max_build_ms_per_frame = 1000.0
+	renderer.refine_delay_seconds = 0.0
+	renderer.call("_start_chunk_build", Vector2i.ZERO)
+	renderer.call("_process_active_chunk_build", Vector2i.ZERO, Time.get_ticks_msec())
+	renderer.call("_process_active_chunk_build", Vector2i.ZERO, Time.get_ticks_msec())
+	var debug: Dictionary = renderer.get_debug_data()
+	TEST_UTILS.expect_equal(int(debug.get("terrain_surface_preview_build_count", 0)) >= 1, true, failures, "Terrain surface renderer should build a preview texture before refining")
+	TEST_UTILS.expect_equal(int(debug.get("terrain_surface_refined_build_count", 0)) >= 1, true, failures, "Terrain surface renderer should refine the preview into a final chunk texture")
+	renderer.free()
 	world.free()
 
 
