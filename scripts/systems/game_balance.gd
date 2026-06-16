@@ -411,6 +411,46 @@ const BIOME_TEXTURES := {
 	"detail_chunk_texture_size": 32,
 	"detail_visible_chunk_radius": 1,
 	"detail_overlay_alpha": 0.22,
+	"transition_textures_enabled": true,
+	"transition_texture_strength": 0.18,
+	"transition_texture_width": 220.0,
+	"transition_texture_noise_width": 120.0,
+	"transition_texture_pattern_scale": 150.0,
+	"transition_texture_alpha": 0.22,
+	"transition_texture_min_map_strength": 0.04,
+	"transition_texture_max_strength": 0.32,
+	"transition_pairs": {
+		"westwood|hearth_meadow": {
+			"pattern": "leaf_grass_mix",
+			"strength": 0.18,
+			"width": 240.0
+		},
+		"westwood|south_thicket": {
+			"pattern": "leaf_thicket_mix",
+			"strength": 0.20,
+			"width": 260.0
+		},
+		"hearth_meadow|stoneback_ridge": {
+			"pattern": "grass_plate_mix",
+			"strength": 0.18,
+			"width": 220.0
+		},
+		"hearth_meadow|redfang_wilds": {
+			"pattern": "grass_crack_mix",
+			"strength": 0.16,
+			"width": 240.0
+		},
+		"south_thicket|redfang_wilds": {
+			"pattern": "thicket_crack_mix",
+			"strength": 0.20,
+			"width": 250.0
+		},
+		"stoneback_ridge|redfang_wilds": {
+			"pattern": "plate_crack_mix",
+			"strength": 0.22,
+			"width": 230.0
+		}
+	},
 	"detail_tile_world_size": 128.0,
 	"detail_chunk_build_budget_per_frame": 1,
 	"detail_filter_nearest": true,

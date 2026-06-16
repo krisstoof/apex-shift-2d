@@ -740,8 +740,13 @@ func get_map_surface_color_at(position: Vector2) -> Color:
 					return color.lerp(_get_biome_wetland_tint(biome_id), 0.09 * blend_strength)
 				"ridge":
 					return color.lerp(_get_biome_ridge_tint(biome_id), 0.17 * blend_strength)
+			color = _apply_biome_transition_texture(color, position)
 		return color
 	return Color.MAGENTA
+
+
+func get_biome_transition_debug_at(position: Vector2) -> Dictionary:
+	return _get_biome_transition_debug_at(position)
 
 
 func get_map_surface_debug_key() -> String:
@@ -754,10 +759,12 @@ func get_map_surface_debug_key() -> String:
 	var ponds := int(feature_counts.get("pond", 0))
 	var highlands := int(feature_counts.get("highland", 0))
 	var rocks := int(feature_counts.get("rocky_patch", 0))
-	return "surface_v13|seed=%d|generator_key=%s|topography_rules=%s|ponds=%d|highlands=%d|rocks=%d" % [
+	var transition_version := _get_biome_transition_texture_version_key()
+	return "surface_v14|seed=%d|generator_key=%s|topography_rules=%s|transition=%s|ponds=%d|highlands=%d|rocks=%d" % [
 		world_seed,
 		generator_key,
 		WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION,
+		transition_version,
 		ponds,
 		highlands,
 		rocks
@@ -773,6 +780,145 @@ func _get_topography_biome_blend_strength(topo_sample: Dictionary, biome_id: Str
 	if feature_biome_id != biome_id:
 		return 0.12
 	return 1.0
+
+
+func _apply_biome_transition_texture(base_color: Color, world_position: Vector2) -> Color:
+	var transition := _get_biome_transition_debug_at(world_position)
+	if transition.is_empty():
+		return base_color
+	var pattern := str(transition.get("pattern", "mixed"))
+	var pair_key := str(transition.get("pair_key", ""))
+	var pattern_value := _sample_transition_pattern(pattern, world_position, pair_key)
+	var strength := clampf(
+		float(transition.get("strength", GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_strength", 0.18))),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_min_map_strength", 0.04)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_max_strength", 0.32))
+	)
+	var blend := clampf(float(transition.get("blend", 0.0)), 0.0, 1.0)
+	var alpha := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_alpha", 0.22)), 0.0, 1.0)
+	var darkened := base_color.darkened(strength * (0.35 + pattern_value * 0.65))
+	var lightened := base_color.lightened(strength * 0.35 * pattern_value)
+	var textured := darkened.lerp(lightened, pattern_value * 0.45)
+	return base_color.lerp(textured, blend * alpha)
+
+
+func _get_biome_transition_debug_at(world_position: Vector2) -> Dictionary:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("transition_textures_enabled", false)):
+		return {}
+	var primary_id := get_biome_id_at(world_position)
+	if primary_id.is_empty() or primary_id in ["deep_ocean", "shallow_water", "shore"]:
+		return {}
+	var base_width := float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_width", 220.0))
+	var noise_width := float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_noise_width", 120.0))
+	var max_distance := base_width + noise_width
+	var nearest_secondary_id := ""
+	var nearest_distance := INF
+	var directions := [
+		Vector2.RIGHT,
+		Vector2.LEFT,
+		Vector2.UP,
+		Vector2.DOWN,
+		Vector2(1.0, 1.0).normalized(),
+		Vector2(-1.0, 1.0).normalized(),
+		Vector2(1.0, -1.0).normalized(),
+		Vector2(-1.0, -1.0).normalized()
+	]
+	for direction in directions:
+		var distance: float = 80.0
+		while distance <= max_distance:
+			var sample_position: Vector2 = world_position + direction * distance
+			if not WORLD_CONFIG.WORLD_RECT.has_point(sample_position):
+				distance += 80.0
+				continue
+			var sampled_id := get_biome_id_at(sample_position)
+			if sampled_id.is_empty() or sampled_id == primary_id or sampled_id in ["deep_ocean", "shallow_water", "shore"]:
+				distance += 80.0
+				continue
+			nearest_secondary_id = sampled_id
+			nearest_distance = minf(nearest_distance, distance)
+			break
+	if nearest_secondary_id.is_empty():
+		return {}
+	var pair_key := _get_transition_pair_key(primary_id, nearest_secondary_id)
+	var transition_pairs := Dictionary(GAME_BALANCE.BIOME_TEXTURES.get("transition_pairs", {}))
+	if not transition_pairs.has(pair_key):
+		return {}
+	var pair_config := Dictionary(transition_pairs.get(pair_key, {}))
+	var width := float(pair_config.get("width", base_width))
+	var noise_value := _get_transition_noise(world_position, pair_key)
+	var noisy_width := width + noise_value * noise_width
+	var blend := 1.0 - clampf(nearest_distance / maxf(noisy_width, 1.0), 0.0, 1.0)
+	blend = smoothstep(0.0, 1.0, blend)
+	if blend <= 0.001:
+		return {}
+	return {
+		"active": true,
+		"primary_biome_id": primary_id,
+		"secondary_biome_id": nearest_secondary_id,
+		"pair_key": pair_key,
+		"distance_to_edge": nearest_distance,
+		"width": noisy_width,
+		"strength": float(pair_config.get("strength", GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_strength", 0.18))),
+		"pattern": str(pair_config.get("pattern", "mixed")),
+		"blend": blend
+	}
+
+
+func _get_transition_noise(world_position: Vector2, pair_key: String) -> float:
+	var seed_value := float(_get_string_seed(pair_key) % 997) * 0.013
+	var scale := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_pattern_scale", 150.0)), 1.0)
+	var noise := sin(world_position.x / scale + seed_value) * 0.55
+	noise += sin(world_position.y / (scale * 0.83) - seed_value * 1.7) * 0.45
+	return clampf(noise, -1.0, 1.0)
+
+
+func _sample_transition_pattern(pattern: String, world_position: Vector2, pair_key: String) -> float:
+	var seed_value := float(_get_string_seed(pair_key) % 1000) * 0.019
+	var scale := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_pattern_scale", 150.0)), 1.0)
+	var local_position := Vector2(world_position.x / scale, world_position.y / scale)
+	match pattern:
+		"leaf_grass_mix":
+			return clampf(_sample_forest_floor_pattern(local_position, seed_value) * 0.55 + _sample_grass_streak_pattern(local_position, seed_value + 2.0) * 0.45, 0.0, 1.0)
+		"leaf_thicket_mix":
+			return clampf(_sample_forest_floor_pattern(local_position, seed_value) * 0.45 + _sample_dense_thicket_pattern(local_position, seed_value + 3.0) * 0.55, 0.0, 1.0)
+		"grass_plate_mix":
+			return clampf(_sample_grass_streak_pattern(local_position, seed_value) * 0.55 + _sample_rock_noise_pattern(local_position, seed_value + 4.0) * 0.45, 0.0, 1.0)
+		"grass_crack_mix":
+			return clampf(_sample_grass_streak_pattern(local_position, seed_value) * 0.50 + _sample_dry_cracked_earth_pattern(local_position, seed_value + 5.0) * 0.50, 0.0, 1.0)
+		"thicket_crack_mix":
+			return clampf(_sample_dense_thicket_pattern(local_position, seed_value) * 0.50 + _sample_dry_cracked_earth_pattern(local_position, seed_value + 6.0) * 0.50, 0.0, 1.0)
+		"plate_crack_mix":
+			return clampf(_sample_rock_noise_pattern(local_position, seed_value) * 0.55 + _sample_dry_cracked_earth_pattern(local_position, seed_value + 7.0) * 0.45, 0.0, 1.0)
+	return 0.0
+
+
+func _get_transition_pair_key(a: String, b: String) -> String:
+	var ids := [a, b]
+	ids.sort()
+	return "%s|%s" % [ids[0], ids[1]]
+
+
+func _get_biome_transition_texture_version_key() -> String:
+	var transition_pairs := Dictionary(GAME_BALANCE.BIOME_TEXTURES.get("transition_pairs", {}))
+	var parts: Array[String] = []
+	for pair_key in transition_pairs.keys():
+		var pair := Dictionary(transition_pairs.get(pair_key, {}))
+		parts.append("%s:%s:%.2f:%.2f" % [
+			str(pair_key),
+			str(pair.get("pattern", "")),
+			float(pair.get("strength", 0.0)),
+			float(pair.get("width", 0.0))
+		])
+	return "%s|enabled=%s|width=%.2f|noise=%.2f|strength=%.2f|alpha=%.2f|pattern_scale=%.2f|pairs=%s" % [
+		"transition_v1",
+		str(bool(GAME_BALANCE.BIOME_TEXTURES.get("transition_textures_enabled", false))),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_width", 220.0)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_noise_width", 120.0)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_strength", 0.18)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_alpha", 0.22)),
+		float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_pattern_scale", 150.0)),
+		"|".join(parts)
+	]
 
 
 func _get_pond_surface_color(base_color: Color, biome_id: String, topo_sample: Dictionary) -> Color:
@@ -5602,6 +5748,7 @@ func _get_biome_colors_key() -> String:
 	])
 	parts.append("texture_scale:%.2f" % float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 2.0)))
 	parts.append("texture_world_scale:%.2f" % float(GAME_BALANCE.BIOME_TEXTURES.get("texture_world_scale", 1.0)))
+	parts.append("transition:%s" % _get_biome_transition_texture_version_key())
 	return "|".join(parts)
 
 

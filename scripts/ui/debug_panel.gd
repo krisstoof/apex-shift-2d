@@ -494,6 +494,7 @@ func _build_world_text() -> String:
 		_get_cached_group_nodes("water_sources").size()
 	])
 	lines.append("Topography: %s" % _get_topography_debug_text())
+	lines.append("Transition: %s" % _get_biome_transition_text())
 	lines.append("Pond vegetation: %d" % _get_cached_group_nodes("pond_vegetation").size())
 	lines.append("Decorative vegetation: %s" % _get_decorative_vegetation_text())
 	lines.append("Biome detail overlay: %s" % _get_biome_detail_overlay_text())
@@ -741,6 +742,22 @@ func _get_topography_debug_text() -> String:
 		int(feature_counts.get("rocky_patch", 0)),
 		_get_position_text(Vector2(summary.get("sample_position", Vector2.ZERO))),
 		band
+	]
+
+
+func _get_biome_transition_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_biome_transition_debug_at"):
+		return "unavailable"
+	if not is_instance_valid(player):
+		return "no player"
+	var transition: Dictionary = Dictionary(world.get_biome_transition_debug_at(player.global_position))
+	if transition.is_empty():
+		return "inactive"
+	return "%s blend %.2f pattern %s" % [
+		str(transition.get("pair_key", "unknown")),
+		float(transition.get("blend", 0.0)),
+		str(transition.get("pattern", "mixed"))
 	]
 
 
