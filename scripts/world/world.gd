@@ -3129,6 +3129,8 @@ func _get_biome_resource_weight(biome: Dictionary, resource_kind: String, positi
 
 func _get_biome_bounds(biome: Dictionary) -> Rect2:
 	var points := _get_runtime_biome_points(biome)
+	if points.size() <= 0:
+		return Rect2()
 	var bounds := Rect2(points[0], Vector2.ZERO)
 	for point in points:
 		bounds = bounds.expand(point)
@@ -3407,7 +3409,7 @@ func _sync_visible_small_prey() -> void:
 		return
 	small_prey_spawn_sync_attempt_count += 1
 	var player_position := _get_player_position()
-	var player_biome := _get_biome_for_position(player_position)
+	var player_biome := _get_creature_spawn_biome_for_position(player_position)
 	if player_biome.is_empty():
 		return
 	var biome_id := _get_biome_id(player_biome)
@@ -3549,6 +3551,28 @@ func _get_biome_for_position(target_position: Vector2) -> Dictionary:
 	return {}
 
 
+func _get_creature_spawn_biome_for_position(target_position: Vector2) -> Dictionary:
+	var current_biome := _get_biome_for_position(target_position)
+	if not current_biome.is_empty():
+		return current_biome
+	var nearest_biome: Dictionary = {}
+	var nearest_distance := INF
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var bounds := _get_biome_bounds(biome)
+		if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+			continue
+		var closest_point := Vector2(
+			clamp(target_position.x, bounds.position.x, bounds.end.x),
+			clamp(target_position.y, bounds.position.y, bounds.end.y)
+		)
+		var distance := target_position.distance_squared_to(closest_point)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest_biome = biome
+	return nearest_biome
+
+
 func _get_weighted_biome_for_resource(resource_kind: String) -> Dictionary:
 	var total_weight := 0.0
 	for biome_value in WORLD_CONFIG.get_biome_zones():
@@ -3592,8 +3616,11 @@ func _find_valid_creature_position_in_biome(
 ) -> Vector2:
 	if biome.is_empty():
 		return Vector2.INF
-	var bounds := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
-	for _attempt in max_attempts:
+	var bounds := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		return Vector2.INF
+	var effective_attempts := maxi(max_attempts, WORLD_CONFIG.get_resource_spawn_attempts())
+	for _attempt in effective_attempts:
 		var candidate := Vector2(
 			rng.randf_range(bounds.position.x, bounds.end.x),
 			rng.randf_range(bounds.position.y, bounds.end.y)
@@ -3783,8 +3810,8 @@ func _try_spawn_resource_in_biome(
 
 
 func _get_scaled_biome_bounds(biome: Dictionary) -> Rect2:
-	var points := PackedVector2Array(biome.get("points", []))
-	if points.is_empty():
+	var points := _get_runtime_biome_points(biome)
+	if points.size() <= 0:
 		return Rect2()
 	var bounds := Rect2(points[0], Vector2.ZERO)
 	for point in points:
@@ -3793,7 +3820,7 @@ func _get_scaled_biome_bounds(biome: Dictionary) -> Rect2:
 
 
 func _is_point_in_scaled_biome(point: Vector2, biome: Dictionary) -> bool:
-	var points := PackedVector2Array(biome.get("points", []))
+	var points := _get_runtime_biome_points(biome)
 	return points.size() >= 3 and Geometry2D.is_point_in_polygon(point, points)
 
 
@@ -3829,7 +3856,7 @@ func _sync_visible_grazers() -> void:
 	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
 		return
 	var player_position := _get_player_position()
-	var player_biome := _get_biome_for_position(player_position)
+	var player_biome := _get_creature_spawn_biome_for_position(player_position)
 	if player_biome.is_empty():
 		return
 	var biome_id := _get_biome_id(player_biome)
@@ -3893,8 +3920,11 @@ func _get_initial_grazer_biomes() -> Array[Dictionary]:
 
 
 func _try_spawn_grazer_in_biome(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
-	var spawn_area := _get_scaled_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
-	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
+	var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+	if spawn_area.size.x <= 0.0 or spawn_area.size.y <= 0.0:
+		return false
+	var effective_attempts := WORLD_CONFIG.get_resource_spawn_attempts()
+	for _attempt in effective_attempts:
 		var candidate := Vector2(
 			grazer_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			grazer_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
@@ -3923,6 +3953,19 @@ func _try_spawn_grazer_near_player(biome: Dictionary, player_position: Vector2, 
 			continue
 		used_positions.append(candidate)
 		_spawn_grazer_at(candidate, _get_biome_id(biome))
+		return true
+	var fallback_position := _find_valid_creature_position_in_biome(
+		biome,
+		player_position,
+		used_positions,
+		GRAZER_MIN_DISTANCE,
+		GRAZER_PLAYER_SAFE_DISTANCE,
+		grazer_rng,
+		WORLD_CONFIG.get_resource_spawn_attempts()
+	)
+	if fallback_position != Vector2.INF:
+		used_positions.append(fallback_position)
+		_spawn_grazer_at(fallback_position, _get_biome_id(biome))
 		return true
 	return false
 
