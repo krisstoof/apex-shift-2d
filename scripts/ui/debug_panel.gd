@@ -468,6 +468,19 @@ func _build_world_text() -> String:
 		int(resource_counts.get("grass", _get_cached_group_nodes("grass").size())),
 		int(resource_counts.get("rocks", _get_cached_group_nodes("rocks").size()))
 	])
+	var resource_distribution := Dictionary(world_snapshot.get("resource_distribution_by_biome", {}))
+	if not resource_distribution.is_empty():
+		lines.append("Resource distribution by biome:")
+		for biome_id in resource_distribution.keys():
+			var biome_counts := Dictionary(resource_distribution.get(biome_id, {}))
+			lines.append("%s trees %d bushes %d grass %d rocks %d ponds %d" % [
+				str(biome_id),
+				int(biome_counts.get("trees", 0)),
+				int(biome_counts.get("bushes", 0)),
+				int(biome_counts.get("grass", 0)),
+				int(biome_counts.get("rocks", 0)),
+				int(biome_counts.get("pond_vegetation", 0))
+			])
 	lines.append("Landmarks: %s | generated %d" % [_get_landmark_summary_text(), int(landmark_counts.get("generated", 0))])
 	lines.append("Ponds %d | Hills %d | nearest %s" % [
 		int(landmark_counts.get("pond", 0)),

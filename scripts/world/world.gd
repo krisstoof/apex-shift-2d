@@ -366,6 +366,8 @@ func _apply_graphics_settings_defaults() -> void:
 	biome_textures_enabled = graphics_settings.get_default_biome_textures_enabled() if graphics_settings.has_method("get_default_biome_textures_enabled") else true
 	debug_landmark_overlay_enabled = graphics_settings.get_default_landmark_debug_overlay_enabled() if graphics_settings.has_method("get_default_landmark_debug_overlay_enabled") else false
 	biome_terrain_accents_enabled = graphics_settings.get_default_biome_terrain_accents_enabled() if graphics_settings.has_method("get_default_biome_terrain_accents_enabled") else false
+	if _is_low_end_static_surface_mode_enabled():
+		biome_textures_enabled = false
 
 
 func get_world_rect() -> Rect2:
@@ -621,6 +623,34 @@ func get_topography_debug_summary() -> Dictionary:
 
 func get_topography_resource_distribution_debug() -> Dictionary:
 	return topography_resource_distribution_debug.duplicate(true)
+
+
+func get_resource_distribution_by_biome() -> Dictionary:
+	var distribution: Dictionary = {}
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return distribution
+	for group_name in ["trees", "bushes", "grass", "rocks", "pond_vegetation"]:
+		for node_value in tree.get_nodes_in_group(group_name):
+			var node := node_value as Node2D
+			if node == null or not is_instance_valid(node):
+				continue
+			if node.is_queued_for_deletion():
+				continue
+			var biome_id := get_biome_id_at(node.global_position)
+			if biome_id.is_empty():
+				biome_id = "unknown"
+			if not distribution.has(biome_id):
+				distribution[biome_id] = {
+					"trees": 0,
+					"bushes": 0,
+					"grass": 0,
+					"rocks": 0,
+					"pond_vegetation": 0
+				}
+			var biome_counts: Dictionary = distribution[biome_id]
+			biome_counts[group_name] = int(biome_counts.get(group_name, 0)) + 1
+	return distribution
 
 
 func get_elevation_band_at(position: Vector2) -> String:
@@ -1605,10 +1635,10 @@ func _prepare_boot_render_cache() -> void:
 
 
 func _get_world_biome_blend_texture_size() -> Vector2i:
-	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 1.25)), 1.25, 1.25)
+	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 0.35)), 0.35, 0.35)
 	return Vector2i(
-		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.x) * cache_scale)), BIOME_BLEND_TEXTURE_SIZE.x),
-		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.y) * cache_scale)), BIOME_BLEND_TEXTURE_SIZE.y)
+		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.x) * cache_scale)), 1),
+		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.y) * cache_scale)), 1)
 	)
 
 
@@ -2505,14 +2535,17 @@ func _spawn_resource_kind_in_biome(
 	var biome := _get_biome_for_id(biome_id)
 	if biome.is_empty():
 		return
+	var failed := 0
 	var spawned_since_yield := 0
 	for _i in count:
 		if not _try_spawn_resource_in_biome(resource_kind, biome, used_positions, player_position, min_distance, spawn_attempts):
-			push_warning("Could not find a valid spawn position for %s in biome %s" % [resource_kind, biome_id])
+			failed += 1
 		spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
 			await get_tree().process_frame
+	if failed > 0:
+		print("[SPAWN] %s in %s failed=%d requested=%d" % [resource_kind, biome_id, failed, count])
 
 
 func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:

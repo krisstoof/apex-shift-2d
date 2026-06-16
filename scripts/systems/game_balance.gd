@@ -418,7 +418,7 @@ const BIOME_TEXTURES := {
 	"detail_alpha": 0.08,
 	"secondary_detail_alpha": 0.06,
 	"variation_noise_strength": 0.08,
-	"blend_cache_scale": 1.0,
+	"blend_cache_scale": 0.35,
 	"max_detail_per_chunk": 80
 }
 
