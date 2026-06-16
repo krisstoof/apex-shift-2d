@@ -1108,11 +1108,11 @@ func _build_shoreline_segments(active_world: Node) -> Array[Dictionary]:
 	var segments: Array[Dictionary] = []
 	if active_world == null:
 		return segments
-	var source_ponds: Array = []
+	var source_ponds: Array[Dictionary] = []
 	if active_world.has_method("get"):
-		source_ponds = Array(active_world.get("pond_landmarks"))
+		source_ponds = _to_dictionary_array(Array(active_world.get("pond_landmarks")))
 	if source_ponds.is_empty() and active_world.has_method("get_pond_landmarks"):
-		source_ponds = Array(active_world.get_pond_landmarks())
+		source_ponds = _to_dictionary_array(Array(active_world.get_pond_landmarks()))
 	for pond_value in source_ponds:
 		var pond := Dictionary(pond_value)
 		if pond.is_empty():
@@ -1123,8 +1123,8 @@ func _build_shoreline_segments(active_world: Node) -> Array[Dictionary]:
 		var radius := float(pond.get("radius", 0.0))
 		if radius <= 0.0:
 			continue
-		var sample_count := max(16, int(GAME_BALANCE.LANDMARKS.get("pond_shore_detail_count", 18)))
-		var last_point := Vector2.INF
+		var sample_count: int = max(16, int(GAME_BALANCE.LANDMARKS.get("pond_shore_detail_count", 18)))
+		var last_point: Vector2 = Vector2.INF
 		for i in range(sample_count + 1):
 			var angle := TAU * float(i) / float(sample_count)
 			var point := _get_pond_shape_position(pond, angle, _get_pond_shore_radius_factor())
