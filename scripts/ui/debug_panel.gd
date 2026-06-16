@@ -494,6 +494,7 @@ func _build_world_text() -> String:
 		_get_cached_group_nodes("water_sources").size()
 	])
 	lines.append("Topography: %s" % _get_topography_debug_text())
+	lines.append("Biome debug: %s" % _get_biome_debug_text())
 	lines.append("Transition: %s" % _get_biome_transition_text())
 	lines.append("Pond vegetation: %d" % _get_cached_group_nodes("pond_vegetation").size())
 	lines.append("Decorative vegetation: %s" % _get_decorative_vegetation_text())
@@ -669,6 +670,8 @@ func _get_current_biome_name() -> String:
 	if world != null and world.has_method("get_biome_lookup_debug") and world.has_method("get_biome_name_at"):
 		var lookup_debug := Dictionary(world.get_biome_lookup_debug(player.global_position))
 		var biome_name := str(world.get_biome_name_at(player.global_position))
+		if world.has_method("get_visual_biome_name_at"):
+			biome_name = str(world.get_visual_biome_name_at(player.global_position))
 		if biome_name.is_empty():
 			if bool(lookup_debug.get("world_rect_has_point", false)) == true:
 				return "unknown (lookup error)"
@@ -758,6 +761,22 @@ func _get_biome_transition_text() -> String:
 		str(transition.get("pair_key", "unknown")),
 		float(transition.get("blend", 0.0)),
 		str(transition.get("pattern", "mixed"))
+	]
+
+
+func _get_biome_debug_text() -> String:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_biome_lookup_debug"):
+		return "unavailable"
+	if not is_instance_valid(player):
+		return "no player"
+	var lookup_debug := Dictionary(world.get_biome_lookup_debug(player.global_position))
+	return "biome=%s generator=%s query=%s terrain=%s surface=%s" % [
+		str(lookup_debug.get("biome_id", "")),
+		str(lookup_debug.get("generator_biome_id", "")),
+		str(lookup_debug.get("query_service_biome_id", "")),
+		str(lookup_debug.get("topography_zone", "")),
+		str(lookup_debug.get("surface_terrain", ""))
 	]
 
 

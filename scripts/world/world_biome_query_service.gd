@@ -1,7 +1,8 @@
 extends RefCounted
 class_name WorldBiomeQueryService
 
-const BIOME_QUERY_CELL_SIZE := 256.0
+# Legacy/fallback cache only. Procedural worlds should prefer generator biome IDs.
+const BIOME_QUERY_CELL_SIZE := 64.0
 
 var cell_size := BIOME_QUERY_CELL_SIZE
 var biome_id_by_cell: Dictionary = {}
@@ -28,6 +29,10 @@ func get_biome_id_for_position(position: Vector2) -> String:
 	var biome_id := _resolve_biome_id_by_polygon(position)
 	biome_id_by_cell[key] = biome_id
 	return biome_id
+
+
+func get_biome_id_for_position_exact(position: Vector2) -> String:
+	return _resolve_biome_id_by_polygon(position)
 
 
 func clear_cache() -> void:

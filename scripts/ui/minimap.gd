@@ -645,8 +645,14 @@ func _get_player_zone_name() -> String:
 	if not is_instance_valid(player):
 		return "Unknown"
 	var active_world := _get_world()
-	if active_world != null and active_world.has_method("get_biome_name_at"):
-		var biome_name := str(active_world.get_biome_name_at(player.global_position))
+	if active_world != null:
+		var biome_name := ""
+		if active_world.has_method("get_display_biome_name_at"):
+			biome_name = str(active_world.get_display_biome_name_at(player.global_position))
+		elif active_world.has_method("get_visual_biome_name_at"):
+			biome_name = str(active_world.get_visual_biome_name_at(player.global_position))
+		elif active_world.has_method("get_biome_name_at"):
+			biome_name = str(active_world.get_biome_name_at(player.global_position))
 		if not biome_name.is_empty():
 			return biome_name
 		if active_world.has_method("get_biome_lookup_debug") and bool(Dictionary(active_world.get_biome_lookup_debug(player.global_position)).get("world_rect_has_point", false)) == true:

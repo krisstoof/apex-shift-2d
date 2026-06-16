@@ -700,16 +700,38 @@ func is_rocky_patch_at(position: Vector2) -> bool:
 
 
 func get_biome_id_at(position: Vector2) -> String:
-	if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position"):
-		return str(biome_query_service.get_biome_id_for_position(position))
 	if world_generator and world_generator.has_method("get_biome_id_at"):
 		return str(world_generator.get_biome_id_at(position))
+	if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position"):
+		return str(biome_query_service.get_biome_id_for_position(position))
 	return _get_biome_id_for_position(position)
 
 
 func get_biome_name_at(position: Vector2) -> String:
 	var biome_id := get_biome_id_at(position)
 	return _get_biome_display_name(biome_id)
+
+
+func get_visual_biome_id_at(position: Vector2) -> String:
+	if world_generator and world_generator.has_method("get_biome_id_at"):
+		return str(world_generator.get_biome_id_at(position))
+	return get_biome_id_at(position)
+
+
+func get_visual_biome_name_at(position: Vector2) -> String:
+	return _get_biome_display_name(get_visual_biome_id_at(position))
+
+
+func get_display_biome_name_at(position: Vector2) -> String:
+	var transition := get_biome_transition_debug_at(position) if has_method("get_biome_transition_debug_at") else {}
+	if not transition.is_empty():
+		var blend := float(transition.get("blend", 0.0))
+		if blend >= 0.25:
+			var primary := _get_biome_display_name(str(transition.get("primary_biome_id", "")))
+			var secondary := _get_biome_display_name(str(transition.get("secondary_biome_id", "")))
+			if not primary.is_empty() and not secondary.is_empty() and primary != secondary:
+				return "%s / %s" % [primary, secondary]
+	return get_visual_biome_name_at(position)
 
 
 func get_map_surface_color_at(position: Vector2) -> Color:
@@ -1040,8 +1062,12 @@ func get_biome_lookup_debug(position: Vector2) -> Dictionary:
 		"position": position,
 		"world_rect_has_point": WORLD_CONFIG.WORLD_RECT.has_point(position),
 		"biome_id": get_biome_id_at(position),
+		"generator_biome_id": str(world_generator.get_biome_id_at(position)) if world_generator != null and world_generator.has_method("get_biome_id_at") else "",
+		"query_service_biome_id": str(biome_query_service.get_biome_id_for_position(position)) if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position") else "",
+		"visual_biome_id": get_visual_biome_id_at(position),
 		"terrain_zone": get_base_terrain_zone_at(position),
-		"topography_zone": get_topography_zone_at(position)
+		"topography_zone": get_topography_zone_at(position),
+		"surface_terrain": get_surface_terrain_zone_at(position)
 	}
 
 
@@ -1197,7 +1223,7 @@ func force_spawn_varnaks_for_tests(count: int, center: Vector2 = Vector2.INF) ->
 
 
 func _get_first_biome_for_tests(dangerous: bool) -> Dictionary:
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
 		if biome.get("dangerous", false) == dangerous:
 			return biome
@@ -2368,7 +2394,7 @@ func _try_spawn_resource_in_island_band(
 
 
 func _spawn_biome_fill_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
 		var biome_id := _get_biome_id(biome)
 		await _spawn_resource_kind_in_biome("grass_patch", 18, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70)
@@ -3288,20 +3314,22 @@ func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], 
 
 func _pick_resource_biome(resource_kind: String) -> Dictionary:
 	var total_weight := 0.0
-	for biome_value in WORLD_CONFIG.BIOME_ZONES:
+	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
 		total_weight += _get_biome_resource_weight(biome, resource_kind)
 	if total_weight <= 0.0:
-		return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
+		var zones := get_biome_zones()
+		return Dictionary(zones[0]) if not zones.is_empty() else {}
 
 	var roll := resource_rng.randf_range(0.0, total_weight)
 	var cursor := 0.0
-	for biome_value in WORLD_CONFIG.BIOME_ZONES:
+	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
 		cursor += _get_biome_resource_weight(biome, resource_kind)
 		if roll <= cursor:
 			return biome
-	return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
+	var fallback_zones := get_biome_zones()
+	return Dictionary(fallback_zones[0]) if not fallback_zones.is_empty() else {}
 
 
 func _get_biome_resource_weight(biome: Dictionary, resource_kind: String, position: Vector2 = Vector2.ZERO) -> float:
@@ -3345,12 +3373,27 @@ func _get_biome_bounds(biome: Dictionary) -> Rect2:
 
 
 func _is_point_in_biome(point: Vector2, biome: Dictionary) -> bool:
-	return Geometry2D.is_point_in_polygon(point, _get_runtime_biome_points(biome))
+	var expected_id := _get_biome_id(biome)
+	if not expected_id.is_empty() and world_generator and world_generator.has_method("get_biome_id_at"):
+		return str(world_generator.get_biome_id_at(point)) == expected_id
+	var points := _get_runtime_biome_points(biome)
+	return points.size() >= 3 and Geometry2D.is_point_in_polygon(point, points)
 
 
 func _get_runtime_biome_points(biome: Dictionary) -> PackedVector2Array:
+	if biome.has("points"):
+		var points := PackedVector2Array(biome.get("points", []))
+		if points.size() >= 3:
+			return points
 	if biome.has("bounds"):
-		return PackedVector2Array(biome.get("points", []))
+		var bounds := Rect2(biome.get("bounds", Rect2()))
+		if bounds.size.x > 0.0 and bounds.size.y > 0.0:
+			return PackedVector2Array([
+				bounds.position,
+				Vector2(bounds.end.x, bounds.position.y),
+				bounds.end,
+				Vector2(bounds.position.x, bounds.end.y)
+			])
 	return PackedVector2Array(WORLD_CONFIG.get_biome_points(biome))
 
 
@@ -3751,16 +3794,15 @@ func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vec
 
 
 func _get_biome_for_position(target_position: Vector2) -> Dictionary:
-	if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position"):
-		var biome_id := str(biome_query_service.get_biome_id_for_position(target_position))
-		if biome_id.is_empty():
-			return {}
-		for biome in get_biome_zones():
-			if _get_biome_id(biome) == biome_id:
-				return biome
+	var biome_id := get_biome_id_at(target_position)
+	if biome_id.is_empty():
 		return {}
-	for biome in WORLD_CONFIG.get_biome_zones():
-		if _is_point_in_biome(target_position, biome):
+	var runtime_biome := _get_biome_for_id(biome_id)
+	if not runtime_biome.is_empty():
+		return runtime_biome
+	for biome_value in get_biome_zones():
+		var biome := Dictionary(biome_value)
+		if _get_biome_id(biome) == biome_id:
 			return biome
 	return {}
 
@@ -3771,7 +3813,7 @@ func _get_creature_spawn_biome_for_position(target_position: Vector2) -> Diction
 		return current_biome
 	var nearest_biome: Dictionary = {}
 	var nearest_distance := INF
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
 		var bounds := _get_biome_bounds(biome)
 		if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
@@ -3836,18 +3878,20 @@ func _get_spawnable_biome_id_for_candidate(candidate: Vector2, creature_kind: St
 
 func _get_weighted_biome_for_resource(resource_kind: String) -> Dictionary:
 	var total_weight := 0.0
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		total_weight += _get_biome_resource_weight(Dictionary(biome_value), resource_kind, Vector2.ZERO)
 	if total_weight <= 0.0:
-		return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
+		var zones := get_biome_zones()
+		return Dictionary(zones[0]) if not zones.is_empty() else {}
 	var roll := resource_rng.randf_range(0.0, total_weight)
 	var cursor := 0.0
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		var biome: Dictionary = Dictionary(biome_value)
 		cursor += _get_biome_resource_weight(biome, resource_kind, Vector2.ZERO)
 		if roll <= cursor:
 			return biome
-	return Dictionary(WORLD_CONFIG.BIOME_ZONES[0])
+	var fallback_zones := get_biome_zones()
+	return Dictionary(fallback_zones[0]) if not fallback_zones.is_empty() else {}
 
 
 func _get_biome_id(biome: Dictionary) -> String:
@@ -3858,6 +3902,8 @@ func _get_biome_id(biome: Dictionary) -> String:
 
 
 func _get_biome_id_for_position(target_position: Vector2) -> String:
+	if world_generator and world_generator.has_method("get_biome_id_at"):
+		return str(world_generator.get_biome_id_at(target_position))
 	if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position"):
 		return str(biome_query_service.get_biome_id_for_position(target_position))
 	var biome := _get_biome_for_position(target_position)
@@ -3906,7 +3952,7 @@ func _find_valid_creature_position_in_biome(
 
 func _sync_all_biome_vegetation() -> void:
 	var changed := false
-	for biome in WORLD_CONFIG.get_biome_zones():
+	for biome in get_biome_zones():
 		changed = _sync_biome_vegetation(_get_biome_id(biome)) or changed
 	if changed:
 		queue_redraw()
@@ -3946,7 +3992,7 @@ func _sync_biome_vegetation(biome_id: String) -> bool:
 
 
 func _get_biome_for_id(biome_id: String) -> Dictionary:
-	for biome in WORLD_CONFIG.get_biome_zones():
+	for biome in get_biome_zones():
 		if _get_biome_id(biome) == biome_id:
 			return biome
 	return {}
@@ -3957,7 +4003,7 @@ func _get_biome_resource_target_count(biome: Dictionary, resource_kind: String) 
 	if base_count <= 0:
 		return 0
 	var total_weight := 0.0
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		total_weight += _get_biome_resource_weight(Dictionary(biome_value), resource_kind)
 	if total_weight <= 0.0:
 		return 0
@@ -4177,7 +4223,7 @@ func _get_visible_grazer_count(biome_id: String) -> int:
 
 func _get_initial_grazer_biomes() -> Array[Dictionary]:
 	var biomes: Array[Dictionary] = []
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
 		if biome.get("dangerous", false) == true:
 			continue
@@ -4409,7 +4455,7 @@ func _try_spawn_varnak_in_world(player_position: Vector2, used_positions: Array[
 
 func _get_varnak_spawn_biomes() -> Array[Dictionary]:
 	var spawn_biomes: Array[Dictionary] = []
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
 		spawn_biomes.append(biome)
 	return spawn_biomes
@@ -4871,7 +4917,7 @@ func _get_varnak_spawn_weight(point: Vector2) -> float:
 
 
 func _is_point_in_dangerous_biome(point: Vector2) -> bool:
-	for biome_value in WORLD_CONFIG.BIOME_ZONES:
+	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
 		if biome.get("dangerous", false) == true and _is_point_in_biome(point, biome):
 			return true
@@ -5054,9 +5100,11 @@ func _draw_biomes() -> void:
 	elif is_instance_valid(biome_blend_background):
 		biome_blend_background.visible = false
 		biome_blend_background.texture = null
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
-		var points := PackedVector2Array(biome["points"])
+		var points := _get_runtime_biome_points(biome)
+		if points.size() < 3:
+			continue
 		var base_color := _get_biome_visual_color(biome)
 		draw_colored_polygon(points, base_color)
 		if biome_terrain_accents_enabled:
@@ -5449,7 +5497,7 @@ func _color_with_alpha(color: Color, alpha: float) -> Color:
 
 func _rebuild_biome_terrain_accent_cache() -> void:
 	biome_terrain_accent_cache.clear()
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		_get_biome_terrain_accent_layout(Dictionary(biome_value))
 
 
@@ -5459,7 +5507,7 @@ func _queue_biome_terrain_accent_cache_rebuild() -> void:
 	if not biome_terrain_accents_enabled:
 		biome_terrain_accent_cache_build_running = false
 		return
-	for biome_value in WORLD_CONFIG.get_biome_zones():
+	for biome_value in get_biome_zones():
 		pending_biome_terrain_accent_biomes.append(Dictionary(biome_value))
 	if biome_terrain_accent_cache_build_running:
 		return
@@ -5736,7 +5784,7 @@ func _get_distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> f
 
 func _get_biome_colors_key() -> String:
 	var parts: Array[String] = []
-	for biome in WORLD_CONFIG.get_biome_zones():
+	for biome in get_biome_zones():
 		var color := _get_biome_base_color(biome)
 		parts.append("%.3f:%.3f:%.3f:%s" % [color.r, color.g, color.b, _get_biome_terrain_texture_key(biome)])
 	parts.append("texture_balance:%.2f:%.2f:%.2f:%.2f:%d" % [
