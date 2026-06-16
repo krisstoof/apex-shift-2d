@@ -1145,9 +1145,12 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 		])
 	var vegetation_stats: Dictionary = Dictionary(world_stats.get("vegetation", {}))
 	if not vegetation_stats.is_empty():
-		diagnostics.append("vegetation grass_nodes=%d visuals=%d edible_nodes=%d interactive=%d" % [
+		diagnostics.append("vegetation grass_nodes=%d visuals=%d total_visual_instances=%d drawn=%d visible_chunks=%d edible_nodes=%d interactive=%d" % [
 			int(vegetation_stats.get("decorative_grass_node_count", 0)),
 			int(vegetation_stats.get("decorative_vegetation_visual_instance_count", 0)),
+			int(vegetation_stats.get("decorative_vegetation_total_instance_count", 0)),
+			int(vegetation_stats.get("decorative_vegetation_drawn_instance_count", 0)),
+			int(vegetation_stats.get("decorative_vegetation_visible_chunk_count", 0)),
 			int(vegetation_stats.get("edible_vegetation_node_count", 0)),
 			int(vegetation_stats.get("interactive_resource_node_count", 0))
 		])

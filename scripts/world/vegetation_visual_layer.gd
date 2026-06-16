@@ -4,8 +4,9 @@ class_name VegetationVisualLayer
 const DEFAULT_GRASS_RADIUS := 5.0
 const DEFAULT_DENSE_GRASS_RADIUS := 8.0
 const DEFAULT_CHUNK_SIZE := 768.0
-const DEFAULT_VISIBILITY_MARGIN := 512.0
+const DEFAULT_VISIBILITY_MARGIN := 128.0
 const MAX_DRAWN_DECORATIVE_GRASS_INSTANCES := 220
+const VISIBILITY_CENTER_MOVE_THRESHOLD := 96.0
 const GRASS_LOD_NEAR_DISTANCE := 360.0
 const GRASS_LOD_MID_DISTANCE := 760.0
 const GRASS_NEAR_BLADE_COUNT := 6
@@ -22,8 +23,11 @@ var chunk_size := DEFAULT_CHUNK_SIZE
 var visible_world_rect := Rect2()
 var has_visible_world_rect := false
 var drawn_instance_count := 0
+var total_visible_instance_count := 0
 var visible_chunk_count := 0
 var last_visible_chunk_signature := ""
+var last_visible_rect_center := Vector2.INF
+var last_visible_rect_size := Vector2.INF
 var total_chunk_count := 0
 var camera_focus_position := Vector2.ZERO
 var has_camera_focus_position := false
@@ -41,9 +45,12 @@ func clear_instances() -> void:
 	count_by_kind.clear()
 	instances_by_chunk.clear()
 	drawn_instance_count = 0
+	total_visible_instance_count = 0
 	visible_chunk_count = 0
 	total_chunk_count = 0
 	last_visible_chunk_signature = ""
+	last_visible_rect_center = Vector2.INF
+	last_visible_rect_size = Vector2.INF
 	skipped_by_cap_count = 0
 	skipped_by_far_lod_count = 0
 	near_lod_count = 0
@@ -102,11 +109,18 @@ func get_count_by_kind() -> Dictionary:
 func set_visible_world_rect(world_rect: Rect2) -> void:
 	var expanded_rect := world_rect.grow(DEFAULT_VISIBILITY_MARGIN)
 	has_visible_world_rect = true
+	var rect_changed := not visible_world_rect.has_area() or visible_world_rect.position != expanded_rect.position or visible_world_rect.size != expanded_rect.size
 	visible_world_rect = expanded_rect
 	var signature := _get_visible_chunk_signature(expanded_rect)
-	if signature == last_visible_chunk_signature:
+	var center := expanded_rect.get_center()
+	var size := expanded_rect.size
+	var center_moved := last_visible_rect_center == Vector2.INF or center.distance_to(last_visible_rect_center) >= VISIBILITY_CENTER_MOVE_THRESHOLD
+	var size_changed := last_visible_rect_size == Vector2.INF or size != last_visible_rect_size
+	if signature == last_visible_chunk_signature and not rect_changed and not center_moved and not size_changed:
 		return
 	last_visible_chunk_signature = signature
+	last_visible_rect_center = center
+	last_visible_rect_size = size
 	queue_redraw()
 
 
@@ -130,6 +144,7 @@ func get_debug_stats() -> Dictionary:
 	return {
 		"visual_instance_count": instances.size(),
 		"total_instance_count": instances.size(),
+		"total_visual_instance_count": instances.size(),
 		"drawn_instance_count": drawn_instance_count,
 		"skipped_by_cap_count": skipped_by_cap_count,
 		"skipped_by_far_lod_count": skipped_by_far_lod_count,
@@ -165,6 +180,7 @@ func _draw() -> void:
 			var b_pos := Vector2(b.get("position", Vector2.ZERO))
 			return a_pos.distance_squared_to(camera_focus_position) < b_pos.distance_squared_to(camera_focus_position)
 		)
+	total_visible_instance_count = candidates.size()
 	for item in candidates:
 		if drawn_instance_count >= max_drawn_instances:
 			skipped_by_cap_count += 1
@@ -190,6 +206,7 @@ func _draw() -> void:
 
 func _reset_draw_debug_counters() -> void:
 	drawn_instance_count = 0
+	total_visible_instance_count = 0
 	visible_chunk_count = 0
 	skipped_by_cap_count = 0
 	skipped_by_far_lod_count = 0

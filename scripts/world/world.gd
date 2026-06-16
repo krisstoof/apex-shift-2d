@@ -118,7 +118,7 @@ const EDIBLE_GRASS_NODE_BUDGET_PER_KIND := {
 }
 const EDIBLE_POND_GRASS_NODE_BUDGET_TOTAL := 12
 const DECORATIVE_GRASS_VISUAL_Z_INDEX := -2
-const DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES := 560
+const DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES := 220
 const CENTRAL_MEADOW_GRASS_VISUAL_COUNT := 160
 const CENTRAL_MEADOW_DENSE_GRASS_VISUAL_COUNT := 90
 const CENTRAL_MEADOW_SMALL_BUSH_VISUAL_COUNT := 42
@@ -396,7 +396,7 @@ func _update_decorative_vegetation_visible_rect() -> void:
 		return
 	if not vegetation_visual_layer.has_method("set_visible_world_rect"):
 		return
-	var visible_rect := get_camera_visible_world_rect(DECORATIVE_VEGETATION_VISIBILITY_MARGIN)
+	var visible_rect := get_camera_visible_world_rect()
 	vegetation_visual_layer.set_visible_world_rect(visible_rect)
 	if vegetation_visual_layer.has_method("set_camera_focus_position"):
 		var focus_position := Vector2.ZERO
@@ -410,7 +410,7 @@ func _update_decorative_vegetation_visible_rect() -> void:
 			focus_position = visible_rect.get_center()
 		vegetation_visual_layer.set_camera_focus_position(focus_position)
 	if vegetation_visual_layer.has_method("set_max_drawn_instances"):
-		vegetation_visual_layer.set_max_drawn_instances(DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES)
+		vegetation_visual_layer.set_max_drawn_instances(mini(DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES, 240))
 
 
 func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2, margin := VISIBILITY_CULL_MARGIN) -> Rect2:
