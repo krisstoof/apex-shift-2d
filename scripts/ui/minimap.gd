@@ -28,6 +28,10 @@ var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
+var shoreline_segments: Array[Dictionary] = []
+var shoreline_segments_key := ""
+var shoreline_segments_build_count := 0
+var shoreline_segments_last_build_ms := 0.0
 var minimap_redraw_count: int = 0
 var minimap_marker_cache_rebuild_count: int = 0
 var minimap_landmark_cache_rebuild_count: int = 0
@@ -38,9 +42,11 @@ var minimap_redraw_timer := 0.0
 var cached_resources: Array[Dictionary] = []
 var cached_campfires: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
+var cached_grazers: Array[Dictionary] = []
 var cached_resources_signature := ""
 var cached_campfires_signature := ""
 var cached_varnaks_signature := ""
+var cached_grazers_signature := ""
 var markers_cache_timer := 0.0
 var landmarks_signature := ""
 var camera_world_size_override := Vector2.ZERO
@@ -64,6 +70,15 @@ func _exit_tree() -> void:
 	player = null
 
 
+func invalidate_map_surface_cache() -> void:
+	biome_blend_texture = null
+	biome_blend_colors_key = ""
+	shoreline_segments.clear()
+	shoreline_segments_key = ""
+	landmarks_signature = ""
+	queue_redraw()
+
+
 func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = [], p_snapshot_service = null) -> void:
 	player = p_player
 	world = _get_world()
@@ -72,6 +87,7 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
 	_sync_biome_texture()
+	_sync_shoreline_overlay_cache()
 	if _update_marker_cache():
 		minimap_marker_cache_rebuild_count += 1
 	landmarks_signature = _build_landmarks_signature()
@@ -87,6 +103,7 @@ func _process(delta: float) -> void:
 		"last_build_ms": snappedf(minimap_texture_last_build_ms, 0.01)
 	})
 	_sync_biome_texture()
+	_sync_shoreline_overlay_cache()
 	minimap_redraw_timer += delta
 	if minimap_redraw_timer >= MINIMAP_REDRAW_INTERVAL:
 		minimap_redraw_timer = 0.0
@@ -110,11 +127,13 @@ func _draw() -> void:
 	_is_drawing_biomes = true
 	_draw_biomes(content_rect, view_world_rect)
 	_is_drawing_biomes = false
+	_draw_shoreline_overlay(content_rect, view_world_rect)
 	_draw_landmarks(content_rect, view_world_rect)
 	_draw_grid(content_rect, view_world_rect)
 	if _should_show_resource_markers():
 		_draw_resources(content_rect, view_world_rect)
 	_draw_campfires(content_rect, view_world_rect)
+	_draw_grazers(content_rect, view_world_rect)
 	_draw_varnaks(content_rect, view_world_rect)
 	_draw_player(content_rect, view_world_rect)
 	_draw_zone_label(map_rect)
@@ -147,6 +166,21 @@ func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	draw_texture_rect_region(biome_blend_texture, destination_rect, source_rect)
 
 
+func _draw_shoreline_overlay(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	for segment_value in shoreline_segments:
+		var segment := Dictionary(segment_value)
+		var from := Vector2(segment.get("from", Vector2.ZERO))
+		var to := Vector2(segment.get("to", Vector2.ZERO))
+		if not view_world_rect.has_point(from) and not view_world_rect.has_point(to):
+			continue
+		draw_line(
+			_world_to_map(from, content_rect, view_world_rect),
+			_world_to_map(to, content_rect, view_world_rect),
+			Color(0.88, 0.82, 0.56, 0.42),
+			1.0
+		)
+
+
 func _refresh_static_caches() -> void:
 	var landmarks_changed := _refresh_landmarks_from_world()
 	var marker_cache_changed := _update_marker_cache()
@@ -169,6 +203,22 @@ func _sync_biome_texture() -> void:
 		biome_blend_colors_key = ""
 		return
 	_ensure_biome_texture()
+
+
+func _sync_shoreline_overlay_cache() -> void:
+	var active_world := _get_world()
+	if active_world == null:
+		shoreline_segments.clear()
+		shoreline_segments_key = ""
+		return
+	var current_key := _get_biome_texture_key()
+	if shoreline_segments_key == current_key and not shoreline_segments.is_empty():
+		return
+	var start_ms := Time.get_ticks_msec()
+	shoreline_segments = _build_shoreline_segments(active_world)
+	shoreline_segments_key = current_key
+	shoreline_segments_build_count += 1
+	shoreline_segments_last_build_ms = float(Time.get_ticks_msec() - start_ms)
 
 
 func _ensure_biome_texture() -> void:
@@ -375,6 +425,47 @@ func _build_landmarks_signature() -> String:
 	return "|".join(parts)
 
 
+func _build_shoreline_segments(active_world: Node) -> Array[Dictionary]:
+	var segments: Array[Dictionary] = []
+	if active_world == null:
+		return segments
+	var source_ponds: Array = []
+	if active_world.has_method("get"):
+		source_ponds = Array(active_world.get("pond_landmarks"))
+	if source_ponds.is_empty() and active_world.has_method("get_pond_landmarks"):
+		source_ponds = Array(active_world.get_pond_landmarks())
+	for pond_value in source_ponds:
+		var pond := Dictionary(pond_value)
+		if pond.is_empty():
+			continue
+		if not _is_shoreline_pond(pond):
+			continue
+		var center := Vector2(pond.get("position", Vector2.ZERO))
+		var radius := float(pond.get("radius", 0.0))
+		if radius <= 0.0:
+			continue
+		var sample_count := max(16, int(GAME_BALANCE.LANDMARKS.get("pond_shore_detail_count", 18)))
+		var last_point := Vector2.INF
+		for i in range(sample_count + 1):
+			var angle := TAU * float(i) / float(sample_count)
+			var point := _get_pond_shape_position(pond, angle, _get_pond_shore_radius_factor())
+			if last_point != Vector2.INF:
+				segments.append({
+					"from": last_point,
+					"to": point
+				})
+			last_point = point
+	return segments
+
+
+func _is_shoreline_pond(pond: Dictionary) -> bool:
+	return str(pond.get("type", "pond")) == "pond" or pond.has("radius")
+
+
+func _get_pond_shore_radius_factor() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("pond_shore_radius_factor", 1.12))
+
+
 func _draw_pond_marker(center: Vector2, radius: float, landmark: Dictionary) -> void:
 	var marker_radius: float = clamp(radius, 7.0, 24.0)
 	_draw_filled_pond_marker(center, marker_radius, landmark, 1.0, Color(0.10, 0.36, 0.48, 0.90))
@@ -413,6 +504,16 @@ func _get_pond_shape_seed(landmark: Dictionary) -> float:
 	for i in pond_id.length():
 		raw_seed = (raw_seed + pond_id.unicode_at(i) * (i + 3)) % 997
 	return float(raw_seed) / 997.0 * TAU
+
+
+func _get_pond_shape_position(landmark: Dictionary, angle: float, radius_factor: float) -> Vector2:
+	var center := Vector2(landmark.get("position", Vector2.ZERO))
+	var radius := float(landmark.get("radius", 0.0))
+	var shape_scale := _get_pond_shape_scale(landmark, angle)
+	return center + Vector2(
+		cos(angle) * radius * radius_factor * shape_scale,
+		sin(angle) * radius * POND_MARKER_Y_SCALE * radius_factor * shape_scale
+	)
 
 
 func _get_pond_shape_sample_count() -> int:
@@ -509,6 +610,15 @@ func _draw_varnaks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 		var pos := _world_to_map(marker_position, content_rect, view_world_rect)
 		draw_circle(pos, 5.2, Color(0.88, 0.22, 0.16))
 		draw_circle(pos, 2.2, Color(1.0, 0.82, 0.42))
+
+
+func _draw_grazers(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	for grazer_marker_value in cached_grazers:
+		var grazer_marker := Dictionary(grazer_marker_value)
+		var marker_position := Vector2(grazer_marker.get("position", Vector2.ZERO))
+		if not view_world_rect.has_point(marker_position):
+			continue
+		draw_circle(_world_to_map(marker_position, content_rect, view_world_rect), 2.8, Color(0.78, 0.72, 0.42, 0.85))
 
 
 func _draw_player(content_rect: Rect2, view_world_rect: Rect2) -> void:
@@ -713,17 +823,21 @@ func _update_marker_cache() -> bool:
 		cached_resources = _to_dictionary_array(Array(markers.get("resources", [])))
 		cached_campfires = _to_dictionary_array(Array(markers.get("campfires", [])))
 		cached_varnaks = _to_dictionary_array(Array(markers.get("varnaks", [])))
+		cached_grazers = _to_dictionary_array(Array(markers.get("grazers", [])))
 	else:
 		cached_resources = _build_resource_markers_from_world()
 		cached_campfires = _build_campfire_markers_from_world()
 		cached_varnaks = _build_varnak_markers_from_world()
+		cached_grazers = _build_grazer_markers_from_world()
 	var resource_signature := _build_resources_signature()
 	var campfire_signature := _build_campfires_signature()
 	var varnak_signature := _build_varnaks_signature()
-	var changed := resource_signature != cached_resources_signature or campfire_signature != cached_campfires_signature or varnak_signature != cached_varnaks_signature
+	var grazer_signature := _build_grazers_signature()
+	var changed := resource_signature != cached_resources_signature or campfire_signature != cached_campfires_signature or varnak_signature != cached_varnaks_signature or grazer_signature != cached_grazers_signature
 	cached_resources_signature = resource_signature
 	cached_campfires_signature = campfire_signature
 	cached_varnaks_signature = varnak_signature
+	cached_grazers_signature = grazer_signature
 	return changed
 
 
@@ -736,7 +850,12 @@ func get_minimap_performance_debug() -> Dictionary:
 	return {
 		"redraw_count": minimap_redraw_count,
 		"marker_cache_rebuild_count": minimap_marker_cache_rebuild_count,
-		"landmark_cache_rebuild_count": minimap_landmark_cache_rebuild_count
+		"landmark_cache_rebuild_count": minimap_landmark_cache_rebuild_count,
+		"texture_build_count": minimap_texture_build_count,
+		"texture_last_build_ms": minimap_texture_last_build_ms,
+		"shoreline_build_count": shoreline_segments_build_count,
+		"shoreline_last_build_ms": shoreline_segments_last_build_ms,
+		"shoreline_segment_count": shoreline_segments.size()
 	}
 
 
@@ -750,7 +869,7 @@ func _build_resources_signature() -> String:
 			int(round(Vector2(resource.get("position", Vector2.ZERO)).y)),
 			str(resource.get("resource_kind")),
 			"1" if resource.get("player_harvestable", true) != false else "0"
-	])
+		])
 	return "|".join(parts)
 
 
@@ -796,6 +915,17 @@ func _build_varnaks_signature() -> String:
 	return "|".join(parts)
 
 
+func _build_grazers_signature() -> String:
+	var parts: Array[String] = []
+	for grazer_value in cached_grazers:
+		var grazer_marker := Dictionary(grazer_value)
+		parts.append("%d:%d" % [
+			int(round(Vector2(grazer_marker.get("position", Vector2.ZERO)).x)),
+			int(round(Vector2(grazer_marker.get("position", Vector2.ZERO)).y))
+		])
+	return "|".join(parts)
+
+
 func _get_safe_tree() -> SceneTree:
 	if not is_inside_tree():
 		return null
@@ -834,9 +964,7 @@ func _build_resource_markers_from_world() -> Array[Dictionary]:
 		if resource == null or not is_instance_valid(resource):
 			continue
 		var resource_kind := str(resource.get("resource_kind"))
-		if resource_kind in ["grass_patch", "dense_grass", "berry_bush"]:
-			continue
-		if resource.get("player_harvestable") == false:
+		if not _should_show_resource_on_minimap(resource, resource_kind):
 			continue
 		markers.append({
 			"position": resource.global_position,
@@ -844,6 +972,14 @@ func _build_resource_markers_from_world() -> Array[Dictionary]:
 			"item_name": str(resource.get("item_name"))
 		})
 	return markers
+
+
+func _should_show_resource_on_minimap(resource: Node, resource_kind: String) -> bool:
+	if resource_kind in ["grass_patch", "dense_grass", "berry_bush"]:
+		return false
+	if resource != null and resource.get("player_harvestable") == false:
+		return false
+	return true
 
 
 func _build_varnak_markers_from_world() -> Array[Dictionary]:
@@ -856,6 +992,19 @@ func _build_varnak_markers_from_world() -> Array[Dictionary]:
 		if varnak == null or not is_instance_valid(varnak):
 			continue
 		markers.append({"position": varnak.global_position, "type": "varnak"})
+	return markers
+
+
+func _build_grazer_markers_from_world() -> Array[Dictionary]:
+	var markers: Array[Dictionary] = []
+	var active_world := _get_world()
+	if active_world == null or not active_world.has_method("get_registered_creatures_by_type"):
+		return markers
+	for grazer_value in active_world.get_registered_creatures_by_type("grazer"):
+		var grazer := grazer_value as Node2D
+		if grazer == null or not is_instance_valid(grazer) or grazer.is_queued_for_deletion():
+			continue
+		markers.append({"position": grazer.global_position, "type": "grazer"})
 	return markers
 
 

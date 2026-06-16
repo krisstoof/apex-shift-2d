@@ -1352,6 +1352,14 @@ func end_save_restore() -> void:
 	_rebuild_chunk_assignments()
 	if visibility_culling_enabled:
 		_update_world_object_visibility()
+	var ui_root := get_tree().root if get_tree() != null else null
+	if ui_root != null:
+		var minimap := ui_root.find_child("Minimap", true, false)
+		if minimap != null and minimap.has_method("invalidate_map_surface_cache"):
+			minimap.call("invalidate_map_surface_cache")
+		var map_screen := ui_root.find_child("MapScreen", true, false)
+		if map_screen != null and map_screen.has_method("invalidate_map_surface_cache"):
+			map_screen.call("invalidate_map_surface_cache")
 	queue_redraw()
 
 
