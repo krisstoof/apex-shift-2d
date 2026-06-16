@@ -113,6 +113,39 @@ class TerrainRendererStub:
 		rebuild_calls.append(force)
 
 
+class SurfaceShapeMapStub:
+	extends RefCounted
+
+	var last_position := Vector2.INF
+
+	func sample_visual_surface_at(position: Vector2) -> Dictionary:
+		last_position = position
+		return {
+			"biome_id": "shape_biome",
+			"terrain_id": "shape_terrain",
+			"layer_id": "shape_layer",
+			"source": "polygon"
+		}
+
+
+class SurfaceSamplingWorldStub:
+	extends Node
+
+	var shape_map := SurfaceShapeMapStub.new()
+
+	func get_world_rect() -> Rect2:
+		return WORLD_CONFIG.WORLD_RECT
+
+	func get_biome_shape_map():
+		return shape_map
+
+	func get_surface_terrain_zone_at(_position: Vector2) -> String:
+		return "world_fallback_terrain"
+
+	func get_visual_biome_id_at(_position: Vector2) -> String:
+		return "world_fallback_biome"
+
+
 class MockSmallPreyEcosystemDirector:
 	extends Node
 
@@ -298,6 +331,7 @@ func run() -> Array[String]:
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
 	_test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures)
 	_test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures)
+	_test_terrain_surface_renderer_samples_biome_shape_map(failures)
 	_test_small_prey_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_varnak_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_world_updates_night_overlay_without_redrawing_static_world(failures)
@@ -1131,6 +1165,23 @@ func _test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures: Ar
 	TEST_UTILS.expect_equal(renderer.bind_calls, 1, failures, "Terrain sync should not rebind when the renderer stays clean")
 	TEST_UTILS.expect_equal(renderer.process_visibility_calls, 2, failures, "Terrain sync should continue to update visibility on subsequent timer ticks")
 	TEST_UTILS.expect_equal(renderer.rebuild_calls, [false, false], failures, "Terrain sync should keep visible chunk rebuilds lazy on repeated redraws")
+	world.free()
+
+
+func _test_terrain_surface_renderer_samples_biome_shape_map(failures: Array[String]) -> void:
+	var renderer := TerrainSurfaceChunkRenderer.new()
+	var world := SurfaceSamplingWorldStub.new()
+	var player := Node2D.new()
+	var camera := Camera2D.new()
+	player.add_child(camera)
+	renderer.bind(world, player, camera)
+	var sample: Dictionary = renderer.call("_sample_surface_ids", Vector2(128.0, 256.0))
+	TEST_UTILS.expect_equal(str(sample.get("source", "")), "polygon", failures, "Terrain surface renderer should sample the biome shape map before falling back to world terrain")
+	TEST_UTILS.expect_equal(str(sample.get("terrain_id", "")), "shape_terrain", failures, "Terrain surface renderer should use the biome shape map terrain id")
+	TEST_UTILS.expect_equal(str(sample.get("biome_id", "")), "shape_biome", failures, "Terrain surface renderer should use the biome shape map biome id")
+	TEST_UTILS.expect_equal(world.shape_map.last_position, Vector2(128.0, 256.0), failures, "Biome shape map should receive the exact sampled position")
+	renderer.free()
+	player.free()
 	world.free()
 
 

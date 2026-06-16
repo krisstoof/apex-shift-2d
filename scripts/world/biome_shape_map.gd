@@ -52,6 +52,15 @@ func has_renderable_polygons() -> bool:
 			return true
 	return false
 
+func sample_visual_surface_at(position: Vector2) -> Dictionary:
+	var fallback := _sample_grid_surface_at(position)
+	return {
+		"biome_id": str(fallback.get("biome_id", "")),
+		"terrain_id": str(fallback.get("terrain_id", "deep_ocean")),
+		"layer_id": str(fallback.get("layer_id", "terrain:deep_ocean")),
+		"source": "grid_fallback"
+	}
+
 func get_debug_data() -> Dictionary:
 	return {
 		"biome_shape_map_enabled": true,
@@ -72,6 +81,25 @@ func get_debug_data() -> Dictionary:
 		"biome_shape_map_self_crossing_guard_enabled": biome_shape_map_self_crossing_guard_enabled,
 		"biome_shape_map_largest_polygon_bounds_by_layer": _get_largest_polygon_bounds_by_layer(),
 		"biome_shape_map_largest_polygon_area_ratio_by_layer": _get_largest_polygon_area_ratio_by_layer()
+	}
+
+func _sample_grid_surface_at(position: Vector2) -> Dictionary:
+	if grid_size == Vector2i.ZERO or biome_grid.is_empty() or terrain_grid.is_empty():
+		return {
+			"biome_id": "",
+			"terrain_id": "deep_ocean",
+			"layer_id": "terrain:deep_ocean"
+		}
+	var local := position - world_rect.position
+	var x := clampi(int(floor(local.x / sample_size)), 0, grid_size.x - 1)
+	var y := clampi(int(floor(local.y / sample_size)), 0, grid_size.y - 1)
+	var biome_id := str(Array(biome_grid[y])[x])
+	var terrain_id := str(Array(terrain_grid[y])[x])
+	var layer_id := _get_layer_id(biome_id, terrain_id)
+	return {
+		"biome_id": biome_id,
+		"terrain_id": terrain_id,
+		"layer_id": layer_id
 	}
 
 func _build_sample_grids(world_generator: RefCounted, world_topography: RefCounted) -> void:
@@ -180,6 +208,61 @@ func _get_layer_id(biome_id: String, terrain_id: String) -> String:
 	if terrain_id in ["highland", "rocky_patch", "wetland"]:
 		return "biome:%s|terrain:%s" % [biome_id, terrain_id]
 	return "biome:%s|terrain:land" % biome_id
+
+func _get_layer_draw_order(polygons_by_layer: Dictionary) -> Array[String]:
+	var ordered: Array[String] = [
+		"terrain:deep_ocean",
+		"terrain:shallow_water",
+		"terrain:shore"
+	]
+	var biome_layers: Array[String] = []
+	var other_layers: Array[String] = []
+	for layer_id in polygons_by_layer.keys():
+		var layer := str(layer_id)
+		if ordered.has(layer):
+			continue
+		if layer.begins_with("biome:") and layer.ends_with("|terrain:land"):
+			biome_layers.append(layer)
+		else:
+			other_layers.append(layer)
+	biome_layers.sort()
+	var wetland_layers: Array[String] = []
+	var rocky_layers: Array[String] = []
+	var highland_layers: Array[String] = []
+	var pond_layers: Array[String] = []
+	var remaining_other: Array[String] = []
+	for layer in other_layers:
+		if layer.ends_with("|terrain:wetland"):
+			wetland_layers.append(layer)
+		elif layer.ends_with("|terrain:rocky_patch"):
+			rocky_layers.append(layer)
+		elif layer.ends_with("|terrain:highland"):
+			highland_layers.append(layer)
+		elif layer.ends_with("|terrain:pond") or layer == "terrain:pond":
+			pond_layers.append(layer)
+		else:
+			remaining_other.append(layer)
+	ordered.append_array(biome_layers)
+	ordered.append_array(wetland_layers)
+	ordered.append_array(rocky_layers)
+	ordered.append_array(highland_layers)
+	ordered.append_array(pond_layers)
+	remaining_other.sort()
+	ordered.append_array(remaining_other)
+	return ordered
+
+func _get_sample_order() -> Array[String]:
+	var draw_order := _get_layer_draw_order(polygons_by_layer)
+	draw_order.reverse()
+	return draw_order
+
+func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
+	if points.is_empty():
+		return Rect2()
+	var rect := Rect2(points[0], Vector2.ZERO)
+	for p in points:
+		rect = rect.expand(p)
+	return rect
 
 func _flood_fill_layer(start_x: int, start_y: int, layer_id: String, visited: Dictionary) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
@@ -457,11 +540,3 @@ func _get_largest_polygon_area_ratio_by_layer() -> Dictionary:
 			largest_ratio = maxf(largest_ratio, (bounds.size.x * bounds.size.y) / world_area)
 		result[layer_id] = largest_ratio
 	return result
-
-func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
-	if points.is_empty():
-		return Rect2()
-	var rect := Rect2(points[0], Vector2.ZERO)
-	for point in points:
-		rect = rect.expand(point)
-	return rect
