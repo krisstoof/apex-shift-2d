@@ -11,6 +11,9 @@ const MAX_PHYSICS_DELTA := 0.08
 const LARGE_MOVEMENT_WARNING_DISTANCE := 220.0
 const MAX_WANDER_TARGET_DISTANCE := 600.0
 const MAX_FLEE_TARGET_DISTANCE := 600.0
+const VISUAL_REDRAW_MOVE_INTERVAL_SECONDS := 0.10
+const VISUAL_REDRAW_EFFECT_INTERVAL_SECONDS := 0.05
+const VISUAL_REDRAW_FACING_THRESHOLD := 0.09
 
 enum State { IDLE, WANDER, SEEK_FOOD, EAT, FLEE, DEAD }
 
@@ -83,6 +86,12 @@ var simulation_lod_change_count := 0
 var last_simulation_level := SIMULATION_LOD.Level.NEAR
 var movement_spike_count := 0
 var max_movement_spike_distance := 0.0
+var visual_redraw_move_timer := 0.0
+var visual_redraw_effect_timer := 0.0
+var visual_redraw_count := 0
+var visual_redraw_skip_count := 0
+var last_visual_facing_angle := 0.0
+var last_visual_facing_side := 1.0
 
 
 func _get_event_bus() -> Node:
@@ -118,7 +127,7 @@ func _ready() -> void:
 		home_biome_id = biome_id
 	ai_decision_timer = rng.randf_range(0.0, AI_DECISION_INTERVAL_SECONDS)
 	_pick_wander_target()
-	queue_redraw()
+	_request_visual_redraw(true)
 
 
 func set_visibility_culled(should_be_visible: bool) -> void:
@@ -133,7 +142,7 @@ func set_visibility_culled(should_be_visible: bool) -> void:
 				_apply_medium_simulation()
 			_:
 				_apply_far_simulation()
-		queue_redraw()
+		_request_visual_redraw(true)
 		return
 	if simulation_level == SIMULATION_LOD.Level.FAR:
 		_apply_far_simulation()
@@ -177,7 +186,9 @@ func get_debug_data() -> Dictionary:
 		"simulation_distance_to_player": simulation_distance_to_player,
 		"simulation_lod_change_count": simulation_lod_change_count,
 		"is_visibility_culled": is_visibility_culled,
-		"ai_decision_interval_effective": _get_effective_ai_decision_interval()
+		"ai_decision_interval_effective": _get_effective_ai_decision_interval(),
+		"visual_redraw_count": visual_redraw_count,
+		"visual_redraw_skip_count": visual_redraw_skip_count
 	}
 	data.merge(hunger_diet.get_debug_data(), true)
 	return data
@@ -267,7 +278,7 @@ func restore_from_data(data: Dictionary) -> void:
 		"scavenger_diet": scavenger_diet
 	})
 	_sync_hunger_fields()
-	queue_redraw()
+	_request_visual_redraw(true)
 
 
 func _safe_float(data: Dictionary, key: String, fallback: float) -> float:
@@ -335,7 +346,7 @@ func _physics_process(delta: float) -> void:
 	target_lock_time = max(target_lock_time - safe_delta, 0.0)
 	if eat_visual_time > 0.0:
 		eat_visual_time = max(eat_visual_time - safe_delta, 0.0)
-		queue_redraw()
+		_request_effect_redraw()
 	age_seconds += safe_delta
 	hunger_diet.tick(safe_delta, velocity.length() / max(speed, 1.0))
 	_sync_hunger_fields()
@@ -410,7 +421,7 @@ func _restore_full_simulation() -> void:
 	set_physics_process(true)
 	set_process(true)
 	velocity = Vector2.ZERO
-	queue_redraw()
+	_request_visual_redraw(true)
 
 
 func _apply_medium_simulation() -> void:
@@ -579,7 +590,8 @@ func _face_target(target: Vector2) -> void:
 	facing_angle = direction.angle()
 	if abs(direction.x) > 4.0:
 		facing_side = 1.0 if direction.x >= 0.0 else -1.0
-	queue_redraw()
+	if abs(angle_difference(last_visual_facing_angle, facing_angle)) >= VISUAL_REDRAW_FACING_THRESHOLD or last_visual_facing_side != facing_side:
+		_request_visual_redraw()
 
 
 func _get_flee_origin() -> Vector2:
@@ -864,7 +876,7 @@ func _set_state(next_state: State) -> void:
 	if state == next_state:
 		return
 	state = next_state
-	queue_redraw()
+	_request_visual_redraw(true)
 
 
 func _die(source: String) -> void:
@@ -885,6 +897,40 @@ func _die(source: String) -> void:
 	})
 	_post_event_message("Small prey killed")
 	queue_free()
+
+
+func _request_visual_redraw(force: bool = false) -> void:
+	if force:
+		visual_redraw_move_timer = 0.0
+		visual_redraw_count += 1
+		last_visual_facing_angle = facing_angle
+		last_visual_facing_side = facing_side
+		queue_redraw()
+		return
+	visual_redraw_move_timer += get_process_delta_time()
+	if visual_redraw_move_timer < VISUAL_REDRAW_MOVE_INTERVAL_SECONDS:
+		visual_redraw_skip_count += 1
+		return
+	visual_redraw_move_timer = 0.0
+	visual_redraw_count += 1
+	last_visual_facing_angle = facing_angle
+	last_visual_facing_side = facing_side
+	queue_redraw()
+
+
+func _request_effect_redraw(force: bool = false) -> void:
+	if force:
+		visual_redraw_effect_timer = 0.0
+		visual_redraw_count += 1
+		queue_redraw()
+		return
+	visual_redraw_effect_timer += get_process_delta_time()
+	if visual_redraw_effect_timer < VISUAL_REDRAW_EFFECT_INTERVAL_SECONDS:
+		visual_redraw_skip_count += 1
+		return
+	visual_redraw_effect_timer = 0.0
+	visual_redraw_count += 1
+	queue_redraw()
 
 
 func _drop_meat_once() -> void:

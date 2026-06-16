@@ -28,6 +28,9 @@ const LARGE_MOVEMENT_WARNING_DISTANCE := 220.0
 const MAX_WANDER_TARGET_DISTANCE := 1100.0
 const MAX_FLEE_TARGET_DISTANCE := 1100.0
 const MAX_HUNT_ROAM_TARGET_DISTANCE := 1100.0
+const VISUAL_REDRAW_MOVE_INTERVAL_SECONDS := 0.10
+const VISUAL_REDRAW_EFFECT_INTERVAL_SECONDS := 0.05
+const VISUAL_REDRAW_FACING_THRESHOLD := 0.09
 
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
@@ -83,6 +86,12 @@ var simulation_lod_change_count := 0
 var last_simulation_level := SIMULATION_LOD.Level.NEAR
 var movement_spike_count := 0
 var max_movement_spike_distance := 0.0
+var visual_redraw_move_timer := 0.0
+var visual_redraw_effect_timer := 0.0
+var visual_redraw_count := 0
+var visual_redraw_skip_count := 0
+var last_visual_facing_angle := 0.0
+var last_visual_facing_side := 1.0
 
 
 func _get_event_bus() -> Node:
@@ -110,7 +119,7 @@ func _ready() -> void:
 	stored_collision_mask = collision_mask
 	ai_decision_timer = fmod(float(get_instance_id()), 7.0) / 7.0 * AI_DECISION_INTERVAL_SECONDS
 	_pick_wander_target()
-	queue_redraw()
+	_request_visual_redraw(true)
 
 
 func set_visibility_culled(should_be_visible: bool) -> void:
@@ -125,7 +134,7 @@ func set_visibility_culled(should_be_visible: bool) -> void:
 				_apply_medium_simulation()
 			_:
 				_apply_far_simulation()
-		queue_redraw()
+		_request_visual_redraw(true)
 		return
 	if simulation_level == SIMULATION_LOD.Level.FAR:
 		_apply_far_simulation()
@@ -151,7 +160,7 @@ func apply_profile(profile: Dictionary) -> void:
 	stalk_tendency = float(profile.get("stalk_tendency", stalk_tendency))
 	speed = 90.0 + aggression * 50.0 + pack_coordination * 20.0
 	_apply_first_week_profile_tuning()
-	queue_redraw()
+	_request_visual_redraw(true)
 
 
 func get_save_data() -> Dictionary:
@@ -222,7 +231,9 @@ func get_debug_data() -> Dictionary:
 		"simulation_distance_to_player": simulation_distance_to_player,
 		"simulation_lod_change_count": simulation_lod_change_count,
 		"is_visibility_culled": is_visibility_culled,
-		"ai_decision_interval_effective": _get_effective_ai_decision_interval()
+		"ai_decision_interval_effective": _get_effective_ai_decision_interval(),
+		"visual_redraw_count": visual_redraw_count,
+		"visual_redraw_skip_count": visual_redraw_skip_count
 	}
 
 
@@ -255,7 +266,7 @@ func restore_from_data(data: Dictionary) -> void:
 	simulation_level = SIMULATION_LOD.Level.NEAR
 	simulation_level_name = "near"
 	far_simulation_timer = 0.0
-	queue_redraw()
+	_request_visual_redraw(true)
 
 
 func _safe_float(data: Dictionary, key: String, fallback: float) -> float:
@@ -321,10 +332,10 @@ func _physics_process(delta: float) -> void:
 	target_lock_time = max(target_lock_time - safe_delta, 0.0)
 	if attack_visual_time > 0.0:
 		attack_visual_time = max(attack_visual_time - safe_delta, 0.0)
-		queue_redraw()
+		_request_effect_redraw()
 	if eat_visual_time > 0.0:
 		eat_visual_time = max(eat_visual_time - safe_delta, 0.0)
-		queue_redraw()
+		_request_effect_redraw()
 	ai_decision_timer -= safe_delta
 	var position_before_move := global_position
 	if ai_decision_timer <= 0.0:
@@ -397,7 +408,7 @@ func _restore_full_simulation() -> void:
 	set_physics_process(true)
 	set_process(true)
 	velocity = Vector2.ZERO
-	queue_redraw()
+	_request_visual_redraw(true)
 
 
 func _apply_medium_simulation() -> void:
@@ -466,7 +477,7 @@ func _update_night_health_bonus() -> void:
 	max_health = target_max
 	health = clamp(health_ratio * max_health, 0.0, max_health)
 	night_health_bonus_active = has_bonus
-	queue_redraw()
+	_request_effect_redraw(true)
 
 
 func _update_state() -> void:
@@ -567,7 +578,7 @@ func _act(_delta: float) -> void:
 				player.receive_damage(10.0 + aggression * 8.0, "varnak")
 				_emit_game_event("varnak_attacked_player", {"damage": 10.0 + aggression * 8.0})
 				attack_visual_time = ATTACK_VISUAL_DURATION
-				queue_redraw()
+				_request_effect_redraw(true)
 				attack_cooldown = 1.2 * (GAME_BALANCE.TORCH_ATTACK_COOLDOWN_MULTIPLIER if _is_torch_protecting_player(global_position.distance_to(player.global_position)) else 1.0)
 		State.HUNT_ECOSYSTEM:
 			_hunt_ecosystem_target()
@@ -644,7 +655,7 @@ func _hunt_ecosystem_target() -> void:
 		ecosystem_target_kind = ""
 		decision_reason = "finished_hunt_feed"
 		state = State.WANDER
-		queue_redraw()
+		_request_effect_redraw(true)
 		return
 	_move_toward(ecosystem_target.global_position, speed * 0.92)
 
@@ -975,14 +986,13 @@ func _is_navigation_position_valid(world_position: Vector2) -> bool:
 
 func _face_target(target: Vector2) -> void:
 	var direction := target - global_position
-	if direction.length_squared() > 1.0:
-		var previous_angle := facing_angle
-		var previous_side := facing_side
-		facing_angle = direction.angle()
-		if abs(direction.x) > 4.0:
-			facing_side = 1.0 if direction.x >= 0.0 else -1.0
-		if abs(angle_difference(previous_angle, facing_angle)) > 0.03 or previous_side != facing_side:
-			queue_redraw()
+	if direction.length_squared() <= 1.0:
+		return
+	facing_angle = direction.angle()
+	if abs(direction.x) > 4.0:
+		facing_side = 1.0 if direction.x >= 0.0 else -1.0
+	if abs(angle_difference(last_visual_facing_angle, facing_angle)) >= VISUAL_REDRAW_FACING_THRESHOLD or last_visual_facing_side != facing_side:
+		_request_visual_redraw()
 
 
 func _is_player_in_attack_arc() -> bool:
@@ -1038,6 +1048,40 @@ func _get_flee_origin() -> Vector2:
 	if is_instance_valid(player) and _is_torch_protecting_player(global_position.distance_to(player.global_position)):
 		return player.global_position
 	return Vector2.INF
+
+
+func _request_visual_redraw(force: bool = false) -> void:
+	if force:
+		visual_redraw_move_timer = 0.0
+		visual_redraw_count += 1
+		last_visual_facing_angle = facing_angle
+		last_visual_facing_side = facing_side
+		queue_redraw()
+		return
+	visual_redraw_move_timer += get_process_delta_time()
+	if visual_redraw_move_timer < VISUAL_REDRAW_MOVE_INTERVAL_SECONDS:
+		visual_redraw_skip_count += 1
+		return
+	visual_redraw_move_timer = 0.0
+	visual_redraw_count += 1
+	last_visual_facing_angle = facing_angle
+	last_visual_facing_side = facing_side
+	queue_redraw()
+
+
+func _request_effect_redraw(force: bool = false) -> void:
+	if force:
+		visual_redraw_effect_timer = 0.0
+		visual_redraw_count += 1
+		queue_redraw()
+		return
+	visual_redraw_effect_timer += get_process_delta_time()
+	if visual_redraw_effect_timer < VISUAL_REDRAW_EFFECT_INTERVAL_SECONDS:
+		visual_redraw_skip_count += 1
+		return
+	visual_redraw_effect_timer = 0.0
+	visual_redraw_count += 1
+	queue_redraw()
 
 
 func _pick_wander_target() -> void:
