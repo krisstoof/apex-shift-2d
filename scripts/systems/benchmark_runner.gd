@@ -255,6 +255,7 @@ func _capture_world_stats() -> Dictionary:
 	])
 	stats["vegetation"] = _capture_world_vegetation_stats()
 	stats["resource_render_mode"] = _capture_world_resource_render_mode_stats()
+	stats["creature_simulation"] = _capture_creature_simulation_stats()
 	stats["total_creatures"] = _sum_group_counts(stats["creature_counts"])
 	stats["total_resources"] = _sum_group_counts(stats["resource_counts"])
 	return stats
@@ -301,6 +302,34 @@ func _capture_ai_decision_stats_for_group(group_name: String) -> Dictionary:
 		"total_decisions": total_decisions,
 		"average_decisions_per_entity": average
 	}
+
+
+func _capture_creature_simulation_stats() -> Dictionary:
+	var stats := {
+		"near_creature_count": 0,
+		"medium_creature_count": 0,
+		"far_creature_count": 0,
+		"far_simulation_tick_count": 0,
+		"background_simulated_creature_count": 0
+	}
+	for group_name in ["small_prey", "grazer", "varnak"]:
+		for creature_value in _get_group_nodes(group_name):
+			var creature := creature_value as Node
+			if creature == null or not is_instance_valid(creature):
+				continue
+			var data := Dictionary(creature.call("get_debug_data")) if creature.has_method("get_debug_data") else {}
+			var sim_level := str(data.get("simulation_level", "unknown"))
+			match sim_level:
+				"near":
+					stats["near_creature_count"] = int(stats["near_creature_count"]) + 1
+				"medium":
+					stats["medium_creature_count"] = int(stats["medium_creature_count"]) + 1
+				"far":
+					stats["far_creature_count"] = int(stats["far_creature_count"]) + 1
+			if bool(data.get("is_background_simulated", false)):
+				stats["background_simulated_creature_count"] = int(stats["background_simulated_creature_count"]) + 1
+			stats["far_simulation_tick_count"] = int(stats["far_simulation_tick_count"]) + int(data.get("far_simulation_tick_count", data.get("background_simulation_tick_count", 0)))
+	return stats
 
 
 func _capture_world_boot_stats() -> Dictionary:
@@ -906,7 +935,7 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 			metrics["world_biome_texture_build_count"] = maxi(int(metrics["world_biome_texture_build_count"]), int(biome_cache.get("world_biome_texture_build_count", 0)))
 		else:
 			missing_metric_set["world_biome_texture_build_count"] = true
-	var missing_metrics: Array[String] = Array[String]()
+	var missing_metrics: Array[String] = []
 	for metric_name in missing_metric_set.keys():
 		missing_metrics.append(str(metric_name))
 	if not missing_metrics.is_empty():

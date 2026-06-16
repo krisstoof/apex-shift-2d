@@ -31,6 +31,9 @@ const MAX_HUNT_ROAM_TARGET_DISTANCE := 1100.0
 const VISUAL_REDRAW_MOVE_INTERVAL_SECONDS := 0.10
 const VISUAL_REDRAW_EFFECT_INTERVAL_SECONDS := 0.05
 const VISUAL_REDRAW_FACING_THRESHOLD := 0.09
+const BACKGROUND_SIMULATION_INTERVAL_SECONDS := 3.0
+const BACKGROUND_HUNGER_RATE := 0.018
+const BACKGROUND_ENERGY_RECOVERY_RATE := 0.015
 
 var health := BASE_HEALTH
 var max_health := BASE_HEALTH
@@ -82,6 +85,7 @@ var simulation_level_name := "near"
 var simulation_distance_to_player := 0.0
 var simulation_lod_timer := 0.0
 var far_simulation_timer := 0.0
+var far_simulation_tick_count := 0
 var simulation_lod_change_count := 0
 var last_simulation_level := SIMULATION_LOD.Level.NEAR
 var movement_spike_count := 0
@@ -92,6 +96,10 @@ var visual_redraw_count := 0
 var visual_redraw_skip_count := 0
 var last_visual_facing_angle := 0.0
 var last_visual_facing_side := 1.0
+var background_simulation_timer := 0.0
+var background_simulation_tick_count := 0
+var active_simulation_tick_count := 0
+var is_background_simulated := false
 
 
 func _get_event_bus() -> Node:
@@ -123,6 +131,7 @@ func _ready() -> void:
 
 
 func set_visibility_culled(should_be_visible: bool) -> void:
+	var previous_mode := "background" if _is_background_simulation_mode() else "active"
 	is_visibility_culled = not should_be_visible
 	visible = should_be_visible
 	_update_simulation_level()
@@ -142,7 +151,8 @@ func set_visibility_culled(should_be_visible: bool) -> void:
 		collision_layer = stored_collision_layer
 		collision_mask = stored_collision_mask
 		set_physics_process(true)
-		set_process(false)
+		set_process(true)
+	_on_simulation_mode_changed(previous_mode, "active" if should_be_visible else "background")
 
 
 func apply_profile(profile: Dictionary) -> void:
@@ -231,6 +241,11 @@ func get_debug_data() -> Dictionary:
 		"simulation_distance_to_player": simulation_distance_to_player,
 		"simulation_lod_change_count": simulation_lod_change_count,
 		"is_visibility_culled": is_visibility_culled,
+		"simulation_mode": "background" if _is_background_simulation_mode() else "active",
+		"is_background_simulated": is_background_simulated,
+		"background_simulation_timer": background_simulation_timer,
+		"background_simulation_tick_count": background_simulation_tick_count,
+		"active_simulation_tick_count": active_simulation_tick_count,
 		"ai_decision_interval_effective": _get_effective_ai_decision_interval(),
 		"visual_redraw_count": visual_redraw_count,
 		"visual_redraw_skip_count": visual_redraw_skip_count
@@ -309,6 +324,7 @@ func _safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
 func _physics_process(delta: float) -> void:
 	if is_dead:
 		return
+	active_simulation_tick_count += 1
 	var safe_delta := minf(delta, MAX_PHYSICS_DELTA)
 	if not is_instance_valid(player):
 		player = get_tree().get_first_node_in_group("player")
@@ -348,6 +364,15 @@ func _physics_process(delta: float) -> void:
 	_record_movement_spike(position_before_move)
 	_enforce_world_bounds()
 	_update_spatial_cell_tick(safe_delta)
+
+
+func _process(delta: float) -> void:
+	if is_dead:
+		return
+	if not _is_background_simulation_mode():
+		background_simulation_timer = 0.0
+		return
+	_run_background_simulation(delta)
 
 
 func force_ai_decision_for_tests() -> void:
@@ -434,6 +459,7 @@ func _tick_far_simulation(delta: float) -> void:
 		return
 	var tick_delta := far_simulation_timer
 	far_simulation_timer = 0.0
+	far_simulation_tick_count += 1
 	_update_night_health_bonus()
 	var hunger_growth := _get_hunger_growth_rate()
 	hunger = clamp(hunger + hunger_growth * BASE_HUNGER_TIME_SCALE * tick_delta, 0.0, 1.0)
@@ -445,11 +471,65 @@ func _tick_far_simulation(delta: float) -> void:
 	_update_spatial_cell_tick(tick_delta)
 
 
+func _is_background_simulation_mode() -> bool:
+	return is_visibility_culled and simulation_level != SIMULATION_LOD.Level.FAR
+
+
+func _run_background_simulation(delta: float) -> void:
+	background_simulation_timer += delta
+	if background_simulation_timer < BACKGROUND_SIMULATION_INTERVAL_SECONDS:
+		return
+	var elapsed := background_simulation_timer
+	background_simulation_timer = 0.0
+	background_simulation_tick_count += 1
+	is_background_simulated = true
+	_apply_background_life_tick(elapsed)
+
+
+func simulate_background_tick(elapsed_seconds: float) -> void:
+	background_simulation_tick_count += 1
+	is_background_simulated = true
+	_apply_background_life_tick(elapsed_seconds)
+
+
+func _apply_background_life_tick(elapsed_seconds: float) -> void:
+	age_seconds += elapsed_seconds
+	hunger = clamp(hunger + BACKGROUND_HUNGER_RATE * elapsed_seconds, 0.0, 1.0)
+	energy = clamp(energy + BACKGROUND_ENERGY_RECOVERY_RATE * elapsed_seconds, 0.0, 1.0)
+	attack_cooldown = max(attack_cooldown - elapsed_seconds, 0.0)
+	target_lock_time = max(target_lock_time - elapsed_seconds, 0.0)
+	_clear_invalid_background_targets()
+	if hunger > _get_starving_threshold():
+		state = State.WANDER
+
+
+func _clear_invalid_background_targets() -> void:
+	if not is_instance_valid(scared_fire):
+		scared_fire = null
+	if not is_instance_valid(ecosystem_target):
+		ecosystem_target = null
+		ecosystem_target_kind = ""
+	if not is_instance_valid(meat_target):
+		meat_target = null
+	if not is_instance_valid(player):
+		player = get_tree().get_first_node_in_group("player")
+
+
+func _on_simulation_mode_changed(_previous_mode: String, new_mode: String) -> void:
+	is_background_simulated = new_mode == "background"
+	background_simulation_timer = 0.0
+	if new_mode == "active":
+		_clear_invalid_background_targets()
+		_request_visual_redraw(true)
+
+
 func get_ai_performance_debug() -> Dictionary:
 	return {
 		"decision_interval": ai_decision_interval,
 		"decision_timer": ai_decision_timer,
 		"decision_count": ai_decision_count,
+		"far_simulation_tick_count": far_simulation_tick_count,
+		"background_simulation_tick_count": background_simulation_tick_count,
 		"movement_spike_count": movement_spike_count,
 		"max_movement_spike_distance": max_movement_spike_distance
 	}

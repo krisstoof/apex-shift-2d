@@ -37,4 +37,4 @@ static func get_medium_spatial_interval(base_interval: float, config: Dictionary
 
 
 static func get_far_update_interval(config: Dictionary) -> float:
-	return float(config.get("far_update_interval_seconds", 1.0))
+	return float(config.get("far_update_interval_seconds", 3.0))

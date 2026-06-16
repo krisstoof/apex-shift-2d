@@ -98,7 +98,7 @@ const ANIMAL_LOOT := {
 const CREATURE_SIMULATION_LOD := {
 	"near_distance": 900.0,
 	"medium_distance": 1800.0,
-	"far_update_interval_seconds": 1.0,
+	"far_update_interval_seconds": 3.0,
 	"medium_ai_interval_multiplier": 3.0,
 	"medium_spatial_update_multiplier": 2.0,
 	"far_hunger_time_scale": 1.0,
