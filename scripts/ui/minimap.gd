@@ -319,8 +319,6 @@ func _draw_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:
 func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for landmark in landmarks:
 		var landmark_type := str(landmark.get("type", ""))
-		if landmark_type in ["pond", "hill"]:
-			continue
 		var world_position := Vector2(landmark.get("position", Vector2.ZERO))
 		var radius_world := float(landmark.get("radius", 80.0))
 		if not _intersects_view_circle(world_position, radius_world, view_world_rect):
@@ -330,7 +328,13 @@ func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 		var radius := _get_landmark_marker_radius(center, desired_radius, content_rect, landmark)
 		if radius < 2.0:
 			continue
-		_draw_landmark_marker(center, radius, landmark)
+		match landmark_type:
+			"pond":
+				_draw_pond_marker(center, radius, landmark)
+			"hill":
+				_draw_hill_marker(center, radius, landmark)
+			_:
+				_draw_landmark_marker(center, radius, landmark)
 
 
 func _draw_landmark_marker(center: Vector2, radius: float, _landmark: Dictionary) -> void:

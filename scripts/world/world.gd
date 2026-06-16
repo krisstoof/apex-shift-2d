@@ -1965,12 +1965,30 @@ func _spawn_resources() -> void:
 	)
 	await _spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
 	await _spawn_resource_kind("dry_tree", int(ceil(float(tree_count) * 0.12)), used_positions, player_position)
+	await _spawn_resource_kind_in_biome(
+		"dry_tree",
+		WORLD_CONFIG.get_redfang_extra_dry_tree_count(),
+		"redfang_wilds",
+		used_positions,
+		player_position,
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.78,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.4, 320)
+	)
 	await _yield_initial_boot_step()
 
 	_set_boot_progress("Growing vegetation: rocks and bushes...", 0.50)
 	await _spawn_resource_kind("rock", WORLD_CONFIG.get_rock_count(), used_positions, player_position)
 	await _spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
 	await _spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
+	await _spawn_resource_kind_in_biome(
+		"dry_bush",
+		WORLD_CONFIG.get_redfang_extra_dry_bush_count(),
+		"redfang_wilds",
+		used_positions,
+		player_position,
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.62,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.4, 320)
+	)
 	await _spawn_resource_kind("small_bush", WORLD_CONFIG.get_small_bush_count(), used_positions, player_position)
 	await _spawn_resource_kind("berry_bush", WORLD_CONFIG.get_berry_bush_count(), used_positions, player_position)
 	await _yield_initial_boot_step()

@@ -336,12 +336,18 @@ func _draw_campfires(map_rect: Rect2) -> void:
 func _draw_landmarks(map_rect: Rect2) -> void:
 	for landmark in landmarks:
 		var landmark_type := str(landmark.get("type", ""))
-		if landmark_type in ["pond", "hill"]:
-			continue
 		var center := _world_to_map(Vector2(landmark.get("position", Vector2.ZERO)), map_rect)
 		var radius := _world_radius_to_map(float(landmark.get("radius", 80.0)), map_rect)
-		_draw_landmark_marker(center, radius, landmark)
-		_draw_landmark_label(center, _get_landmark_label(landmark), Color(0.96, 0.86, 0.58))
+		match landmark_type:
+			"pond":
+				_draw_pond_marker(center, radius, landmark)
+				_draw_landmark_label(center, _get_landmark_label(landmark), Color(0.68, 0.92, 1.0))
+			"hill":
+				_draw_hill_marker(center, radius, landmark)
+				_draw_landmark_label(center, _get_landmark_label(landmark), Color(0.95, 0.86, 0.58))
+			_:
+				_draw_landmark_marker(center, radius, landmark)
+				_draw_landmark_label(center, _get_landmark_label(landmark), Color(0.96, 0.86, 0.58))
 
 
 func _draw_landmark_marker(center: Vector2, radius: float, _landmark: Dictionary) -> void:
@@ -506,7 +512,7 @@ func _get_landmark_label(landmark: Dictionary) -> String:
 
 
 func _draw_map_legend(map_rect: Rect2) -> void:
-	var legend_rect := Rect2(map_rect.position + Vector2(14.0, 14.0), Vector2(178.0, 196.0))
+	var legend_rect := Rect2(map_rect.position + Vector2(14.0, 14.0), Vector2(190.0, 236.0))
 	draw_rect(legend_rect, Color(0.025, 0.032, 0.028, 0.78), true)
 	draw_rect(legend_rect, Color(0.70, 0.74, 0.66, 0.34), false, 1.0)
 	var font := get_theme_default_font()
@@ -518,8 +524,10 @@ func _draw_map_legend(map_rect: Rect2) -> void:
 	_draw_legend_entry(legend_rect.position + Vector2(12.0, 120.0), "Highland", TERRAIN_ZONE_COLORS["highland"])
 	_draw_legend_entry(legend_rect.position + Vector2(12.0, 140.0), "Pond / wetland", Color(0.12, 0.47, 0.56))
 	_draw_legend_entry(legend_rect.position + Vector2(12.0, 158.0), "Ridge / rocky", Color(0.48, 0.45, 0.28))
-	_draw_legend_entry(legend_rect.position + Vector2(12.0, 176.0), "Varnak", Color(0.88, 0.22, 0.16))
-	_draw_legend_entry(legend_rect.position + Vector2(92.0, 176.0), "Campfire", Color(1.0, 0.46, 0.10))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 176.0), "Pond landmark", Color(0.12, 0.47, 0.56))
+	_draw_legend_entry(legend_rect.position + Vector2(12.0, 194.0), "Hill landmark", Color(0.58, 0.55, 0.32))
+	_draw_legend_entry(legend_rect.position + Vector2(92.0, 176.0), "Varnak", Color(0.88, 0.22, 0.16))
+	_draw_legend_entry(legend_rect.position + Vector2(92.0, 194.0), "Campfire", Color(1.0, 0.46, 0.10))
 	if _should_show_resource_markers():
 		_draw_legend_entry(legend_rect.position + Vector2(92.0, 158.0), "Resource", Color(0.67, 0.95, 0.34))
 

@@ -41,6 +41,10 @@ const SMALL_BUSH_COUNT := 28
 const BERRY_BUSH_COUNT := 14
 const GRASS_PATCH_COUNT := 72
 const DENSE_GRASS_COUNT := 34
+const REDFANG_EXTRA_DRY_TREE_COUNT := 30
+const REDFANG_EXTRA_DRY_BUSH_COUNT := 42
+const REDFANG_EXTRA_DRY_TREE_COUNT_MAX := 70
+const REDFANG_EXTRA_DRY_BUSH_COUNT_MAX := 95
 const TREE_COUNT_MAX := 170
 const WESTWOOD_EXTRA_CONIFER_COUNT_MAX := 130
 const ROCK_COUNT_MAX := 85
@@ -374,7 +378,7 @@ const BIOME_ZONES := [
 		"bush_weight": 2.5,
 		"dry_bush_weight": 13.0,
 		"berry_bush_weight": 0.2,
-		"grass_weight": 1.15,
+		"grass_weight": 0.9,
 		"landmark_weights": {
 			"hill": 1.60,
 			"pond": 0.70
@@ -440,6 +444,14 @@ static func get_grass_patch_count() -> int:
 
 static func get_dense_grass_count() -> int:
 	return scale_count(DENSE_GRASS_COUNT, DECORATIVE_VEGETATION_DENSITY_MULTIPLIER, DENSE_GRASS_COUNT_MAX)
+
+
+static func get_redfang_extra_dry_tree_count() -> int:
+	return scale_count(REDFANG_EXTRA_DRY_TREE_COUNT, RESOURCE_DENSITY_MULTIPLIER, REDFANG_EXTRA_DRY_TREE_COUNT_MAX)
+
+
+static func get_redfang_extra_dry_bush_count() -> int:
+	return scale_count(REDFANG_EXTRA_DRY_BUSH_COUNT, RESOURCE_DENSITY_MULTIPLIER, REDFANG_EXTRA_DRY_BUSH_COUNT_MAX)
 
 
 static func get_varnak_target_count() -> int:
