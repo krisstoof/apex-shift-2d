@@ -57,6 +57,11 @@ func _draw() -> void:
 			var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
 			if points.size() < 3:
 				continue
+			var bounds := _get_polygon_bounds(points)
+			var world_area := maxf(shape_map.world_rect.size.x * shape_map.world_rect.size.y, 1.0)
+			var bounds_area := bounds.size.x * bounds.size.y
+			if str(polygon.get("terrain_id", "land")) not in ["deep_ocean", "shallow_water"] and bounds_area / world_area > 0.85:
+				continue
 			if not _polygon_intersects_rect(points, visible_rect):
 				continue
 			draw_colored_polygon(points, _get_layer_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
@@ -73,8 +78,7 @@ func _get_layer_draw_order(polygons_by_layer: Dictionary) -> Array[String]:
 	var ordered: Array[String] = [
 		"terrain:deep_ocean",
 		"terrain:shallow_water",
-		"terrain:shore",
-		"terrain:pond"
+		"terrain:shore"
 	]
 	var biome_layers: Array[String] = []
 	var other_layers: Array[String] = []
@@ -87,9 +91,29 @@ func _get_layer_draw_order(polygons_by_layer: Dictionary) -> Array[String]:
 		else:
 			other_layers.append(layer)
 	biome_layers.sort()
-	other_layers.sort()
+	var pond_layers: Array[String] = []
+	var highland_layers: Array[String] = []
+	var rocky_layers: Array[String] = []
+	var wetland_layers: Array[String] = []
+	var remaining_other: Array[String] = []
+	for layer in other_layers:
+		if layer.ends_with("|terrain:pond") or layer == "terrain:pond":
+			pond_layers.append(layer)
+		elif layer.ends_with("|terrain:highland"):
+			highland_layers.append(layer)
+		elif layer.ends_with("|terrain:rocky_patch"):
+			rocky_layers.append(layer)
+		elif layer.ends_with("|terrain:wetland"):
+			wetland_layers.append(layer)
+		else:
+			remaining_other.append(layer)
 	ordered.append_array(biome_layers)
-	ordered.append_array(other_layers)
+	ordered.append_array(wetland_layers)
+	ordered.append_array(rocky_layers)
+	ordered.append_array(highland_layers)
+	ordered.append_array(pond_layers)
+	remaining_other.sort()
+	ordered.append_array(remaining_other)
 	return ordered
 
 func _polygon_intersects_rect(points: PackedVector2Array, rect: Rect2) -> bool:

@@ -796,8 +796,7 @@ func _get_shape_map_draw_order(polygons_by_layer: Dictionary) -> Array[String]:
 	var ordered: Array[String] = [
 		"terrain:deep_ocean",
 		"terrain:shallow_water",
-		"terrain:shore",
-		"terrain:pond"
+		"terrain:shore"
 	]
 	var biome_layers: Array[String] = []
 	var other_layers: Array[String] = []
@@ -810,9 +809,29 @@ func _get_shape_map_draw_order(polygons_by_layer: Dictionary) -> Array[String]:
 		else:
 			other_layers.append(layer)
 	biome_layers.sort()
-	other_layers.sort()
+	var wetland_layers: Array[String] = []
+	var rocky_layers: Array[String] = []
+	var highland_layers: Array[String] = []
+	var pond_layers: Array[String] = []
+	var remaining_other: Array[String] = []
+	for layer in other_layers:
+		if layer.ends_with("|terrain:wetland"):
+			wetland_layers.append(layer)
+		elif layer.ends_with("|terrain:rocky_patch"):
+			rocky_layers.append(layer)
+		elif layer.ends_with("|terrain:highland"):
+			highland_layers.append(layer)
+		elif layer.ends_with("|terrain:pond") or layer == "terrain:pond":
+			pond_layers.append(layer)
+		else:
+			remaining_other.append(layer)
 	ordered.append_array(biome_layers)
-	ordered.append_array(other_layers)
+	ordered.append_array(wetland_layers)
+	ordered.append_array(rocky_layers)
+	ordered.append_array(highland_layers)
+	ordered.append_array(pond_layers)
+	remaining_other.sort()
+	ordered.append_array(remaining_other)
 	return ordered
 
 

@@ -17,6 +17,9 @@ var last_polygon_count := 0
 var last_detail_count := 0
 var last_key := ""
 var biome_shape_map_uses_convex_hull := false
+var biome_shape_map_contour_mode := "marching_squares"
+var biome_shape_map_rejected_polygon_count := 0
+var biome_shape_map_self_crossing_guard_enabled := true
 
 func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topography: RefCounted, assigned_seed: int) -> void:
 	var start_ms := Time.get_ticks_msec()
@@ -56,7 +59,12 @@ func get_debug_data() -> Dictionary:
 		"biome_shape_map_uses_convex_hull": biome_shape_map_uses_convex_hull,
 		"biome_shape_map_layer_count": polygons_by_layer.size(),
 		"biome_shape_map_polygon_count_by_layer": _get_polygon_count_by_layer(),
-		"biome_shape_map_largest_polygon_cell_count_by_layer": _get_largest_polygon_cell_count_by_layer()
+		"biome_shape_map_largest_polygon_cell_count_by_layer": _get_largest_polygon_cell_count_by_layer(),
+		"biome_shape_map_contour_mode": biome_shape_map_contour_mode,
+		"biome_shape_map_rejected_polygon_count": biome_shape_map_rejected_polygon_count,
+		"biome_shape_map_self_crossing_guard_enabled": biome_shape_map_self_crossing_guard_enabled,
+		"biome_shape_map_largest_polygon_bounds_by_layer": _get_largest_polygon_bounds_by_layer(),
+		"biome_shape_map_largest_polygon_area_ratio_by_layer": _get_largest_polygon_area_ratio_by_layer()
 	}
 
 func _build_sample_grids(world_generator: RefCounted, world_topography: RefCounted) -> void:
@@ -95,22 +103,32 @@ func _build_connected_region_polygons() -> void:
 			var component := _flood_fill_layer(x, y, layer_id, visited)
 			if component.size() < int(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_min_region_cells", 4)):
 				continue
-			var polygon := _build_boundary_polygon(component)
-			if polygon.size() < 3:
-				continue
-			polygon = _smooth_polygon(polygon)
-			polygon = _simplify_polygon(polygon, sample_size * 0.35)
-			if polygon.size() > int(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_max_points_per_polygon", 192)):
-				polygon = _downsample_polygon(polygon, int(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_max_points_per_polygon", 192)))
-			if not polygons_by_layer.has(layer_id):
-				polygons_by_layer[layer_id] = []
-			Array(polygons_by_layer[layer_id]).append({
-				"layer_id": layer_id,
-				"biome_id": _get_biome_id_from_layer(layer_id),
-				"terrain_id": _get_terrain_id_from_layer(layer_id),
-				"points": polygon,
-				"cell_count": component.size()
-			})
+			for polygon in _build_boundary_polygons(component, layer_id):
+				if polygon.size() < 3:
+					continue
+				var area := _polygon_area(polygon)
+				if area < sample_size * sample_size:
+					biome_shape_map_rejected_polygon_count += 1
+					continue
+				var bounds: Rect2 = _get_polygon_bounds(polygon)
+				var world_area := maxf(world_rect.size.x * world_rect.size.y, 1.0)
+				var bounds_ratio := (bounds.size.x * bounds.size.y) / world_area
+				if str(_get_terrain_id_from_layer(layer_id)) not in ["deep_ocean", "shallow_water"] and bounds_ratio > 0.85:
+					biome_shape_map_rejected_polygon_count += 1
+					continue
+				polygon = _smooth_polygon(polygon)
+				polygon = _simplify_polygon(polygon, sample_size * 0.35)
+				if polygon.size() > int(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_max_points_per_polygon", 192)):
+					polygon = _downsample_polygon(polygon, int(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_max_points_per_polygon", 192)))
+				if not polygons_by_layer.has(layer_id):
+					polygons_by_layer[layer_id] = []
+				Array(polygons_by_layer[layer_id]).append({
+					"layer_id": layer_id,
+					"biome_id": _get_biome_id_from_layer(layer_id),
+					"terrain_id": _get_terrain_id_from_layer(layer_id),
+					"points": polygon,
+					"cell_count": component.size()
+				})
 			created += 1
 			if created >= max_polygons:
 				return
@@ -173,76 +191,124 @@ func _flood_fill_layer(start_x: int, start_y: int, layer_id: String, visited: Di
 		stack.append(Vector2i(cell.x, cell.y - 1))
 	return result
 
-func _build_boundary_polygon(cells: Array[Vector2i]) -> PackedVector2Array:
-	var edge_counts: Dictionary = {}
+func _build_boundary_polygons(cells: Array[Vector2i], layer_id: String) -> Array[PackedVector2Array]:
+	var min_x := grid_size.x
+	var min_y := grid_size.y
+	var max_x := 0
+	var max_y := 0
 	for cell in cells:
-		var x := cell.x
-		var y := cell.y
-		_add_edge(edge_counts, Vector2i(x, y), Vector2i(x + 1, y))
-		_add_edge(edge_counts, Vector2i(x + 1, y), Vector2i(x + 1, y + 1))
-		_add_edge(edge_counts, Vector2i(x + 1, y + 1), Vector2i(x, y + 1))
-		_add_edge(edge_counts, Vector2i(x, y + 1), Vector2i(x, y))
-	var boundary_edges: Array[Array] = []
-	for edge_key in edge_counts.keys():
-		if int(edge_counts[edge_key]) != 1:
-			continue
-		var parts := str(edge_key).split(";")
-		if parts.size() != 2:
-			continue
-		boundary_edges.append([_parse_grid_point(parts[0]), _parse_grid_point(parts[1])])
-	var loop := _stitch_longest_loop(boundary_edges)
-	if loop.size() < 3:
-		return PackedVector2Array()
-	var result := PackedVector2Array()
-	for grid_point in loop:
-		var world_pos := world_rect.position + Vector2(float(grid_point.x) * sample_size, float(grid_point.y) * sample_size)
-		result.append(_jitter(world_pos))
-	return result
+		min_x = min(min_x, cell.x)
+		min_y = min(min_y, cell.y)
+		max_x = max(max_x, cell.x)
+		max_y = max(max_y, cell.y)
+	min_x = maxi(min_x - 1, 0)
+	min_y = maxi(min_y - 1, 0)
+	max_x = mini(max_x + 1, grid_size.x - 1)
+	max_y = mini(max_y + 1, grid_size.y - 1)
+	var mask := {}
+	for cell in cells:
+		mask[cell] = true
+	var segments: Array[Array] = []
+	for y in range(min_y, max_y + 1):
+		for x in range(min_x, max_x + 1):
+			var tl := _is_mask_cell(mask, x, y, layer_id)
+			var tr := _is_mask_cell(mask, x + 1, y, layer_id)
+			var br := _is_mask_cell(mask, x + 1, y + 1, layer_id)
+			var bl := _is_mask_cell(mask, x, y + 1, layer_id)
+			var case_index := 0
+			if tl: case_index |= 8
+			if tr: case_index |= 4
+			if br: case_index |= 2
+			if bl: case_index |= 1
+			segments.append_array(_marching_squares_segments(x, y, case_index))
+	return _stitch_segments_to_loops(segments)
 
-func _add_edge(edge_counts: Dictionary, a: Vector2i, b: Vector2i) -> void:
-	var key := _edge_key(a, b)
-	edge_counts[key] = int(edge_counts.get(key, 0)) + 1
+func _is_mask_cell(mask: Dictionary, x: int, y: int, _layer_id: String) -> bool:
+	if x < 0 or y < 0 or x >= grid_size.x or y >= grid_size.y:
+		return false
+	return mask.has(Vector2i(x, y))
 
-func _edge_key(a: Vector2i, b: Vector2i) -> String:
-	if a.x < b.x or (a.x == b.x and a.y <= b.y):
-		return "%d,%d;%d,%d" % [a.x, a.y, b.x, b.y]
-	return "%d,%d;%d,%d" % [b.x, b.y, a.x, a.y]
+func _marching_squares_segments(x: int, y: int, case_index: int) -> Array[Array]:
+	var p_tl := _grid_to_world_point(x, y)
+	var p_tr := _grid_to_world_point(x + 1, y)
+	var p_br := _grid_to_world_point(x + 1, y + 1)
+	var p_bl := _grid_to_world_point(x, y + 1)
+	var top := (p_tl + p_tr) * 0.5
+	var right := (p_tr + p_br) * 0.5
+	var bottom := (p_bl + p_br) * 0.5
+	var left := (p_tl + p_bl) * 0.5
+	match case_index:
+		0, 15:
+			return []
+		1:
+			return [[left, bottom]]
+		2:
+			return [[bottom, right]]
+		3:
+			return [[left, right]]
+		4:
+			return [[top, right]]
+		5:
+			return [[top, left], [bottom, right]]
+		6:
+			return [[top, bottom]]
+		7:
+			return [[top, left]]
+		8:
+			return [[top, left]]
+		9:
+			return [[top, bottom]]
+		10:
+			return [[top, right], [left, bottom]]
+		11:
+			return [[top, right]]
+		12:
+			return [[left, right]]
+		13:
+			return [[bottom, right]]
+		14:
+			return [[left, bottom]]
+	return []
 
-func _parse_grid_point(text: String) -> Vector2i:
-	var parts := text.split(",")
-	return Vector2i(int(parts[0]), int(parts[1]))
-
-func _stitch_longest_loop(edges: Array[Array]) -> Array[Vector2i]:
-	var adjacency: Dictionary = {}
-	for edge in edges:
-		var a: Vector2i = edge[0]
-		var b: Vector2i = edge[1]
-		if not adjacency.has(a):
-			adjacency[a] = []
-		if not adjacency.has(b):
-			adjacency[b] = []
-		Array(adjacency[a]).append(b)
-		Array(adjacency[b]).append(a)
-	var best_loop: Array[Vector2i] = []
-	for start in adjacency.keys():
-		var loop: Array[Vector2i] = []
-		var current: Vector2i = start
-		var previous := Vector2i(2147483647, 2147483647)
-		for _i in range(edges.size() + 8):
-			loop.append(current)
-			var neighbors := Array(adjacency.get(current, []))
-			if neighbors.is_empty():
+func _stitch_segments_to_loops(segments: Array[Array]) -> Array[PackedVector2Array]:
+	var remaining: Array[Array] = segments.duplicate(true)
+	var loops: Array[PackedVector2Array] = []
+	while not remaining.is_empty():
+		var start_segment: Array = remaining.pop_back()
+		var loop_points: Array[Vector2] = [start_segment[0], start_segment[1]]
+		var current: Vector2 = start_segment[1]
+		var guard := 0
+		while guard < 2048:
+			guard += 1
+			var found_index := -1
+			for i in range(remaining.size()):
+				var seg: Array = remaining[i]
+				if seg[0].is_equal_approx(current):
+					found_index = i
+					current = seg[1]
+					break
+				if seg[1].is_equal_approx(current):
+					found_index = i
+					current = seg[0]
+					break
+			if found_index == -1:
 				break
-			var next: Vector2i = neighbors[0]
-			if neighbors.size() > 1 and next == previous:
-				next = neighbors[1]
-			previous = current
-			current = next
-			if current == start:
+			var seg2: Array = remaining[found_index]
+			remaining.remove_at(found_index)
+			if not loop_points.back().is_equal_approx(seg2[0]):
+				if loop_points.back().is_equal_approx(seg2[1]):
+					loop_points.append(seg2[0])
+				else:
+					loop_points.append(seg2[0])
+			loop_points.append(current)
+			if current.is_equal_approx(loop_points[0]):
 				break
-		if loop.size() > best_loop.size():
-			best_loop = loop
-	return best_loop
+		var poly := PackedVector2Array()
+		for p in loop_points:
+			poly.append(p)
+		if poly.size() >= 3:
+			loops.append(poly)
+	return loops
 
 func _smooth_polygon(points: PackedVector2Array) -> PackedVector2Array:
 	var passes := int(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_smoothing_passes", 2))
@@ -301,6 +367,9 @@ func _get_largest_polygon_cell_count_by_layer() -> Dictionary:
 func _grid_to_world_center(x: int, y: int) -> Vector2:
 	return world_rect.position + Vector2((float(x) + 0.5) * sample_size, (float(y) + 0.5) * sample_size)
 
+func _grid_to_world_point(x: int, y: int) -> Vector2:
+	return world_rect.position + Vector2(float(x) * sample_size, float(y) * sample_size)
+
 func _jitter(world_pos: Vector2) -> Vector2:
 	var amount := float(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_edge_jitter_world", 26.0))
 	var h := float(abs(_hash_int(int(world_pos.x), int(world_pos.y)))) / 2147483647.0
@@ -336,3 +405,54 @@ func _count_polygons() -> int:
 	for layer_id in polygons_by_layer.keys():
 		count += Array(polygons_by_layer[layer_id]).size()
 	return count
+
+func _polygon_area(points: PackedVector2Array) -> float:
+	var area := 0.0
+	for i in range(points.size()):
+		var a := points[i]
+		var b := points[(i + 1) % points.size()]
+		area += a.x * b.y - b.x * a.y
+	return absf(area) * 0.5
+
+func _get_polygon_bounds_by_layer() -> Dictionary:
+	var result: Dictionary = {}
+	for layer_id in polygons_by_layer.keys():
+		var largest := Rect2()
+		var found := false
+		for polygon_value in Array(polygons_by_layer[layer_id]):
+			var polygon := Dictionary(polygon_value)
+			var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
+			if points.is_empty():
+				continue
+			var bounds: Rect2 = _get_polygon_bounds(points)
+			if not found or bounds.size.x * bounds.size.y > largest.size.x * largest.size.y:
+				largest = bounds
+				found = true
+		result[layer_id] = largest
+	return result
+
+func _get_largest_polygon_bounds_by_layer() -> Dictionary:
+	return _get_polygon_bounds_by_layer()
+
+func _get_largest_polygon_area_ratio_by_layer() -> Dictionary:
+	var result: Dictionary = {}
+	var world_area := maxf(world_rect.size.x * world_rect.size.y, 1.0)
+	for layer_id in polygons_by_layer.keys():
+		var largest_ratio := 0.0
+		for polygon_value in Array(polygons_by_layer[layer_id]):
+			var polygon := Dictionary(polygon_value)
+			var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
+			if points.is_empty():
+				continue
+			var bounds: Rect2 = _get_polygon_bounds(points)
+			largest_ratio = maxf(largest_ratio, (bounds.size.x * bounds.size.y) / world_area)
+		result[layer_id] = largest_ratio
+	return result
+
+func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
+	if points.is_empty():
+		return Rect2()
+	var rect := Rect2(points[0], Vector2.ZERO)
+	for point in points:
+		rect = rect.expand(point)
+	return rect
