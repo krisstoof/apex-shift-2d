@@ -170,6 +170,11 @@ var varnak_spawn_sync_skipped_by_cooldown_count := 0
 var varnak_spawn_sync_last_requested := 0
 var varnak_spawn_sync_last_failed := 0
 var varnak_spawn_sync_last_success := 0
+var creature_spawn_rejection_debug := {
+	"small_prey": {},
+	"grazer": {},
+	"varnak": {}
+}
 var world_seed := 0
 var world_layout: Dictionary = {}
 var world_generator: RefCounted
@@ -947,6 +952,9 @@ func enable_integration_test_mode() -> void:
 	varnak_spawn_sync_last_requested = 0
 	varnak_spawn_sync_last_failed = 0
 	varnak_spawn_sync_last_success = 0
+	_reset_creature_spawn_rejection_debug("small_prey")
+	_reset_creature_spawn_rejection_debug("grazer")
+	_reset_creature_spawn_rejection_debug("varnak")
 
 
 func spawn_resource_for_tests(resource_kind: String, world_position: Vector2) -> Node:
@@ -3407,6 +3415,7 @@ func _sync_visible_small_prey() -> void:
 	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
 		small_prey_spawn_sync_skipped_by_cooldown_count += 1
 		return
+	_reset_creature_spawn_rejection_debug("small_prey")
 	small_prey_spawn_sync_attempt_count += 1
 	var player_position := _get_player_position()
 	var player_biome := _get_creature_spawn_biome_for_position(player_position)
@@ -3444,9 +3453,10 @@ func _sync_visible_small_prey() -> void:
 	small_prey_spawn_sync_last_failed = failed_count
 	small_prey_spawn_sync_last_success = spawned
 	if not small_prey_failed_spawn_warning_printed:
-		push_warning("Failed to spawn %d out of %d SmallPrey. Retrying in %.1f seconds." % [
+		push_warning("Failed to spawn %d out of %d SmallPrey. Rejections: %s. Retrying in %.1f seconds." % [
 			failed_count,
 			requested_count,
+			str(creature_spawn_rejection_debug.get("small_prey", {})),
 			SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS
 		])
 		small_prey_failed_spawn_warning_printed = true
@@ -3488,6 +3498,7 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 		var offset := Vector2.RIGHT.rotated(small_prey_rng.randf_range(0.0, TAU)) * small_prey_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):
+			_count_creature_spawn_rejection("small_prey", "outside_biome")
 			continue
 		if not _is_valid_small_prey_position(candidate, used_positions, player_position, spawn_ring.x):
 			continue
@@ -3517,6 +3528,7 @@ func _try_spawn_small_prey_near_player(biome: Dictionary, player_position: Vecto
 			candidate.x = clamp(candidate.x, -player_limits.x, player_limits.x)
 			candidate.y = clamp(candidate.y, -player_limits.y, player_limits.y)
 			if not _is_point_in_biome(candidate, biome):
+				_count_creature_spawn_rejection("small_prey", "outside_biome")
 				continue
 			if not _is_valid_small_prey_position(candidate, used_positions, player_position, spawn_ring.x):
 				continue
@@ -3532,7 +3544,8 @@ func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vec
 		used_positions,
 		SMALL_PREY_MIN_DISTANCE,
 		player_position,
-		player_safe_distance
+		player_safe_distance,
+		"small_prey"
 	)
 
 
@@ -3571,6 +3584,28 @@ func _get_creature_spawn_biome_for_position(target_position: Vector2) -> Diction
 			nearest_distance = distance
 			nearest_biome = biome
 	return nearest_biome
+
+
+func _reset_creature_spawn_rejection_debug(creature_kind: String) -> void:
+	creature_spawn_rejection_debug[creature_kind] = {
+		"outside_world_rect": 0,
+		"blocked_by_water": 0,
+		"too_close_to_player": 0,
+		"too_close_to_existing_creature": 0,
+		"outside_biome": 0,
+		"blocked_by_navigation": 0,
+		"invalid_bounds": 0,
+		"attempted": 0,
+		"accepted": 0
+	}
+
+
+func _count_creature_spawn_rejection(creature_kind: String, reason: String) -> void:
+	if not creature_spawn_rejection_debug.has(creature_kind):
+		creature_spawn_rejection_debug[creature_kind] = {}
+	var data := Dictionary(creature_spawn_rejection_debug[creature_kind])
+	data[reason] = int(data.get(reason, 0)) + 1
+	creature_spawn_rejection_debug[creature_kind] = data
 
 
 func _get_weighted_biome_for_resource(resource_kind: String) -> Dictionary:
@@ -3615,9 +3650,11 @@ func _find_valid_creature_position_in_biome(
 	max_attempts: int = 96
 ) -> Vector2:
 	if biome.is_empty():
+		_count_creature_spawn_rejection("small_prey", "invalid_bounds")
 		return Vector2.INF
 	var bounds := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
 	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		_count_creature_spawn_rejection("small_prey", "invalid_bounds")
 		return Vector2.INF
 	var effective_attempts := maxi(max_attempts, WORLD_CONFIG.get_resource_spawn_attempts())
 	for _attempt in effective_attempts:
@@ -3632,7 +3669,8 @@ func _find_valid_creature_position_in_biome(
 			used_positions,
 			min_distance,
 			player_position,
-			player_safe_distance
+			player_safe_distance,
+			"small_prey"
 		):
 			continue
 		return candidate
@@ -3855,6 +3893,7 @@ func _spawn_initial_grazers() -> void:
 func _sync_visible_grazers() -> void:
 	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
 		return
+	_reset_creature_spawn_rejection_debug("grazer")
 	var player_position := _get_player_position()
 	var player_biome := _get_creature_spawn_biome_for_position(player_position)
 	if player_biome.is_empty():
@@ -3879,7 +3918,11 @@ func _sync_visible_grazers() -> void:
 		if event_bus:
 			event_bus.post_message("%d Grazer%s entered the ecosystem" % [spawned, "" if spawned == 1 else "s"])
 	elif spawned < spawn_budget:
-		push_warning("Failed to spawn %d out of %d Grazers" % [spawn_budget - spawned, spawn_budget])
+		push_warning("Failed to spawn %d out of %d Grazers. Rejections: %s" % [
+			spawn_budget - spawned,
+			spawn_budget,
+			str(creature_spawn_rejection_debug.get("grazer", {}))
+		])
 
 
 func _get_desired_grazer_count(biome_state: Dictionary) -> int:
@@ -3922,6 +3965,7 @@ func _get_initial_grazer_biomes() -> Array[Dictionary]:
 func _try_spawn_grazer_in_biome(biome: Dictionary, player_position: Vector2, used_positions: Array[Vector2]) -> bool:
 	var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
 	if spawn_area.size.x <= 0.0 or spawn_area.size.y <= 0.0:
+		_count_creature_spawn_rejection("grazer", "invalid_bounds")
 		return false
 	var effective_attempts := WORLD_CONFIG.get_resource_spawn_attempts()
 	for _attempt in effective_attempts:
@@ -3930,6 +3974,7 @@ func _try_spawn_grazer_in_biome(biome: Dictionary, player_position: Vector2, use
 			grazer_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
 		if not _is_point_in_biome(candidate, biome):
+			_count_creature_spawn_rejection("grazer", "outside_biome")
 			continue
 		if not _is_valid_initial_grazer_position(candidate, used_positions, player_position):
 			continue
@@ -3948,6 +3993,7 @@ func _try_spawn_grazer_near_player(biome: Dictionary, player_position: Vector2, 
 		var offset := Vector2.RIGHT.rotated(grazer_rng.randf_range(0.0, TAU)) * grazer_rng.randf_range(spawn_ring.x, spawn_ring.y)
 		var candidate := player_position + offset
 		if not _is_point_in_biome(candidate, biome):
+			_count_creature_spawn_rejection("grazer", "outside_biome")
 			continue
 		if not _is_valid_grazer_position(candidate, used_positions, player_position, spawn_ring.x):
 			continue
@@ -3970,16 +4016,35 @@ func _try_spawn_grazer_near_player(biome: Dictionary, player_position: Vector2, 
 	return false
 
 
-func _is_valid_creature_spawn_position(candidate: Vector2, used_positions: Array[Vector2], min_distance: float, player_position: Vector2, player_safe_distance: float) -> bool:
+func _is_valid_creature_spawn_position(
+	candidate: Vector2,
+	used_positions: Array[Vector2],
+	min_distance: float,
+	player_position: Vector2,
+	player_safe_distance: float,
+	creature_kind: String = ""
+) -> bool:
+	if creature_kind != "":
+		_count_creature_spawn_rejection(creature_kind, "attempted")
 	if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
+		if creature_kind != "":
+			_count_creature_spawn_rejection(creature_kind, "outside_world_rect")
 		return false
 	if is_creature_spawn_blocked_by_water(candidate):
+		if creature_kind != "":
+			_count_creature_spawn_rejection(creature_kind, "blocked_by_water")
 		return false
 	if candidate.distance_to(player_position) < player_safe_distance:
+		if creature_kind != "":
+			_count_creature_spawn_rejection(creature_kind, "too_close_to_player")
 		return false
 	for used_position in used_positions:
 		if candidate.distance_to(used_position) < min_distance:
+			if creature_kind != "":
+				_count_creature_spawn_rejection(creature_kind, "too_close_to_existing_creature")
 			return false
+	if creature_kind != "":
+		_count_creature_spawn_rejection(creature_kind, "accepted")
 	return true
 
 
@@ -4015,7 +4080,8 @@ func _is_valid_grazer_position(candidate: Vector2, used_positions: Array[Vector2
 		used_positions,
 		GRAZER_MIN_DISTANCE,
 		player_position,
-		player_safe_distance
+		player_safe_distance,
+		"grazer"
 	)
 
 
@@ -4057,7 +4123,8 @@ func _is_valid_initial_grazer_position(candidate: Vector2, used_positions: Array
 		used_positions,
 		GRAZER_MIN_DISTANCE,
 		player_position,
-		GRAZER_INITIAL_PLAYER_SAFE_DISTANCE
+		GRAZER_INITIAL_PLAYER_SAFE_DISTANCE,
+		"grazer"
 	):
 		return false
 	var world := _get_world_node()
@@ -4380,6 +4447,10 @@ func get_small_prey_spawn_sync_debug() -> Dictionary:
 		"last_failed": small_prey_spawn_sync_last_failed,
 		"last_success": small_prey_spawn_sync_last_success
 	}
+
+
+func get_creature_spawn_rejection_debug() -> Dictionary:
+	return creature_spawn_rejection_debug.duplicate(true)
 
 
 func get_varnak_spawn_sync_debug() -> Dictionary:

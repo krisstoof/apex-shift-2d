@@ -232,6 +232,7 @@ func _capture_world_stats() -> Dictionary:
 	stats["biome_texture_cache"] = _capture_world_biome_texture_cache_stats()
 	stats["small_prey_spawn_sync"] = _capture_world_small_prey_spawn_sync_stats()
 	stats["varnak_spawn_sync"] = _capture_world_varnak_spawn_sync_stats()
+	stats["creature_spawn_rejection_debug"] = _capture_world_creature_spawn_rejection_debug()
 	stats["landmark_debug"] = _capture_world_landmark_debug_stats()
 	stats["registry"] = _capture_world_registry_stats()
 	stats["render_flags"] = _capture_world_render_flags()
@@ -403,6 +404,12 @@ func _capture_world_varnak_spawn_sync_stats() -> Dictionary:
 	if not is_instance_valid(world) or not world.has_method("get_varnak_spawn_sync_debug"):
 		return {}
 	return Dictionary(world.get_varnak_spawn_sync_debug())
+
+
+func _capture_world_creature_spawn_rejection_debug() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_creature_spawn_rejection_debug"):
+		return {}
+	return Dictionary(world.get_creature_spawn_rejection_debug())
 
 
 func _capture_lightweight_world_debug() -> Dictionary:
