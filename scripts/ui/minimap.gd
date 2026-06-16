@@ -366,8 +366,8 @@ func _draw_shape_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if biome_shape_map == null:
 		return
 	var polygons_by_layer: Dictionary = biome_shape_map.get_polygons_by_layer()
-	for layer_id in polygons_by_layer.keys():
-		for polygon_value in Array(polygons_by_layer[layer_id]):
+	for layer_id in _get_shape_map_draw_order(polygons_by_layer):
+		for polygon_value in Array(polygons_by_layer.get(layer_id, [])):
 			var polygon := Dictionary(polygon_value)
 			var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
 			if points.size() < 3:
@@ -379,6 +379,30 @@ func _draw_shape_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
 			for p in points:
 				mapped.append(_world_to_map(p, content_rect, view_world_rect))
 			draw_colored_polygon(mapped, _get_shape_map_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
+
+
+func _get_shape_map_draw_order(polygons_by_layer: Dictionary) -> Array[String]:
+	var ordered: Array[String] = [
+		"terrain:deep_ocean",
+		"terrain:shallow_water",
+		"terrain:shore",
+		"terrain:pond"
+	]
+	var biome_layers: Array[String] = []
+	var other_layers: Array[String] = []
+	for layer_id in polygons_by_layer.keys():
+		var layer := str(layer_id)
+		if ordered.has(layer):
+			continue
+		if layer.begins_with("biome:") and layer.ends_with("|terrain:land"):
+			biome_layers.append(layer)
+		else:
+			other_layers.append(layer)
+	biome_layers.sort()
+	other_layers.sort()
+	ordered.append_array(biome_layers)
+	ordered.append_array(other_layers)
+	return ordered
 
 
 func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:

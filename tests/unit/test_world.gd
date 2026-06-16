@@ -292,6 +292,7 @@ func run() -> Array[String]:
 	_test_visual_biome_query_uses_generator_source(failures)
 	_test_visual_biome_influence_scores_vary_across_space(failures)
 	_test_terrain_cell_map_builds_and_looks_up_cells(failures)
+	_test_biome_shape_map_builds_connected_regions(failures)
 	_test_world_biome_texture_cache_status_reports_visual_settings(failures)
 	_test_world_biome_texture_cache_status_reports_visual_feature_count(failures)
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
@@ -1008,6 +1009,36 @@ func _test_terrain_cell_map_builds_and_looks_up_cells(failures: Array[String]) -
 	topo.free()
 	other_generator.free()
 	other_topo.free()
+
+
+func _test_biome_shape_map_builds_connected_regions(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world._set_world_generator_seed(13579)
+	var debug: Dictionary = world.get_biome_shape_debug()
+	TEST_UTILS.expect_equal(bool(debug.get("biome_shape_map_uses_convex_hull", true)), false, failures, "Biome shape map should not use convex hulls for final regions")
+	TEST_UTILS.expect(int(debug.get("biome_shape_map_build_count", 0)) >= 1, failures, "Biome shape map should build at least once after world generation")
+	TEST_UTILS.expect(int(debug.get("biome_shape_map_polygon_count", 0)) > 0, failures, "Biome shape map should build at least one polygon")
+	var layer_counts: Dictionary = Dictionary(debug.get("biome_shape_map_polygon_count_by_layer", {}))
+	TEST_UTILS.expect(layer_counts.size() > 1, failures, "Biome shape map should contain multiple layers")
+	var land_polygon_total := 0
+	for layer_id in layer_counts.keys():
+		var layer := str(layer_id)
+		if layer.begins_with("biome:") and layer.ends_with("|terrain:land"):
+			land_polygon_total += int(layer_counts.get(layer_id, 0))
+	TEST_UTILS.expect(land_polygon_total > 1, failures, "Biome shape map should produce multiple land biome regions")
+	var largest_by_layer: Dictionary = Dictionary(debug.get("biome_shape_map_largest_polygon_cell_count_by_layer", {}))
+	var total_cells := 0
+	if world.has_method("get_biome_shape_map"):
+		var shape_map: Object = world.get_biome_shape_map()
+		if shape_map != null and shape_map.has_method("get_debug_data"):
+			total_cells = int(Dictionary(shape_map.get_debug_data()).get("biome_shape_map_grid_size", Vector2i.ZERO).x) * int(Dictionary(shape_map.get_debug_data()).get("biome_shape_map_grid_size", Vector2i.ZERO).y)
+	var oversize := false
+	for layer_id in largest_by_layer.keys():
+		if int(largest_by_layer.get(layer_id, 0)) > int(total_cells * 0.85):
+			oversize = true
+			break
+	TEST_UTILS.expect(not oversize, failures, "No biome region should cover almost the entire world")
+	world.free()
 
 
 func _test_world_biome_texture_cache_status_reports_visual_settings(failures: Array[String]) -> void:

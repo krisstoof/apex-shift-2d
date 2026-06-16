@@ -49,11 +49,15 @@ func _draw() -> void:
 	if shape_map == null:
 		return
 	var polygons_by_layer: Dictionary = shape_map.get_polygons_by_layer()
-	for layer_id in polygons_by_layer.keys():
+	for layer_id in _get_layer_draw_order(polygons_by_layer):
+		if not polygons_by_layer.has(layer_id):
+			continue
 		for polygon_value in Array(polygons_by_layer[layer_id]):
 			var polygon := Dictionary(polygon_value)
 			var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
 			if points.size() < 3:
+				continue
+			if not _polygon_intersects_rect(points, visible_rect):
 				continue
 			draw_colored_polygon(points, _get_layer_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
 			drawn_polygon_count += 1
@@ -64,6 +68,41 @@ func _draw() -> void:
 			continue
 		draw_circle(pos, 3.0, _get_detail_color(str(detail.get("biome_id", "")), str(detail.get("terrain_id", "land"))))
 		drawn_detail_count += 1
+
+func _get_layer_draw_order(polygons_by_layer: Dictionary) -> Array[String]:
+	var ordered: Array[String] = [
+		"terrain:deep_ocean",
+		"terrain:shallow_water",
+		"terrain:shore",
+		"terrain:pond"
+	]
+	var biome_layers: Array[String] = []
+	var other_layers: Array[String] = []
+	for layer_id in polygons_by_layer.keys():
+		var layer := str(layer_id)
+		if ordered.has(layer):
+			continue
+		if layer.begins_with("biome:") and layer.ends_with("|terrain:land"):
+			biome_layers.append(layer)
+		else:
+			other_layers.append(layer)
+	biome_layers.sort()
+	other_layers.sort()
+	ordered.append_array(biome_layers)
+	ordered.append_array(other_layers)
+	return ordered
+
+func _polygon_intersects_rect(points: PackedVector2Array, rect: Rect2) -> bool:
+	if points.is_empty():
+		return false
+	var bounds := _get_polygon_bounds(points)
+	return bounds.intersects(rect)
+
+func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
+	var rect := Rect2(points[0], Vector2.ZERO)
+	for point in points:
+		rect = rect.expand(point)
+	return rect
 
 func _get_visible_world_rect() -> Rect2:
 	if camera != null and is_instance_valid(camera):
@@ -79,7 +118,12 @@ func _get_visible_world_rect() -> Rect2:
 	return Rect2(Vector2.ZERO, Vector2.ONE)
 
 func _rect_signature(rect: Rect2) -> String:
-	return "%d,%d,%d,%d" % [int(floor(rect.position.x / 256.0)), int(floor(rect.position.y / 256.0)), int(ceil(rect.end.x / 256.0)), int(ceil(rect.end.y / 256.0))]
+	return "%d,%d,%d,%d" % [
+		int(floor(rect.position.x / 256.0)),
+		int(floor(rect.position.y / 256.0)),
+		int(ceil(rect.end.x / 256.0)),
+		int(ceil(rect.end.y / 256.0))
+	]
 
 func _get_layer_color(biome_id: String, terrain_id: String) -> Color:
 	match terrain_id:
