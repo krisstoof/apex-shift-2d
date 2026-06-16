@@ -496,6 +496,7 @@ func _build_world_text() -> String:
 	lines.append("Topography: %s" % _get_topography_debug_text())
 	lines.append("Pond vegetation: %d" % _get_cached_group_nodes("pond_vegetation").size())
 	lines.append("Decorative vegetation: %s" % _get_decorative_vegetation_text())
+	lines.append("Biome detail overlay: %s" % _get_biome_detail_overlay_text())
 	lines.append("Biome texture cache: %s" % _get_biome_texture_cache_status_text())
 	lines.append("Landmark overlay %s | Biome textures %s" % [
 		_get_landmark_overlay_state_text(),
@@ -847,6 +848,23 @@ func _get_biome_texture_cache_status_text() -> String:
 		int(status.get("accent_cache_count", 0)),
 		int(status.get("pending_biomes", 0)),
 		"yes" if status.get("build_running", false) == true else "no"
+	]
+
+
+func _get_biome_detail_overlay_text() -> String:
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	var cache: Dictionary = Dictionary(world_snapshot.get("biome_texture_cache", {}))
+	return "enabled=%s low_end_disabled=%s visible=%d pending=%d cached=%d built/frame=%d/%d last=%.2fms max=%.2fms" % [
+		"yes" if bool(cache.get("biome_detail_overlay_enabled", false)) else "no",
+		"yes" if bool(cache.get("biome_detail_overlay_low_end_disabled", false)) else "no",
+		int(cache.get("biome_detail_overlay_visible_chunk_count", 0)),
+		int(cache.get("biome_detail_overlay_pending_chunk_count", 0)),
+		int(cache.get("biome_detail_overlay_cached_chunk_count", 0)),
+		int(cache.get("biome_detail_overlay_chunks_built_last_frame", 0)),
+		int(cache.get("biome_detail_overlay_build_budget_per_frame", 0)),
+		float(cache.get("biome_detail_overlay_last_build_ms", 0.0)),
+		float(cache.get("biome_detail_overlay_max_build_ms", 0.0))
 	]
 
 
