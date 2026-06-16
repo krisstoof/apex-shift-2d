@@ -272,7 +272,9 @@ func run() -> Array[String]:
 	_test_world_builds_cached_biome_blend_texture(failures)
 	_test_world_biome_blend_texture_size_uses_configurable_scale(failures)
 	_test_visual_biome_query_uses_generator_source(failures)
+	_test_visual_biome_influence_scores_vary_across_space(failures)
 	_test_world_biome_texture_cache_status_reports_visual_settings(failures)
+	_test_world_biome_texture_cache_status_reports_visual_feature_count(failures)
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
 	_test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures)
 	_test_small_prey_spawn_sync_uses_cooldown_after_failure(failures)
@@ -943,6 +945,22 @@ func _test_visual_biome_query_uses_generator_source(failures: Array[String]) -> 
 	world.free()
 
 
+func _test_visual_biome_influence_scores_vary_across_space(failures: Array[String]) -> void:
+	var generator := WORLD_GENERATOR.new()
+	generator.generate_world(12345)
+	var center_scores: Dictionary = generator.get_visual_biome_influence_scores(Vector2.ZERO)
+	var offset_scores: Dictionary = generator.get_visual_biome_influence_scores(Vector2(980.0, -420.0))
+	TEST_UTILS.expect(not center_scores.is_empty(), failures, "Visual biome influence scores should be available after world generation")
+	TEST_UTILS.expect(not offset_scores.is_empty(), failures, "Visual biome influence scores should remain available away from origin")
+	var differs := false
+	for biome_id in ["westwood", "stoneback_ridge", "hearth_meadow", "south_thicket", "redfang_wilds"]:
+		if absf(float(center_scores.get(biome_id, 0.0)) - float(offset_scores.get(biome_id, 0.0))) > 0.01:
+			differs = true
+			break
+	TEST_UTILS.expect(differs, failures, "Visual biome influence scores should vary across the map instead of staying flat")
+	generator.free()
+
+
 func _test_world_biome_texture_cache_status_reports_visual_settings(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
 	var status: Dictionary = world.get_biome_texture_cache_status()
@@ -950,6 +968,15 @@ func _test_world_biome_texture_cache_status_reports_visual_settings(failures: Ar
 	TEST_UTILS.expect(status.has("visual_biome_shape_use_raw_scores"), failures, "Biome texture cache status should expose whether visual biome shapes use raw scores")
 	TEST_UTILS.expect(status.has("visual_biome_query_source"), failures, "Biome texture cache status should expose the visual biome query source")
 	TEST_UTILS.expect(status.has("gameplay_biome_query_still_cached"), failures, "Biome texture cache status should expose whether gameplay biome query caching still exists")
+	world.free()
+
+
+func _test_world_biome_texture_cache_status_reports_visual_feature_count(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world._set_world_generator_seed(12345)
+	var status: Dictionary = world.get_biome_texture_cache_status()
+	TEST_UTILS.expect(status.has("visual_biome_feature_count"), failures, "Biome texture cache status should expose the visual biome feature count")
+	TEST_UTILS.expect(int(status.get("visual_biome_feature_count", 0)) > 0, failures, "Visual biome feature count should be populated after world generation")
 	world.free()
 
 

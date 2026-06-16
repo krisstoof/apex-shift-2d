@@ -728,6 +728,12 @@ func get_visual_biome_name_at(position: Vector2) -> String:
 	return _get_biome_display_name(get_visual_biome_id_at(position))
 
 
+func get_visual_biome_influence_scores_at(position: Vector2) -> Dictionary:
+	if world_generator != null and world_generator.has_method("get_visual_biome_influence_scores"):
+		return Dictionary(world_generator.get_visual_biome_influence_scores(position))
+	return {}
+
+
 func get_display_biome_name_at(position: Vector2) -> String:
 	var transition := get_biome_transition_debug_at(position) if has_method("get_biome_transition_debug_at") else {}
 	if not transition.is_empty():
@@ -788,7 +794,7 @@ func get_map_surface_debug_key() -> String:
 	var highlands := int(feature_counts.get("highland", 0))
 	var rocks := int(feature_counts.get("rocky_patch", 0))
 	var transition_version := _get_biome_transition_texture_version_key()
-	return "surface_v14|seed=%d|generator_key=%s|topography_rules=%s|transition=%s|ponds=%d|highlands=%d|rocks=%d" % [
+	return "surface_v15|seed=%d|generator_key=%s|topography_rules=%s|transition=%s|ponds=%d|highlands=%d|rocks=%d" % [
 		world_seed,
 		generator_key,
 		WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION,
@@ -1259,6 +1265,9 @@ func get_biome_texture_cache_status() -> Dictionary:
 	var render_state: Dictionary = _ensure_render_controller().get_biome_texture_cache_status()
 	world_biome_texture_build_count = int(render_state.get("rebuild_count", world_biome_texture_build_count))
 	world_biome_texture_last_build_ms = float(render_state.get("last_build_ms", world_biome_texture_last_build_ms))
+	var visual_feature_count := 0
+	if world_generator != null and world_generator.has_method("get_visual_biome_feature_count"):
+		visual_feature_count = int(world_generator.get_visual_biome_feature_count())
 	return {
 		"sample_image_cache_count": biome_sample_images.size(),
 		"accent_cache_count": biome_terrain_accent_cache.size(),
@@ -1274,7 +1283,8 @@ func get_biome_texture_cache_status() -> Dictionary:
 		"visual_biome_query_bypasses_cell_cache": bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_query_bypasses_cell_cache", true)),
 		"visual_biome_shapes_enabled": bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shapes_enabled", true)),
 		"visual_biome_shape_use_raw_scores": bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shape_use_raw_scores", true)),
-		"visual_biome_query_source": "world_generator_raw_scores",
+		"visual_biome_query_source": "world_generator_visual_masks",
+		"visual_biome_feature_count": visual_feature_count,
 		"gameplay_biome_query_still_cached": biome_query_service != null,
 		"rebuild_blocked_count": int(render_state.get("rebuild_blocked_count", 0)),
 		"dirty_key_pending": bool(render_state.get("dirty_key_pending", false)),
