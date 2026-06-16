@@ -295,7 +295,10 @@ func _remove_entry(instance_id: int) -> void:
 				_building_nodes_by_type[type_name] = building_nodes
 			building_version += 1
 	if spatial_index != null and node != null:
-		spatial_index.unregister_entity(node)
+		if spatial_index.has_method("unregister_entity_by_id"):
+			spatial_index.unregister_entity_by_id(instance_id)
+		else:
+			spatial_index.unregister_entity(node)
 	_tracked_entries.erase(instance_id)
 
 

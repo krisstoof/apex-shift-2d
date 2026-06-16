@@ -20,7 +20,7 @@ func _test_returns_biome_for_known_positions(failures: Array[String]) -> void:
 		if point == Vector2.INF:
 			failures.append("Could not find a sample point inside biome %s" % str(biome.get("name", "biome")))
 			continue
-		var biome_id := service.get_biome_id_for_position(point)
+		var biome_id: String = service.get_biome_id_for_position(point)
 		TEST_UTILS.expect(not biome_id.is_empty(), failures, "Biome lookup should return a biome id for an interior point")
 
 
@@ -36,9 +36,9 @@ func _test_repeated_lookup_uses_cache(failures: Array[String]) -> void:
 		failures.append("Could not find a sample point for cache test")
 		return
 	service.get_biome_id_for_position(point)
-	var after_first := service.get_debug_counts()
+	var after_first: Dictionary = service.get_debug_counts()
 	service.get_biome_id_for_position(point)
-	var after_second := service.get_debug_counts()
+	var after_second: Dictionary = service.get_debug_counts()
 	TEST_UTILS.expect(int(after_second.get("cache_hit_count", 0)) > int(after_first.get("cache_hit_count", 0)), failures, "Repeated biome lookup should increase cache hits")
 	TEST_UTILS.expect_equal(int(after_first.get("cache_miss_count", 0)), 1, failures, "First biome lookup should count as one cache miss")
 
@@ -60,7 +60,7 @@ func _find_point_in_biome(biome: Dictionary) -> Vector2:
 	for radius_factor in [0.0, 0.12, 0.22, 0.34, 0.46]:
 		for angle_step in range(24):
 			var angle := TAU * float(angle_step) / 24.0
-			var candidate := center + Vector2(cos(angle), sin(angle)) * 64.0 * radius_factor
+			var candidate: Vector2 = center + Vector2(cos(angle), sin(angle)) * 64.0 * radius_factor
 			if Geometry2D.is_point_in_polygon(candidate, points):
 				return candidate
 	return Vector2.INF

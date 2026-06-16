@@ -81,9 +81,11 @@ func _ready() -> void:
 	add_to_group("resources")
 	if biome_id.is_empty():
 		biome_id = _get_biome_id_for_position(global_position)
+	is_visibility_culled = true
 	_apply_growth_stage()
 	_sync_resource_groups()
 	_sync_visual_sprite()
+	_sync_collision_state()
 	queue_redraw()
 
 
@@ -412,7 +414,7 @@ func _apply_growth_stage() -> void:
 	color = mature_color.darkened(0.45 if growth_stage <= 0 else 0.0).lerp(mature_color, _get_growth_ratio())
 	radius = max(mature_radius * _get_visual_scale(), 5.0)
 	_sync_collision_shape_radius()
-	_sync_collision_state(true)
+	_sync_collision_state()
 	_sync_resource_groups()
 	_sync_visual_sprite()
 	queue_redraw()
@@ -527,8 +529,8 @@ func activate_from_pool(data: Dictionary) -> void:
 	visible = true
 	set_process(true)
 	set_physics_process(true)
-	_set_collision_state_safe(true)
 	is_visibility_culled = false
+	_sync_collision_state()
 	queue_redraw()
 
 
@@ -536,7 +538,8 @@ func reset_for_pool() -> void:
 	visible = false
 	set_process(false)
 	set_physics_process(false)
-	_set_collision_state_safe(false)
+	is_visibility_culled = true
+	_sync_collision_state()
 	_remove_resource_pool_groups()
 
 	amount = 0
@@ -809,7 +812,7 @@ func is_render_only_resource() -> bool:
 func set_visibility_culled(should_be_visible: bool) -> void:
 	is_visibility_culled = not should_be_visible
 	visible = should_be_visible
-	_set_collision_state_safe(should_be_visible)
+	_sync_collision_state()
 	set_process(should_be_visible)
 	set_physics_process(should_be_visible)
 	queue_redraw()
@@ -946,8 +949,8 @@ func _get_collision_shape() -> CollisionShape2D:
 	return collision_shape
 
 
-func _sync_collision_state(should_be_visible: bool) -> void:
-	_set_collision_state_safe(should_be_visible)
+func _sync_collision_state() -> void:
+	_set_collision_state_safe(not is_visibility_culled)
 
 
 func _set_collision_state_safe(should_be_enabled: bool) -> void:

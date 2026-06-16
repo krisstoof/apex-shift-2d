@@ -13,6 +13,10 @@ func run() -> Array[String]:
 	_test_meat_drop_uses_separate_meat_category(failures)
 	_test_query_ignores_queued_for_deletion_entities(failures)
 	_test_type_filter_array_matches_multiple_types(failures)
+	_test_unregister_entity_by_id_removes_from_bucket(failures)
+	_test_registering_same_entity_twice_does_not_duplicate(failures)
+	_test_cleanup_removes_queued_free_entity(failures)
+	_test_empty_buckets_are_removed_after_unregister(failures)
 	return failures
 
 
@@ -86,6 +90,50 @@ func _test_type_filter_array_matches_multiple_types(failures: Array[String]) -> 
 	var found := index.query_resources_near(Vector2(320.0, 320.0), 64.0, ["berry_bush", "grass_patch"])
 	TEST_UTILS.expect(found.has(berry_bush), failures, "Array type filters should match the first requested type")
 	TEST_UTILS.expect(found.has(grass_patch), failures, "Array type filters should match additional requested types")
+
+
+func _test_unregister_entity_by_id_removes_from_bucket(failures: Array[String]) -> void:
+	var index := WORLD_SPATIAL_INDEX.new()
+	var resource := _make_node(Vector2(100.0, 100.0))
+	index.register_entity(resource, "resource", "berry_bush")
+	index.unregister_entity_by_id(resource.get_instance_id())
+	var debug := index.get_debug_counts()
+	TEST_UTILS.expect_equal(int(debug.get("tracked_entities", -1)), 0, failures, "Unregistering by id should remove tracked entity state")
+	TEST_UTILS.expect_equal(int(debug.get("resources_total", -1)), 0, failures, "Unregistering by id should remove the resource bucket entry")
+
+
+func _test_registering_same_entity_twice_does_not_duplicate(failures: Array[String]) -> void:
+	var index := WORLD_SPATIAL_INDEX.new()
+	var resource := _make_node(Vector2(100.0, 100.0))
+	index.register_entity(resource, "resource", "berry_bush")
+	index.register_entity(resource, "resource", "berry_bush")
+	var found := index.query_resources_near(Vector2(100.0, 100.0), 256.0, "berry_bush")
+	TEST_UTILS.expect_equal(found.size(), 1, failures, "Registering the same resource twice should not duplicate it")
+	TEST_UTILS.expect_equal(found[0], resource, failures, "The registered resource should still be returned once")
+
+
+func _test_cleanup_removes_queued_free_entity(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var index := WORLD_SPATIAL_INDEX.new()
+	var node := _make_node(Vector2(100.0, 100.0))
+	tree.current_scene.add_child(node)
+	index.register_entity(node, "resource", "berry_bush")
+	node.queue_free()
+	await tree.process_frame
+	var cleanup: Dictionary = index.cleanup_stale_entries()
+	var debug := index.get_debug_counts()
+	TEST_UTILS.expect(int(cleanup.get("removed", 0)) > 0, failures, "Cleanup should remove queued-for-deletion entities")
+	TEST_UTILS.expect_equal(int(debug.get("tracked_stale_entities", -1)), 0, failures, "Cleanup should clear stale tracked entities")
+	TEST_UTILS.expect_equal(int(debug.get("resources_total", -1)), 0, failures, "Cleanup should clear stale resource entries")
+
+
+func _test_empty_buckets_are_removed_after_unregister(failures: Array[String]) -> void:
+	var index := WORLD_SPATIAL_INDEX.new()
+	var resource := _make_node(Vector2(100.0, 100.0))
+	index.register_entity(resource, "resource", "berry_bush")
+	index.unregister_entity(resource)
+	var debug := index.get_debug_counts()
+	TEST_UTILS.expect_equal(int(debug.get("resource_cells", -1)), 0, failures, "Empty resource buckets should be removed after unregister")
 
 
 func _make_node(position: Vector2) -> Node2D:
