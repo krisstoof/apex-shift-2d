@@ -17,6 +17,8 @@ var visible_chunks: Dictionary = {}
 var chunk_textures: Dictionary = {}
 var pending_chunks: Array = []
 var pending_chunk_set: Dictionary = {}
+var active_builds := {}
+var sample_cache := {}
 
 var last_visible_signature := ""
 var dirty := true
@@ -27,9 +29,14 @@ var chunks_built_last_frame := 0
 var last_build_ms := 0.0
 var max_build_ms := 0.0
 var total_build_count := 0
+var chunk_build_started_count := 0
+var chunk_build_completed_count := 0
 var last_clear_reason := ""
+var max_rows_built_per_frame := 8
+var max_build_ms_per_frame := 4.0
 
 func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
+	var previous_world := world
 	world = p_world
 	player = p_player
 	camera = p_camera
@@ -37,15 +44,19 @@ func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 		world_rect = Rect2(world.get_world_rect())
 	else:
 		world_rect = Rect2(Vector2(-10080.0, -6240.0), Vector2(20160.0, 12480.0))
+	var world_changed := previous_world != p_world
 	chunk_world_size = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_chunk_world_size", 1024.0)), 256.0)
-	chunk_texture_size = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_chunk_texture_size", 256)), 32)
+	chunk_texture_size = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_chunk_texture_size", 96)), 32)
 	visible_margin_chunks = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_visible_margin_chunks", 1)), 0)
 	max_chunks_built_per_frame = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_max_chunks_built_per_frame", 1)), 1)
+	max_rows_built_per_frame = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_max_rows_built_per_frame", 8)), 1)
+	max_build_ms_per_frame = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_max_build_ms_per_frame", 4.0)), 1.0)
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_texture_filter_nearest", false)):
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	else:
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	mark_dirty("bind")
+	if world_changed:
+		mark_dirty("bind_world_changed")
 
 func mark_dirty(reason := "unknown") -> void:
 	dirty = true
@@ -54,6 +65,8 @@ func mark_dirty(reason := "unknown") -> void:
 	visible_chunks.clear()
 	pending_chunks.clear()
 	pending_chunk_set.clear()
+	active_builds.clear()
+	sample_cache.clear()
 	last_visible_signature = ""
 	visible_chunk_count = 0
 	cached_chunk_count = 0
@@ -82,23 +95,22 @@ func process_visibility(_delta: float) -> void:
 
 func process_build_queue() -> void:
 	chunks_built_last_frame = 0
-	if pending_chunks.is_empty():
-		return
 	var start_ms := Time.get_ticks_msec()
-	var built := 0
-	while built < max_chunks_built_per_frame and not pending_chunks.is_empty():
-		var chunk_key: Vector2i = pending_chunks.pop_front()
+	while active_builds.size() < max_chunks_built_per_frame and not pending_chunks.is_empty():
+		var chunk_key = pending_chunks.pop_front()
 		pending_chunk_set.erase(chunk_key)
-		if chunk_textures.has(chunk_key):
+		if chunk_textures.has(chunk_key) or active_builds.has(chunk_key):
 			continue
-		chunk_textures[chunk_key] = _build_chunk_texture(chunk_key)
-		built += 1
-		total_build_count += 1
-	chunks_built_last_frame = built
+		_start_chunk_build(chunk_key)
+	for key_value in active_builds.keys():
+		var chunk_key = key_value
+		_process_active_chunk_build(chunk_key, start_ms)
+		if float(Time.get_ticks_msec() - start_ms) >= max_build_ms_per_frame:
+			break
 	last_build_ms = float(Time.get_ticks_msec() - start_ms)
 	max_build_ms = maxf(max_build_ms, last_build_ms)
 	cached_chunk_count = chunk_textures.size()
-	if built > 0:
+	if chunks_built_last_frame > 0:
 		queue_redraw()
 
 func get_debug_data() -> Dictionary:
@@ -111,6 +123,12 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_chunk_last_build_ms": last_build_ms,
 		"terrain_surface_chunk_max_build_ms": max_build_ms,
 		"terrain_surface_chunk_total_build_count": total_build_count,
+		"terrain_surface_active_build_count": active_builds.size(),
+		"terrain_surface_chunk_build_started_count": chunk_build_started_count,
+		"terrain_surface_chunk_build_completed_count": chunk_build_completed_count,
+		"terrain_surface_max_rows_built_per_frame": max_rows_built_per_frame,
+		"terrain_surface_max_build_ms_per_frame": max_build_ms_per_frame,
+		"terrain_surface_transition_enabled": bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_transition_enabled", false)),
 		"terrain_surface_chunk_world_size": chunk_world_size,
 		"terrain_surface_chunk_texture_size": chunk_texture_size,
 		"terrain_surface_visible_signature": last_visible_signature,
@@ -136,26 +154,75 @@ func _queue_chunk_build(chunk_key: Vector2i) -> void:
 	pending_chunk_set[chunk_key] = true
 	pending_chunks.append(chunk_key)
 
-func _build_chunk_texture(chunk_key: Vector2i) -> ImageTexture:
+func _start_chunk_build(chunk_key: Vector2i) -> void:
+	if active_builds.has(chunk_key):
+		return
 	var image := Image.create(chunk_texture_size, chunk_texture_size, false, Image.FORMAT_RGBA8)
-	var chunk_rect := _get_chunk_world_rect(chunk_key)
-	for y in range(chunk_texture_size):
-		for x in range(chunk_texture_size):
-			var uv := Vector2(
-				(float(x) + 0.5) / float(chunk_texture_size),
-				(float(y) + 0.5) / float(chunk_texture_size)
-			)
-			var world_pos := chunk_rect.position + Vector2(chunk_rect.size.x * uv.x, chunk_rect.size.y * uv.y)
-			image.set_pixel(x, y, _sample_surface_color(world_pos))
-	return ImageTexture.create_from_image(image)
+	active_builds[chunk_key] = {
+		"chunk_key": chunk_key,
+		"image": image,
+		"chunk_rect": _get_chunk_world_rect(chunk_key),
+		"next_y": 0
+	}
+	chunk_build_started_count += 1
+
+func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int) -> void:
+	if not active_builds.has(chunk_key):
+		return
+	var state := Dictionary(active_builds[chunk_key])
+	var image = state.get("image")
+	var chunk_rect = Rect2(state.get("chunk_rect", Rect2()))
+	var next_y := int(state.get("next_y", 0))
+	var rows_done := 0
+	while next_y < chunk_texture_size and rows_done < max_rows_built_per_frame:
+		_build_chunk_texture_row(image, chunk_rect, next_y)
+		next_y += 1
+		rows_done += 1
+		if float(Time.get_ticks_msec() - frame_start_ms) >= max_build_ms_per_frame:
+			break
+	if next_y >= chunk_texture_size:
+		chunk_textures[chunk_key] = ImageTexture.create_from_image(image)
+		active_builds.erase(chunk_key)
+		chunks_built_last_frame += 1
+		total_build_count += 1
+		chunk_build_completed_count += 1
+		sample_cache.clear()
+		queue_redraw()
+	else:
+		state["next_y"] = next_y
+		active_builds[chunk_key] = state
+
+func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int) -> void:
+	for x in range(chunk_texture_size):
+		var uv := Vector2(
+			(float(x) + 0.5) / float(chunk_texture_size),
+			(float(y) + 0.5) / float(chunk_texture_size)
+		)
+		var world_pos := chunk_rect.position + Vector2(chunk_rect.size.x * uv.x, chunk_rect.size.y * uv.y)
+		image.set_pixel(x, y, _sample_surface_color(world_pos))
 
 func _sample_surface_color(world_pos: Vector2) -> Color:
-	var terrain_id := _get_surface_terrain(world_pos)
-	var biome_id := _get_visual_biome(world_pos)
+	var cache_step := 48.0
+	var cache_key := "%d,%d" % [int(floor(world_pos.x / cache_step)), int(floor(world_pos.y / cache_step))]
+	var terrain_id := ""
+	var biome_id := ""
+	if sample_cache.has(cache_key):
+		var cached := Dictionary(sample_cache[cache_key])
+		terrain_id = str(cached.get("terrain_id", "land"))
+		biome_id = str(cached.get("biome_id", "hearth_meadow"))
+	else:
+		terrain_id = _get_surface_terrain(world_pos)
+		biome_id = _get_visual_biome(world_pos)
+		sample_cache[cache_key] = {
+			"terrain_id": terrain_id,
+			"biome_id": biome_id
+		}
 	var base := _get_base_surface_color(biome_id, terrain_id)
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_noise_enabled", true)):
 		base = _apply_surface_variation(base, biome_id, terrain_id, world_pos)
-	return _apply_local_transition(base, biome_id, terrain_id, world_pos)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_transition_enabled", false)):
+		return _apply_local_transition(base, biome_id, terrain_id, world_pos)
+	return base
 
 func _get_visual_biome(world_pos: Vector2) -> String:
 	if world != null and world.has_method("get_visual_biome_id_at"):
