@@ -452,13 +452,21 @@ const BIOME_TEXTURES := {
 		}
 	},
 	"detail_tile_world_size": 128.0,
+	"blend_cache_scale": 0.65,
+	"blend_cache_scale_min": 0.35,
+	"blend_cache_scale_max": 0.85,
+	"blend_texture_filter_linear": true,
+	"visual_biome_query_bypasses_cell_cache": true,
+	"visual_biome_shapes_enabled": true,
+	"visual_biome_shape_use_raw_scores": true,
+	"visual_biome_shape_edge_noise_strength": 0.08,
+	"visual_biome_shape_edge_noise_scale": 220.0,
 	"detail_chunk_build_budget_per_frame": 1,
 	"detail_filter_nearest": true,
 	"detail_density_multiplier": 1.0,
 	"detail_alpha": 0.08,
 	"secondary_detail_alpha": 0.06,
 	"variation_noise_strength": 0.08,
-	"blend_cache_scale": 0.35,
 	"max_detail_per_chunk": 80
 }
 

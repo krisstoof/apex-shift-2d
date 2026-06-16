@@ -713,6 +713,12 @@ func get_biome_name_at(position: Vector2) -> String:
 
 
 func get_visual_biome_id_at(position: Vector2) -> String:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_query_bypasses_cell_cache", true)):
+		return get_biome_id_at(position)
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shapes_enabled", true)):
+		return get_biome_id_at(position)
+	if world_generator != null and world_generator.has_method("get_visual_biome_id_at"):
+		return str(world_generator.get_visual_biome_id_at(position))
 	if world_generator and world_generator.has_method("get_biome_id_at"):
 		return str(world_generator.get_biome_id_at(position))
 	return get_biome_id_at(position)
@@ -739,7 +745,7 @@ func get_map_surface_color_at(position: Vector2) -> Color:
 		var color: Color = Color(world_generator.get_biome_visual_color_at(position))
 		if world_topography != null and world_topography.has_method("sample_topography_at"):
 			var topo_sample := Dictionary(world_topography.sample_topography_at(position))
-			var biome_id := get_biome_id_at(position)
+			var biome_id := get_visual_biome_id_at(position)
 			var terrain := str(topo_sample.get("terrain_zone", "land"))
 			var elevation_band := str(topo_sample.get("elevation_band", terrain))
 			var blend_strength := _get_topography_biome_blend_strength(topo_sample, biome_id)
@@ -827,7 +833,7 @@ func _apply_biome_transition_texture(base_color: Color, world_position: Vector2)
 func _get_biome_transition_debug_at(world_position: Vector2) -> Dictionary:
 	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("transition_textures_enabled", false)):
 		return {}
-	var primary_id := get_biome_id_at(world_position)
+	var primary_id := get_visual_biome_id_at(world_position)
 	if primary_id.is_empty() or primary_id in ["deep_ocean", "shallow_water", "shore"]:
 		return {}
 	var base_width := float(GAME_BALANCE.BIOME_TEXTURES.get("transition_texture_width", 220.0))
@@ -852,7 +858,7 @@ func _get_biome_transition_debug_at(world_position: Vector2) -> Dictionary:
 			if not WORLD_CONFIG.WORLD_RECT.has_point(sample_position):
 				distance += 80.0
 				continue
-			var sampled_id := get_biome_id_at(sample_position)
+			var sampled_id := get_visual_biome_id_at(sample_position)
 			if sampled_id.is_empty() or sampled_id == primary_id or sampled_id in ["deep_ocean", "shallow_water", "shore"]:
 				distance += 80.0
 				continue
@@ -1262,6 +1268,14 @@ func get_biome_texture_cache_status() -> Dictionary:
 		"has_blend_texture": bool(render_state.get("has_texture", false)),
 		"blend_colors_key": str(render_state.get("colors_key", "")),
 		"blend_texture_size": render_state.get("size", Vector2i.ZERO),
+		"biome_visual_texture_size": render_state.get("size", Vector2i.ZERO),
+		"biome_visual_filter_mode": "linear" if bool(GAME_BALANCE.BIOME_TEXTURES.get("blend_texture_filter_linear", true)) else "nearest",
+		"biome_query_cache_cell_size": float(biome_query_service.cell_size) if biome_query_service != null else 0.0,
+		"visual_biome_query_bypasses_cell_cache": bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_query_bypasses_cell_cache", true)),
+		"visual_biome_shapes_enabled": bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shapes_enabled", true)),
+		"visual_biome_shape_use_raw_scores": bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shape_use_raw_scores", true)),
+		"visual_biome_query_source": "world_generator_raw_scores",
+		"gameplay_biome_query_still_cached": biome_query_service != null,
 		"rebuild_blocked_count": int(render_state.get("rebuild_blocked_count", 0)),
 		"dirty_key_pending": bool(render_state.get("dirty_key_pending", false)),
 		"freeze_after_first_build": bool(render_state.get("freeze_after_first_build", false)),
@@ -1840,7 +1854,8 @@ func _ensure_biome_blend_background() -> Sprite2D:
 	biome_blend_background.centered = false
 	biome_blend_background.show_behind_parent = true
 	biome_blend_background.z_index = -100
-	biome_blend_background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var use_linear_filter := bool(GAME_BALANCE.BIOME_TEXTURES.get("blend_texture_filter_linear", true))
+	biome_blend_background.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR if use_linear_filter else CanvasItem.TEXTURE_FILTER_NEAREST
 	biome_blend_background.visible = false
 	add_child(biome_blend_background)
 	return biome_blend_background
@@ -1904,7 +1919,9 @@ func _prepare_boot_render_cache() -> void:
 
 
 func _get_world_biome_blend_texture_size() -> Vector2i:
-	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 0.35)), 0.35, 0.35)
+	var min_scale := float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale_min", 0.35))
+	var max_scale := float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale_max", 0.85))
+	var cache_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 0.65)), min_scale, max_scale)
 	return Vector2i(
 		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.x) * cache_scale)), 1),
 		maxi(int(round(float(BIOME_BLEND_TEXTURE_SIZE.y) * cache_scale)), 1)

@@ -141,6 +141,16 @@ func get_biome_id_at(position: Vector2) -> String:
 	return _sample_biome_ownership_map(position)
 
 
+func get_visual_biome_id_at(position: Vector2) -> String:
+	if get_base_terrain_zone(position) in ["deep_ocean", "shallow_water", "shore"]:
+		return get_biome_id_at(position)
+	return _get_raw_biome_id_at(position)
+
+
+func get_visual_biome_scores_at(position: Vector2) -> Dictionary:
+	return _get_biome_scores(position)
+
+
 func get_biome_visual_color_at(position: Vector2) -> Color:
 	var base_terrain := get_base_terrain_zone(position)
 	match base_terrain:

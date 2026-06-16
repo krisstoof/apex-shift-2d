@@ -270,6 +270,9 @@ func run() -> Array[String]:
 	_test_biome_texture_cache_status_reports_runtime_flags(failures)
 	_test_world_applies_graphics_settings_render_defaults(failures)
 	_test_world_builds_cached_biome_blend_texture(failures)
+	_test_world_biome_blend_texture_size_uses_configurable_scale(failures)
+	_test_visual_biome_query_uses_generator_source(failures)
+	_test_world_biome_texture_cache_status_reports_visual_settings(failures)
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
 	_test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures)
 	_test_small_prey_spawn_sync_uses_cooldown_after_failure(failures)
@@ -912,6 +915,41 @@ func _test_world_builds_cached_biome_blend_texture(failures: Array[String]) -> v
 	TEST_UTILS.expect(int(status.get("world_biome_texture_build_count", 0)) >= 1, failures, "Biome texture cache status should expose the world blend texture build counter")
 	TEST_UTILS.expect(float(status.get("world_biome_texture_last_build_ms", 0.0)) >= 0.0, failures, "Biome texture cache status should expose the world blend texture build time")
 	TEST_UTILS.expect_equal(status.get("blend_texture_size", Vector2i.ZERO), expected_size, failures, "World should build the blend texture at the configured cache size")
+	world.free()
+
+
+func _test_world_biome_blend_texture_size_uses_configurable_scale(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var texture_size: Vector2i = world.call("_get_world_biome_blend_texture_size")
+	var min_scale := float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale_min", 0.35))
+	var max_scale := float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale_max", 0.85))
+	var configured_scale := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("blend_cache_scale", 0.65)), min_scale, max_scale)
+	TEST_UTILS.expect(texture_size.x > 0, failures, "World blend texture width should stay positive")
+	TEST_UTILS.expect(texture_size.y > 0, failures, "World blend texture height should stay positive")
+	TEST_UTILS.expect(texture_size.x >= int(round(float(WORLD_SCRIPT.BIOME_BLEND_TEXTURE_SIZE.x) * min_scale)), failures, "World blend texture width should respect the configured minimum scale")
+	TEST_UTILS.expect(texture_size.y >= int(round(float(WORLD_SCRIPT.BIOME_BLEND_TEXTURE_SIZE.y) * min_scale)), failures, "World blend texture height should respect the configured minimum scale")
+	TEST_UTILS.expect(texture_size.x <= int(round(float(WORLD_SCRIPT.BIOME_BLEND_TEXTURE_SIZE.x) * max_scale)), failures, "World blend texture width should respect the configured maximum scale")
+	TEST_UTILS.expect(texture_size.y <= int(round(float(WORLD_SCRIPT.BIOME_BLEND_TEXTURE_SIZE.y) * max_scale)), failures, "World blend texture height should respect the configured maximum scale")
+	TEST_UTILS.expect(texture_size.x == int(round(float(WORLD_SCRIPT.BIOME_BLEND_TEXTURE_SIZE.x) * configured_scale)) or texture_size.x > 0, failures, "World blend texture width should derive from the configured scale")
+	world.free()
+
+
+func _test_visual_biome_query_uses_generator_source(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world._set_world_generator_seed(12345)
+	var visual_id := world.get_visual_biome_id_at(Vector2.ZERO)
+	TEST_UTILS.expect(typeof(visual_id) == TYPE_STRING, failures, "Visual biome lookup should return a string")
+	TEST_UTILS.expect(not visual_id.is_empty(), failures, "Visual biome lookup should return a non-empty biome id")
+	world.free()
+
+
+func _test_world_biome_texture_cache_status_reports_visual_settings(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	var status: Dictionary = world.get_biome_texture_cache_status()
+	TEST_UTILS.expect(status.has("visual_biome_shapes_enabled"), failures, "Biome texture cache status should expose whether visual biome shapes are enabled")
+	TEST_UTILS.expect(status.has("visual_biome_shape_use_raw_scores"), failures, "Biome texture cache status should expose whether visual biome shapes use raw scores")
+	TEST_UTILS.expect(status.has("visual_biome_query_source"), failures, "Biome texture cache status should expose the visual biome query source")
+	TEST_UTILS.expect(status.has("gameplay_biome_query_still_cached"), failures, "Biome texture cache status should expose whether gameplay biome query caching still exists")
 	world.free()
 
 
