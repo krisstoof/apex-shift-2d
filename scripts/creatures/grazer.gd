@@ -110,6 +110,10 @@ var background_simulation_timer := 0.0
 var background_simulation_tick_count := 0
 var active_simulation_tick_count := 0
 var is_background_simulated := false
+var world: Node
+var world_query
+var ecosystem: Node
+var debug_panel: Node
 
 
 func _get_event_bus() -> Node:
@@ -148,6 +152,15 @@ func _ready() -> void:
 	ai_decision_timer = rng.randf_range(0.0, AI_DECISION_INTERVAL_SECONDS)
 	_pick_wander_target()
 	_request_visual_redraw(true)
+
+
+func bind_world_context(world_node: Node, ecosystem_node: Node = null, debug_panel_node: Node = null) -> void:
+	world = world_node
+	ecosystem = ecosystem_node
+	debug_panel = debug_panel_node
+	world_query = null
+	if is_instance_valid(world) and world.has_method("get_query_service"):
+		world_query = world.get_query_service()
 
 
 func set_visibility_culled(should_be_visible: bool) -> void:
@@ -1212,9 +1225,12 @@ func _get_terrain_speed_multiplier() -> float:
 
 
 func _get_world_query():
+	if world_query != null:
+		return world_query
 	var world := _get_world_node()
 	if world and world.has_method("get_query_service"):
-		return world.get_query_service()
+		world_query = world.get_query_service()
+		return world_query
 	return world
 
 
@@ -1281,7 +1297,7 @@ func _drop_meat_once() -> void:
 	if dropped_meat:
 		return
 	dropped_meat = true
-	var world := get_tree().current_scene.get_node_or_null("World")
+	var world := _get_world_node()
 	if world and world.has_method("spawn_meat_drop_for_animal"):
 		world.spawn_meat_drop_for_animal("grazer", global_position)
 
@@ -1365,7 +1381,7 @@ func _get_fitness_score() -> float:
 
 
 func _sync_population_traits() -> void:
-	var ecosystem := get_tree().current_scene.get_node_or_null("EcosystemDirector")
+	var ecosystem := _get_ecosystem()
 	if not ecosystem or not ecosystem.has_method("get_grazer_traits"):
 		return
 	var traits: Dictionary = ecosystem.get_grazer_traits(_get_current_biome_id())
@@ -1393,7 +1409,7 @@ func _get_current_biome_id() -> String:
 
 
 func _get_current_biomass_percent() -> float:
-	var ecosystem := get_tree().current_scene.get_node_or_null("EcosystemDirector")
+	var ecosystem := _get_ecosystem()
 	if not ecosystem or not ecosystem.has_method("get_biome_state"):
 		return 100.0
 	var state_data: Dictionary = ecosystem.get_biome_state(_get_current_biome_id())
@@ -1560,10 +1576,30 @@ func _draw_debug_lines(lines: Array[String], top_left: Vector2) -> void:
 
 
 func _get_world_node() -> Node2D:
+	if is_instance_valid(world):
+		return world as Node2D
 	var scene := get_tree().current_scene
 	if not scene:
 		return null
 	return scene.get_node_or_null("World") as Node2D
+
+
+func _get_ecosystem() -> Node:
+	if is_instance_valid(ecosystem):
+		return ecosystem
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return null
+	return tree.current_scene.get_node_or_null("EcosystemDirector")
+
+
+func _get_debug_panel() -> Node:
+	if is_instance_valid(debug_panel):
+		return debug_panel
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return null
+	return tree.current_scene.get_node_or_null("HUD/DebugPanel")
 
 
 func _get_cached_group_nodes(group_name: String) -> Array:
@@ -1634,10 +1670,7 @@ func _initialize_from_game_balance() -> void:
 
 
 func _is_debug_overlay_visible() -> bool:
-	var scene := get_tree().current_scene
-	if not scene:
-		return false
-	var debug_panel := scene.get_node_or_null("HUD/DebugPanel")
+	var debug_panel := _get_debug_panel()
 	return is_instance_valid(debug_panel) and debug_panel.visible
 
 

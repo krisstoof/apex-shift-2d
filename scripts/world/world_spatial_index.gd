@@ -344,20 +344,6 @@ func _get_cells_for_category(category: String) -> Dictionary:
 			return {}
 
 
-func _cleanup_stale_bucket_entries(bucket: Array) -> Array[Node]:
-	var stale_entities: Array[Node] = []
-	for bucket_entity_value in bucket:
-		if bucket_entity_value == null:
-			continue
-		if not is_instance_valid(bucket_entity_value):
-			continue
-		var bucket_entity := bucket_entity_value as Node
-		if bucket_entity == null or bucket_entity.is_queued_for_deletion():
-			continue
-		stale_entities.append(bucket_entity)
-	return stale_entities
-
-
 func _count_live_bucket(bucket: Array) -> int:
 	var count := 0
 	for entity_value in bucket:

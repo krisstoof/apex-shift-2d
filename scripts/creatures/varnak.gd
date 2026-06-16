@@ -100,6 +100,10 @@ var background_simulation_timer := 0.0
 var background_simulation_tick_count := 0
 var active_simulation_tick_count := 0
 var is_background_simulated := false
+var world: Node
+var world_query
+var ecosystem: Node
+var debug_panel: Node
 
 
 func _get_event_bus() -> Node:
@@ -128,6 +132,15 @@ func _ready() -> void:
 	ai_decision_timer = fmod(float(get_instance_id()), 7.0) / 7.0 * AI_DECISION_INTERVAL_SECONDS
 	_pick_wander_target()
 	_request_visual_redraw(true)
+
+
+func bind_world_context(world_node: Node, ecosystem_node: Node = null, debug_panel_node: Node = null) -> void:
+	world = world_node
+	ecosystem = ecosystem_node
+	debug_panel = debug_panel_node
+	world_query = null
+	if is_instance_valid(world) and world.has_method("get_query_service"):
+		world_query = world.get_query_service()
 
 
 func set_visibility_culled(should_be_visible: bool) -> void:
@@ -1005,10 +1018,7 @@ func _get_biome_prey_pressure() -> float:
 
 
 func _get_current_ecosystem_state() -> Dictionary:
-	var tree := get_tree()
-	if tree == null or tree.current_scene == null:
-		return {}
-	var ecosystem := tree.current_scene.get_node_or_null("EcosystemDirector")
+	var ecosystem := _get_ecosystem()
 	if not ecosystem or not ecosystem.has_method("get_biome_state"):
 		return {}
 	var biome_id := _get_biome_id_for_position(global_position)
@@ -1033,6 +1043,24 @@ func _get_world() -> Node:
 	if tree == null or tree.current_scene == null:
 		return null
 	return tree.current_scene.get_node_or_null("World")
+
+
+func _get_ecosystem() -> Node:
+	if is_instance_valid(ecosystem):
+		return ecosystem
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return null
+	return tree.current_scene.get_node_or_null("EcosystemDirector")
+
+
+func _get_debug_panel() -> Node:
+	if is_instance_valid(debug_panel):
+		return debug_panel
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return null
+	return tree.current_scene.get_node_or_null("HUD/DebugPanel")
 
 
 func _move_toward(target: Vector2, move_speed: float) -> void:
@@ -1289,9 +1317,12 @@ func _get_terrain_speed_multiplier() -> float:
 
 
 func _get_world_query():
+	if world_query != null:
+		return world_query
 	var world := _get_world_node()
 	if world and world.has_method("get_query_service"):
-		return world.get_query_service()
+		world_query = world.get_query_service()
+		return world_query
 	return world
 
 
@@ -1357,19 +1388,13 @@ func _drop_meat_once() -> void:
 	if dropped_meat:
 		return
 	dropped_meat = true
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree == null or tree.current_scene == null:
-		return
-	var world := tree.current_scene.get_node_or_null("World")
+	var world := _get_world_node()
 	if world and world.has_method("spawn_meat_drop_for_animal"):
 		world.spawn_meat_drop_for_animal("varnak", global_position)
 
 
 func _drop_bone_once() -> void:
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree == null or tree.current_scene == null:
-		return
-	var world := tree.current_scene.get_node_or_null("World")
+	var world := _get_world_node()
 	if world and world.has_method("spawn_bone_drop_for_animal"):
 		world.spawn_bone_drop_for_animal("varnak", global_position)
 
@@ -1478,6 +1503,8 @@ func _draw_debug_lines(lines: Array[String], top_left: Vector2) -> void:
 
 
 func _get_world_node() -> Node2D:
+	if is_instance_valid(world):
+		return world as Node2D
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null or tree.current_scene == null:
 		return null
@@ -1521,10 +1548,7 @@ func _update_spatial_cell() -> void:
 
 
 func _is_debug_overlay_visible() -> bool:
-	var scene := get_tree().current_scene
-	if not scene:
-		return false
-	var debug_panel := scene.get_node_or_null("HUD/DebugPanel")
+	var debug_panel := _get_debug_panel()
 	return is_instance_valid(debug_panel) and debug_panel.visible
 
 

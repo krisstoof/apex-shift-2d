@@ -3800,6 +3800,7 @@ func _is_point_in_scaled_biome(point: Vector2, biome: Dictionary) -> bool:
 func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
 	var small_prey := SMALL_PREY_SCENE.instantiate()
 	small_prey.global_position = pos
+	_bind_creature_context(small_prey)
 	if small_prey.has_method("setup"):
 		small_prey.setup(biome_id)
 	add_child(small_prey)
@@ -4163,6 +4164,7 @@ func _try_spawn_varnak_in_weighted_biome(player_position: Vector2, used_position
 func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
 	var grazer := GRAZER_SCENE.instantiate()
 	grazer.global_position = pos
+	_bind_creature_context(grazer)
 	if grazer.has_method("setup"):
 		grazer.setup(biome_id)
 	add_child(grazer)
@@ -4392,6 +4394,7 @@ func _restore_creature_group(group_name: String, creature_data: Array, scene: Pa
 		if typeof(data_value) != TYPE_DICTIONARY:
 			continue
 		var creature := scene.instantiate()
+		_bind_creature_context(creature)
 		if creature.has_method("restore_from_data"):
 			creature.restore_from_data(Dictionary(data_value))
 		add_child(creature)
@@ -4401,6 +4404,7 @@ func _restore_creature_group(group_name: String, creature_data: Array, scene: Pa
 func _spawn_varnak_at(pos: Vector2) -> Node:
 	var varnak := VARNAK_SCENE.instantiate()
 	varnak.global_position = pos
+	_bind_creature_context(varnak)
 	varnak.apply_profile(evolution_director.get_profile())
 	varnak.day_night_system = day_night_system
 	add_child(varnak)
@@ -4412,10 +4416,27 @@ func _restore_varnak_from_data(data: Dictionary) -> void:
 	var varnak := VARNAK_SCENE.instantiate()
 	varnak.apply_profile(evolution_director.get_profile())
 	varnak.day_night_system = day_night_system
+	_bind_creature_context(varnak)
 	if varnak.has_method("restore_from_data"):
 		varnak.restore_from_data(data)
 	add_child(varnak)
 	register_creature_node(varnak, "varnak")
+
+
+func _bind_creature_context(creature: Node) -> void:
+	if creature == null:
+		return
+	if creature.has_method("bind_world_context"):
+		creature.call("bind_world_context", self, ecosystem_director, _get_debug_panel())
+
+
+func _get_debug_panel() -> Node:
+	if not is_inside_tree():
+		return null
+	var scene := get_tree().current_scene
+	if scene == null:
+		return null
+	return scene.get_node_or_null("HUD/DebugPanel")
 
 
 func _get_debug_animal_spawn_position() -> Vector2:
