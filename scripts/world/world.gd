@@ -48,6 +48,7 @@ const VISIBILITY_CULL_INTERVAL_SECONDS := 0.35
 const VISIBILITY_CULL_MARGIN := 384.0
 const DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS := 0.20
 const DECORATIVE_VEGETATION_VISIBILITY_MARGIN := 256.0
+const SPATIAL_INDEX_DEBUG_REFRESH_INTERVAL_SECONDS := 0.75
 const VISIBILITY_CULL_GROUPS := ["resources", "small_prey", "grazer", "varnak"]
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
 const SURFACE_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
@@ -243,6 +244,9 @@ var world_surface_texture: ImageTexture
 var world_surface_texture_key := ""
 var world_surface_texture_build_count: int = 0
 var world_surface_texture_last_build_ms: float = 0.0
+var spatial_index_debug_timer := 0.0
+var spatial_index_debug_cache: Dictionary = {}
+var spatial_index_debug_last_refresh_ms := 0.0
 var visibility_controller
 var decorative_vegetation_visibility_timer := 0.0
 var is_restoring_save: bool = false
@@ -357,6 +361,7 @@ func _process(delta: float) -> void:
 	})
 	if is_restoring_save:
 		return
+	_update_spatial_index_debug_cache(delta)
 	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
 		small_prey_failed_spawn_retry_timer = maxf(0.0, small_prey_failed_spawn_retry_timer - delta)
 	if varnak_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
@@ -1255,10 +1260,38 @@ func get_chunk_debug_data() -> Dictionary:
 
 
 func get_spatial_index_debug_data() -> Dictionary:
+	if spatial_index_debug_cache.is_empty():
+		_refresh_spatial_index_debug_cache()
+	return spatial_index_debug_cache.duplicate(true)
+
+
+func get_spatial_index_debug_snapshot() -> Dictionary:
+	return get_spatial_index_debug_data()
+
+
+func _update_spatial_index_debug_cache(delta: float) -> void:
+	spatial_index_debug_timer += delta
+	if spatial_index_debug_timer < SPATIAL_INDEX_DEBUG_REFRESH_INTERVAL_SECONDS:
+		return
+	spatial_index_debug_timer = 0.0
+	_refresh_spatial_index_debug_cache()
+
+
+func _refresh_spatial_index_debug_cache() -> void:
+	var start_ms := Time.get_ticks_msec()
 	var world_registry = _ensure_registry()
 	if world_registry == null or not world_registry.has_method("get_spatial_index_debug_data"):
-		return {}
-	return Dictionary(world_registry.get_spatial_index_debug_data())
+		spatial_index_debug_cache = {}
+		spatial_index_debug_last_refresh_ms = 0.0
+		return
+	spatial_index_debug_cache = Dictionary(world_registry.get_spatial_index_debug_data())
+	spatial_index_debug_last_refresh_ms = float(Time.get_ticks_msec() - start_ms)
+	spatial_index_debug_cache["last_refresh_ms"] = spatial_index_debug_last_refresh_ms
+	spatial_index_debug_cache["refresh_interval_seconds"] = SPATIAL_INDEX_DEBUG_REFRESH_INTERVAL_SECONDS
+	var bucket_total := int(spatial_index_debug_cache.get("resources_total", 0)) + int(spatial_index_debug_cache.get("creatures_total", 0)) + int(spatial_index_debug_cache.get("meat_total", 0))
+	spatial_index_debug_cache["tracked_vs_bucket_total_delta"] = int(spatial_index_debug_cache.get("tracked_entities", 0)) - bucket_total
+	spatial_index_debug_cache["high_bucket_density_warning"] = int(spatial_index_debug_cache.get("max_entities_in_cell", 0)) >= 32
+	spatial_index_debug_cache["stale_entries_warning"] = int(spatial_index_debug_cache.get("stale_entries_removed_last_cleanup", 0)) > 0
 
 
 func get_biome_query_debug_data() -> Dictionary:
@@ -3428,7 +3461,8 @@ func _sync_visible_small_prey() -> void:
 	var desired_count := _get_desired_small_prey_count(player_biome, biome_state)
 	var current_biome_count := _get_visible_small_prey_count(biome_id)
 	var global_count := get_registered_creatures_by_type("small_prey").size()
-	var requested_count: int = min(desired_count - current_biome_count, SMALL_PREY_MAX_VISIBLE_COUNT - global_count)
+	var raw_requested_count: int = min(desired_count - current_biome_count, SMALL_PREY_MAX_VISIBLE_COUNT - global_count)
+	var requested_count: int = max(0, raw_requested_count)
 	small_prey_spawn_sync_last_requested = requested_count
 	if requested_count <= 0:
 		return
@@ -3932,7 +3966,8 @@ func _sync_visible_grazers() -> void:
 	var desired_count := _get_desired_grazer_count(biome_state)
 	var current_biome_count := _get_visible_grazer_count(biome_id)
 	var global_count := get_registered_creatures_by_type("grazer").size()
-	var spawn_budget: int = min(desired_count - current_biome_count, GRAZER_MAX_VISIBLE_COUNT - global_count)
+	var raw_spawn_budget: int = min(desired_count - current_biome_count, GRAZER_MAX_VISIBLE_COUNT - global_count)
+	var spawn_budget: int = max(0, raw_spawn_budget)
 	if spawn_budget <= 0:
 		return
 	var spawned := 0

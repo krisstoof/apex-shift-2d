@@ -233,6 +233,7 @@ func _capture_world_stats() -> Dictionary:
 	stats["small_prey_spawn_sync"] = _capture_world_small_prey_spawn_sync_stats()
 	stats["varnak_spawn_sync"] = _capture_world_varnak_spawn_sync_stats()
 	stats["creature_spawn_rejection_debug"] = _capture_world_creature_spawn_rejection_debug()
+	stats["spatial_index"] = _capture_world_spatial_index_stats()
 	stats["landmark_debug"] = _capture_world_landmark_debug_stats()
 	stats["registry"] = _capture_world_registry_stats()
 	stats["render_flags"] = _capture_world_render_flags()
@@ -410,6 +411,26 @@ func _capture_world_creature_spawn_rejection_debug() -> Dictionary:
 	if not is_instance_valid(world) or not world.has_method("get_creature_spawn_rejection_debug"):
 		return {}
 	return Dictionary(world.get_creature_spawn_rejection_debug())
+
+
+func _capture_world_spatial_index_stats() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_spatial_index_debug_data"):
+		return {}
+	var data := Dictionary(world.get_spatial_index_debug_data())
+	return {
+		"resource_cells": int(data.get("resource_cells", 0)),
+		"creature_cells": int(data.get("creature_cells", 0)),
+		"meat_cells": int(data.get("meat_cells", 0)),
+		"tracked_entities": int(data.get("tracked_entities", 0)),
+		"resources_total": int(data.get("resources_total", 0)),
+		"creatures_total": int(data.get("creatures_total", 0)),
+		"meat_total": int(data.get("meat_total", 0)),
+		"stale_entries_removed_last_cleanup": int(data.get("stale_entries_removed_last_cleanup", 0)),
+		"average_entities_per_cell": float(data.get("average_entities_per_cell", 0.0)),
+		"max_entities_in_cell": int(data.get("max_entities_in_cell", 0)),
+		"last_refresh_ms": float(data.get("last_refresh_ms", 0.0)),
+		"refresh_interval_seconds": float(data.get("refresh_interval_seconds", 0.0))
+	}
 
 
 func _capture_lightweight_world_debug() -> Dictionary:

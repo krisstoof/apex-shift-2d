@@ -310,6 +310,7 @@ func get_debug_counts() -> Dictionary:
 		creatures_total += _count_live_bucket(Array(cell))
 	for cell in meat_by_cell.values():
 		meat_total += _count_live_bucket(Array(cell))
+	var density_debug := _get_bucket_density_debug()
 	return {
 		"resource_cells": resources_by_cell.size(),
 		"creature_cells": creatures_by_cell.size(),
@@ -320,7 +321,9 @@ func get_debug_counts() -> Dictionary:
 		"stale_entries_removed_last_cleanup": stale_entries_removed_last_cleanup,
 		"resources_total": resources_total,
 		"creatures_total": creatures_total,
-		"meat_total": meat_total
+		"meat_total": meat_total,
+		"average_entities_per_cell": float(density_debug.get("average_entities_per_cell", 0.0)),
+		"max_entities_in_cell": int(density_debug.get("max_entities_in_cell", 0))
 	}
 
 
@@ -356,6 +359,28 @@ func _count_live_bucket(bucket: Array) -> int:
 			continue
 		count += 1
 	return count
+
+
+func _get_bucket_density_debug() -> Dictionary:
+	var total_cells := 0
+	var total_entities := 0
+	var max_entities := 0
+	for cells in [resources_by_cell, creatures_by_cell, meat_by_cell]:
+		for bucket_value in cells.values():
+			var bucket := Array(bucket_value)
+			var live_count := _count_live_bucket(bucket)
+			if live_count <= 0:
+				continue
+			total_cells += 1
+			total_entities += live_count
+			max_entities = maxi(max_entities, live_count)
+	var average := 0.0
+	if total_cells > 0:
+		average = float(total_entities) / float(total_cells)
+	return {
+		"average_entities_per_cell": average,
+		"max_entities_in_cell": max_entities
+	}
 
 
 func _add_entity_to_cell(entity: Node, category: String, cell: Vector2i) -> void:

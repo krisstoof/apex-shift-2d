@@ -1833,11 +1833,17 @@ func _get_spatial_index_debug_text() -> String:
 	var spatial_data: Dictionary = world.get_spatial_index_debug_data()
 	if spatial_data.is_empty():
 		return "unavailable"
-	return "resources %d | creatures %d | meat %d | tracked %d" % [
+	return "tracked %d | cells R/C/M %d/%d/%d | total R/C/M %d/%d/%d | avg/cell %.1f | max/cell %d | stale removed %d" % [
+		int(spatial_data.get("tracked_entities", 0)),
 		int(spatial_data.get("resource_cells", 0)),
 		int(spatial_data.get("creature_cells", 0)),
 		int(spatial_data.get("meat_cells", 0)),
-		int(spatial_data.get("tracked_entities", 0))
+		int(spatial_data.get("resources_total", 0)),
+		int(spatial_data.get("creatures_total", 0)),
+		int(spatial_data.get("meat_total", 0)),
+		float(spatial_data.get("average_entities_per_cell", 0.0)),
+		int(spatial_data.get("max_entities_in_cell", 0)),
+		int(spatial_data.get("stale_entries_removed_last_cleanup", 0))
 	]
 
 
