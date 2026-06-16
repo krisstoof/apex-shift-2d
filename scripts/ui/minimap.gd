@@ -155,8 +155,9 @@ func _get_content_rect(map_rect: Rect2) -> Rect2:
 
 func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if biome_shape_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
-		_draw_shape_map(content_rect, view_world_rect)
-		return
+		if biome_shape_map.has_method("has_renderable_polygons") and biome_shape_map.has_renderable_polygons():
+			_draw_shape_map(content_rect, view_world_rect)
+			return
 	if terrain_cell_map != null:
 		_draw_cell_map(content_rect, view_world_rect)
 		return
@@ -206,7 +207,10 @@ func _sync_biome_texture() -> void:
 	var active_world := _get_world()
 	biome_shape_map = active_world.get_biome_shape_map() if active_world != null and active_world.has_method("get_biome_shape_map") else null
 	terrain_cell_map = active_world.get_terrain_cell_map() if active_world != null and active_world.has_method("get_terrain_cell_map") else null
-	if biome_shape_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+	var has_shape_polygons := false
+	if biome_shape_map != null and biome_shape_map.has_method("has_renderable_polygons"):
+		has_shape_polygons = biome_shape_map.has_renderable_polygons()
+	if has_shape_polygons and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
 		biome_blend_texture = null
 		biome_blend_colors_key = "shape_map"
 		return

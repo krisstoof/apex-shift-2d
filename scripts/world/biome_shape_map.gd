@@ -46,6 +46,12 @@ func get_polygons_by_layer() -> Dictionary:
 func get_details() -> Array[Dictionary]:
 	return details
 
+func has_renderable_polygons() -> bool:
+	for layer_id in polygons_by_layer.keys():
+		if Array(polygons_by_layer[layer_id]).size() > 0:
+			return true
+	return false
+
 func get_debug_data() -> Dictionary:
 	return {
 		"biome_shape_map_enabled": true,
@@ -59,6 +65,7 @@ func get_debug_data() -> Dictionary:
 		"biome_shape_map_uses_convex_hull": biome_shape_map_uses_convex_hull,
 		"biome_shape_map_layer_count": polygons_by_layer.size(),
 		"biome_shape_map_polygon_count_by_layer": _get_polygon_count_by_layer(),
+		"biome_shape_map_has_renderable_polygons": has_renderable_polygons(),
 		"biome_shape_map_largest_polygon_cell_count_by_layer": _get_largest_polygon_cell_count_by_layer(),
 		"biome_shape_map_contour_mode": biome_shape_map_contour_mode,
 		"biome_shape_map_rejected_polygon_count": biome_shape_map_rejected_polygon_count,

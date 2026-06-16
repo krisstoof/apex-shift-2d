@@ -367,6 +367,7 @@ func _ready() -> void:
 	_update_decorative_vegetation_visible_rect()
 	_rebuild_chunk_assignments()
 	decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
+	_ensure_biome_shape_map_built(true)
 	_sync_biome_shape_renderer(true)
 	_sync_terrain_surface_chunk_renderer(true)
 	if is_instance_valid(terrain_chunk_renderer):
@@ -555,7 +556,8 @@ func get_world_generation_debug() -> Dictionary:
 	debug["topography_rules_version"] = str(WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION)
 	debug["procedural_world_restore_mode"] = procedural_world_restore_mode
 	debug["cell_terrain_renderer_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
-	debug["biome_shape_renderer_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer", true))
+	debug["biome_shape_renderer_in_world_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer_in_world", false))
+	debug["biome_shape_map_for_maps_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true))
 	return debug
 
 
@@ -2009,6 +2011,20 @@ func _ensure_biome_shape_map():
 	return biome_shape_map
 
 
+func _ensure_biome_shape_map_built(force_rebuild := false) -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		return
+	if world_generator == null or world_topography == null:
+		return
+	var shape_map = _ensure_biome_shape_map()
+	var build_count := 0
+	if shape_map != null and shape_map.has_method("get_debug_data"):
+		build_count = int(Dictionary(shape_map.get_debug_data()).get("biome_shape_map_build_count", 0))
+	if force_rebuild or biome_shape_map_dirty or build_count == 0:
+		shape_map.build(WORLD_CONFIG.WORLD_RECT, world_generator, world_topography, world_seed)
+		biome_shape_map_dirty = false
+
+
 func _ensure_biome_shape_renderer():
 	if is_instance_valid(biome_shape_renderer):
 		return biome_shape_renderer
@@ -2021,7 +2037,9 @@ func _ensure_biome_shape_renderer():
 
 
 func _sync_biome_shape_renderer(force_rebuild_map := false) -> void:
-	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer", true)):
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		_ensure_biome_shape_map_built(force_rebuild_map)
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer_in_world", false)):
 		if is_instance_valid(biome_shape_renderer):
 			biome_shape_renderer.visible = false
 		return
@@ -2029,9 +2047,9 @@ func _sync_biome_shape_renderer(force_rebuild_map := false) -> void:
 		return
 	var shape_map: Object = _ensure_biome_shape_map()
 	var renderer: Object = _ensure_biome_shape_renderer()
+	renderer.visible = true
 	if force_rebuild_map or biome_shape_map_dirty or shape_map.get_debug_data().get("biome_shape_map_build_count", 0) == 0:
-		shape_map.build(WORLD_CONFIG.WORLD_RECT, world_generator, world_topography, world_seed)
-		biome_shape_map_dirty = false
+		_ensure_biome_shape_map_built(force_rebuild_map)
 		if renderer.has_method("clear_cache"):
 			renderer.clear_cache()
 	var player_node := get_tree().get_first_node_in_group("player") as Node2D
@@ -2101,6 +2119,8 @@ func _sync_terrain_surface_chunk_renderer(force_rebuild := false) -> void:
 
 
 func get_biome_shape_map():
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		_ensure_biome_shape_map_built(false)
 	return _ensure_biome_shape_map()
 
 
@@ -2110,6 +2130,9 @@ func get_biome_shape_debug() -> Dictionary:
 		debug.merge(biome_shape_map.get_debug_data(), true)
 	if biome_shape_renderer != null and biome_shape_renderer.has_method("get_debug_data"):
 		debug.merge(biome_shape_renderer.get_debug_data(), true)
+	debug["biome_shape_map_build_independent_from_renderer"] = true
+	debug["biome_shape_map_for_maps_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true))
+	debug["biome_shape_renderer_in_world_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer_in_world", false))
 	debug["biome_shape_map_dirty"] = biome_shape_map_dirty
 	debug["biome_shape_renderer_bound"] = biome_shape_renderer_bound
 	return debug
