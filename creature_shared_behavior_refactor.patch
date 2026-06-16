@@ -1,0 +1,647 @@
+diff --git a/scripts/creatures/creature_shared_behavior.gd b/scripts/creatures/creature_shared_behavior.gd
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/scripts/creatures/creature_shared_behavior.gd
+@@ -0,0 +1,144 @@
++extends RefCounted
++class_name CreatureSharedBehavior
++
++
++static func safe_float(data: Dictionary, key: String, fallback: float) -> float:
++	var value: Variant = data.get(key, fallback)
++	if value == null:
++		return fallback
++	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
++		return float(value)
++	if typeof(value) == TYPE_STRING and str(value).is_valid_float():
++		return float(value)
++	return fallback
++
++
++static func safe_int(data: Dictionary, key: String, fallback: int) -> int:
++	var value: Variant = data.get(key, fallback)
++	if value == null:
++		return fallback
++	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
++		return int(value)
++	if typeof(value) == TYPE_STRING and str(value).is_valid_int():
++		return int(value)
++	return fallback
++
++
++static func safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
++	var value: Variant = data.get(key, fallback)
++	if value == null:
++		return fallback
++	if typeof(value) == TYPE_BOOL:
++		return bool(value)
++	if typeof(value) == TYPE_STRING:
++		var normalized := str(value).to_lower()
++		if normalized == "true":
++			return true
++		if normalized == "false":
++			return false
++	return fallback
++
++
++static func vector_to_data(value: Vector2) -> Dictionary:
++	return {"x": value.x, "y": value.y}
++
++
++static func data_to_vector(data: Variant, fallback := Vector2.ZERO) -> Vector2:
++	if typeof(data) != TYPE_DICTIONARY:
++		return fallback
++	var x_raw: Variant = data.get("x", fallback.x)
++	var y_raw: Variant = data.get("y", fallback.y)
++	var x_value := fallback.x
++	var y_value := fallback.y
++	if x_raw != null:
++		x_value = float(x_raw)
++	if y_raw != null:
++		y_value = float(y_raw)
++	return Vector2(x_value, y_value)
++
++
++static func get_scene_tree(owner: Node) -> SceneTree:
++	if is_instance_valid(owner) and owner.is_inside_tree():
++		return owner.get_tree()
++	return Engine.get_main_loop() as SceneTree
++
++
++static func get_world_node(tree: SceneTree, cached_world: Node = null) -> Node2D:
++	if is_instance_valid(cached_world):
++		return cached_world as Node2D
++	if tree == null or tree.current_scene == null:
++		return null
++	return tree.current_scene.get_node_or_null("World") as Node2D
++
++
++static func get_ecosystem(tree: SceneTree, cached_ecosystem: Node = null) -> Node:
++	if is_instance_valid(cached_ecosystem):
++		return cached_ecosystem
++	if tree == null or tree.current_scene == null:
++		return null
++	return tree.current_scene.get_node_or_null("EcosystemDirector")
++
++
++static func get_debug_panel(tree: SceneTree, cached_debug_panel: Node = null) -> Node:
++	if is_instance_valid(cached_debug_panel):
++		return cached_debug_panel
++	if tree == null or tree.current_scene == null:
++		return null
++	return tree.current_scene.get_node_or_null("HUD/DebugPanel")
++
++
++static func is_debug_overlay_visible(tree: SceneTree, cached_debug_panel: Node = null) -> bool:
++	var panel := get_debug_panel(tree, cached_debug_panel)
++	return is_instance_valid(panel) and panel.visible
++
++
++static func get_cached_group_nodes(tree: SceneTree, world_node: Node, group_name: String) -> Array:
++	if is_instance_valid(world_node) and world_node.has_method("get_cached_group_nodes"):
++		return world_node.get_cached_group_nodes(group_name)
++	if tree == null:
++		return []
++	return tree.get_nodes_in_group(group_name)
++
++
++static func get_world_query(cached_world_query: Variant, world_node: Node) -> Variant:
++	if cached_world_query != null:
++		return cached_world_query
++	if is_instance_valid(world_node) and world_node.has_method("get_query_service"):
++		return world_node.get_query_service()
++	return world_node
++
++
++static func get_biome_id_at(world_node: Node, world_position: Vector2) -> String:
++	if is_instance_valid(world_node) and world_node.has_method("get_biome_id_at"):
++		return str(world_node.get_biome_id_at(world_position))
++	return ""
++
++
++static func is_position_in_biome(world_node: Node, world_position: Vector2, target_biome_id: String, fallback_rect: Rect2) -> bool:
++	if target_biome_id.is_empty():
++		return fallback_rect.has_point(world_position)
++	return get_biome_id_at(world_node, world_position) == target_biome_id
++
++
++static func clamp_to_rect(world_point: Vector2, rect: Rect2) -> Vector2:
++	return Vector2(
++		clamp(world_point.x, rect.position.x, rect.end.x),
++		clamp(world_point.y, rect.position.y, rect.end.y)
++	)
++
++
++static func clamp_target_distance(origin: Vector2, target: Vector2, max_distance: float) -> Vector2:
++	var offset := target - origin
++	if offset.length() <= max_distance:
++		return target
++	return origin + offset.normalized() * max_distance
++
++
++static func is_navigation_blocked(world_query: Variant, world_position: Vector2) -> bool:
++	return world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(world_position) == true
++
++
++static func is_navigation_position_valid(world_position: Vector2, world_rect: Rect2, world_query: Variant, walls: Array = [], wall_avoid_radius: float = 0.0, wall_distance_multiplier: float = 0.72) -> bool:
++	var clamped_position := clamp_to_rect(world_position, world_rect)
++	if clamped_position.distance_squared_to(world_position) > 0.01:
++		return false
++	if is_navigation_blocked(world_query, world_position):
++		return false
++	if wall_avoid_radius > 0.0:
++		for wall in walls:
++			var wall_node := wall as Node2D
++			if is_instance_valid(wall_node) and world_position.distance_to(wall_node.global_position) < wall_avoid_radius * wall_distance_multiplier:
++				return false
++	return true
++
++
++static func update_spatial_entity_cell(world_node: Node, entity: Node) -> void:
++	if is_instance_valid(world_node) and world_node.has_method("update_spatial_entity_cell"):
++		world_node.update_spatial_entity_cell(entity)
+diff --git a/scripts/creatures/small_prey.gd b/scripts/creatures/small_prey.gd
+--- a/scripts/creatures/small_prey.gd
++++ b/scripts/creatures/small_prey.gd
+@@ -6,6 +6,7 @@
+ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+ const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
+ const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
++const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
+ const SPECIES_PATH := "res://data/species/small_prey.json"
+@@
+ func _safe_float(data: Dictionary, key: String, fallback: float) -> float:
+-	var value: Variant = data.get(key, fallback)
+-	if value == null:
+-		return fallback
+-	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+-		return float(value)
+-	if typeof(value) == TYPE_STRING and str(value).is_valid_float():
+-		return float(value)
+-	return fallback
++	return CREATURE_SHARED.safe_float(data, key, fallback)
+@@
+ func _safe_int(data: Dictionary, key: String, fallback: int) -> int:
+-	var value: Variant = data.get(key, fallback)
+-	if value == null:
+-		return fallback
+-	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+-		return int(value)
+-	if typeof(value) == TYPE_STRING and str(value).is_valid_int():
+-		return int(value)
+-	return fallback
++	return CREATURE_SHARED.safe_int(data, key, fallback)
+@@
+ func _safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
+-	var value: Variant = data.get(key, fallback)
+-	if value == null:
+-		return fallback
+-	if typeof(value) == TYPE_BOOL:
+-		return bool(value)
+-	if typeof(value) == TYPE_STRING:
+-		var normalized := str(value).to_lower()
+-		if normalized == "true":
+-			return true
+-		if normalized == "false":
+-			return false
+-	return fallback
++	return CREATURE_SHARED.safe_bool(data, key, fallback)
+@@
+ func _clamp_to_world(world_point: Vector2) -> Vector2:
+-	var rect := _get_world_rect()
+-	return Vector2(
+-		clamp(world_point.x, rect.position.x, rect.end.x),
+-		clamp(world_point.y, rect.position.y, rect.end.y)
+-	)
++	return CREATURE_SHARED.clamp_to_rect(world_point, _get_world_rect())
+@@
+ func _clamp_target_distance(target: Vector2, max_distance: float) -> Vector2:
+-	var offset := target - global_position
+-	if offset.length() <= max_distance:
+-		return target
+-	return global_position + offset.normalized() * max_distance
++	return CREATURE_SHARED.clamp_target_distance(global_position, target, max_distance)
+@@
+ func _get_world_query():
+ 	if world_query != null:
+ 		return world_query
+-	var world := _get_world_node()
+-	if world and world.has_method("get_query_service"):
+-		world_query = world.get_query_service()
+-		return world_query
+-	return world
++	var world_node := _get_world_node()
++	var resolved: Variant = CREATURE_SHARED.get_world_query(world_query, world_node)
++	if resolved != null and resolved != world_node:
++		world_query = resolved
++	return resolved
+@@
+ func _get_biome_id_for_position(pos: Vector2) -> String:
+-	var world := _get_world()
+-	if world != null and world.has_method("get_biome_id_at"):
+-		return str(world.get_biome_id_at(pos))
+-	return ""
++	return CREATURE_SHARED.get_biome_id_at(_get_world_node(), pos)
+@@
+ func _is_position_in_biome(pos: Vector2, target_biome_id: String) -> bool:
+-	if target_biome_id.is_empty():
+-		return WORLD_CONFIG.WORLD_RECT.has_point(pos)
+-	var world := _get_world()
+-	if world != null and world.has_method("get_biome_id_at"):
+-		return str(world.get_biome_id_at(pos)) == target_biome_id
+-	return false
++	return CREATURE_SHARED.is_position_in_biome(_get_world_node(), pos, target_biome_id, WORLD_CONFIG.WORLD_RECT)
+@@
+ func _get_world() -> Node:
+-	if not is_inside_tree():
+-		return null
+-	var tree := get_tree()
+-	if tree == null or tree.current_scene == null:
+-		return null
+-	return tree.current_scene.get_node_or_null("World")
++	return _get_world_node()
+@@
+ func _vector_to_data(value: Vector2) -> Dictionary:
+-	return {"x": value.x, "y": value.y}
++	return CREATURE_SHARED.vector_to_data(value)
+@@
+ func _data_to_vector(data: Variant) -> Vector2:
+-	if typeof(data) != TYPE_DICTIONARY:
+-		return Vector2.ZERO
+-	var x_raw: Variant = data.get("x", 0.0)
+-	var y_raw: Variant = data.get("y", 0.0)
+-	var x_value := 0.0
+-	var y_value := 0.0
+-	if x_raw != null:
+-		x_value = float(x_raw)
+-	if y_raw != null:
+-		y_value = float(y_raw)
+-	return Vector2(x_value, y_value)
++	return CREATURE_SHARED.data_to_vector(data)
+@@
+ func _get_world_node() -> Node2D:
+-	if is_instance_valid(world):
+-		return world as Node2D
+-	var scene := get_tree().current_scene
+-	if not scene:
+-		return null
+-	return scene.get_node_or_null("World") as Node2D
++	return CREATURE_SHARED.get_world_node(CREATURE_SHARED.get_scene_tree(self), world)
+@@
+ func _get_ecosystem() -> Node:
+-	if is_instance_valid(ecosystem):
+-		return ecosystem
+-	var tree := get_tree()
+-	if tree == null or tree.current_scene == null:
+-		return null
+-	return tree.current_scene.get_node_or_null("EcosystemDirector")
++	return CREATURE_SHARED.get_ecosystem(CREATURE_SHARED.get_scene_tree(self), ecosystem)
+@@
+ func _get_debug_panel() -> Node:
+-	if is_instance_valid(debug_panel):
+-		return debug_panel
+-	var tree := get_tree()
+-	if tree == null or tree.current_scene == null:
+-		return null
+-	return tree.current_scene.get_node_or_null("HUD/DebugPanel")
++	return CREATURE_SHARED.get_debug_panel(CREATURE_SHARED.get_scene_tree(self), debug_panel)
+@@
+ func _get_cached_group_nodes(group_name: String) -> Array:
+-	var world := _get_world_node()
+-	if world and world.has_method("get_cached_group_nodes"):
+-		return world.get_cached_group_nodes(group_name)
+-	return get_tree().get_nodes_in_group(group_name)
++	return CREATURE_SHARED.get_cached_group_nodes(CREATURE_SHARED.get_scene_tree(self), _get_world_node(), group_name)
+@@
+ func _update_spatial_cell() -> void:
+-	var world := _get_world_node()
+-	if world and world.has_method("update_spatial_entity_cell"):
+-		world.update_spatial_entity_cell(self)
++	CREATURE_SHARED.update_spatial_entity_cell(_get_world_node(), self)
+@@
+ func _is_debug_overlay_visible() -> bool:
+-	var debug_panel := _get_debug_panel()
+-	return is_instance_valid(debug_panel) and debug_panel.visible
++	return CREATURE_SHARED.is_debug_overlay_visible(CREATURE_SHARED.get_scene_tree(self), debug_panel)
+@@
+ func _is_navigation_position_valid(nav_position: Vector2) -> bool:
+-	var clamped_position := _clamp_to_world(nav_position)
+-	if clamped_position.distance_squared_to(nav_position) > 0.01:
+-		return false
+-	var world_query: Variant = _get_world_query()
+-	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(nav_position) == true:
+-		return false
+-	for wall in _get_cached_group_nodes("walls"):
+-		var wall_node := wall as Node2D
+-		if is_instance_valid(wall_node) and nav_position.distance_to(wall_node.global_position) < wall_avoid_radius * 0.72:
+-			return false
+-	return true
++	return CREATURE_SHARED.is_navigation_position_valid(nav_position, _get_world_rect(), _get_world_query(), _get_cached_group_nodes("walls"), wall_avoid_radius)
+diff --git a/scripts/creatures/grazer.gd b/scripts/creatures/grazer.gd
+--- a/scripts/creatures/grazer.gd
++++ b/scripts/creatures/grazer.gd
+@@ -6,6 +6,7 @@
+ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+ const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
+ const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
++const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
+ const SPECIES_PATH := "res://data/species/grazer.json"
+@@
+ func _safe_float(data: Dictionary, key: String, fallback: float) -> float:
+-	var value: Variant = data.get(key, fallback)
+-	if value == null:
+-		return fallback
+-	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+-		return float(value)
+-	if typeof(value) == TYPE_STRING and str(value).is_valid_float():
+-		return float(value)
+-	return fallback
++	return CREATURE_SHARED.safe_float(data, key, fallback)
+@@
+ func _safe_int(data: Dictionary, key: String, fallback: int) -> int:
+-	var value: Variant = data.get(key, fallback)
+-	if value == null:
+-		return fallback
+-	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+-		return int(value)
+-	if typeof(value) == TYPE_STRING and str(value).is_valid_int():
+-		return int(value)
+-	return fallback
++	return CREATURE_SHARED.safe_int(data, key, fallback)
+@@
+ func _safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
+-	var value: Variant = data.get(key, fallback)
+-	if value == null:
+-		return fallback
+-	if typeof(value) == TYPE_BOOL:
+-		return bool(value)
+-	if typeof(value) == TYPE_STRING:
+-		var normalized := str(value).to_lower()
+-		if normalized == "true":
+-			return true
+-		if normalized == "false":
+-			return false
+-	return fallback
++	return CREATURE_SHARED.safe_bool(data, key, fallback)
+@@
+ func _clamp_to_world(world_point: Vector2) -> Vector2:
+-	var rect := _get_world_rect()
+-	return Vector2(
+-		clamp(world_point.x, rect.position.x, rect.end.x),
+-		clamp(world_point.y, rect.position.y, rect.end.y)
+-	)
++	return CREATURE_SHARED.clamp_to_rect(world_point, _get_world_rect())
+@@
+ func _clamp_target_distance(target: Vector2, max_distance: float) -> Vector2:
+-	var offset := target - global_position
+-	if offset.length() <= max_distance:
+-		return target
+-	return global_position + offset.normalized() * max_distance
++	return CREATURE_SHARED.clamp_target_distance(global_position, target, max_distance)
+@@
+ func _get_world_query():
+ 	if world_query != null:
+ 		return world_query
+-	var world := _get_world_node()
+-	if world and world.has_method("get_query_service"):
+-		world_query = world.get_query_service()
+-		return world_query
+-	return world
++	var world_node := _get_world_node()
++	var resolved: Variant = CREATURE_SHARED.get_world_query(world_query, world_node)
++	if resolved != null and resolved != world_node:
++		world_query = resolved
++	return resolved
+@@
+ func _get_biome_id_for_position(target_position: Vector2) -> String:
+-	var world := _get_world()
+-	if world != null and world.has_method("get_biome_id_at"):
+-		return str(world.get_biome_id_at(target_position))
+-	return ""
++	return CREATURE_SHARED.get_biome_id_at(_get_world_node(), target_position)
+@@
+ func _is_position_in_biome(target_position: Vector2, target_biome_id: String) -> bool:
+-	if target_biome_id.is_empty():
+-		return WORLD_CONFIG.WORLD_RECT.has_point(target_position)
+-	var world := _get_world()
+-	if world != null and world.has_method("get_biome_id_at"):
+-		return str(world.get_biome_id_at(target_position)) == target_biome_id
+-	return false
++	return CREATURE_SHARED.is_position_in_biome(_get_world_node(), target_position, target_biome_id, WORLD_CONFIG.WORLD_RECT)
+@@
+ func _get_world() -> Node:
+-	if not is_inside_tree():
+-		return null
+-	var tree := get_tree()
+-	if tree == null or tree.current_scene == null:
+-		return null
+-	return tree.current_scene.get_node_or_null("World")
++	return _get_world_node()
+@@
+ func _vector_to_data(value: Vector2) -> Dictionary:
+-	return {"x": value.x, "y": value.y}
++	return CREATURE_SHARED.vector_to_data(value)
+@@
+ func _data_to_vector(data: Variant) -> Vector2:
+-	if typeof(data) != TYPE_DICTIONARY:
+-		return Vector2.ZERO
+-	var x_raw: Variant = data.get("x", 0.0)
+-	var y_raw: Variant = data.get("y", 0.0)
+-	var x_value := 0.0
+-	var y_value := 0.0
+-	if x_raw != null:
+-		x_value = float(x_raw)
+-	if y_raw != null:
+-		y_value = float(y_raw)
+-	return Vector2(x_value, y_value)
++	return CREATURE_SHARED.data_to_vector(data)
+@@
+ func _get_world_node() -> Node2D:
+-	if is_instance_valid(world):
+-		return world as Node2D
+-	var scene := get_tree().current_scene
+-	if not scene:
+-		return null
+-	return scene.get_node_or_null("World") as Node2D
++	return CREATURE_SHARED.get_world_node(CREATURE_SHARED.get_scene_tree(self), world)
+@@
+ func _get_ecosystem() -> Node:
+-	if is_instance_valid(ecosystem):
+-		return ecosystem
+-	var tree := get_tree()
+-	if tree == null or tree.current_scene == null:
+-		return null
+-	return tree.current_scene.get_node_or_null("EcosystemDirector")
++	return CREATURE_SHARED.get_ecosystem(CREATURE_SHARED.get_scene_tree(self), ecosystem)
+@@
+ func _get_debug_panel() -> Node:
+-	if is_instance_valid(debug_panel):
+-		return debug_panel
+-	var tree := get_tree()
+-	if tree == null or tree.current_scene == null:
+-		return null
+-	return tree.current_scene.get_node_or_null("HUD/DebugPanel")
++	return CREATURE_SHARED.get_debug_panel(CREATURE_SHARED.get_scene_tree(self), debug_panel)
+@@
+ func _get_cached_group_nodes(group_name: String) -> Array:
+-	var world := _get_world_node()
+-	if world and world.has_method("get_cached_group_nodes"):
+-		return world.get_cached_group_nodes(group_name)
+-	return get_tree().get_nodes_in_group(group_name)
++	return CREATURE_SHARED.get_cached_group_nodes(CREATURE_SHARED.get_scene_tree(self), _get_world_node(), group_name)
+@@
+ func _update_spatial_cell() -> void:
+-	var world := _get_world_node()
+-	if world and world.has_method("update_spatial_entity_cell"):
+-		world.update_spatial_entity_cell(self)
++	CREATURE_SHARED.update_spatial_entity_cell(_get_world_node(), self)
+@@
+ func _is_debug_overlay_visible() -> bool:
+-	var debug_panel := _get_debug_panel()
+-	return is_instance_valid(debug_panel) and debug_panel.visible
++	return CREATURE_SHARED.is_debug_overlay_visible(CREATURE_SHARED.get_scene_tree(self), debug_panel)
+@@
+ func _is_navigation_position_valid(nav_position: Vector2) -> bool:
+-	var clamped_position := _clamp_to_world(nav_position)
+-	if clamped_position.distance_squared_to(nav_position) > 0.01:
+-		return false
+-	var world_query: Variant = _get_world_query()
+-	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(nav_position) == true:
+-		return false
+-	for wall in _get_cached_group_nodes("walls"):
+-		var wall_node := wall as Node2D
+-		if is_instance_valid(wall_node) and nav_position.distance_to(wall_node.global_position) < wall_avoid_radius * 0.72:
+-			return false
+-	return true
++	return CREATURE_SHARED.is_navigation_position_valid(nav_position, _get_world_rect(), _get_world_query(), _get_cached_group_nodes("walls"), wall_avoid_radius)
+diff --git a/scripts/creatures/varnak.gd b/scripts/creatures/varnak.gd
+--- a/scripts/creatures/varnak.gd
++++ b/scripts/creatures/varnak.gd
+@@ -5,6 +5,7 @@
+ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+ const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
++const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
+@@
+ func _safe_float(data: Dictionary, key: String, fallback: float) -> float:
+-	var value: Variant = data.get(key, fallback)
+-	if value == null:
+-		return fallback
+-	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+-		return float(value)
+-	if typeof(value) == TYPE_STRING and str(value).is_valid_float():
+-		return float(value)
+-	return fallback
++	return CREATURE_SHARED.safe_float(data, key, fallback)
+@@
+ func _safe_int(data: Dictionary, key: String, fallback: int) -> int:
+-	var value: Variant = data.get(key, fallback)
+-	if value == null:
+-		return fallback
+-	if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+-		return int(value)
+-	if typeof(value) == TYPE_STRING and str(value).is_valid_int():
+-		return int(value)
+-	return fallback
++	return CREATURE_SHARED.safe_int(data, key, fallback)
+@@
+ func _safe_bool(data: Dictionary, key: String, fallback: bool) -> bool:
+-	var value: Variant = data.get(key, fallback)
+-	if value == null:
+-		return fallback
+-	if typeof(value) == TYPE_BOOL:
+-		return bool(value)
+-	if typeof(value) == TYPE_STRING:
+-		var normalized := str(value).to_lower()
+-		if normalized == "true":
+-			return true
+-		if normalized == "false":
+-			return false
+-	return fallback
++	return CREATURE_SHARED.safe_bool(data, key, fallback)
+@@
+ func _is_navigation_position_valid(world_position: Vector2) -> bool:
+-	var clamped_position := _clamp_to_world(world_position)
+-	if clamped_position.distance_squared_to(world_position) > 0.01:
+-		return false
+-	var world_query: Variant = _get_world_query()
+-	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(world_position) == true:
+-		return false
+-	return true
++	return CREATURE_SHARED.is_navigation_position_valid(world_position, _get_world_rect(), _get_world_query())
+@@
+ func _clamp_to_world(target_position: Vector2) -> Vector2:
+-	var rect: Rect2 = _get_world_rect()
+-	return Vector2(
+-		clamp(target_position.x, rect.position.x, rect.end.x),
+-		clamp(target_position.y, rect.position.y, rect.end.y)
+-	)
++	return CREATURE_SHARED.clamp_to_rect(target_position, _get_world_rect())
+@@
+ func _clamp_target_distance(target: Vector2, max_distance: float) -> Vector2:
+-	var offset := target - global_position
+-	if offset.length() <= max_distance:
+-		return target
+-	return global_position + offset.normalized() * max_distance
++	return CREATURE_SHARED.clamp_target_distance(global_position, target, max_distance)
+@@
+ func _get_world_query():
+ 	if world_query != null:
+ 		return world_query
+-	var world := _get_world_node()
+-	if world and world.has_method("get_query_service"):
+-		world_query = world.get_query_service()
+-		return world_query
+-	return world
++	var world_node := _get_world_node()
++	var resolved: Variant = CREATURE_SHARED.get_world_query(world_query, world_node)
++	if resolved != null and resolved != world_node:
++		world_query = resolved
++	return resolved
+@@
+ func _get_world_node() -> Node2D:
+-	if is_instance_valid(world):
+-		return world as Node2D
+-	var tree := Engine.get_main_loop() as SceneTree
+-	if tree == null or tree.current_scene == null:
+-		return null
+-	var scene := tree.current_scene
+-	return scene.get_node_or_null("World") as Node2D
++	return CREATURE_SHARED.get_world_node(CREATURE_SHARED.get_scene_tree(self), world)
+@@
+ func _get_cached_group_nodes(group_name: String) -> Array:
+-	var world := _get_world_node()
+-	if world and world.has_method("get_cached_group_nodes"):
+-		return world.get_cached_group_nodes(group_name)
+-	return get_tree().get_nodes_in_group(group_name)
++	return CREATURE_SHARED.get_cached_group_nodes(CREATURE_SHARED.get_scene_tree(self), _get_world_node(), group_name)
+@@
+ func _update_spatial_cell() -> void:
+-	var world := _get_world_node()
+-	if world and world.has_method("update_spatial_entity_cell"):
+-		world.update_spatial_entity_cell(self)
++	CREATURE_SHARED.update_spatial_entity_cell(_get_world_node(), self)
+@@
+ func _is_debug_overlay_visible() -> bool:
+-	var debug_panel := _get_debug_panel()
+-	return is_instance_valid(debug_panel) and debug_panel.visible
++	return CREATURE_SHARED.is_debug_overlay_visible(CREATURE_SHARED.get_scene_tree(self), debug_panel)
+@@
+ func _vector_to_data(value: Vector2) -> Dictionary:
+-	return {"x": value.x, "y": value.y}
++	return CREATURE_SHARED.vector_to_data(value)
+@@
+ func _data_to_vector(data: Variant) -> Vector2:
+-	if typeof(data) != TYPE_DICTIONARY:
+-		return Vector2.ZERO
+-	var x_raw: Variant = data.get("x", 0.0)
+-	var y_raw: Variant = data.get("y", 0.0)
+-	var x_value := 0.0
+-	var y_value := 0.0
+-	if x_raw != null:
+-		x_value = float(x_raw)
+-	if y_raw != null:
+-		y_value = float(y_raw)
+-	return Vector2(x_value, y_value)
++	return CREATURE_SHARED.data_to_vector(data)

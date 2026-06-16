@@ -3,6 +3,7 @@ extends CharacterBody2D
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
+const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
 
 enum State { IDLE, WANDER, STALK, CHASE, ATTACK, FLEE, HUNT_ECOSYSTEM, EAT_MEAT }
 

@@ -4,6 +4,7 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
 const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
+const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
 const SPECIES_PATH := "res://data/species/small_prey.json"
 const AI_DECISION_INTERVAL_SECONDS := 0.14
 const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
