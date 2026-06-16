@@ -849,7 +849,7 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 		"active_resource_collisions": 0,
 		"node_count": 0
 	}
-	var missing_metrics: Array[String] = []
+	var missing_metric_set: Dictionary = {}
 	var samples_array := Array(report.get("samples", []))
 	if samples_array.is_empty():
 		metrics["missing_metrics"] = [
@@ -860,6 +860,8 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 			"node_count"
 		]
 		return metrics
+	func add_missing(metric_name: String) -> void:
+		missing_metric_set[metric_name] = true
 	for sample_value in samples_array:
 		var sample: Dictionary = Dictionary(sample_value)
 		var performance: Dictionary = Dictionary(sample.get("performance", {}))
@@ -870,25 +872,27 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 		if performance.has("node_count"):
 			metrics["node_count"] = maxi(int(metrics["node_count"]), int(performance.get("node_count", 0)))
 		else:
-			missing_metrics.append("node_count")
+			add_missing("node_count")
 		if resource_render_mode.has("active_resource_collisions"):
 			metrics["active_resource_collisions"] = maxi(int(metrics["active_resource_collisions"]), int(resource_render_mode.get("active_resource_collisions", 0)))
 		else:
-			missing_metrics.append("active_resource_collisions")
+			add_missing("active_resource_collisions")
 		if minimap_stats.has("texture_build_count"):
 			metrics["minimap_texture_build_count"] = maxi(int(metrics["minimap_texture_build_count"]), int(minimap_stats.get("texture_build_count", 0)))
 		else:
-			missing_metrics.append("minimap_texture_build_count")
+			add_missing("minimap_texture_build_count")
 		if map_screen_stats.has("texture_build_count"):
 			metrics["map_screen_texture_build_count"] = maxi(int(metrics["map_screen_texture_build_count"]), int(map_screen_stats.get("texture_build_count", 0)))
 		else:
-			missing_metrics.append("map_screen_texture_build_count")
+			add_missing("map_screen_texture_build_count")
 		var biome_cache: Dictionary = Dictionary(world_stats.get("biome_texture_cache", {}))
 		if biome_cache.has("world_biome_texture_build_count"):
 			metrics["world_biome_texture_build_count"] = maxi(int(metrics["world_biome_texture_build_count"]), int(biome_cache.get("world_biome_texture_build_count", 0)))
 		else:
-			missing_metrics.append("world_biome_texture_build_count")
+			add_missing("world_biome_texture_build_count")
+	var missing_metrics: Array[String] = Array(missing_metric_set.keys())
 	if not missing_metrics.is_empty():
+		missing_metrics.sort()
 		metrics["missing_metrics"] = missing_metrics
 	return metrics
 

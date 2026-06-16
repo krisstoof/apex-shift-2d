@@ -428,7 +428,7 @@ func _set_world_object_visibility_by_rect(visible_rect: Rect2) -> void:
 	visibility_cull_last_hidden_resources = 0
 	visibility_cull_last_visible_creatures = 0
 	visibility_cull_last_hidden_creatures = 0
-	var query_rect := visible_rect.grow(128.0)
+	var query_rect := visible_rect.grow(48.0)
 	var current_visible_nodes: Dictionary = {}
 	var visible_resources := get_resources_in_rect(query_rect)
 	for node in visible_resources:

@@ -812,8 +812,7 @@ func set_visibility_culled(should_be_visible: bool) -> void:
 	_set_collision_state_safe(should_be_visible)
 	set_process(should_be_visible)
 	set_physics_process(should_be_visible)
-	if should_be_visible:
-		queue_redraw()
+	queue_redraw()
 
 
 func _is_render_only_kind() -> bool:

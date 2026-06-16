@@ -2,7 +2,6 @@ extends Control
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
-const BENCHMARK_RUNNER := preload("res://scripts/systems/benchmark_runner.gd")
 const DEBUG_TABS := [
 	"Overview",
 	"Player",
@@ -37,6 +36,7 @@ var debug_panel_refresh_count: int = 0
 var debug_panel_overlay_refresh_count: int = 0
 var debug_panel_hidden_skip_count: int = 0
 var benchmark_runner: Node
+var benchmark_runner_script: Script
 var benchmark_button: Button
 var god_mode_button: Button
 var regenerate_landmarks_button: Button
@@ -1698,7 +1698,12 @@ func _start_benchmark() -> void:
 	if not scene:
 		_post_debug_message("Benchmark could not start: no active scene")
 		return
-	benchmark_runner = BENCHMARK_RUNNER.new()
+	if benchmark_runner_script == null:
+		benchmark_runner_script = load("res://scripts/systems/benchmark_runner.gd")
+	if benchmark_runner_script == null:
+		_post_debug_message("Benchmark could not start: runner script unavailable")
+		return
+	benchmark_runner = benchmark_runner_script.new()
 	scene.add_child(benchmark_runner)
 	if benchmark_button:
 		benchmark_button.text = "Benchmark 60s / starting..."
