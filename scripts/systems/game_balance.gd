@@ -406,7 +406,7 @@ const BIOME_VISUALS := {
 }
 
 const BIOME_TEXTURES := {
-	"detail_overlay_enabled": false,
+	"detail_overlay_enabled": true,
 	"detail_chunk_world_size": 768.0,
 	"detail_chunk_texture_size": 256,
 	"detail_visible_chunk_radius": 1,

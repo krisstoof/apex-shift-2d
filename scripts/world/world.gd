@@ -204,7 +204,8 @@ var biome_detail_overlay_cache: Dictionary = {}
 var biome_detail_overlay_pending_keys: Array[String] = []
 var biome_detail_overlay_pending_key_set: Dictionary = {}
 var biome_detail_overlay_visible_keys: Array[String] = []
-var biome_detail_overlay_last_signature := ""
+var biome_detail_overlay_last_visible_signature := ""
+var biome_detail_overlay_last_content_signature := ""
 var biome_detail_overlay_build_budget_per_frame := 1
 var biome_detail_overlay_update_timer := 0.0
 var biome_detail_overlay_last_camera_position := Vector2.INF
@@ -224,6 +225,8 @@ var biome_detail_overlay_last_camera_move_distance := 0.0
 var biome_detail_overlay_last_visible_chunk_count := 0
 var biome_detail_overlay_enabled := true
 var biome_detail_overlay_low_end_disabled := false
+var biome_detail_overlay_last_clear_reason := ""
+var biome_detail_overlay_clear_state_dirty := true
 var hitch_log_cooldowns: Dictionary = {}
 var hitch_log_sequence: Dictionary = {}
 var world_biome_texture_build_count: int = 0
@@ -581,8 +584,10 @@ func _apply_world_layout(layout: Dictionary) -> void:
 	_invalidate_surface_texture_cache()
 	biome_detail_overlay_cache.clear()
 	biome_detail_overlay_pending_keys.clear()
+	biome_detail_overlay_pending_key_set.clear()
 	biome_detail_overlay_visible_keys.clear()
-	biome_detail_overlay_last_signature = ""
+	biome_detail_overlay_last_visible_signature = ""
+	biome_detail_overlay_last_content_signature = ""
 
 
 func _setup_topography() -> void:
@@ -4701,6 +4706,12 @@ func _update_biome_detail_overlay(delta: float = 0.0, force_redraw: bool = false
 	if biome_detail_overlay_low_end_disabled or not biome_textures_enabled or not biome_detail_overlay_enabled:
 		_clear_biome_detail_overlay_runtime("disabled")
 		return
+	var low_end_rendering_active := is_low_end_rendering_enabled()
+	if low_end_rendering_active and not BIOME_DETAIL_OVERLAY_LOW_END_ENABLED:
+		biome_detail_overlay_low_end_disabled = true
+		_clear_biome_detail_overlay_runtime("low_end_disabled")
+		return
+	biome_detail_overlay_low_end_disabled = false
 	biome_detail_overlay_update_timer += maxf(delta, 0.0)
 	if not force_redraw and biome_detail_overlay_update_timer < BIOME_DETAIL_OVERLAY_UPDATE_INTERVAL_SECONDS:
 		biome_detail_overlay_last_update_skipped_reason = "interval"
@@ -4716,12 +4727,14 @@ func _update_biome_detail_overlay(delta: float = 0.0, force_redraw: bool = false
 	if biome_detail_overlay_last_camera_position != Vector2.INF:
 		moved_distance = camera_position.distance_to(biome_detail_overlay_last_camera_position)
 	biome_detail_overlay_last_camera_move_distance = moved_distance
-	var signature := _build_biome_detail_overlay_signature(visible_keys, camera_chunk)
+	var visible_signature := _build_biome_detail_overlay_visible_signature(visible_keys, camera_chunk, moved_distance)
+	var content_signature := _build_biome_detail_overlay_content_signature()
 	var significant_move := moved_distance >= BIOME_DETAIL_OVERLAY_CAMERA_MOVE_THRESHOLD or camera_chunk != biome_detail_overlay_last_camera_chunk
-	if not force_redraw and signature == biome_detail_overlay_last_signature and not significant_move:
+	if not force_redraw and visible_signature == biome_detail_overlay_last_visible_signature and not significant_move:
 		biome_detail_overlay_last_update_skipped_reason = "signature_and_movement_threshold"
 		return
-	biome_detail_overlay_last_signature = signature
+	biome_detail_overlay_last_visible_signature = visible_signature
+	biome_detail_overlay_last_content_signature = content_signature
 	biome_detail_overlay_last_camera_position = camera_position
 	biome_detail_overlay_last_camera_chunk = camera_chunk
 	_queue_missing_biome_detail_overlay_chunks(visible_keys)
@@ -4776,7 +4789,7 @@ func _draw_biome_detail_overlay() -> void:
 
 func _queue_missing_biome_detail_overlay_chunks(visible_keys: Array[String]) -> void:
 	for key in visible_keys:
-		if biome_detail_overlay_cache.has(key) or biome_detail_overlay_pending_key_set.has(key):
+		if _is_biome_detail_overlay_chunk_cached_for_content(key) or biome_detail_overlay_pending_key_set.has(key):
 			continue
 		if biome_detail_overlay_pending_keys.size() >= BIOME_DETAIL_OVERLAY_MAX_PENDING_CHUNKS:
 			break
@@ -4800,7 +4813,7 @@ func _build_pending_biome_detail_overlay_chunks() -> void:
 			break
 		var chunk_key := str(biome_detail_overlay_pending_keys.pop_front())
 		biome_detail_overlay_pending_key_set.erase(chunk_key)
-		if biome_detail_overlay_cache.has(chunk_key):
+		if _is_biome_detail_overlay_chunk_cached_for_content(chunk_key):
 			continue
 		var key_parts := chunk_key.split(":")
 		if key_parts.size() != 2:
@@ -4810,7 +4823,7 @@ func _build_pending_biome_detail_overlay_chunks() -> void:
 		var build_start_ms := Time.get_ticks_msec()
 		biome_detail_overlay_cache[chunk_key] = {
 			"texture": _build_biome_detail_overlay_chunk_texture(chunk_x, chunk_y),
-			"signature": biome_detail_overlay_last_signature,
+			"content_signature": biome_detail_overlay_last_content_signature,
 			"chunk_key": chunk_key
 		}
 		var build_ms := float(Time.get_ticks_msec() - build_start_ms)
@@ -4828,23 +4841,45 @@ func _build_pending_biome_detail_overlay_chunks() -> void:
 func _get_biome_detail_overlay_texture(chunk_key: String) -> ImageTexture:
 	if biome_detail_overlay_cache.has(chunk_key):
 		var cache_entry := Dictionary(biome_detail_overlay_cache.get(chunk_key, {}))
-		if cache_entry.has("texture"):
+		if cache_entry.has("texture") and str(cache_entry.get("content_signature", "")) == biome_detail_overlay_last_content_signature:
 			biome_detail_overlay_cache_hit_count += 1
 			return cache_entry.get("texture")
 		biome_detail_overlay_cache_miss_count += 1
 	return null
 
 
-func _build_biome_detail_overlay_signature(visible_keys: Array[String], camera_chunk: Vector2i) -> String:
+func _is_biome_detail_overlay_chunk_cached_for_content(chunk_key: String) -> bool:
+	if not biome_detail_overlay_cache.has(chunk_key):
+		return false
+	var cache_entry := Dictionary(biome_detail_overlay_cache.get(chunk_key, {}))
+	return cache_entry.has("texture") and str(cache_entry.get("content_signature", "")) == biome_detail_overlay_last_content_signature
+
+
+func _build_biome_detail_overlay_visible_signature(visible_keys: Array[String], camera_chunk: Vector2i, moved_distance: float) -> String:
 	var parts: Array[String] = []
-	parts.append("overlay_v2")
-	parts.append("seed=%d" % get_world_seed())
 	parts.append("camera_chunk=%d:%d" % [camera_chunk.x, camera_chunk.y])
 	parts.append("visible=%s" % "|".join(visible_keys))
+	parts.append("threshold=%.1f" % BIOME_DETAIL_OVERLAY_CAMERA_MOVE_THRESHOLD)
+	parts.append("move=%.1f" % moved_distance)
+	return "|".join(parts)
+
+
+func _build_biome_detail_overlay_content_signature() -> String:
+	var parts: Array[String] = []
+	parts.append("overlay_v3")
+	parts.append("seed=%d" % get_world_seed())
+	parts.append("world_rect=%s" % str(WORLD_CONFIG.WORLD_RECT))
 	parts.append("detail_enabled=%s" % str(bool(GAME_BALANCE.BIOME_TEXTURES.get("detail_overlay_enabled", true))))
 	parts.append("budget=%d" % maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("detail_chunk_build_budget_per_frame", biome_detail_overlay_build_budget_per_frame)), 0))
 	parts.append("chunk_world_size=%.2f" % float(GAME_BALANCE.BIOME_TEXTURES.get("detail_chunk_world_size", BIOME_DETAIL_CHUNK_WORLD_SIZE)))
 	parts.append("chunk_texture_size=%d" % int(GAME_BALANCE.BIOME_TEXTURES.get("detail_chunk_texture_size", BIOME_DETAIL_CHUNK_TEXTURE_SIZE.x)))
+	parts.append("visible_radius=%d" % maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("detail_visible_chunk_radius", BIOME_DETAIL_VISIBLE_CHUNK_RADIUS)), 0))
+	parts.append("density=%.3f" % float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)))
+	parts.append("alpha=%.3f" % float(GAME_BALANCE.BIOME_TEXTURES.get("detail_alpha", BIOME_DETAIL_ALPHA)))
+	parts.append("secondary_alpha=%.3f" % float(GAME_BALANCE.BIOME_TEXTURES.get("secondary_detail_alpha", 0.0)))
+	parts.append("variation=%.3f" % float(GAME_BALANCE.BIOME_TEXTURES.get("variation_noise_strength", 0.0)))
+	parts.append("max_detail=%d" % int(GAME_BALANCE.BIOME_TEXTURES.get("max_detail_per_chunk", 0)))
+	parts.append("tile_size=%.2f" % float(GAME_BALANCE.BIOME_TEXTURES.get("detail_tile_world_size", BIOME_DETAIL_WORLD_TILE_SIZE)))
 	return "|".join(parts)
 
 
@@ -4890,16 +4925,26 @@ func _prune_biome_detail_overlay_cache(visible_keys: Array[String]) -> void:
 
 
 func _clear_biome_detail_overlay_runtime(reason: String) -> void:
+	var had_pending := not biome_detail_overlay_pending_keys.is_empty()
+	var had_pending_set := not biome_detail_overlay_pending_key_set.is_empty()
+	var had_visible := not biome_detail_overlay_visible_keys.is_empty()
+	var had_signature := not biome_detail_overlay_last_visible_signature.is_empty() or not biome_detail_overlay_last_content_signature.is_empty()
+	var had_cached := not biome_detail_overlay_cache.is_empty()
+	var reason_changed := biome_detail_overlay_last_update_skipped_reason != reason
+	var changed := had_pending or had_pending_set or had_visible or had_signature or had_cached or reason_changed or biome_detail_overlay_clear_state_dirty
 	biome_detail_overlay_pending_keys.clear()
 	biome_detail_overlay_pending_key_set.clear()
 	biome_detail_overlay_visible_keys.clear()
-	biome_detail_overlay_last_signature = ""
+	biome_detail_overlay_last_visible_signature = ""
+	biome_detail_overlay_last_content_signature = ""
 	biome_detail_overlay_last_update_skipped_reason = reason
 	biome_detail_overlay_last_visible_chunk_count = 0
 	biome_detail_overlay_last_visible_signature_length = 0
 	biome_detail_overlay_last_camera_position = Vector2.INF
 	biome_detail_overlay_last_camera_chunk = Vector2i(2147483647, 2147483647)
-	queue_redraw()
+	biome_detail_overlay_clear_state_dirty = false
+	if changed:
+		queue_redraw()
 
 
 func _build_biome_detail_overlay_chunk_texture(chunk_x: int, chunk_y: int) -> ImageTexture:
