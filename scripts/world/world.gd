@@ -20,6 +20,7 @@ const VEGETATION_CATALOG := preload("res://scripts/world/vegetation_catalog.gd")
 const POOL_MANAGER_SCRIPT := preload("res://scripts/systems/pool_manager.gd")
 const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
+const WORLD_VISIBILITY_CONTROLLER_SCRIPT := preload("res://scripts/world/world_visibility_controller.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS := 5.0
@@ -235,13 +236,8 @@ var world_surface_texture: ImageTexture
 var world_surface_texture_key := ""
 var world_surface_texture_build_count: int = 0
 var world_surface_texture_last_build_ms: float = 0.0
-var visibility_cull_timer := 0.0
+var visibility_controller
 var decorative_vegetation_visibility_timer := 0.0
-var visibility_cull_last_visible_resources: int = 0
-var visibility_cull_last_hidden_resources: int = 0
-var visibility_cull_last_visible_creatures: int = 0
-var visibility_cull_last_hidden_creatures: int = 0
-var visibility_cull_last_visible_nodes: Dictionary = {}
 var is_restoring_save: bool = false
 var island_world_validation_last_report: Dictionary = {}
 var topography_resource_distribution_debug: Dictionary = {
@@ -328,13 +324,13 @@ func _ready() -> void:
 	_set_boot_progress("Finalizing world...", 0.98)
 	boot_ready = true
 	_set_boot_progress("World ready", 1.0)
-	_update_world_object_visibility()
 	_update_decorative_vegetation_visible_rect()
 	_rebuild_chunk_assignments()
-	visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
+	_update_world_object_visibility()
 	decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
 	_sync_biome_blend_background()
 	_update_biome_detail_overlay(0.0, true)
+	_initialize_visibility_controller()
 	world_initialized.emit()
 	queue_redraw()
 
@@ -346,10 +342,10 @@ func _process(delta: float) -> void:
 		"visibility_culling_enabled": visibility_culling_enabled,
 		"surface_texture_builds": world_surface_texture_build_count,
 		"surface_texture_last_build_ms": snappedf(world_surface_texture_last_build_ms, 0.01),
-		"visible_resources": visibility_cull_last_visible_resources,
-		"hidden_resources": visibility_cull_last_hidden_resources,
-		"visible_creatures": visibility_cull_last_visible_creatures,
-		"hidden_creatures": visibility_cull_last_hidden_creatures
+		"visible_resources": get_visibility_culling_debug().get("visible_resources", 0),
+		"hidden_resources": get_visibility_culling_debug().get("hidden_resources", 0),
+		"visible_creatures": get_visibility_culling_debug().get("visible_creatures", 0),
+		"hidden_creatures": get_visibility_culling_debug().get("hidden_creatures", 0)
 	})
 	if is_restoring_save:
 		return
@@ -375,11 +371,8 @@ func _process(delta: float) -> void:
 	if should_redraw_background:
 		_sync_biome_blend_background()
 		queue_redraw()
-	if boot_ready and visibility_culling_enabled:
-		visibility_cull_timer -= delta
-		if visibility_cull_timer <= 0.0:
-			visibility_cull_timer = VISIBILITY_CULL_INTERVAL_SECONDS
-			_update_world_object_visibility()
+	if boot_ready and visibility_controller != null:
+		visibility_controller.process(delta)
 	decorative_vegetation_visibility_timer -= delta
 	if decorative_vegetation_visibility_timer <= 0.0:
 		decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
@@ -417,9 +410,8 @@ func get_camera_visible_world_rect(margin := VISIBILITY_CULL_MARGIN) -> Rect2:
 
 
 func _update_world_object_visibility() -> void:
-	if not boot_ready or not visibility_culling_enabled:
-		return
-	_set_world_object_visibility_by_rect(get_camera_visible_world_rect(VISIBILITY_CULL_MARGIN))
+	if visibility_controller != null:
+		visibility_controller.force_update()
 
 
 func _update_decorative_vegetation_visible_rect() -> void:
@@ -455,72 +447,23 @@ func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: 
 
 
 func _set_world_object_visibility_by_rect(visible_rect: Rect2) -> void:
-	visibility_cull_last_visible_resources = 0
-	visibility_cull_last_hidden_resources = 0
-	visibility_cull_last_visible_creatures = 0
-	visibility_cull_last_hidden_creatures = 0
-	var query_rect := visible_rect.grow(48.0)
-	var current_visible_nodes: Dictionary = {}
-	var visible_resources := get_resources_in_rect(query_rect)
-	for node in visible_resources:
-		_mark_visibility_candidate(node, true, current_visible_nodes)
-	var visible_meat := get_meat_in_rect(query_rect)
-	for node in visible_meat:
-		_mark_visibility_candidate(node, true, current_visible_nodes)
-	for creature_type in ["small_prey", "grazer", "varnak"]:
-		var visible_creatures := get_creatures_in_rect(query_rect, creature_type)
-		for node in visible_creatures:
-			_mark_visibility_candidate(node, false, current_visible_nodes)
-	_hide_nodes_that_left_visibility_rect(current_visible_nodes)
-	visibility_cull_last_visible_nodes = current_visible_nodes
+	if visibility_controller != null:
+		visibility_controller.force_update()
 
 
 func _set_visibility_culled_node(node: Node, should_be_visible: bool) -> void:
-	if not is_instance_valid(node):
-		return
-	var node_2d := node as Node2D
-	if node_2d == null:
-		return
-	if node.has_method("set_visibility_culled"):
-		node.call("set_visibility_culled", should_be_visible)
-	else:
-		node_2d.visible = should_be_visible
+	if visibility_controller != null and visibility_controller.has_method("_set_visibility"):
+		visibility_controller.call("_set_visibility", node, should_be_visible)
 
 
 func _mark_visibility_candidate(node: Node, is_resource: bool, current_visible_nodes: Dictionary) -> void:
-	if not is_instance_valid(node):
-		return
-	var node_2d := node as Node2D
-	if node_2d == null:
-		return
-	var instance_id := node.get_instance_id()
-	current_visible_nodes[instance_id] = node
-	_set_visibility_culled_node(node, true)
-	if is_resource:
-		visibility_cull_last_visible_resources += 1
-	else:
-		visibility_cull_last_visible_creatures += 1
+	if visibility_controller != null and visibility_controller.has_method("_mark_visible"):
+		visibility_controller.call("_mark_visible", node, is_resource, current_visible_nodes)
 
 
 func _hide_nodes_that_left_visibility_rect(current_visible_nodes: Dictionary) -> void:
-	for previous_id in visibility_cull_last_visible_nodes.keys():
-		if current_visible_nodes.has(previous_id):
-			continue
-		var previous_value: Variant = visibility_cull_last_visible_nodes.get(previous_id, null)
-		if previous_value == null or not is_instance_valid(previous_value):
-			continue
-		var previous_node := previous_value as Node
-		if previous_node == null:
-			continue
-		var node_2d := previous_node as Node2D
-		if node_2d == null:
-			continue
-		var is_resource := previous_node.is_in_group("resources")
-		_set_visibility_culled_node(previous_node, false)
-		if is_resource:
-			visibility_cull_last_hidden_resources += 1
-		else:
-			visibility_cull_last_hidden_creatures += 1
+	if visibility_controller != null and visibility_controller.has_method("_hide_nodes_that_left_visibility_rect"):
+		visibility_controller.call("_hide_nodes_that_left_visibility_rect", current_visible_nodes)
 
 
 func get_biome_zones() -> Array[Dictionary]:
@@ -1165,14 +1108,16 @@ func is_low_end_rendering_enabled() -> bool:
 
 
 func get_visibility_culling_debug() -> Dictionary:
+	if visibility_controller != null and visibility_controller.has_method("get_debug_data"):
+		return Dictionary(visibility_controller.get_debug_data())
 	return {
 		"enabled": visibility_culling_enabled,
 		"interval_seconds": VISIBILITY_CULL_INTERVAL_SECONDS,
 		"margin": VISIBILITY_CULL_MARGIN,
-		"visible_resources": visibility_cull_last_visible_resources,
-		"hidden_resources": visibility_cull_last_hidden_resources,
-		"visible_creatures": visibility_cull_last_visible_creatures,
-		"hidden_creatures": visibility_cull_last_hidden_creatures
+		"visible_resources": 0,
+		"hidden_resources": 0,
+		"visible_creatures": 0,
+		"hidden_creatures": 0
 	}
 
 
@@ -1613,6 +1558,21 @@ func _ensure_render_controller():
 			_get_world_biome_blend_texture_size()
 		)
 	return render_controller
+
+
+func _initialize_visibility_controller() -> void:
+	if visibility_controller != null:
+		return
+	visibility_controller = WORLD_VISIBILITY_CONTROLLER_SCRIPT.new()
+	var world_registry = _ensure_registry()
+	visibility_controller.setup({
+		"world": self,
+		"registry": world_registry,
+		"spatial_index": world_registry.spatial_index if world_registry != null else null,
+		"enabled": visibility_culling_enabled,
+		"interval_seconds": VISIBILITY_CULL_INTERVAL_SECONDS,
+		"margin": VISIBILITY_CULL_MARGIN
+	})
 
 
 func _ensure_biome_blend_background() -> Sprite2D:
