@@ -906,7 +906,7 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 			metrics["world_biome_texture_build_count"] = maxi(int(metrics["world_biome_texture_build_count"]), int(biome_cache.get("world_biome_texture_build_count", 0)))
 		else:
 			missing_metric_set["world_biome_texture_build_count"] = true
-	var missing_metrics: Array[String] = []
+	var missing_metrics: Array[String] = Array[String]()
 	for metric_name in missing_metric_set.keys():
 		missing_metrics.append(str(metric_name))
 	if not missing_metrics.is_empty():

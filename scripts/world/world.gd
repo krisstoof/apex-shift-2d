@@ -50,7 +50,7 @@ const VISIBILITY_CULL_GROUPS := ["resources", "small_prey", "grazer", "varnak"]
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
 const SURFACE_BLEND_TEXTURE_SIZE := Vector2i(384, 236)
 const BIOME_DETAIL_CHUNK_WORLD_SIZE := 768.0
-const BIOME_DETAIL_CHUNK_TEXTURE_SIZE := Vector2i(256, 256)
+const BIOME_DETAIL_CHUNK_TEXTURE_SIZE := Vector2i(64, 64)
 const BIOME_DETAIL_VISIBLE_CHUNK_RADIUS := 1
 const BIOME_DETAIL_WORLD_TILE_SIZE := 128.0
 const BIOME_DETAIL_ALPHA := 0.22
@@ -4807,8 +4807,13 @@ func _build_pending_biome_detail_overlay_chunks() -> void:
 	var budget := configured_budget
 	if BIOME_DETAIL_OVERLAY_LOW_END_ENABLED and is_low_end_rendering_enabled():
 		budget = mini(budget, 1)
+	var frame_start_ms := Time.get_ticks_msec()
+	var max_frame_build_ms := 4
 	var built_any := false
 	while budget > 0:
+		if Time.get_ticks_msec() - frame_start_ms >= max_frame_build_ms:
+			biome_detail_overlay_last_update_skipped_reason = "frame_budget"
+			break
 		if biome_detail_overlay_pending_keys.is_empty():
 			break
 		var chunk_key := str(biome_detail_overlay_pending_keys.pop_front())
