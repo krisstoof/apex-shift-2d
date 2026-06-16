@@ -120,6 +120,8 @@ func get_debug_data() -> Dictionary:
 
 
 func _draw() -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false)):
+		return
 	if cell_map == null:
 		return
 	if visible_rect.size.x <= 0.0 or visible_rect.size.y <= 0.0:

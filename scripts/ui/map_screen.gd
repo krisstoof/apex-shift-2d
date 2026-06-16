@@ -28,6 +28,7 @@ var biome_zones: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var biome_blend_texture: ImageTexture
 var biome_blend_colors_key := ""
+var biome_shape_map
 var terrain_cell_map: TerrainCellMap
 var shoreline_segments: Array[Dictionary] = []
 var shoreline_segments_key := ""
@@ -100,6 +101,7 @@ func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node
 	world_rect = p_world_rect
 	biome_zones = p_biome_zones
 	landmarks = p_landmarks
+	biome_shape_map = world.get_biome_shape_map() if world != null and world.has_method("get_biome_shape_map") else null
 	terrain_cell_map = world.get_terrain_cell_map() if world != null and world.has_method("get_terrain_cell_map") else null
 	_sync_biome_texture()
 	_sync_shoreline_overlay_cache()
@@ -323,6 +325,9 @@ func _fit_world_rect(bounds: Rect2) -> Rect2:
 
 
 func _draw_biomes(map_rect: Rect2) -> void:
+	if biome_shape_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		_draw_shape_map(map_rect)
+		return
 	if terrain_cell_map != null:
 		_draw_cell_map(map_rect)
 		return
@@ -615,7 +620,12 @@ func _draw_player(map_rect: Rect2) -> void:
 
 func _sync_biome_texture() -> void:
 	var active_world := _get_world()
+	biome_shape_map = active_world.get_biome_shape_map() if active_world != null and active_world.has_method("get_biome_shape_map") else null
 	terrain_cell_map = active_world.get_terrain_cell_map() if active_world != null and active_world.has_method("get_terrain_cell_map") else null
+	if biome_shape_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		biome_blend_texture = null
+		biome_blend_colors_key = "shape_map"
+		return
 	if terrain_cell_map != null:
 		biome_blend_texture = null
 		biome_blend_colors_key = "cell_map"
@@ -764,6 +774,42 @@ func _draw_cell_map(map_rect: Rect2) -> void:
 			if draw_rect_local.size.x <= 0.0 or draw_rect_local.size.y <= 0.0:
 				continue
 			draw_rect(draw_rect_local, _get_cell_map_color(cell), true)
+
+
+func _draw_shape_map(map_rect: Rect2) -> void:
+	if biome_shape_map == null:
+		return
+	var polygons_by_layer: Dictionary = biome_shape_map.get_polygons_by_layer()
+	for layer_id in polygons_by_layer.keys():
+		for polygon_value in Array(polygons_by_layer[layer_id]):
+			var polygon := Dictionary(polygon_value)
+			var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
+			if points.size() < 3:
+				continue
+			var mapped := PackedVector2Array()
+			for p in points:
+				mapped.append(_world_to_map(p, map_rect))
+			draw_colored_polygon(mapped, _get_shape_map_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
+
+
+func _get_shape_map_color(biome_id: String, terrain_id: String) -> Color:
+	match terrain_id:
+		"deep_ocean":
+			return Color(0.06, 0.18, 0.36)
+		"shallow_water":
+			return Color(0.10, 0.32, 0.52)
+		"shore":
+			return Color(0.70, 0.66, 0.43)
+		"pond":
+			return Color(0.07, 0.31, 0.43)
+		"highland":
+			return _get_biome_base_color({"id": biome_id}).lerp(Color(0.52, 0.47, 0.32), 0.38)
+		"rocky_patch":
+			return _get_biome_base_color({"id": biome_id}).lerp(Color(0.43, 0.41, 0.35), 0.42)
+		"wetland":
+			return _get_biome_base_color({"id": biome_id}).lerp(Color(0.16, 0.30, 0.18), 0.32)
+		_:
+			return _get_biome_base_color({"id": biome_id})
 
 
 func _get_cell_map_color(cell: Dictionary) -> Color:
