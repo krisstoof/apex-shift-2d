@@ -365,19 +365,33 @@ func _draw_cell_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
 func _draw_shape_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if biome_shape_map == null:
 		return
+	draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
 	var polygons_by_layer: Dictionary = biome_shape_map.get_polygons_by_layer()
 	for layer_id in _get_shape_map_draw_order(polygons_by_layer):
 		for polygon_value in Array(polygons_by_layer.get(layer_id, [])):
 			var polygon := Dictionary(polygon_value)
+			if str(polygon.get("terrain_id", "")) == "deep_ocean":
+				continue
 			var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
 			if points.size() < 3:
 				continue
 			var bounds := _get_polygon_bounds(points)
 			if not bounds.intersects(view_world_rect):
 				continue
+			var clipped := _clip_polygon_to_rect(points, view_world_rect)
+			if clipped.size() < 3:
+				continue
+			var clipped_bounds := _get_polygon_bounds(clipped)
+			var world_area := maxf(view_world_rect.size.x * view_world_rect.size.y, 1.0)
+			var bounds_area := clipped_bounds.size.x * clipped_bounds.size.y
+			if str(polygon.get("terrain_id", "land")) not in ["deep_ocean", "shallow_water"] and bounds_area / world_area > 0.85:
+				continue
 			var mapped := PackedVector2Array()
-			for p in points:
+			for p in clipped:
 				mapped.append(_world_to_map(p, content_rect, view_world_rect))
+			mapped = _sanitize_polygon_points(mapped)
+			if mapped.size() < 3 or not _is_polygon_triangulatable(mapped):
+				continue
 			draw_colored_polygon(mapped, _get_shape_map_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
 
 
@@ -424,6 +438,59 @@ func _get_shape_map_draw_order(polygons_by_layer: Dictionary) -> Array[String]:
 	return ordered
 
 
+func _clip_polygon_to_rect(points: PackedVector2Array, clip_rect: Rect2) -> PackedVector2Array:
+	var result := points
+	result = _clip_polygon_against_edge(result, "left", clip_rect.position.x)
+	result = _clip_polygon_against_edge(result, "right", clip_rect.end.x)
+	result = _clip_polygon_against_edge(result, "top", clip_rect.position.y)
+	result = _clip_polygon_against_edge(result, "bottom", clip_rect.end.y)
+	return result
+
+
+func _clip_polygon_against_edge(points: PackedVector2Array, edge: String, value: float) -> PackedVector2Array:
+	if points.size() < 3:
+		return PackedVector2Array()
+	var output := PackedVector2Array()
+	var previous := points[points.size() - 1]
+	var previous_inside := _is_point_inside_clip_edge(previous, edge, value)
+	for current in points:
+		var current_inside := _is_point_inside_clip_edge(current, edge, value)
+		if current_inside:
+			if not previous_inside:
+				output.append(_line_clip_intersection(previous, current, edge, value))
+			output.append(current)
+		elif previous_inside:
+			output.append(_line_clip_intersection(previous, current, edge, value))
+		previous = current
+		previous_inside = current_inside
+	return output
+
+
+func _is_point_inside_clip_edge(point: Vector2, edge: String, value: float) -> bool:
+	match edge:
+		"left":
+			return point.x >= value
+		"right":
+			return point.x <= value
+		"top":
+			return point.y >= value
+		"bottom":
+			return point.y <= value
+	return true
+
+
+func _line_clip_intersection(a: Vector2, b: Vector2, edge: String, value: float) -> Vector2:
+	var delta := b - a
+	match edge:
+		"left", "right":
+			var t := 0.0 if absf(delta.x) < 0.0001 else (value - a.x) / delta.x
+			return a + delta * clampf(t, 0.0, 1.0)
+		"top", "bottom":
+			var t := 0.0 if absf(delta.y) < 0.0001 else (value - a.y) / delta.y
+			return a + delta * clampf(t, 0.0, 1.0)
+	return a
+
+
 func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
 	if points.is_empty():
 		return Rect2()
@@ -431,6 +498,41 @@ func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
 	for p in points:
 		rect = rect.expand(p)
 	return rect
+
+
+func _sanitize_polygon_points(points: PackedVector2Array) -> PackedVector2Array:
+	if points.size() < 3:
+		return PackedVector2Array()
+	var sanitized := PackedVector2Array()
+	var last := Vector2.INF
+	for point in points:
+		if last != Vector2.INF and point.distance_to(last) < 0.5:
+			continue
+		sanitized.append(point)
+		last = point
+	if sanitized.size() >= 3 and sanitized[0].distance_to(sanitized[sanitized.size() - 1]) < 0.5:
+		sanitized.remove_at(sanitized.size() - 1)
+	if sanitized.size() < 3:
+		return PackedVector2Array()
+	if absf(_polygon_area(sanitized)) < 1.0:
+		return PackedVector2Array()
+	return sanitized
+
+
+func _polygon_area(points: PackedVector2Array) -> float:
+	var area := 0.0
+	for i in range(points.size()):
+		var a := points[i]
+		var b := points[(i + 1) % points.size()]
+		area += a.x * b.y - b.x * a.y
+	return absf(area) * 0.5
+
+
+func _is_polygon_triangulatable(points: PackedVector2Array) -> bool:
+	if points.size() < 3:
+		return false
+	var indices := Geometry2D.triangulate_polygon(points)
+	return not indices.is_empty()
 
 
 func _get_shape_map_color(biome_id: String, terrain_id: String) -> Color:
@@ -1007,7 +1109,8 @@ func get_minimap_performance_debug() -> Dictionary:
 		"texture_last_build_ms": minimap_texture_last_build_ms,
 		"shoreline_build_count": shoreline_segments_build_count,
 		"shoreline_last_build_ms": shoreline_segments_last_build_ms,
-		"shoreline_segment_count": shoreline_segments.size()
+		"shoreline_segment_count": shoreline_segments.size(),
+		"minimap_shape_polygons_clipped": true
 	}
 
 

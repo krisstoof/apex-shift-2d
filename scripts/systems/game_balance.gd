@@ -411,7 +411,7 @@ const BIOME_TEXTURES := {
 	"detail_chunk_texture_size": 32,
 	"detail_visible_chunk_radius": 1,
 	"detail_overlay_alpha": 0.22,
-	"use_cell_terrain_renderer": true,
+	"use_cell_terrain_renderer": false,
 	"disable_global_biome_blend_texture": true,
 	"disable_global_surface_texture_on_boot": true,
 	"terrain_cell_size": 96.0,

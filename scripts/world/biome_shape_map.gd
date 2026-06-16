@@ -103,6 +103,8 @@ func _build_connected_region_polygons() -> void:
 			var component := _flood_fill_layer(x, y, layer_id, visited)
 			if component.size() < int(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_min_region_cells", 4)):
 				continue
+			if layer_id == "terrain:deep_ocean":
+				continue
 			for polygon in _build_boundary_polygons(component, layer_id):
 				if polygon.size() < 3:
 					continue

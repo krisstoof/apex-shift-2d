@@ -32,6 +32,8 @@ func process_visibility(_delta: float) -> void:
 func get_debug_data() -> Dictionary:
 	return {
 		"biome_shape_renderer_enabled": visible,
+		"biome_shape_uses_ocean_background": true,
+		"biome_shape_deep_ocean_polygons_skipped": true,
 		"biome_shape_renderer_redraw_count": redraw_count,
 		"biome_shape_renderer_drawn_polygon_count": drawn_polygon_count,
 		"biome_shape_renderer_drawn_detail_count": drawn_detail_count,
@@ -48,9 +50,12 @@ func _draw() -> void:
 	drawn_detail_count = 0
 	if shape_map == null:
 		return
+	draw_rect(shape_map.world_rect, Color(0.06, 0.18, 0.36), true)
 	var polygons_by_layer: Dictionary = shape_map.get_polygons_by_layer()
 	for layer_id in _get_layer_draw_order(polygons_by_layer):
 		if not polygons_by_layer.has(layer_id):
+			continue
+		if str(layer_id) == "terrain:deep_ocean":
 			continue
 		for polygon_value in Array(polygons_by_layer[layer_id]):
 			var polygon := Dictionary(polygon_value)
@@ -64,6 +69,9 @@ func _draw() -> void:
 				continue
 			if not _polygon_intersects_rect(points, visible_rect):
 				continue
+			points = _sanitize_polygon_points(points)
+			if points.size() < 3 or not _is_polygon_triangulatable(points):
+				continue
 			draw_colored_polygon(points, _get_layer_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
 			drawn_polygon_count += 1
 	for detail_value in shape_map.get_details():
@@ -76,7 +84,6 @@ func _draw() -> void:
 
 func _get_layer_draw_order(polygons_by_layer: Dictionary) -> Array[String]:
 	var ordered: Array[String] = [
-		"terrain:deep_ocean",
 		"terrain:shallow_water",
 		"terrain:shore"
 	]
@@ -127,6 +134,41 @@ func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
 	for point in points:
 		rect = rect.expand(point)
 	return rect
+
+
+func _sanitize_polygon_points(points: PackedVector2Array) -> PackedVector2Array:
+	if points.size() < 3:
+		return PackedVector2Array()
+	var sanitized := PackedVector2Array()
+	var last := Vector2.INF
+	for point in points:
+		if last != Vector2.INF and point.distance_to(last) < 0.5:
+			continue
+		sanitized.append(point)
+		last = point
+	if sanitized.size() >= 3 and sanitized[0].distance_to(sanitized[sanitized.size() - 1]) < 0.5:
+		sanitized.remove_at(sanitized.size() - 1)
+	if sanitized.size() < 3:
+		return PackedVector2Array()
+	if absf(_polygon_area(sanitized)) < 1.0:
+		return PackedVector2Array()
+	return sanitized
+
+
+func _polygon_area(points: PackedVector2Array) -> float:
+	var area := 0.0
+	for i in range(points.size()):
+		var a := points[i]
+		var b := points[(i + 1) % points.size()]
+		area += a.x * b.y - b.x * a.y
+	return absf(area) * 0.5
+
+
+func _is_polygon_triangulatable(points: PackedVector2Array) -> bool:
+	if points.size() < 3:
+		return false
+	var indices := Geometry2D.triangulate_polygon(points)
+	return not indices.is_empty()
 
 func _get_visible_world_rect() -> Rect2:
 	if camera != null and is_instance_valid(camera):

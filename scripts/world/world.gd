@@ -541,6 +541,8 @@ func get_world_generation_debug() -> Dictionary:
 	debug["generator_rules_version"] = str(world_layout.get("generator_rules_version", "v1"))
 	debug["topography_rules_version"] = str(WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION)
 	debug["procedural_world_restore_mode"] = procedural_world_restore_mode
+	debug["cell_terrain_renderer_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
+	debug["biome_shape_renderer_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer", true))
 	return debug
 
 
@@ -1967,7 +1969,7 @@ func _ensure_terrain_chunk_renderer() -> TerrainChunkRenderer:
 		return terrain_chunk_renderer
 	terrain_chunk_renderer = TERRAIN_CHUNK_RENDERER_SCRIPT.new()
 	terrain_chunk_renderer.name = "TerrainChunkRenderer"
-	terrain_chunk_renderer.visible = true
+	terrain_chunk_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
 	add_child(terrain_chunk_renderer)
 	return terrain_chunk_renderer
 
@@ -2019,17 +2021,21 @@ func _mark_terrain_renderer_dirty() -> void:
 
 
 func _update_terrain_renderer(delta: float) -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false)):
+		return
 	terrain_renderer_update_timer -= delta
 	if terrain_renderer_update_timer > 0.0:
 		return
 	terrain_renderer_update_timer = TERRAIN_RENDERER_UPDATE_INTERVAL
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false)) and is_instance_valid(terrain_chunk_renderer):
+	if is_instance_valid(terrain_chunk_renderer):
 		terrain_chunk_renderer.process_visibility(delta)
 		terrain_chunk_renderer.rebuild_visible_chunks(false)
 
 
 func _sync_terrain_renderer(force_rebuild_cell_map := false) -> void:
 	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", true)):
+		if is_instance_valid(terrain_chunk_renderer):
+			terrain_chunk_renderer.visible = false
 		return
 	var cell_map := _ensure_terrain_cell_map()
 	var renderer := _ensure_terrain_chunk_renderer()
