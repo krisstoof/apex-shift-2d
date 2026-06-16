@@ -48,6 +48,27 @@ class TestWorldSaveData:
 	var restored_landmarks: Array = []
 	var restored_world_seed := 0
 	var restore_landmarks_call_count := 0
+	var restore_mode := "full_layout"
+	var world_layout: Dictionary = {
+		"version": 1,
+		"seed": 9182,
+		"biomes": [
+			{"id": "westwood", "points": [{"x": -100.0, "y": -100.0}, {"x": 100.0, "y": -100.0}, {"x": 100.0, "y": 100.0}]}
+		],
+		"landmarks": [{
+			"id": "save_pond",
+			"type": "pond",
+			"position": {"x": 120.0, "y": -44.0},
+			"radius": 164.0,
+			"biome_id": "westwood"
+		}],
+		"debug": {
+			"version": 1,
+			"seed": 9182,
+			"biomes": 1,
+			"landmarks": 1
+		}
+	}
 
 	func get_save_data() -> Dictionary:
 		return {
@@ -60,6 +81,24 @@ class TestWorldSaveData:
 				"biome_id": "westwood",
 				"gameplay_tags": ["water_source", "vegetation_bonus"]
 			}]
+		}
+
+	func get_world_seed() -> int:
+		return 9182
+
+	func get_world_layout() -> Dictionary:
+		return world_layout.duplicate(true)
+
+	func get_world_generation_debug() -> Dictionary:
+		return {
+			"version": 1,
+			"world_generation_version": 1,
+			"generator_rules_version": "v4",
+			"topography_rules_version": "v6",
+			"procedural_world_restore_mode": restore_mode,
+			"seed": 9182,
+			"biomes": 1,
+			"landmarks": 1
 		}
 
 	func get_resource_save_data() -> Array:
@@ -90,6 +129,9 @@ class TestWorldSaveData:
 
 	func restore_grazers(_data: Array) -> void:
 		pass
+
+	func set_procedural_world_restore_mode(mode: String) -> void:
+		restore_mode = mode
 
 
 class TestDayNightSystem:
@@ -141,6 +183,7 @@ func run() -> Array[String]:
 	_test_vector_helpers_round_trip(failures)
 	_test_get_player_data_contains_expected_fields(failures)
 	_test_collect_save_data_includes_world_layout(failures)
+	_test_collect_save_data_includes_world_generation_metadata(failures)
 	_test_restore_player_data_restores_player_state(failures)
 	_test_restore_player_data_migrates_legacy_bone_field(failures)
 	_test_restore_save_data_restores_world_layout_and_bootstrap(failures)
@@ -210,6 +253,18 @@ func _test_collect_save_data_includes_world_layout(failures: Array[String]) -> v
 		TEST_UTILS.expect_equal(str(landmark.get("id", "")), "save_pond", failures, "Save data should preserve landmark ids in the world layout")
 		TEST_UTILS.expect_equal(str(landmark.get("type", "")), "pond", failures, "Save data should preserve landmark types in the world layout")
 		TEST_UTILS.expect_equal(str(landmark.get("biome_id", "")), "westwood", failures, "Save data should preserve landmark biome ids in the world layout")
+	_cleanup_save_scene(context)
+
+
+func _test_collect_save_data_includes_world_generation_metadata(failures: Array[String]) -> void:
+	var context := _setup_save_scene()
+	var save_system: Node = context.get("save_system")
+	var data: Dictionary = save_system.call("_collect_save_data")
+	var world_generation: Dictionary = Dictionary(data.get("world_generation", {}))
+	TEST_UTILS.expect_equal(int(world_generation.get("version", 0)), 1, failures, "Save data should include the current world generation version")
+	TEST_UTILS.expect_equal(bool(world_generation.get("save_has_world_generation_layout", false)), true, failures, "Save data should flag that the world generation layout is present")
+	TEST_UTILS.expect_equal(str(world_generation.get("generator_rules_version", "")), "v4", failures, "Save data should include generator rules version")
+	TEST_UTILS.expect_equal(str(world_generation.get("topography_rules_version", "")), "v6", failures, "Save data should include topography rules version")
 	_cleanup_save_scene(context)
 
 
@@ -297,6 +352,9 @@ func _test_restore_save_data_restores_world_layout_and_bootstrap(failures: Array
 		if game_session.has_method("get_bootstrap_landmarks"):
 			var bootstrap_landmarks: Array = Array(game_session.call("get_bootstrap_landmarks"))
 			TEST_UTILS.expect_equal(bootstrap_landmarks.size(), 1, failures, "Load should refresh the bootstrap landmark layout")
+	if world.has_method("get_world_generation_debug"):
+		var debug := Dictionary(world.get_world_generation_debug())
+		TEST_UTILS.expect_equal(str(debug.get("procedural_world_restore_mode", "")), "full_layout", failures, "Restore mode should be marked as full_layout when layout is present")
 	_cleanup_save_scene(context)
 
 
@@ -316,6 +374,9 @@ func _test_restore_save_data_skips_missing_world_layout(failures: Array[String])
 		"ecosystem": {}
 	})
 	TEST_UTILS.expect_equal(world.restore_landmarks_call_count, 0, failures, "Older saves without world data should not try to restore landmark layout")
+	if world.has_method("get_world_generation_debug"):
+		var debug := Dictionary(world.get_world_generation_debug())
+		TEST_UTILS.expect_equal(str(debug.get("procedural_world_restore_mode", "")), "legacy", failures, "Older saves without layout should be marked as legacy")
 	if game_session is TestGameSessionNode:
 		var mock_game_session := game_session as TestGameSessionNode
 		TEST_UTILS.expect_equal(mock_game_session.set_bootstrap_call_count, 0, failures, "Older saves without world data should not overwrite bootstrap world state")

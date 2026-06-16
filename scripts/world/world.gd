@@ -244,6 +244,7 @@ var world_surface_texture: ImageTexture
 var world_surface_texture_key := ""
 var world_surface_texture_build_count: int = 0
 var world_surface_texture_last_build_ms: float = 0.0
+var procedural_world_restore_mode := "full_layout"
 var spatial_index_debug_timer := 0.0
 var spatial_index_debug_cache: Dictionary = {}
 var spatial_index_debug_last_refresh_ms := 0.0
@@ -504,7 +505,12 @@ func get_world_layout() -> Dictionary:
 
 
 func get_world_generation_debug() -> Dictionary:
-	return Dictionary(world_layout.get("debug", {})).duplicate(true)
+	var debug := Dictionary(world_layout.get("debug", {})).duplicate(true)
+	debug["world_generation_version"] = int(world_layout.get("version", 0))
+	debug["generator_rules_version"] = str(world_layout.get("generator_rules_version", "v1"))
+	debug["topography_rules_version"] = str(WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION)
+	debug["procedural_world_restore_mode"] = procedural_world_restore_mode
+	return debug
 
 
 func get_world_generation_summary() -> String:
@@ -524,6 +530,7 @@ func _set_world_generator_seed(seed: int) -> void:
 	world_generator = WORLD_GENERATOR.new()
 	world_layout = Dictionary(world_generator.generate_world(seed if seed != 0 else world_seed)).duplicate(true)
 	world_seed = int(world_layout.get("seed", seed))
+	procedural_world_restore_mode = "full_layout"
 	_setup_topography()
 
 
@@ -531,6 +538,7 @@ func _apply_world_layout(layout: Dictionary) -> void:
 	world_layout = layout.duplicate(true)
 	if world_layout.has("seed"):
 		world_seed = int(world_layout.get("seed", world_seed))
+	procedural_world_restore_mode = "full_layout"
 	if world_generator == null:
 		world_generator = WORLD_GENERATOR.new()
 	world_generator.generate_world(world_seed if world_seed != 0 else int(world_layout.get("seed", 1)))
@@ -544,6 +552,10 @@ func _apply_world_layout(layout: Dictionary) -> void:
 	biome_detail_overlay_visible_keys.clear()
 	biome_detail_overlay_last_visible_signature = ""
 	biome_detail_overlay_last_content_signature = ""
+
+
+func set_procedural_world_restore_mode(mode: String) -> void:
+	procedural_world_restore_mode = mode if not mode.is_empty() else "legacy"
 
 
 func _setup_topography() -> void:

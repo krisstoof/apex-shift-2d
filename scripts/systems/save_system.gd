@@ -61,7 +61,12 @@ func _collect_save_data() -> Dictionary:
 		"world_generation": {
 			"version": int(world.get_world_generation_debug().get("version", 0)) if world.has_method("get_world_generation_debug") else 0,
 			"seed": int(world.get_world_seed()) if world.has_method("get_world_seed") else 0,
-			"layout": world.get_world_layout() if world.has_method("get_world_layout") else {}
+			"layout": world.get_world_layout() if world.has_method("get_world_layout") else {},
+			"save_has_world_generation_layout": world.has_method("get_world_layout") and not world.get_world_layout().is_empty(),
+			"save_world_generation_version": int(world.get_world_generation_debug().get("world_generation_version", 0)) if world.has_method("get_world_generation_debug") else 0,
+			"current_world_generation_version": int(world.get_world_generation_debug().get("world_generation_version", 0)) if world.has_method("get_world_generation_debug") else 0,
+			"generator_rules_version": str(world.get_world_generation_debug().get("generator_rules_version", "")) if world.has_method("get_world_generation_debug") else "",
+			"topography_rules_version": str(world.get_world_generation_debug().get("topography_rules_version", "")) if world.has_method("get_world_generation_debug") else ""
 		},
 		"player": _get_player_data(player),
 		"resources": world.get_resource_save_data(),
@@ -153,10 +158,20 @@ func _restore_save_data(data: Dictionary) -> void:
 		if game_session and game_session.has_method("set_bootstrap_world_state"):
 			game_session.set_bootstrap_world_state(int(world_data.get("world_seed", 0)), Array(world_data.get("landmarks", [])))
 	var world_generation_data := Dictionary(data.get("world_generation", {}))
-	if world_generation_data.has("layout") and world.has_method("generate_new_world"):
+	var save_has_world_generation_layout := world_generation_data.has("layout") and not Dictionary(world_generation_data.get("layout", {})).is_empty()
+	var restore_mode := "legacy"
+	if save_has_world_generation_layout:
+		restore_mode = "full_layout"
+	elif world_generation_data.has("version") or world_generation_data.has("seed"):
+		restore_mode = "seed_fallback"
+	if world.has_method("set_procedural_world_restore_mode"):
+		world.call("set_procedural_world_restore_mode", restore_mode)
+	if save_has_world_generation_layout and world.has_method("generate_new_world"):
 		var layout := Dictionary(world_generation_data.get("layout", {}))
 		if not layout.is_empty() and world.has_method("_apply_world_layout"):
 			world.call("_apply_world_layout", layout)
+	elif world.has_method("set_procedural_world_restore_mode") and restore_mode == "legacy":
+		world.call("set_procedural_world_restore_mode", "legacy")
 	_restore_player_data(player, Dictionary(data.get("player", {})))
 	evolution_director.restore_from_data(Dictionary(data.get("evolution", {})))
 	ecosystem_director.load_save_data(Dictionary(data.get("ecosystem", {})))

@@ -3,6 +3,7 @@ class_name WorldGenerator
 
 const GEN_CONFIG := preload("res://scripts/world/world_generation_config.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GENERATOR_RULES_VERSION := "v4"
 
 var seed: int = 0
 var rng := RandomNumberGenerator.new()
@@ -42,6 +43,7 @@ func generate_world(p_seed: int = 0) -> Dictionary:
 	_build_biome_ownership_map()
 	var layout := {
 		"version": 1,
+		"generator_rules_version": GENERATOR_RULES_VERSION,
 		"seed": seed,
 		"world_rect": GEN_CONFIG.WORLD_RECT,
 		"maps": _generate_sample_maps(),
