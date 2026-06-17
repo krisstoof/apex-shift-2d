@@ -1127,7 +1127,7 @@ func _is_player_in_attack_arc() -> bool:
 func _avoid_trap_target(target: Vector2) -> Vector2:
 	if trap_awareness < 0.45:
 		return target
-	for trap in _get_cached_group_nodes("traps"):
+	for trap in _get_nearby_buildings(85.0, "trap"):
 		if global_position.distance_to(trap.global_position) < 85.0:
 			return target + (global_position - trap.global_position).normalized() * 120.0
 	return target
@@ -1136,7 +1136,9 @@ func _avoid_trap_target(target: Vector2) -> Vector2:
 func _nearest_active_campfire() -> Node2D:
 	var nearest: Node2D
 	var nearest_distance := INF
-	for campfire in _get_cached_group_nodes("campfires"):
+	# Query campfires in a reasonable range first (e.g., max fear radius + buffer)
+	# Most campfire fear_radius is around 250, so we query in 350 radius
+	for campfire in _get_nearby_buildings(350.0, "campfire"):
 		if not is_instance_valid(campfire):
 			continue
 		if not campfire.active:
@@ -1532,6 +1534,21 @@ func _get_nearby_creatures(search_range: float, creature_type_filter: Variant = 
 	if world and world.has_method("get_creatures_near"):
 		return world.get_creatures_near(global_position, search_range, creature_type_filter)
 	return _get_cached_group_nodes(str(creature_type_filter))
+
+
+func _get_nearby_buildings(search_range: float, building_type_filter: Variant = null) -> Array:
+	var world := _get_world_node()
+	var registry = world.get_registry() if world and world.has_method("get_registry") else null
+	if registry and registry.has_method("get_buildings_near"):
+		return registry.get_buildings_near(global_position, search_range, building_type_filter)
+	# Fallback to group scan
+	var group_name: String = ""
+	if building_type_filter != null:
+		match str(building_type_filter):
+			"wall": group_name = "walls"
+			"trap": group_name = "traps"
+			"campfire": group_name = "campfires"
+	return _get_cached_group_nodes(group_name) if not group_name.is_empty() else []
 
 
 func _update_spatial_cell_tick(delta: float) -> void:

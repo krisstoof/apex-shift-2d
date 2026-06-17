@@ -173,6 +173,29 @@ func get_meat_near(position: Vector2, radius: float) -> Array:
 	return spatial_index.query_meat_near(position, radius)
 
 
+func get_buildings_near(position: Vector2, radius: float, building_type_filter: Variant = null) -> Array:
+	var result: Array = []
+	var radius_squared := radius * radius
+	var type_filter := ""
+	if building_type_filter != null:
+		type_filter = str(building_type_filter)
+	
+	var buildings_to_check: Array = []
+	if type_filter.is_empty():
+		buildings_to_check = get_buildings()
+	else:
+		buildings_to_check = get_buildings_by_type(type_filter)
+	
+	for building in buildings_to_check:
+		if not is_instance_valid(building):
+			continue
+		var dist_squared := position.distance_squared_to(building.global_position)
+		if dist_squared <= radius_squared:
+			result.append(building)
+	
+	return result
+
+
 func get_resources_in_rect(rect: Rect2, kind_filter: Variant = null) -> Array:
 	if spatial_index == null:
 		return []

@@ -663,7 +663,7 @@ func _get_navigation_direction(desired_direction: Vector2, target: Vector2) -> V
 
 func _get_wall_avoidance_vector() -> Vector2:
 	var avoidance := Vector2.ZERO
-	for wall in _get_cached_group_nodes("walls"):
+	for wall in _get_nearby_buildings(wall_avoid_radius, "wall"):
 		if not is_instance_valid(wall) or not wall is Node2D:
 			continue
 		var wall_node := wall as Node2D
@@ -877,7 +877,7 @@ func _is_navigation_position_valid(nav_position: Vector2) -> bool:
 	var world_query: Variant = _get_world_query()
 	if world_query and world_query.has_method("is_creature_navigation_blocked") and world_query.is_creature_navigation_blocked(nav_position) == true:
 		return false
-	for wall in _get_cached_group_nodes("walls"):
+	for wall in _get_nearby_buildings(wall_avoid_radius * 0.72, "wall"):
 		var wall_node := wall as Node2D
 		if is_instance_valid(wall_node) and nav_position.distance_to(wall_node.global_position) < wall_avoid_radius * 0.72:
 			return false
@@ -1322,6 +1322,21 @@ func _get_nearby_creatures(search_range: float, creature_type_filter: Variant = 
 	if world and world.has_method("get_creatures_near"):
 		return world.get_creatures_near(global_position, search_range, creature_type_filter)
 	return _get_cached_group_nodes(str(creature_type_filter))
+
+
+func _get_nearby_buildings(search_range: float, building_type_filter: Variant = null) -> Array:
+	var world := _get_world_node()
+	var registry = world.get_registry() if world and world.has_method("get_registry") else null
+	if registry and registry.has_method("get_buildings_near"):
+		return registry.get_buildings_near(global_position, search_range, building_type_filter)
+	# Fallback to group scan
+	var group_name: String = ""
+	if building_type_filter != null:
+		match str(building_type_filter):
+			"wall": group_name = "walls"
+			"trap": group_name = "traps"
+			"campfire": group_name = "campfires"
+	return _get_cached_group_nodes(group_name) if not group_name.is_empty() else []
 
 
 func _update_spatial_cell_tick(delta: float) -> void:

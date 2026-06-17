@@ -15,6 +15,8 @@ const MINIMAP_RENDERS_WITH_LANDMARKS_TESTS := preload("res://tests/integration/t
 const DECORATIVE_VEGETATION_NODE_BUDGET_TESTS := preload("res://tests/integration/test_decorative_vegetation_node_budget.gd")
 const DECORATIVE_VEGETATION_VISUAL_CULLING_TESTS := preload("res://tests/integration/test_decorative_vegetation_visual_culling.gd")
 const VISIBILITY_CULLING_REGISTRY_SAFETY_TESTS := preload("res://tests/integration/test_visibility_culling_registry_safety.gd")
+const WORLD_REGISTRY_SPATIAL_VISIBILITY_INTEGRATION_TESTS := preload("res://tests/integration/test_world_registry_spatial_visibility_integration.gd")
+const CREATURE_BUILDING_QUERIES_TESTS := preload("res://tests/integration/test_creature_building_queries.gd")
 const HUD_SAVE_LOAD_REFRESH_TESTS := preload("res://tests/integration/test_hud_save_load_refresh.gd")
 const STORAGE_BOX_SAVE_DATA_TESTS := preload("res://tests/integration/test_storage_box_save_data.gd")
 const ERROR_DRAIN_MAX_FRAMES := 8
@@ -84,6 +86,8 @@ func _run_tests() -> void:
 	await _run_suite("DecorativeVegetationNodeBudget", DECORATIVE_VEGETATION_NODE_BUDGET_TESTS, failures)
 	await _run_suite("DecorativeVegetationVisualCulling", DECORATIVE_VEGETATION_VISUAL_CULLING_TESTS, failures)
 	await _run_suite("VisibilityCullingRegistrySafety", VISIBILITY_CULLING_REGISTRY_SAFETY_TESTS, failures)
+	await _run_suite("WorldRegistrySpatialVisibilityIntegration", WORLD_REGISTRY_SPATIAL_VISIBILITY_INTEGRATION_TESTS, failures)
+	await _run_suite("CreatureBuildingQueries", CREATURE_BUILDING_QUERIES_TESTS, failures)
 	await _run_suite("HUDSaveLoadRefresh", HUD_SAVE_LOAD_REFRESH_TESTS, failures)
 	await _run_suite("StorageBoxSaveData", STORAGE_BOX_SAVE_DATA_TESTS, failures)
 	await _drain_runtime_errors()
