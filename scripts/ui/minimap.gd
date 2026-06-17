@@ -97,6 +97,10 @@ var minimap_queue_static_redraw_count := 0
 var minimap_queue_marker_redraw_count := 0
 var minimap_queue_player_redraw_count := 0
 var minimap_player_redraw_distance_threshold := 8.0
+var minimap_biome_texture_dirty := true
+var _minimap_texture_build_image: Image
+var _minimap_texture_build_key := ""
+var _minimap_texture_build_next_y := 0
 
 
 func _ready() -> void:
@@ -133,6 +137,7 @@ func invalidate_map_surface_cache() -> void:
 	shoreline_segments_key = ""
 	shoreline_segments_cache_valid = false
 	landmarks_signature = ""
+	minimap_biome_texture_dirty = true
 	minimap_static_map_dirty = true
 	minimap_shoreline_cache_dirty = true
 	minimap_view_dirty = true
@@ -160,6 +165,7 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	minimap_shoreline_cache_dirty = true
 	minimap_player_layer_dirty = true
 	minimap_view_dirty = true
+	minimap_biome_texture_dirty = true
 	_last_marker_view_player_position = Vector2.INF
 	_last_player_marker_position = Vector2.INF
 	_last_player_marker_biome_id = ""
@@ -183,10 +189,11 @@ func _process(delta: float) -> void:
 		"build_count": minimap_texture_build_count,
 		"last_build_ms": snappedf(minimap_texture_last_build_ms, 0.01)
 	})
-	if minimap_static_map_dirty or biome_blend_texture == null or _minimap_texture_build_queued:
+	if minimap_biome_texture_dirty or biome_blend_texture == null or _minimap_texture_build_queued:
 		_sync_biome_texture()
 	if minimap_shoreline_cache_dirty or not shoreline_segments_cache_valid:
 		_sync_shoreline_overlay_cache()
+	_process_biome_texture_build()
 	var budget := Dictionary(_get_world_render_budget())
 	minimap_redraw_interval = float(budget.get("minimap_redraw_interval", minimap_redraw_interval))
 	minimap_marker_rebuild_interval = float(budget.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval))
@@ -369,33 +376,34 @@ func _sync_biome_texture() -> void:
 	if active_world == null or biome_zones.is_empty():
 		biome_blend_texture = null
 		biome_blend_colors_key = ""
+		minimap_biome_texture_dirty = false
 		return
 	if active_world.has_method("get_surface_texture") and active_world.has_method("get_surface_texture_key"):
 		var current_surface_key := str(active_world.get_surface_texture_key())
-		if biome_blend_texture != null and biome_blend_colors_key == current_surface_key:
+		if not current_surface_key.is_empty() and biome_blend_texture != null and biome_blend_colors_key == current_surface_key:
 			minimap_biome_texture_sync_skipped_count += 1
-			minimap_static_map_dirty = false
+			minimap_biome_texture_dirty = false
 			return
 		var shared_texture: ImageTexture = active_world.get_surface_texture()
-		if shared_texture != null:
+		if shared_texture != null and not current_surface_key.is_empty():
 			biome_blend_texture = shared_texture
 			biome_blend_colors_key = current_surface_key
 			_minimap_texture_build_queued = false
-			minimap_static_map_dirty = false
+			minimap_biome_texture_dirty = false
+			minimap_static_map_dirty = true
+			_mark_static_layer_dirty()
 			return
+	var local_key := _get_biome_texture_key()
+	if biome_blend_texture != null and biome_blend_colors_key == local_key:
+		minimap_biome_texture_sync_skipped_count += 1
+		minimap_biome_texture_dirty = false
+		return
 	if not _minimap_texture_build_queued and is_visible_in_tree():
 		_minimap_texture_build_queued = true
 		minimap_biome_texture_dirty_count += 1
-		call_deferred("_ensure_biome_texture_deferred")
+		_start_biome_texture_build(local_key)
 	else:
 		minimap_biome_texture_sync_skipped_count += 1
-
-
-func _ensure_biome_texture_deferred() -> void:
-	_minimap_texture_build_queued = false
-	if not is_visible_in_tree():
-		return
-	_ensure_biome_texture()
 
 
 func _sync_shoreline_overlay_cache() -> void:
@@ -428,25 +436,47 @@ func _ensure_biome_texture() -> void:
 		return
 	var current_key := _get_biome_texture_key()
 	if biome_blend_texture and biome_blend_colors_key == current_key:
+		minimap_biome_texture_dirty = false
+		return
+	_start_biome_texture_build(current_key)
+
+
+func _start_biome_texture_build(texture_key: String) -> void:
+	_minimap_texture_build_key = texture_key
+	_minimap_texture_build_next_y = 0
+	_minimap_texture_build_image = Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
+	_minimap_texture_build_queued = true
+	minimap_biome_texture_dirty = true
+
+
+func _process_biome_texture_build() -> void:
+	if not _minimap_texture_build_queued or _minimap_texture_build_image == null:
 		return
 	var build_start_ms: int = Time.get_ticks_msec()
-	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
-	var colors: Array[Color] = []
-	for biome in biome_zones:
-		colors.append(_get_biome_base_color(Dictionary(biome)))
-	for y in range(BIOME_BLEND_TEXTURE_SIZE.y):
+	var rows_per_frame := 6
+	while _minimap_texture_build_next_y < BIOME_BLEND_TEXTURE_SIZE.y and rows_per_frame > 0:
 		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
 			var uv := Vector2(
 				(float(x) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.x),
-				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
+				(float(_minimap_texture_build_next_y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
 			)
 			var world_position := world_rect.position + uv * world_rect.size
-			image.set_pixel(x, y, _get_world_surface_color_at(world_position))
-	biome_blend_texture = ImageTexture.create_from_image(image)
-	biome_blend_colors_key = current_key
-	minimap_texture_build_count += 1
-	minimap_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
-	print("[MINIMAP] surface texture build count=%d last_build_ms=%.2f key=%s" % [minimap_texture_build_count, minimap_texture_last_build_ms, current_key])
+			_minimap_texture_build_image.set_pixel(x, _minimap_texture_build_next_y, _get_world_surface_color_at(world_position))
+		_minimap_texture_build_next_y += 1
+		rows_per_frame -= 1
+	if _minimap_texture_build_next_y >= BIOME_BLEND_TEXTURE_SIZE.y:
+		biome_blend_texture = ImageTexture.create_from_image(_minimap_texture_build_image)
+		biome_blend_colors_key = _minimap_texture_build_key
+		minimap_texture_build_count += 1
+		minimap_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
+		print("[MINIMAP] surface texture build count=%d last_build_ms=%.2f key=%s" % [minimap_texture_build_count, minimap_texture_last_build_ms, _minimap_texture_build_key])
+		_minimap_texture_build_image = null
+		_minimap_texture_build_key = ""
+		_minimap_texture_build_next_y = 0
+		_minimap_texture_build_queued = false
+		minimap_biome_texture_dirty = false
+		minimap_static_map_dirty = true
+		_mark_static_layer_dirty()
 
 
 func _get_shoreline_cache_key() -> String:
@@ -1411,7 +1441,6 @@ func _ensure_minimap_layers() -> void:
 
 func _mark_static_layer_dirty() -> void:
 	static_layer_dirty = true
-	minimap_static_map_dirty = true
 	minimap_view_dirty = true
 	minimap_queue_static_redraw_count += 1
 	if is_instance_valid(static_layer_control):
@@ -1459,6 +1488,8 @@ class _MinimapStaticLayer:
 		draw_rect(content_rect, Color(0.35, 0.43, 0.32, 0.8), false, 1.0)
 		minimap._draw_static_contents(self, content_rect, view_world_rect)
 		minimap.static_layer_dirty = false
+		minimap.minimap_static_map_dirty = false
+		minimap.minimap_view_dirty = false
 
 
 class _MinimapDynamicLayer:
@@ -1497,11 +1528,13 @@ class _MinimapPlayerLayer:
 	func _draw() -> void:
 		if minimap == null or not is_instance_valid(minimap):
 			return
+		minimap.player_marker_redraw_count += 1
 		var map_rect: Rect2 = Rect2(Vector2.ZERO, minimap.size)
 		var content_rect: Rect2 = minimap._get_content_rect(map_rect)
 		var view_world_rect: Rect2 = minimap._get_cached_minimap_view_world_rect(content_rect)
 		minimap._draw_player(self, content_rect, view_world_rect)
 		minimap._draw_zone_label(self, map_rect)
+		minimap.minimap_player_layer_dirty = false
 
 
 
