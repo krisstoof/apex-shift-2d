@@ -214,7 +214,7 @@ func _sync_biome_texture() -> void:
 		biome_blend_texture = null
 		biome_blend_colors_key = "shape_map"
 		return
-	if terrain_cell_map != null:
+	if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
 		biome_blend_texture = null
 		biome_blend_colors_key = "cell_map"
 		return
@@ -369,7 +369,12 @@ func _draw_cell_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
 func _draw_shape_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if biome_shape_map == null:
 		return
-	draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
+	if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
+		_draw_cell_map(content_rect, view_world_rect)
+	elif biome_shape_map.has_method("get_sample_grid_size"):
+		_draw_shape_map_sample_grid(content_rect, view_world_rect)
+	else:
+		draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
 	var polygons_by_layer: Dictionary = biome_shape_map.get_polygons_by_layer()
 	for layer_id in _get_shape_map_draw_order(polygons_by_layer):
 		for polygon_value in Array(polygons_by_layer.get(layer_id, [])):
@@ -397,6 +402,48 @@ func _draw_shape_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
 			if mapped.size() < 3 or not _is_polygon_triangulatable(mapped):
 				continue
 			draw_colored_polygon(mapped, _get_shape_map_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
+
+
+func _draw_shape_map_sample_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	var grid_size: Vector2i = biome_shape_map.get_sample_grid_size()
+	if grid_size == Vector2i.ZERO:
+		draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
+		return
+	for y in range(grid_size.y):
+		for x in range(grid_size.x):
+			var cell_rect: Rect2 = biome_shape_map.get_sample_grid_cell_world_rect(x, y)
+			if not view_world_rect.intersects(cell_rect):
+				continue
+			var clipped_rect := cell_rect.intersection(view_world_rect)
+			var destination_rect := _world_rect_to_map_rect(clipped_rect, content_rect, view_world_rect)
+			if destination_rect.size.x <= 0.0 or destination_rect.size.y <= 0.0:
+				continue
+			var cell := _get_world_surface_cell(cell_rect.get_center())
+			if cell.is_empty():
+				cell = Dictionary(biome_shape_map.get_sample_grid_cell(x, y))
+			draw_rect(destination_rect, _get_shape_map_color(str(cell.get("biome_id", "")), str(cell.get("terrain_id", "deep_ocean"))), true)
+
+
+func _get_world_surface_cell(world_position: Vector2) -> Dictionary:
+	var active_world := _get_world()
+	if active_world == null:
+		return {}
+	var terrain_id := ""
+	var biome_id := ""
+	if active_world.has_method("get_surface_terrain_zone_at"):
+		terrain_id = str(active_world.get_surface_terrain_zone_at(world_position))
+	elif active_world.has_method("get_topography_zone_at"):
+		terrain_id = str(active_world.get_topography_zone_at(world_position))
+	if active_world.has_method("get_visual_biome_id_at"):
+		biome_id = str(active_world.get_visual_biome_id_at(world_position))
+	elif active_world.has_method("get_biome_id_at"):
+		biome_id = str(active_world.get_biome_id_at(world_position))
+	if terrain_id.is_empty() and biome_id.is_empty():
+		return {}
+	return {
+		"terrain_id": terrain_id if not terrain_id.is_empty() else "land",
+		"biome_id": biome_id if not biome_id.is_empty() else "hearth_meadow"
+	}
 
 
 func _get_shape_map_draw_order(polygons_by_layer: Dictionary) -> Array[String]:

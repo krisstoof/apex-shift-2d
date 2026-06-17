@@ -20,6 +20,12 @@ var biome_shape_map_uses_convex_hull := false
 var biome_shape_map_contour_mode := "marching_squares"
 var biome_shape_map_rejected_polygon_count := 0
 var biome_shape_map_self_crossing_guard_enabled := true
+var visual_surface_grid: Array[Array] = []
+var visual_surface_grid_size := Vector2i.ZERO
+var visual_surface_sample_size := 48.0
+var visual_surface_build_count := 0
+var visual_surface_last_build_ms := 0.0
+var visual_surface_source := "none"
 
 func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topography: RefCounted, assigned_seed: int) -> void:
 	var start_ms := Time.get_ticks_msec()
@@ -31,8 +37,12 @@ func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topogr
 	terrain_grid.clear()
 	polygons_by_layer.clear()
 	details.clear()
+	visual_surface_grid.clear()
+	visual_surface_grid_size = Vector2i.ZERO
+	visual_surface_source = "none"
 	_build_sample_grids(world_generator, world_topography)
 	_build_connected_region_polygons()
+	_build_visual_surface_grid_from_polygons()
 	_build_details(world_generator)
 	build_count += 1
 	last_build_ms = float(Time.get_ticks_msec() - start_ms)
@@ -46,6 +56,27 @@ func get_polygons_by_layer() -> Dictionary:
 func get_details() -> Array[Dictionary]:
 	return details
 
+func get_sample_grid_size() -> Vector2i:
+	return grid_size
+
+func get_sample_grid_cell(x: int, y: int) -> Dictionary:
+	if y < 0 or y >= biome_grid.size() or y >= terrain_grid.size():
+		return {}
+	var biome_row := Array(biome_grid[y])
+	var terrain_row := Array(terrain_grid[y])
+	if x < 0 or x >= biome_row.size() or x >= terrain_row.size():
+		return {}
+	var biome_id := str(biome_row[x])
+	var terrain_id := str(terrain_row[x])
+	return {
+		"biome_id": biome_id,
+		"terrain_id": terrain_id,
+		"layer_id": _get_layer_id(biome_id, terrain_id)
+	}
+
+func get_sample_grid_cell_world_rect(x: int, y: int) -> Rect2:
+	return Rect2(_grid_to_world_point(x, y), Vector2(sample_size, sample_size))
+
 func has_renderable_polygons() -> bool:
 	for layer_id in polygons_by_layer.keys():
 		if Array(polygons_by_layer[layer_id]).size() > 0:
@@ -53,12 +84,25 @@ func has_renderable_polygons() -> bool:
 	return false
 
 func sample_visual_surface_at(position: Vector2) -> Dictionary:
+	if not world_rect.has_point(position):
+		return {
+			"biome_id": "",
+			"terrain_id": "deep_ocean",
+			"layer_id": "terrain:deep_ocean",
+			"source": "outside_world_rect"
+		}
+	if visual_surface_grid_size != Vector2i.ZERO and not visual_surface_grid.is_empty():
+		var cell := _visual_world_to_grid(position)
+		if cell.y >= 0 and cell.y < visual_surface_grid.size():
+			var row := Array(visual_surface_grid[cell.y])
+			if cell.x >= 0 and cell.x < row.size():
+				return Dictionary(row[cell.x])
 	var fallback := _sample_grid_surface_at(position)
 	return {
 		"biome_id": str(fallback.get("biome_id", "")),
 		"terrain_id": str(fallback.get("terrain_id", "deep_ocean")),
 		"layer_id": str(fallback.get("layer_id", "terrain:deep_ocean")),
-		"source": "grid_fallback"
+		"source": "grid_fallback_no_visual_surface"
 	}
 
 func get_debug_data() -> Dictionary:
@@ -80,7 +124,13 @@ func get_debug_data() -> Dictionary:
 		"biome_shape_map_rejected_polygon_count": biome_shape_map_rejected_polygon_count,
 		"biome_shape_map_self_crossing_guard_enabled": biome_shape_map_self_crossing_guard_enabled,
 		"biome_shape_map_largest_polygon_bounds_by_layer": _get_largest_polygon_bounds_by_layer(),
-		"biome_shape_map_largest_polygon_area_ratio_by_layer": _get_largest_polygon_area_ratio_by_layer()
+		"biome_shape_map_largest_polygon_area_ratio_by_layer": _get_largest_polygon_area_ratio_by_layer(),
+		"biome_shape_visual_surface_grid_size": visual_surface_grid_size,
+		"biome_shape_visual_surface_sample_size": visual_surface_sample_size,
+		"biome_shape_visual_surface_build_count": visual_surface_build_count,
+		"biome_shape_visual_surface_last_build_ms": visual_surface_last_build_ms,
+		"biome_shape_visual_surface_source": visual_surface_source,
+		"biome_shape_visual_surface_enabled": not visual_surface_grid.is_empty()
 	}
 
 func _sample_grid_surface_at(position: Vector2) -> Dictionary:
@@ -196,6 +246,56 @@ func _build_details(world_generator: RefCounted) -> void:
 				"terrain_id": terrain_id,
 				"variant": int(floor(_hash_float(x, y, seed + 71) * 6.0))
 			})
+
+func _build_visual_surface_grid_from_polygons() -> void:
+	var start_ms := Time.get_ticks_msec()
+	visual_surface_sample_size = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_runtime_sample_size", 48.0)), 24.0)
+	visual_surface_grid_size = Vector2i(
+		maxi(2, int(ceil(world_rect.size.x / visual_surface_sample_size))),
+		maxi(2, int(ceil(world_rect.size.y / visual_surface_sample_size)))
+	)
+	visual_surface_grid.clear()
+	for y in range(visual_surface_grid_size.y):
+		var row: Array = []
+		for x in range(visual_surface_grid_size.x):
+			var world_pos := _visual_grid_to_world_center(x, y)
+			var fallback := _sample_grid_surface_at(world_pos)
+			row.append({
+				"biome_id": str(fallback.get("biome_id", "")),
+				"terrain_id": str(fallback.get("terrain_id", "deep_ocean")),
+				"layer_id": str(fallback.get("layer_id", "terrain:deep_ocean")),
+				"source": "visual_surface_grid_fallback"
+			})
+		visual_surface_grid.append(row)
+	var draw_order := _get_layer_draw_order(polygons_by_layer)
+	for layer_id in draw_order:
+		if layer_id == "terrain:deep_ocean":
+			continue
+		var polygons := Array(polygons_by_layer.get(layer_id, []))
+		for polygon_value in polygons:
+			var polygon := Dictionary(polygon_value)
+			var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
+			if points.size() < 3:
+				continue
+			var bounds := _get_polygon_bounds(points)
+			var min_cell := _visual_world_to_grid(bounds.position)
+			var max_cell := _visual_world_to_grid(bounds.end)
+			for gy in range(min_cell.y, max_cell.y + 1):
+				for gx in range(min_cell.x, max_cell.x + 1):
+					if gx < 0 or gy < 0 or gx >= visual_surface_grid_size.x or gy >= visual_surface_grid_size.y:
+						continue
+					var world_pos := _visual_grid_to_world_center(gx, gy)
+					if not Geometry2D.is_point_in_polygon(world_pos, points):
+						continue
+					Array(visual_surface_grid[gy])[gx] = {
+						"biome_id": str(polygon.get("biome_id", "")),
+						"terrain_id": str(polygon.get("terrain_id", "land")),
+						"layer_id": str(polygon.get("layer_id", layer_id)),
+						"source": "visual_surface_grid_polygon"
+					}
+	visual_surface_build_count += 1
+	visual_surface_last_build_ms = float(Time.get_ticks_msec() - start_ms)
+	visual_surface_source = "polygons_by_layer"
 
 func _get_layer_id_at_cell(x: int, y: int) -> String:
 	var terrain_id := str(Array(terrain_grid[y])[x])
@@ -461,6 +561,19 @@ func _grid_to_world_center(x: int, y: int) -> Vector2:
 
 func _grid_to_world_point(x: int, y: int) -> Vector2:
 	return world_rect.position + Vector2(float(x) * sample_size, float(y) * sample_size)
+
+func _visual_world_to_grid(position: Vector2) -> Vector2i:
+	var local := position - world_rect.position
+	return Vector2i(
+		clampi(int(floor(local.x / visual_surface_sample_size)), 0, visual_surface_grid_size.x - 1),
+		clampi(int(floor(local.y / visual_surface_sample_size)), 0, visual_surface_grid_size.y - 1)
+	)
+
+func _visual_grid_to_world_center(x: int, y: int) -> Vector2:
+	return world_rect.position + Vector2(
+		(float(x) + 0.5) * visual_surface_sample_size,
+		(float(y) + 0.5) * visual_surface_sample_size
+	)
 
 func _jitter(world_pos: Vector2) -> Vector2:
 	var amount := float(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_edge_jitter_world", 26.0))

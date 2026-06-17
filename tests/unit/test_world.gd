@@ -146,6 +146,15 @@ class SurfaceSamplingWorldStub:
 		return "world_fallback_biome"
 
 
+class TerrainSurfaceRendererStub:
+	extends TerrainSurfaceChunkRenderer
+
+	var dirty_reasons: Array[String] = []
+
+	func mark_dirty(reason := "unknown") -> void:
+		dirty_reasons.append(reason)
+
+
 class MockSmallPreyEcosystemDirector:
 	extends Node
 
@@ -331,6 +340,7 @@ func run() -> Array[String]:
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
 	_test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures)
 	_test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures)
+	_test_world_marks_terrain_surface_chunks_dirty_after_biome_shape_rebuild(failures)
 	_test_terrain_surface_renderer_samples_biome_shape_map(failures)
 	_test_small_prey_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_varnak_spawn_sync_uses_cooldown_after_failure(failures)
@@ -1052,6 +1062,8 @@ func _test_biome_shape_map_builds_connected_regions(failures: Array[String]) -> 
 	TEST_UTILS.expect_equal(bool(debug.get("biome_shape_map_uses_convex_hull", true)), false, failures, "Biome shape map should not use convex hulls for final regions")
 	TEST_UTILS.expect(int(debug.get("biome_shape_map_build_count", 0)) >= 1, failures, "Biome shape map should build at least once after world generation")
 	TEST_UTILS.expect(int(debug.get("biome_shape_map_polygon_count", 0)) > 0, failures, "Biome shape map should build at least one polygon")
+	TEST_UTILS.expect_equal(bool(debug.get("biome_shape_visual_surface_enabled", false)), true, failures, "Biome shape map should build a runtime visual surface grid")
+	TEST_UTILS.expect(int(debug.get("biome_shape_visual_surface_build_count", 0)) >= 1, failures, "Biome shape map should rasterize the visual surface at least once")
 	var layer_counts: Dictionary = Dictionary(debug.get("biome_shape_map_polygon_count_by_layer", {}))
 	TEST_UTILS.expect(layer_counts.size() > 1, failures, "Biome shape map should contain multiple layers")
 	var land_polygon_total := 0
@@ -1072,6 +1084,20 @@ func _test_biome_shape_map_builds_connected_regions(failures: Array[String]) -> 
 			oversize = true
 			break
 	TEST_UTILS.expect(not oversize, failures, "No biome region should cover almost the entire world")
+	world.free()
+
+
+func _test_world_marks_terrain_surface_chunks_dirty_after_biome_shape_rebuild(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world.world_generator = WORLD_GENERATOR.new()
+	world.world_topography = WORLD_TOPOGRAPHY.new()
+	world.world_generator.generate_world(13579)
+	world.world_topography.setup(13579)
+	world.biome_shape_map_dirty = true
+	world.terrain_surface_chunk_renderer = TerrainSurfaceRendererStub.new()
+	world._ensure_biome_shape_map_built(true)
+	var renderer: TerrainSurfaceRendererStub = world.terrain_surface_chunk_renderer
+	TEST_UTILS.expect_equal(renderer.dirty_reasons, ["biome_shape_map_rebuilt"], failures, "Biome shape map rebuild should invalidate cached terrain surface chunks")
 	world.free()
 
 
@@ -1180,6 +1206,10 @@ func _test_terrain_surface_renderer_samples_biome_shape_map(failures: Array[Stri
 	TEST_UTILS.expect_equal(str(sample.get("terrain_id", "")), "shape_terrain", failures, "Terrain surface renderer should use the biome shape map terrain id")
 	TEST_UTILS.expect_equal(str(sample.get("biome_id", "")), "shape_biome", failures, "Terrain surface renderer should use the biome shape map biome id")
 	TEST_UTILS.expect_equal(world.shape_map.last_position, Vector2(128.0, 256.0), failures, "Biome shape map should receive the exact sampled position")
+	renderer.call("_sample_surface_color", Vector2(128.0, 256.0))
+	var debug: Dictionary = renderer.get_debug_data()
+	var source_counts := Dictionary(debug.get("terrain_surface_sample_source_counts", {}))
+	TEST_UTILS.expect_equal(int(source_counts.get("polygon", 0)) >= 1, true, failures, "Terrain surface renderer should track biome shape map sample sources")
 	renderer.free()
 	player.free()
 	world.free()

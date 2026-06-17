@@ -2023,6 +2023,8 @@ func _ensure_biome_shape_map_built(force_rebuild := false) -> void:
 	if force_rebuild or biome_shape_map_dirty or build_count == 0:
 		shape_map.build(WORLD_CONFIG.WORLD_RECT, world_generator, world_topography, world_seed)
 		biome_shape_map_dirty = false
+		if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("mark_dirty"):
+			terrain_surface_chunk_renderer.mark_dirty("biome_shape_map_rebuilt")
 
 
 func _ensure_biome_shape_renderer():
@@ -5394,7 +5396,12 @@ func _draw() -> void:
 		and biome_blend_background.visible
 		and biome_blend_background.texture != null
 	)
-	if not has_biome_blend_background:
+	var has_chunk_surface_renderer := (
+		bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
+		and is_instance_valid(terrain_surface_chunk_renderer)
+		and terrain_surface_chunk_renderer.visible
+	)
+	if not has_biome_blend_background and not has_chunk_surface_renderer:
 		draw_rect(WORLD_CONFIG.WORLD_RECT, WORLD_CONFIG.OCEAN_COLOR, true)
 	_draw_biomes()
 	_draw_biome_detail_overlay()
@@ -5411,6 +5418,8 @@ func _get_night_amount() -> float:
 
 
 func _draw_biomes() -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+		return
 	if biome_textures_enabled:
 		if is_instance_valid(biome_blend_background) and biome_blend_background.visible and biome_blend_background.texture != null:
 			return

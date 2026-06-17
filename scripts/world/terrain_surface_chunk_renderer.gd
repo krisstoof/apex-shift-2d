@@ -36,6 +36,7 @@ var last_clear_reason := ""
 var max_rows_built_per_frame := 8
 var max_build_ms_per_frame := 4.0
 var pending_focus_chunk := Vector2i.ZERO
+var surface_sample_source_counts := {}
 
 func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 	var previous_world := world
@@ -72,6 +73,7 @@ func mark_dirty(reason := "unknown") -> void:
 	pending_chunk_set.clear()
 	active_builds.clear()
 	sample_cache.clear()
+	surface_sample_source_counts.clear()
 	last_visible_signature = ""
 	visible_chunk_count = 0
 	cached_chunk_count = 0
@@ -136,6 +138,7 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_max_build_ms_per_frame": max_build_ms_per_frame,
 		"terrain_surface_transition_enabled": bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_transition_enabled", false)),
 		"terrain_surface_uses_biome_shape_map": biome_shape_map != null and biome_shape_map.has_method("sample_visual_surface_at"),
+		"terrain_surface_sample_source_counts": surface_sample_source_counts,
 		"terrain_surface_chunk_world_size": chunk_world_size,
 		"terrain_surface_chunk_texture_size": chunk_texture_size,
 		"terrain_surface_visible_signature": last_visible_signature,
@@ -227,7 +230,7 @@ func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int) -> void:
 		image.set_pixel(x, y, _sample_surface_color(world_pos))
 
 func _sample_surface_color(world_pos: Vector2) -> Color:
-	var cache_step := 48.0
+	var cache_step := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_sample_cache_step", 32.0)), 8.0)
 	var cache_key := "%d,%d" % [int(floor(world_pos.x / cache_step)), int(floor(world_pos.y / cache_step))]
 	var terrain_id := ""
 	var biome_id := ""
@@ -237,6 +240,8 @@ func _sample_surface_color(world_pos: Vector2) -> Color:
 		biome_id = str(cached.get("biome_id", "hearth_meadow"))
 	else:
 		var surface := _sample_surface_ids(world_pos)
+		var source := str(surface.get("source", "unknown"))
+		surface_sample_source_counts[source] = int(surface_sample_source_counts.get(source, 0)) + 1
 		terrain_id = str(surface.get("terrain_id", "land"))
 		biome_id = str(surface.get("biome_id", "hearth_meadow"))
 		sample_cache[cache_key] = {
@@ -252,10 +257,13 @@ func _sample_surface_color(world_pos: Vector2) -> Color:
 
 func _sample_surface_ids(world_pos: Vector2) -> Dictionary:
 	if biome_shape_map != null and biome_shape_map.has_method("sample_visual_surface_at"):
-		return Dictionary(biome_shape_map.sample_visual_surface_at(world_pos))
+		var surface := Dictionary(biome_shape_map.sample_visual_surface_at(world_pos))
+		if not surface.is_empty():
+			return surface
 	return {
 		"terrain_id": _get_surface_terrain(world_pos),
 		"biome_id": _get_visual_biome(world_pos),
+		"layer_id": "",
 		"source": "world_fallback"
 	}
 

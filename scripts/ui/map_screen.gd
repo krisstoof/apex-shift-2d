@@ -630,7 +630,7 @@ func _sync_biome_texture() -> void:
 		biome_blend_texture = null
 		biome_blend_colors_key = "shape_map"
 		return
-	if terrain_cell_map != null:
+	if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
 		biome_blend_texture = null
 		biome_blend_colors_key = "cell_map"
 		return
@@ -783,7 +783,12 @@ func _draw_cell_map(map_rect: Rect2) -> void:
 func _draw_shape_map(map_rect: Rect2) -> void:
 	if biome_shape_map == null:
 		return
-	draw_rect(map_rect, Color(0.06, 0.18, 0.36), true)
+	if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
+		_draw_cell_map(map_rect)
+	elif biome_shape_map.has_method("get_sample_grid_size"):
+		_draw_shape_map_sample_grid(map_rect)
+	else:
+		draw_rect(map_rect, Color(0.06, 0.18, 0.36), true)
 	var polygons_by_layer: Dictionary = biome_shape_map.get_polygons_by_layer()
 	for layer_id in _get_shape_map_draw_order(polygons_by_layer):
 		for polygon_value in Array(polygons_by_layer.get(layer_id, [])):
@@ -808,6 +813,24 @@ func _draw_shape_map(map_rect: Rect2) -> void:
 			if mapped.size() < 3 or not _is_polygon_triangulatable(mapped):
 				continue
 			draw_colored_polygon(mapped, _get_shape_map_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
+
+
+func _draw_shape_map_sample_grid(map_rect: Rect2) -> void:
+	var grid_size: Vector2i = biome_shape_map.get_sample_grid_size()
+	if grid_size == Vector2i.ZERO:
+		draw_rect(map_rect, Color(0.06, 0.18, 0.36), true)
+		return
+	for y in range(grid_size.y):
+		for x in range(grid_size.x):
+			var cell_rect: Rect2 = biome_shape_map.get_sample_grid_cell_world_rect(x, y)
+			var draw_rect_local := Rect2(
+				_world_to_map(cell_rect.position, map_rect),
+				_world_to_map(cell_rect.end, map_rect) - _world_to_map(cell_rect.position, map_rect)
+			)
+			if draw_rect_local.size.x <= 0.0 or draw_rect_local.size.y <= 0.0:
+				continue
+			var cell := Dictionary(biome_shape_map.get_sample_grid_cell(x, y))
+			draw_rect(draw_rect_local, _get_shape_map_color(str(cell.get("biome_id", "")), str(cell.get("terrain_id", "deep_ocean"))), true)
 
 
 func _get_polygon_bounds(points: PackedVector2Array) -> Rect2:
