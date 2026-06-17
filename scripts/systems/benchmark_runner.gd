@@ -203,8 +203,14 @@ func _capture_sample() -> Dictionary:
 	var render_attribution := RUNTIME_PROFILER.get_rolling_summary()
 	render_attribution["benchmark_sample_collection_ms"] = float(Time.get_ticks_usec() - sample_collection_start) / 1000.0
 	sample["render_attribution"] = render_attribution
-	if str(sample.get("likely_driver", "")) == "render":
-		sample["likely_render_subsystem"] = str(render_attribution.get("top_subsystem", ""))
+	var likely_render_subsystem := _pick_likely_render_subsystem(render_attribution)
+	if not likely_render_subsystem.is_empty():
+		sample["likely_render_subsystem"] = likely_render_subsystem
+		var parent_scope := _pick_likely_render_parent_scope(render_attribution, likely_render_subsystem)
+		if not parent_scope.is_empty():
+			sample["likely_render_parent_scope"] = parent_scope
+	if str(sample.get("likely_driver", "")) == "render" and not likely_render_subsystem.is_empty():
+		sample["likely_render_subsystem"] = likely_render_subsystem
 		sample["likely_render_subsystem_reason"] = "highest avg/max render attribution in sample window"
 	return sample
 
@@ -887,7 +893,8 @@ func _build_report() -> Dictionary:
 		"realtime_hitches": realtime_hitches,
 		"heaviest_sample": heaviest_sample,
 		"top_samples": top_samples,
-		"samples": samples
+		"samples": samples,
+		"render_attribution_summary": _build_render_attribution_summary()
 	}
 	report["threshold_validation"] = _validate_benchmark_thresholds(report)
 	return report
@@ -901,6 +908,63 @@ func _get_top_samples(limit: int) -> Array[Dictionary]:
 	if ranked.size() > limit:
 		ranked.resize(limit)
 	return ranked
+
+
+func _build_render_attribution_summary() -> Dictionary:
+	var summary: Dictionary = Dictionary(RUNTIME_PROFILER.get_rolling_summary())
+	var top_subsystem := _pick_likely_render_subsystem(summary)
+	return {
+		"enabled": bool(summary.get("enabled", false)),
+		"top_subsystem": top_subsystem,
+		"top_subsystem_avg_ms": float(Dictionary(summary.get("subsystems", {})).get(top_subsystem, {}).get("avg", 0.0)) if not top_subsystem.is_empty() else 0.0,
+		"top_subsystem_max_ms": float(Dictionary(summary.get("subsystems", {})).get(top_subsystem, {}).get("max", 0.0)) if not top_subsystem.is_empty() else 0.0,
+		"samples_with_render_attribution": int(summary.get("samples_with_render_attribution", 0)),
+		"subsystems": summary.get("subsystems", {})
+	}
+
+
+func _pick_likely_render_subsystem(render_attribution: Dictionary) -> String:
+	var subsystems: Dictionary = Dictionary(render_attribution.get("subsystems", {}))
+	if subsystems.is_empty():
+		return ""
+	var excluded := {
+		"world_process_render_sync_ms": true,
+		"minimap_total_ms": true,
+		"map_screen_draw_ms": true,
+		"hud_process_ms": true,
+		"debug_panel_process_ms": true
+	}
+	var best_name := ""
+	var best_avg := -1.0
+	var best_max := -1.0
+	for key_value in subsystems.keys():
+		var name := str(key_value)
+		if excluded.has(name):
+			continue
+		var stats: Dictionary = Dictionary(subsystems.get(name, {}))
+		var avg := float(stats.get("avg", 0.0))
+		var max_ms := float(stats.get("max", 0.0))
+		if avg > best_avg or (is_equal_approx(avg, best_avg) and max_ms > best_max):
+			best_avg = avg
+			best_max = max_ms
+			best_name = name
+	return best_name if not best_name.is_empty() else str(render_attribution.get("top_subsystem", ""))
+
+
+func _pick_likely_render_parent_scope(render_attribution: Dictionary, likely_render_subsystem: String) -> String:
+	if likely_render_subsystem.is_empty():
+		return ""
+	var parent_candidates := [
+		"world_process_render_sync_ms",
+		"map_screen_draw_ms",
+		"minimap_static_layer_draw_ms",
+		"minimap_dynamic_layer_draw_ms"
+	]
+	var subsystems: Dictionary = Dictionary(render_attribution.get("subsystems", {}))
+	for candidate in parent_candidates:
+		if subsystems.has(candidate):
+			return candidate
+	return ""
 
 
 func _sort_sample_descending(left: Dictionary, right: Dictionary) -> bool:

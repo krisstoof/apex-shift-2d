@@ -58,6 +58,9 @@ var chunk_build_completed_count := 0
 var last_clear_reason := ""
 var max_rows_built_per_frame := 8
 var max_build_ms_per_frame := 4.0
+var hard_budget_enabled := true
+var hard_budget_ms := 1.0
+var build_cell_batch_size := 16
 var last_motion_sample_position := Vector2.INF
 var refined_chunk_window_start_ms := 0
 var refined_chunks_started_in_window := 0
@@ -66,6 +69,13 @@ var surface_sample_source_counts := {}
 var exact_surface_sample_count := 0
 var grid_surface_sample_count := 0
 var world_fallback_surface_sample_count := 0
+var terrain_surface_build_budget_exceeded_count := 0
+var terrain_surface_build_budget_max_overrun_ms := 0.0
+var terrain_surface_build_steps_last_frame := 0
+var terrain_surface_build_pixels_last_frame := 0
+var terrain_surface_build_rows_last_frame := 0
+var terrain_surface_build_chunks_started_last_frame := 0
+var terrain_surface_build_chunks_completed_last_frame := 0
 var use_shape_map_sampling_override := false
 var has_use_shape_map_sampling_override := false
 
@@ -94,6 +104,9 @@ func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 	refine_pause_when_fps_below = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_pause_when_fps_below", 45)), 0)
 	refine_pause_when_camera_moving = bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_pause_when_camera_moving", true))
 	max_refined_chunks_per_second = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_max_refined_chunks_per_second", 3)), 1)
+	hard_budget_enabled = bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_hard_budget_enabled", true))
+	hard_budget_ms = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_hard_budget_ms", 1.0)), 0.1)
+	build_cell_batch_size = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_build_cell_batch_size", 16)), 1)
 	preview_only_during_fast_movement = bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_preview_only_during_fast_movement", true))
 	visible_margin_chunks = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_visible_margin_chunks", 1)), 0)
 	max_chunks_built_per_frame = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_max_chunks_built_per_frame", preview_max_chunks_built_per_frame)), 1)
@@ -200,20 +213,34 @@ func process_build_queue(delta: float = 0.0) -> void:
 	chunks_built_last_frame = 0
 	preview_chunks_built_last_frame = 0
 	refined_chunks_built_last_frame = 0
-	var start_ms := Time.get_ticks_msec()
+	terrain_surface_build_steps_last_frame = 0
+	terrain_surface_build_pixels_last_frame = 0
+	terrain_surface_build_rows_last_frame = 0
+	terrain_surface_build_chunks_started_last_frame = 0
+	terrain_surface_build_chunks_completed_last_frame = 0
+	var start_ms: int = Time.get_ticks_msec()
+	var hard_budget_deadline_ms: float = float(start_ms) + hard_budget_ms if hard_budget_enabled else 2147483647.0
 	while active_builds.size() < max_chunks_built_per_frame and not pending_chunks.is_empty():
+		if float(Time.get_ticks_msec()) >= hard_budget_deadline_ms:
+			break
 		var chunk_key = pending_chunks.pop_front()
 		pending_chunk_set.erase(chunk_key)
 		if chunk_textures.has(chunk_key) or active_builds.has(chunk_key):
 			continue
 		_start_chunk_build(chunk_key)
+		terrain_surface_build_chunks_started_last_frame += 1
 	var allow_refine := _can_process_refine()
 	for key_value in active_builds.keys():
+		if float(Time.get_ticks_msec()) >= hard_budget_deadline_ms:
+			break
 		var chunk_key = key_value
-		_process_active_chunk_build(chunk_key, start_ms, allow_refine)
+		_process_active_chunk_build(chunk_key, start_ms, allow_refine, hard_budget_deadline_ms)
 		if float(Time.get_ticks_msec() - start_ms) >= max_build_ms_per_frame:
 			break
 	last_build_ms = float(Time.get_ticks_msec() - start_ms)
+	if hard_budget_enabled and last_build_ms > hard_budget_ms:
+		terrain_surface_build_budget_exceeded_count += 1
+		terrain_surface_build_budget_max_overrun_ms = maxf(terrain_surface_build_budget_max_overrun_ms, last_build_ms - hard_budget_ms)
 	max_build_ms = maxf(max_build_ms, last_build_ms)
 	cached_chunk_count = chunk_textures.size()
 	if chunks_built_last_frame > 0:
@@ -244,6 +271,13 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_refine_skipped_due_to_fps_count": terrain_surface_refine_skipped_due_to_fps_count,
 		"terrain_surface_chunk_build_started_count": chunk_build_started_count,
 		"terrain_surface_chunk_build_completed_count": chunk_build_completed_count,
+		"terrain_surface_build_budget_exceeded_count": terrain_surface_build_budget_exceeded_count,
+		"terrain_surface_build_budget_max_overrun_ms": terrain_surface_build_budget_max_overrun_ms,
+		"terrain_surface_build_steps_last_frame": terrain_surface_build_steps_last_frame,
+		"terrain_surface_build_pixels_last_frame": terrain_surface_build_pixels_last_frame,
+		"terrain_surface_build_rows_last_frame": terrain_surface_build_rows_last_frame,
+		"terrain_surface_build_chunks_started_last_frame": terrain_surface_build_chunks_started_last_frame,
+		"terrain_surface_build_chunks_completed_last_frame": terrain_surface_build_chunks_completed_last_frame,
 		"terrain_surface_preview_enabled": preview_enabled,
 		"terrain_surface_preview_texture_size": preview_chunk_texture_size,
 		"terrain_surface_refined_texture_size": refined_chunk_texture_size,
@@ -332,12 +366,13 @@ func _start_chunk_build(chunk_key: Vector2i) -> void:
 	}
 	chunk_build_started_count += 1
 
-func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow_refine := true) -> void:
+func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow_refine := true, hard_budget_deadline_ms := 2147483647) -> void:
 	if not active_builds.has(chunk_key):
 		return
 	var state := Dictionary(active_builds[chunk_key])
 	var chunk_rect = Rect2(state.get("chunk_rect", Rect2()))
 	var next_y := int(state.get("next_y", 0))
+	var next_x := int(state.get("next_x", 0))
 	var stage := str(state.get("stage", "preview"))
 	if stage == "refine_pending":
 		if not allow_refine:
@@ -355,10 +390,12 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow
 		var refine_image := Image.create(refine_texture_size, refine_texture_size, false, Image.FORMAT_RGBA8)
 		state["image"] = refine_image
 		state["next_y"] = 0
+		state["next_x"] = 0
 		state["stage"] = "refine"
 		state["texture_size"] = refine_texture_size
 		stage = "refine"
 		next_y = 0
+		next_x = 0
 	var image: Image = state.get("image")
 	if image == null:
 		active_builds.erase(chunk_key)
@@ -371,13 +408,22 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow
 	var build_ms_budget := max_build_ms_per_frame
 	var rows_done := 0
 	while next_y < texture_size and rows_done < rows_per_frame:
+		if float(Time.get_ticks_msec()) >= hard_budget_deadline_ms or float(Time.get_ticks_msec() - frame_start_ms) >= build_ms_budget:
+			break
+		var batch_end_x := mini(next_x + build_cell_batch_size, texture_size)
 		if stage == "preview":
-			_build_preview_chunk_texture_row(image, chunk_rect, next_y, texture_size)
+			_build_preview_chunk_texture_span(image, chunk_rect, next_y, next_x, batch_end_x, texture_size)
 		else:
-			_build_chunk_texture_row(image, chunk_rect, next_y, texture_size)
-		next_y += 1
-		rows_done += 1
-		if float(Time.get_ticks_msec() - frame_start_ms) >= build_ms_budget:
+			_build_chunk_texture_span(image, chunk_rect, next_y, next_x, batch_end_x, texture_size)
+		terrain_surface_build_steps_last_frame += 1
+		terrain_surface_build_pixels_last_frame += batch_end_x - next_x
+		next_x = batch_end_x
+		if next_x >= texture_size:
+			next_x = 0
+			next_y += 1
+			rows_done += 1
+			terrain_surface_build_rows_last_frame += 1
+		if float(Time.get_ticks_msec()) >= hard_budget_deadline_ms or float(Time.get_ticks_msec() - frame_start_ms) >= build_ms_budget:
 			break
 	if next_y >= texture_size:
 		if stage == "preview":
@@ -387,6 +433,7 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow
 			state["stage_ready_at"] = float(Time.get_ticks_msec()) / 1000.0 + refine_delay_seconds
 			state["image"] = null
 			state["next_y"] = 0
+			state["next_x"] = 0
 			active_builds[chunk_key] = state
 			preview_chunks_built_last_frame += 1
 			preview_build_count += 1
@@ -398,6 +445,7 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow
 			active_builds.erase(chunk_key)
 			chunks_built_last_frame += 1
 			refined_chunks_built_last_frame += 1
+			terrain_surface_build_chunks_completed_last_frame += 1
 			total_build_count += 1
 			refined_build_count += 1
 			chunk_build_completed_count += 1
@@ -406,6 +454,7 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow
 			queue_redraw()
 	else:
 		state["next_y"] = next_y
+		state["next_x"] = next_x
 		active_builds[chunk_key] = state
 
 
@@ -463,7 +512,7 @@ func _get_actual_camera_world_rect() -> Rect2:
 		return Rect2(player.global_position - Vector2(960.0, 540.0), Vector2(1920.0, 1080.0))
 	return world_rect
 
-func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_size: int) -> void:
+func _build_chunk_texture_span(image: Image, chunk_rect: Rect2, y: int, start_x: int, end_x: int, texture_size: int) -> void:
 	if image == null:
 		return
 	var safe_texture_size: int = texture_size
@@ -471,7 +520,9 @@ func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_s
 	safe_texture_size = mini(safe_texture_size, image.get_height())
 	if y < 0 or y >= safe_texture_size:
 		return
-	for x in range(safe_texture_size):
+	var safe_start_x := maxi(start_x, 0)
+	var safe_end_x := mini(end_x, safe_texture_size)
+	for x in range(safe_start_x, safe_end_x):
 		var uv := Vector2(
 			(float(x) + 0.5) / float(safe_texture_size),
 			(float(y) + 0.5) / float(safe_texture_size)
@@ -479,7 +530,7 @@ func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_s
 		var world_pos := chunk_rect.position + Vector2(chunk_rect.size.x * uv.x, chunk_rect.size.y * uv.y)
 		image.set_pixel(x, y, _sample_surface_color(world_pos))
 
-func _build_preview_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_size: int) -> void:
+func _build_preview_chunk_texture_span(image: Image, chunk_rect: Rect2, y: int, start_x: int, end_x: int, texture_size: int) -> void:
 	if image == null:
 		return
 	var safe_texture_size: int = texture_size
@@ -487,7 +538,9 @@ func _build_preview_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, t
 	safe_texture_size = mini(safe_texture_size, image.get_height())
 	if y < 0 or y >= safe_texture_size:
 		return
-	for x in range(safe_texture_size):
+	var safe_start_x := maxi(start_x, 0)
+	var safe_end_x := mini(end_x, safe_texture_size)
+	for x in range(safe_start_x, safe_end_x):
 		var uv := Vector2(
 			(float(x) + 0.5) / float(safe_texture_size),
 			(float(y) + 0.5) / float(safe_texture_size)
