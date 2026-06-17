@@ -4,6 +4,8 @@ class_name WorldGenerator
 const GEN_CONFIG := preload("res://scripts/world/world_generation_config.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const WORLD_GENERATION_RESULT := preload("res://scripts/world/world_generation_result.gd")
+const WORLD_GENERATION_VALIDATOR := preload("res://scripts/world/world_generation_validator.gd")
 const GENERATOR_RULES_VERSION := "v4"
 
 var seed: int = 0
@@ -61,7 +63,29 @@ func generate_world(p_seed: int = 0) -> Dictionary:
 	layout["resource_zones"] = _generate_resource_zones(layout)
 	layout["creature_spawn_zones"] = _generate_creature_spawn_zones(layout)
 	layout["debug"] = _build_generation_debug(layout)
+	layout["generation_hash"] = get_world_generation_hash(layout)
 	return layout
+
+
+## Compute a stable hash of the key generation outputs for this layout.
+## Identical to WorldGenerationResult.compute_hash_from_layout() but callable
+## without creating a result object.
+func get_world_generation_hash(layout: Dictionary) -> String:
+	return WORLD_GENERATION_RESULT.compute_hash_from_layout(layout)
+
+
+## Generate a world and wrap the result in a typed WorldGenerationResult object.
+func generate_world_with_result(p_seed: int = 0) -> WorldGenerationResult:
+	var layout := generate_world(p_seed)
+	return WORLD_GENERATION_RESULT.from_layout(layout)
+
+
+## Validate a layout against hard world rules.
+## Returns the validator report dictionary: { valid, errors, warnings }.
+func validate_layout(layout: Dictionary) -> Dictionary:
+	var result := WORLD_GENERATION_RESULT.from_layout(layout)
+	var validator := WORLD_GENERATION_VALIDATOR.new()
+	return validator.validate(result, self)
 
 
 func get_height_at(position: Vector2) -> float:
@@ -276,8 +300,13 @@ func debug_validate_same_seed(test_seed: int) -> Dictionary:
 	var layout_a: Dictionary = generator_a.generate_world(test_seed)
 	var generator_b: WorldGenerator = get_script().new()
 	var layout_b: Dictionary = generator_b.generate_world(test_seed)
+	var hash_a := get_world_generation_hash(layout_a)
+	var hash_b := get_world_generation_hash(layout_b)
 	return {
 		"seed": test_seed,
+		"same_generation_hash": hash_a == hash_b,
+		"hash_a": hash_a,
+		"hash_b": hash_b,
 		"same_landmark_count": Array(layout_a.get("landmarks", [])).size() == Array(layout_b.get("landmarks", [])).size(),
 		"same_spawn_zone_count": Array(layout_a.get("creature_spawn_zones", [])).size() == Array(layout_b.get("creature_spawn_zones", [])).size()
 	}

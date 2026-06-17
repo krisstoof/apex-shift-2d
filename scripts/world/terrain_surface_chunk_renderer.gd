@@ -4,6 +4,20 @@ class_name TerrainSurfaceChunkRenderer
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 
+## Explicit state for every terrain chunk.
+## Replaces implicit "figure out state from dict lookups" logic.
+## Use chunk_states[key] to read/write. Debug with _get_chunk_state_counts().
+enum ChunkState {
+	EMPTY = 0,           ## No texture, not in any queue.
+	PREVIEW_QUEUED = 1,  ## In pending_chunks, build not yet started.
+	PREVIEW_BUILDING = 2,## In active_builds, stage="preview".
+	PREVIEW_READY = 3,   ## Has preview texture; in active_builds stage="refine_pending".
+	REFINE_BUILDING = 4, ## In active_builds, stage="refine".
+	REFINED_READY = 5,   ## Has refined texture; not in active_builds.
+	FAILED = 6,          ## Build encountered an unrecoverable error.
+	STALE = 7,           ## Removed because chunk left the visible area.
+}
+
 var world: Node
 var player: Node2D
 var camera: Camera2D
@@ -29,6 +43,7 @@ var preview_only_during_fast_movement := true
 
 var visible_chunks: Dictionary = {}
 var chunk_textures: Dictionary = {}
+var chunk_states: Dictionary = {}  # Vector2i -> ChunkState
 var pending_chunks: Array = []
 var pending_chunk_set: Dictionary = {}
 var active_builds := {}
@@ -187,6 +202,7 @@ func mark_dirty(reason := "unknown") -> void:
 	refine_jobs_stale = 0
 	smoke_test_refine_build_count_at_idle = 0
 	smoke_test_idle_duration_ms = 0
+	chunk_states.clear()
 	queue_redraw()
 
 
@@ -197,6 +213,7 @@ func clear_runtime_state(reason := "cleanup") -> void:
 	pending_chunks.clear()
 	pending_chunk_set.clear()
 	active_builds.clear()
+	chunk_states.clear()
 	sample_cache.clear()
 	biome_blend_cache.clear()
 	surface_sample_source_counts.clear()
@@ -289,6 +306,7 @@ func process_build_queue(delta: float = 0.0) -> void:
 	for chunk_key in chunks_to_remove:
 		active_builds.erase(chunk_key)
 		refine_jobs_stale += 1
+		chunk_states[chunk_key] = ChunkState.STALE
 	
 	var active_work_limit := preview_active_build_limit + max_chunks_built_per_frame
 	while _count_active_work_stages() < active_work_limit and not pending_chunks.is_empty():
@@ -344,6 +362,7 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_active_preview_build_count": _count_active_stage("preview"),
 		"terrain_surface_active_refine_build_count": _count_active_stage("refine"),
 		"terrain_surface_active_refine_pending_count": _count_active_stage("refine_pending"),
+		"terrain_surface_chunk_state_counts": _get_chunk_state_counts(),
 		"terrain_surface_drawn_chunk_count": terrain_surface_drawn_chunk_count,
 		"terrain_surface_skipped_chunk_count": terrain_surface_skipped_chunk_count,
 		"terrain_surface_refine_skipped_due_to_camera_movement_count": terrain_surface_refine_skipped_due_to_camera_movement_count,
@@ -434,6 +453,7 @@ func _queue_chunk_build(chunk_key: Vector2i) -> void:
 		return
 	pending_chunk_set[chunk_key] = true
 	pending_chunks.append(chunk_key)
+	chunk_states[chunk_key] = ChunkState.PREVIEW_QUEUED
 
 func _sort_pending_chunks_by_focus() -> void:
 	var focus := world_rect.get_center()
@@ -459,6 +479,30 @@ func _count_active_stage(stage_name: String) -> int:
 		if str(state.get("stage", "preview")) == stage_name:
 			count += 1
 	return count
+
+
+func _get_chunk_state_counts() -> Dictionary:
+	var counts := {
+		"EMPTY": 0,
+		"PREVIEW_QUEUED": 0,
+		"PREVIEW_BUILDING": 0,
+		"PREVIEW_READY": 0,
+		"REFINE_BUILDING": 0,
+		"REFINED_READY": 0,
+		"FAILED": 0,
+		"STALE": 0,
+	}
+	for state_value in chunk_states.values():
+		match int(state_value):
+			ChunkState.EMPTY:          counts["EMPTY"] += 1
+			ChunkState.PREVIEW_QUEUED: counts["PREVIEW_QUEUED"] += 1
+			ChunkState.PREVIEW_BUILDING: counts["PREVIEW_BUILDING"] += 1
+			ChunkState.PREVIEW_READY:  counts["PREVIEW_READY"] += 1
+			ChunkState.REFINE_BUILDING: counts["REFINE_BUILDING"] += 1
+			ChunkState.REFINED_READY:  counts["REFINED_READY"] += 1
+			ChunkState.FAILED:         counts["FAILED"] += 1
+			ChunkState.STALE:          counts["STALE"] += 1
+	return counts
 
 func _count_active_work_stages() -> int:
 	var count := 0
@@ -519,6 +563,7 @@ func _start_chunk_build(chunk_key: Vector2i) -> void:
 		"stage_ready_at": 0.0
 	}
 	chunk_build_started_count += 1
+	chunk_states[chunk_key] = ChunkState.PREVIEW_BUILDING if preview_enabled else ChunkState.REFINE_BUILDING
 
 func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, allow_refine := true, hard_budget_deadline_usec := 9223372036854775807) -> void:
 	if not active_builds.has(chunk_key):
@@ -549,6 +594,7 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 				next_x = 0
 				refine_jobs_started += 1
 				active_builds[chunk_key] = state
+				chunk_states[chunk_key] = ChunkState.REFINE_BUILDING
 		# If not ready to transition, just update and return early
 		return
 	
@@ -634,6 +680,7 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 			state["next_y"] = 0
 			state["next_x"] = 0
 			active_builds[chunk_key] = state
+			chunk_states[chunk_key] = ChunkState.PREVIEW_READY
 			preview_chunks_built_last_frame += 1
 			preview_build_count += 1
 			preview_chunk_count = chunk_textures.size()
@@ -644,6 +691,7 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 			var refined_texture := ImageTexture.create_from_image(image)
 			chunk_textures[chunk_key] = refined_texture
 			active_builds.erase(chunk_key)
+			chunk_states[chunk_key] = ChunkState.REFINED_READY
 			chunks_built_last_frame += 1
 			refined_chunks_built_last_frame += 1
 			terrain_surface_build_chunks_completed_last_frame += 1
