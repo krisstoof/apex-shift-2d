@@ -125,6 +125,7 @@ func run() -> Array[String]:
 	_test_minimap_content_rect_reserves_footer_space(failures)
 	_test_minimap_performance_debug_reports_layer_redraws(failures)
 	_test_minimap_marker_cache_only_redraws_dynamic_layer(failures)
+	_test_minimap_cached_view_rect_stays_stable_until_recentering(failures)
 	return failures
 
 
@@ -333,6 +334,23 @@ func _test_minimap_marker_cache_only_redraws_dynamic_layer(failures: Array[Strin
 	TEST_UTILS.expect_equal(minimap.dynamic_redraw_calls, 1, failures, "Marker cache changes should request a dynamic minimap redraw")
 	TEST_UTILS.expect_equal(int(minimap.get("minimap_marker_cache_rebuild_count")), 1, failures, "Marker cache changes should still increment marker rebuild diagnostics")
 	minimap.free()
+
+
+func _test_minimap_cached_view_rect_stays_stable_until_recentering(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	var player := Node2D.new()
+	player.global_position = Vector2(100.0, 80.0)
+	minimap.player = player
+	var content_rect := Rect2(Vector2(14.0, 14.0), Vector2(232.0, 152.0))
+	var first_rect: Rect2 = minimap.call("_get_cached_minimap_view_world_rect", content_rect)
+	player.global_position = Vector2(260.0, 210.0)
+	var second_rect: Rect2 = minimap.call("_get_cached_minimap_view_world_rect", content_rect)
+	TEST_UTILS.expect_equal(second_rect, first_rect, failures, "Minimap cached view rect should stay stable until recentering")
+	minimap.call("_force_minimap_view_recenter", content_rect)
+	var recentered_rect: Rect2 = minimap.call("_get_cached_minimap_view_world_rect", content_rect)
+	TEST_UTILS.expect(recentered_rect.position.distance_to(player.global_position - recentered_rect.size * 0.5) < 0.01, failures, "Minimap cached view rect should recenter on the current player position")
+	minimap.free()
+	player.free()
 
 
 func _make_minimap() -> Control:

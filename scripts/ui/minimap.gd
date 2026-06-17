@@ -77,6 +77,9 @@ var _player_redraw_timer := 0.0
 var _last_marker_view_player_position := Vector2.INF
 var _last_player_marker_position := Vector2.INF
 var _last_player_marker_biome_id := ""
+var cached_minimap_view_world_rect := Rect2()
+var cached_minimap_view_valid := false
+var cached_minimap_view_center := Vector2.INF
 
 
 func _ready() -> void:
@@ -135,6 +138,9 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	_last_marker_view_player_position = Vector2.INF
 	_last_player_marker_position = Vector2.INF
 	_last_player_marker_biome_id = ""
+	cached_minimap_view_world_rect = Rect2()
+	cached_minimap_view_valid = false
+	cached_minimap_view_center = Vector2.INF
 	_marker_view_redraw_timer = 0.0
 	_player_redraw_timer = 0.0
 	minimap_redraw_timer = 0.0
@@ -161,6 +167,8 @@ func _process(delta: float) -> void:
 	minimap_marker_view_recenter_distance = float(budget.get("minimap_marker_view_recenter_distance", minimap_marker_view_recenter_distance))
 	var current_player_position := _get_player_position()
 	var current_biome_id := _get_player_biome_id()
+	var map_rect := Rect2(Vector2.ZERO, size)
+	var content_rect := _get_content_rect(map_rect)
 	_marker_view_redraw_timer += delta
 	_player_redraw_timer += delta
 	var marker_view_moved := false
@@ -171,7 +179,10 @@ func _process(delta: float) -> void:
 	if marker_view_moved and _marker_view_redraw_timer >= maxf(minimap_redraw_interval, 0.10):
 		_marker_view_redraw_timer = 0.0
 		_last_marker_view_player_position = current_player_position
+		_force_minimap_view_recenter(content_rect)
+		_mark_static_layer_dirty()
 		_request_marker_redraw()
+		_request_player_redraw()
 	var should_redraw_player := false
 	if _last_player_marker_position == Vector2.INF:
 		should_redraw_player = true
@@ -190,6 +201,7 @@ func _process(delta: float) -> void:
 			minimap_static_redraw_timer = 0.0
 			minimap_redraw_timer = 0.0
 			_needs_redraw_due_to_data_change = false
+			_force_minimap_view_recenter(content_rect)
 			_mark_static_layer_dirty()
 			_request_marker_redraw()
 			_request_player_redraw()
@@ -1103,7 +1115,7 @@ func _get_landmark_marker_center(world_position: Vector2, content_rect: Rect2, v
 
 
 func _world_radius_to_map(world_radius: float, content_rect: Rect2) -> float:
-	var view_world_rect: Rect2 = _get_minimap_view_world_rect(content_rect)
+	var view_world_rect: Rect2 = _get_cached_minimap_view_world_rect(content_rect)
 	var x_scale: float = content_rect.size.x / maxf(view_world_rect.size.x, 1.0)
 	var y_scale: float = content_rect.size.y / maxf(view_world_rect.size.y, 1.0)
 	return world_radius * min(x_scale, y_scale)
@@ -1141,10 +1153,37 @@ func _get_max_shape_scale(landmark: Dictionary, is_pond: bool) -> float:
 	return max_scale
 
 
-func _get_minimap_view_world_rect(content_rect: Rect2) -> Rect2:
-	var center: Vector2 = player.global_position if is_instance_valid(player) else world_rect.get_center()
+func _get_current_player_center() -> Vector2:
+	if is_instance_valid(player):
+		return player.global_position
+	return world_rect.get_center()
+
+
+func _ensure_cached_minimap_view(content_rect: Rect2, force_recenter := false) -> Rect2:
+	var current_center := _get_current_player_center()
 	var view_size: Vector2 = _get_minimap_view_world_size(content_rect)
-	return Rect2(center - view_size * 0.5, view_size)
+	if force_recenter or not cached_minimap_view_valid or cached_minimap_view_center == Vector2.INF:
+		cached_minimap_view_center = current_center
+		cached_minimap_view_world_rect = Rect2(cached_minimap_view_center - view_size * 0.5, view_size)
+		cached_minimap_view_valid = true
+		return cached_minimap_view_world_rect
+	if cached_minimap_view_world_rect.size != view_size:
+		cached_minimap_view_center = current_center
+		cached_minimap_view_world_rect = Rect2(cached_minimap_view_center - view_size * 0.5, view_size)
+		cached_minimap_view_valid = true
+	return cached_minimap_view_world_rect
+
+
+func _force_minimap_view_recenter(content_rect: Rect2) -> Rect2:
+	return _ensure_cached_minimap_view(content_rect, true)
+
+
+func _get_cached_minimap_view_world_rect(content_rect: Rect2) -> Rect2:
+	return _ensure_cached_minimap_view(content_rect, false)
+
+
+func _get_minimap_view_world_rect(content_rect: Rect2) -> Rect2:
+	return _get_cached_minimap_view_world_rect(content_rect)
 
 
 func _get_minimap_view_world_size(content_rect: Rect2) -> Vector2:
@@ -1328,7 +1367,7 @@ class _MinimapStaticLayer:
 		minimap.static_layer_redraw_count += 1
 		var map_rect: Rect2 = Rect2(Vector2.ZERO, minimap.size)
 		var content_rect: Rect2 = minimap._get_content_rect(map_rect)
-		var view_world_rect: Rect2 = minimap._get_minimap_view_world_rect(content_rect)
+		var view_world_rect: Rect2 = minimap._get_cached_minimap_view_world_rect(content_rect)
 		draw_rect(map_rect, Color(0.04, 0.05, 0.05, 0.86), true)
 		draw_rect(map_rect, Color(0.74, 0.78, 0.68, 0.9), false, 1.0)
 		draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
@@ -1353,7 +1392,7 @@ class _MinimapDynamicLayer:
 		minimap.dynamic_layer_redraw_count += 1
 		var map_rect: Rect2 = Rect2(Vector2.ZERO, minimap.size)
 		var content_rect: Rect2 = minimap._get_content_rect(map_rect)
-		var view_world_rect: Rect2 = minimap._get_minimap_view_world_rect(content_rect)
+		var view_world_rect: Rect2 = minimap._get_cached_minimap_view_world_rect(content_rect)
 		minimap._draw_resources(self, content_rect, view_world_rect)
 		minimap._draw_campfires(self, content_rect, view_world_rect)
 		minimap._draw_grazers(self, content_rect, view_world_rect)
@@ -1373,10 +1412,9 @@ class _MinimapPlayerLayer:
 	func _draw() -> void:
 		if minimap == null or not is_instance_valid(minimap):
 			return
-		minimap.player_marker_redraw_count += 1
 		var map_rect: Rect2 = Rect2(Vector2.ZERO, minimap.size)
 		var content_rect: Rect2 = minimap._get_content_rect(map_rect)
-		var view_world_rect: Rect2 = minimap._get_minimap_view_world_rect(content_rect)
+		var view_world_rect: Rect2 = minimap._get_cached_minimap_view_world_rect(content_rect)
 		minimap._draw_player(self, content_rect, view_world_rect)
 		minimap._draw_zone_label(self, map_rect)
 

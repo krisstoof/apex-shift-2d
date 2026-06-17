@@ -318,6 +318,7 @@ func _start_chunk_build(chunk_key: Vector2i) -> void:
 		"chunk_rect": _get_chunk_world_rect(chunk_key),
 		"next_y": 0,
 		"stage": "preview" if preview_enabled else "refine",
+		"texture_size": initial_texture_size,
 		"stage_ready_at": 0.0
 	}
 	chunk_build_started_count += 1
@@ -326,11 +327,17 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow
 	if not active_builds.has(chunk_key):
 		return
 	var state := Dictionary(active_builds[chunk_key])
-	var image = state.get("image")
+	var image: Image = state.get("image")
+	if image == null:
+		active_builds.erase(chunk_key)
+		return
 	var chunk_rect = Rect2(state.get("chunk_rect", Rect2()))
 	var next_y := int(state.get("next_y", 0))
 	var stage := str(state.get("stage", "preview"))
-	var texture_size := preview_chunk_texture_size if stage == "preview" else refined_chunk_texture_size
+	var texture_size := int(state.get("texture_size", image.get_width()))
+	if texture_size <= 0:
+		texture_size = image.get_width()
+	texture_size = min(min(texture_size, image.get_width()), image.get_height())
 	var rows_per_frame := preview_max_chunks_built_per_frame if stage == "preview" else refined_max_rows_built_per_frame
 	var build_ms_budget := max_build_ms_per_frame
 	if stage == "refine_pending":
@@ -352,6 +359,7 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow
 		state["image"] = image
 		state["next_y"] = 0
 		state["stage"] = "refine"
+		state["texture_size"] = texture_size
 		next_y = 0
 	var rows_done := 0
 	while next_y < texture_size and rows_done < rows_per_frame:
@@ -448,25 +456,29 @@ func _get_actual_camera_world_rect() -> Rect2:
 	return world_rect
 
 func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_size: int) -> void:
-	var width := image.get_width()
-	if y < 0 or y >= image.get_height():
+	if image == null:
 		return
-	for x in range(mini(texture_size, width)):
+	var safe_texture_size: int = min(min(texture_size, image.get_width()), image.get_height())
+	if y < 0 or y >= safe_texture_size:
+		return
+	for x in range(safe_texture_size):
 		var uv := Vector2(
-			(float(x) + 0.5) / float(texture_size),
-			(float(y) + 0.5) / float(texture_size)
+			(float(x) + 0.5) / float(safe_texture_size),
+			(float(y) + 0.5) / float(safe_texture_size)
 		)
 		var world_pos := chunk_rect.position + Vector2(chunk_rect.size.x * uv.x, chunk_rect.size.y * uv.y)
 		image.set_pixel(x, y, _sample_surface_color(world_pos))
 
 func _build_preview_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_size: int) -> void:
-	var width := image.get_width()
-	if y < 0 or y >= image.get_height():
+	if image == null:
 		return
-	for x in range(mini(texture_size, width)):
+	var safe_texture_size: int = min(min(texture_size, image.get_width()), image.get_height())
+	if y < 0 or y >= safe_texture_size:
+		return
+	for x in range(safe_texture_size):
 		var uv := Vector2(
-			(float(x) + 0.5) / float(texture_size),
-			(float(y) + 0.5) / float(texture_size)
+			(float(x) + 0.5) / float(safe_texture_size),
+			(float(y) + 0.5) / float(safe_texture_size)
 		)
 		var world_pos := chunk_rect.position + Vector2(chunk_rect.size.x * uv.x, chunk_rect.size.y * uv.y)
 		image.set_pixel(x, y, _sample_preview_surface_color(world_pos))
