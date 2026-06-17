@@ -166,7 +166,7 @@ func _draw_map_panel(rect: Rect2) -> void:
 	_draw_biomes(map_rect)
 	_is_drawing_biomes = false
 	_draw_shoreline_overlay(map_rect)
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_detail_enabled", false)):
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_draw_grid_overlay", true)):
 		_draw_grid(map_rect)
 	_draw_landmarks(map_rect)
 	if _should_show_resource_markers():
@@ -330,7 +330,7 @@ func _draw_biomes(map_rect: Rect2) -> void:
 		if biome_shape_map.has_method("has_renderable_polygons") and biome_shape_map.has_renderable_polygons():
 			_draw_shape_map(map_rect)
 			return
-	if terrain_cell_map != null:
+	if terrain_cell_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_draw_cell_map_fallback", true)):
 		_draw_cell_map(map_rect)
 		return
 	if biome_zones.is_empty():
@@ -393,6 +393,8 @@ func _draw_grazers(map_rect: Rect2) -> void:
 func _draw_landmarks(map_rect: Rect2) -> void:
 	for landmark in landmarks:
 		var landmark_type := str(landmark.get("type", ""))
+		if landmark_type in ["pond", "hill"] and not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)):
+			continue
 		var center := _world_to_map(Vector2(landmark.get("position", Vector2.ZERO)), map_rect)
 		var radius := _world_radius_to_map(float(landmark.get("radius", 80.0)), map_rect)
 		match landmark_type:
@@ -788,9 +790,9 @@ func _draw_shape_map(map_rect: Rect2) -> void:
 	if has_renderable_polygons:
 		draw_rect(map_rect, Color(0.06, 0.18, 0.36), true)
 	else:
-		if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
+		if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO and bool(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_draw_cell_map_fallback", true)):
 			_draw_cell_map(map_rect)
-		elif biome_shape_map.has_method("get_sample_grid_size"):
+		elif biome_shape_map.has_method("get_sample_grid_size") and bool(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_draw_sample_grid_underlay", false)):
 			_draw_shape_map_sample_grid(map_rect)
 		else:
 			draw_rect(map_rect, Color(0.06, 0.18, 0.36), true)

@@ -69,7 +69,7 @@ func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 	var world_changed := previous_world != p_world
 	chunk_world_size = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_chunk_world_size", 1024.0)), 256.0)
 	preview_enabled = bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_preview_enabled", true))
-	preview_chunk_texture_size = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_preview_texture_size", 48)), 16)
+	preview_chunk_texture_size = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_preview_texture_size", 32)), 16)
 	preview_max_chunks_built_per_frame = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_preview_max_chunks_built_per_frame", 4)), 1)
 	refined_chunk_texture_size = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refined_texture_size", GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_chunk_texture_size", 96))), 32)
 	chunk_texture_size = refined_chunk_texture_size
@@ -231,7 +231,8 @@ func _compare_chunk_focus(a, b) -> bool:
 func _start_chunk_build(chunk_key: Vector2i) -> void:
 	if active_builds.has(chunk_key):
 		return
-	var image := Image.create(preview_chunk_texture_size if preview_enabled else refined_chunk_texture_size, preview_chunk_texture_size if preview_enabled else refined_chunk_texture_size, false, Image.FORMAT_RGBA8)
+	var initial_texture_size := preview_chunk_texture_size if preview_enabled else refined_chunk_texture_size
+	var image := Image.create(initial_texture_size, initial_texture_size, false, Image.FORMAT_RGBA8)
 	active_builds[chunk_key] = {
 		"chunk_key": chunk_key,
 		"image": image,
@@ -271,7 +272,10 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int) -> vo
 		next_y = 0
 	var rows_done := 0
 	while next_y < texture_size and rows_done < rows_per_frame:
-		_build_chunk_texture_row(image, chunk_rect, next_y, texture_size)
+		if stage == "preview":
+			_build_preview_chunk_texture_row(image, chunk_rect, next_y, texture_size)
+		else:
+			_build_chunk_texture_row(image, chunk_rect, next_y, texture_size)
 		next_y += 1
 		rows_done += 1
 		if float(Time.get_ticks_msec() - frame_start_ms) >= build_ms_budget:
@@ -313,6 +317,21 @@ func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_s
 		)
 		var world_pos := chunk_rect.position + Vector2(chunk_rect.size.x * uv.x, chunk_rect.size.y * uv.y)
 		image.set_pixel(x, y, _sample_surface_color(world_pos))
+
+func _build_preview_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_size: int) -> void:
+	for x in range(texture_size):
+		var uv := Vector2(
+			(float(x) + 0.5) / float(texture_size),
+			(float(y) + 0.5) / float(texture_size)
+		)
+		var world_pos := chunk_rect.position + Vector2(chunk_rect.size.x * uv.x, chunk_rect.size.y * uv.y)
+		image.set_pixel(x, y, _sample_preview_surface_color(world_pos))
+
+func _sample_preview_surface_color(world_pos: Vector2) -> Color:
+	var surface := _sample_surface_ids(world_pos)
+	var base := _get_base_surface_color(str(surface.get("biome_id", "hearth_meadow")), str(surface.get("terrain_id", "land")))
+	var noise := _value_noise(world_pos * 0.004, 71) * 0.035
+	return base.lightened(noise) if noise >= 0.0 else base.darkened(absf(noise))
 
 func _sample_surface_color(world_pos: Vector2) -> Color:
 	var base := _sample_surface_color_single(world_pos)

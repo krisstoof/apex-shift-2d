@@ -1,6 +1,7 @@
 extends RefCounted
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
@@ -52,25 +53,14 @@ func _test_biome_config_is_valid(failures: Array[String]) -> void:
 
 func _test_landmark_config_is_valid(failures: Array[String]) -> void:
 	var landmarks: Array[Dictionary] = WORLD_CONFIG.get_landmarks()
-	TEST_UTILS.expect(not landmarks.is_empty(), failures, "Landmark list should not be empty")
-	var pond_count := 0
-	var hill_count := 0
-	var pond_biomes: Dictionary = {}
-	var hill_biomes: Dictionary = {}
-	for landmark in landmarks:
-		match str(landmark.get("type", "")):
-			"pond":
-				pond_count += 1
-				pond_biomes[str(landmark.get("biome_id", ""))] = true
-			"hill":
-				hill_count += 1
-				hill_biomes[str(landmark.get("biome_id", ""))] = true
-	TEST_UTILS.expect(pond_count > 0, failures, "There should be at least one pond landmark")
-	TEST_UTILS.expect(hill_count > 0, failures, "There should be at least one hill landmark")
-	TEST_UTILS.expect_equal(pond_count, int(GAME_BALANCE.LANDMARKS.get("pond_count", 0)), failures, "Pond landmark count should match the tuned balance target")
-	TEST_UTILS.expect_equal(hill_count, int(GAME_BALANCE.LANDMARKS.get("hill_count", 0)), failures, "Hill landmark count should match the tuned balance target")
-	TEST_UTILS.expect(pond_biomes.size() >= min(pond_count, 3), failures, "Reduced pond landmarks should still cover multiple biomes for navigation readability")
-	TEST_UTILS.expect(hill_biomes.size() >= min(hill_count, 4), failures, "Reduced hill landmarks should still cover multiple biomes for navigation readability")
+	TEST_UTILS.expect(landmarks.is_empty(), failures, "WorldConfig should no longer generate pond/hill landmark POIs")
+	var topo := WORLD_TOPOGRAPHY.new()
+	topo.setup(12345)
+	var topo_counts := Dictionary(topo.get_topography_feature_counts_debug())
+	TEST_UTILS.expect(int(topo_counts.get("pond", 0)) > 0, failures, "Topography should generate pond features")
+	TEST_UTILS.expect(int(topo_counts.get("highland", 0)) > 0, failures, "Topography should generate highland features")
+	TEST_UTILS.expect(int(topo_counts.get("rocky_patch", 0)) > 0, failures, "Topography should generate rocky patch features")
+	topo.free()
 
 
 func _test_biome_landmark_weights_follow_design(failures: Array[String]) -> void:
@@ -96,80 +86,59 @@ func _test_biome_landmark_weights_follow_design(failures: Array[String]) -> void
 
 
 func _test_randomized_landmarks_are_seeded_and_spaced(failures: Array[String]) -> void:
-	var seed_a := 101
-	var seed_b := 202
-	var first_layout: Array[Dictionary] = WORLD_CONFIG.generate_landmarks(seed_a)
-	var second_layout: Array[Dictionary] = WORLD_CONFIG.generate_landmarks(seed_a)
-	var third_layout: Array[Dictionary] = WORLD_CONFIG.generate_landmarks(seed_b)
-	TEST_UTILS.expect_equal(first_layout.size(), second_layout.size(), failures, "The same world seed should generate the same number of landmarks")
-	TEST_UTILS.expect_equal(first_layout.size(), third_layout.size(), failures, "Different world seeds should still respect the same landmark target counts")
-	var changed_position := false
-	for i in range(first_layout.size()):
-		var first_landmark := Dictionary(first_layout[i])
-		var second_landmark := Dictionary(second_layout[i])
-		var third_landmark := Dictionary(third_layout[i])
-		var first_position := Vector2(first_landmark.get("position", Vector2.ZERO))
-		var second_position := Vector2(second_landmark.get("position", Vector2.ZERO))
-		var third_position := Vector2(third_landmark.get("position", Vector2.ZERO))
-		TEST_UTILS.expect_close(first_position.x, second_position.x, failures, "The same world seed should reproduce landmark X positions")
-		TEST_UTILS.expect_close(first_position.y, second_position.y, failures, "The same world seed should reproduce landmark Y positions")
-		if first_position.distance_to(third_position) > 1.0:
-			changed_position = true
-		TEST_UTILS.expect(WORLD_CONFIG.WORLD_RECT.has_point(first_position), failures, "Generated landmarks should stay inside world bounds")
-		TEST_UTILS.expect(first_position.distance_to(WORLD_CONFIG.PLAYER_START_POSITION) >= float(GAME_BALANCE.LANDMARKS.get("landmark_player_safe_distance", 760.0)), failures, "Generated landmarks should stay away from the player start area")
-		for j in range(i + 1, first_layout.size()):
-			var other_landmark := Dictionary(first_layout[j])
-			var other_position := Vector2(other_landmark.get("position", Vector2.ZERO))
-			var minimum_distance: float = maxf(float(GAME_BALANCE.LANDMARKS.get("landmark_min_distance", 420.0)), float(first_landmark.get("radius", 0.0)) + float(other_landmark.get("radius", 0.0)) + 40.0)
-			TEST_UTILS.expect(first_position.distance_to(other_position) >= minimum_distance, failures, "Generated landmarks should not overlap or crowd each other")
-	TEST_UTILS.expect(changed_position, failures, "Different world seeds should produce a different landmark layout")
+	var topo_a := WORLD_TOPOGRAPHY.new()
+	var topo_b := WORLD_TOPOGRAPHY.new()
+	var topo_c := WORLD_TOPOGRAPHY.new()
+	topo_a.setup(101)
+	topo_b.setup(101)
+	topo_c.setup(202)
+	var first_counts := Dictionary(topo_a.get_topography_feature_counts_debug())
+	var second_counts := Dictionary(topo_b.get_topography_feature_counts_debug())
+	var third_counts := Dictionary(topo_c.get_topography_feature_counts_debug())
+	TEST_UTILS.expect_equal(first_counts, second_counts, failures, "The same world seed should reproduce the same topography feature counts")
+	TEST_UTILS.expect(first_counts != third_counts, failures, "Different world seeds should produce different topography counts or placements")
+	var first_ponds := topo_a.get_topography_features_by_type("pond")
+	var second_ponds := topo_b.get_topography_features_by_type("pond")
+	TEST_UTILS.expect_equal(first_ponds.size(), second_ponds.size(), failures, "The same world seed should generate the same pond feature count")
+	for i in range(first_ponds.size()):
+		var first_feature := Dictionary(first_ponds[i])
+		var second_feature := Dictionary(second_ponds[i])
+		TEST_UTILS.expect_close(Vector2(first_feature.get("position", Vector2.ZERO)).x, Vector2(second_feature.get("position", Vector2.ZERO)).x, failures, "The same world seed should reproduce pond feature X positions")
+		TEST_UTILS.expect_close(Vector2(first_feature.get("position", Vector2.ZERO)).y, Vector2(second_feature.get("position", Vector2.ZERO)).y, failures, "The same world seed should reproduce pond feature Y positions")
+	topo_a.free()
+	topo_b.free()
+	topo_c.free()
 
 
 func _test_generated_landmarks_stay_on_land(failures: Array[String]) -> void:
 	for seed in [1, 42, 97]:
-		var layout: Array[Dictionary] = WORLD_CONFIG.generate_landmarks(seed)
-		for landmark_value in layout:
-			var landmark := Dictionary(landmark_value)
-			var position := Vector2(landmark.get("position", Vector2.ZERO))
-			var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
-			TEST_UTILS.expect(terrain_zone == "land" or terrain_zone == "highland", failures, "Generated landmarks should stay on land")
-			var radius := float(landmark.get("radius", 0.0))
-			var sample_directions := [
-				Vector2.RIGHT,
-				Vector2.LEFT,
-				Vector2.UP,
-				Vector2.DOWN
-			]
-			for direction in sample_directions:
-				var sample_zone := WORLD_CONFIG.get_terrain_zone(position + direction * radius * 0.9)
-				TEST_UTILS.expect(sample_zone != "deep_ocean" and sample_zone != "shallow_water", failures, "Generated landmark footprint should avoid ocean water")
+		var topo := WORLD_TOPOGRAPHY.new()
+		topo.setup(seed)
+		for feature_type in ["pond", "highland", "rocky_patch"]:
+			for feature_value in topo.get_topography_features_by_type(feature_type):
+				var feature := Dictionary(feature_value)
+				var position := Vector2(feature.get("position", Vector2.ZERO))
+				var terrain_zone := WORLD_CONFIG.get_terrain_zone(position)
+				TEST_UTILS.expect(terrain_zone == "land" or terrain_zone == "highland", failures, "Generated topography features should stay on land")
+				var radius := float(feature.get("radius", 0.0))
+				var sample_directions := [Vector2.RIGHT, Vector2.LEFT, Vector2.UP, Vector2.DOWN]
+				for direction in sample_directions:
+					var sample_zone := WORLD_CONFIG.get_terrain_zone(position + direction * radius * 0.9)
+					TEST_UTILS.expect(sample_zone != "deep_ocean" and sample_zone != "shallow_water", failures, "Generated topography feature footprint should avoid ocean water")
+		topo.free()
 
 
 func _test_weighted_landmark_selection_matches_biome_character(failures: Array[String]) -> void:
-	var selected_counts := {
-		"westwood_old_hill": 0,
-		"westwood_shade_pond": 0,
-		"stoneback_spine": 0,
-		"stoneback_basin": 0,
-		"south_thicket_mound": 0,
-		"south_thicket_pool": 0,
-		"redfang_lookout": 0,
-		"redfang_teeth": 0,
-		"redfang_darkwater": 0
-	}
+	var selected_counts := {"pond": 0, "highland": 0, "rocky_patch": 0}
 	for seed in range(1, 97):
-		var layout: Array[Dictionary] = WORLD_CONFIG.generate_landmarks(seed)
-		for landmark_value in layout:
-			var landmark := Dictionary(landmark_value)
-			var landmark_id := str(landmark.get("id", ""))
-			if selected_counts.has(landmark_id):
-				selected_counts[landmark_id] = int(selected_counts.get(landmark_id, 0)) + 1
-	TEST_UTILS.expect(int(selected_counts.get("stoneback_spine", 0)) > int(selected_counts.get("stoneback_basin", 0)), failures, "Stoneback Ridge should receive hill landmarks more often than pond landmarks across many seeds")
-	TEST_UTILS.expect(int(selected_counts.get("westwood_shade_pond", 0)) > int(selected_counts.get("westwood_old_hill", 0)), failures, "Westwood should select its pond landmark more often than its hill landmark across many seeds")
-	TEST_UTILS.expect(int(selected_counts.get("south_thicket_pool", 0)) > int(selected_counts.get("south_thicket_mound", 0)), failures, "South Thicket should select its pond landmark more often than its hill landmark across many seeds")
-	var redfang_hill_total := int(selected_counts.get("redfang_lookout", 0)) + int(selected_counts.get("redfang_teeth", 0))
-	var redfang_pond_total := int(selected_counts.get("redfang_darkwater", 0))
-	TEST_UTILS.expect(redfang_hill_total > redfang_pond_total, failures, "Redfang Wilds should surface dangerous hill landmarks more often than its pond landmark across many seeds")
+		var topo := WORLD_TOPOGRAPHY.new()
+		topo.setup(seed)
+		for feature_type in selected_counts.keys():
+			selected_counts[feature_type] = int(selected_counts.get(feature_type, 0)) + topo.get_topography_features_by_type(feature_type).size()
+		topo.free()
+	TEST_UTILS.expect(int(selected_counts.get("pond", 0)) > 0, failures, "Topography should surface pond features across many seeds")
+	TEST_UTILS.expect(int(selected_counts.get("highland", 0)) > 0, failures, "Topography should surface highland features across many seeds")
+	TEST_UTILS.expect(int(selected_counts.get("rocky_patch", 0)) > 0, failures, "Topography should surface rocky patch features across many seeds")
 
 
 func _get_biome_profiles() -> Dictionary:

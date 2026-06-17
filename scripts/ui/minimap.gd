@@ -133,7 +133,7 @@ func _draw() -> void:
 	_is_drawing_biomes = false
 	_draw_shoreline_overlay(content_rect, view_world_rect)
 	_draw_landmarks(content_rect, view_world_rect)
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_detail_enabled", false)):
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_grid_overlay", false)):
 		_draw_grid(content_rect, view_world_rect)
 	if _should_show_resource_markers():
 		_draw_resources(content_rect, view_world_rect)
@@ -159,7 +159,7 @@ func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
 		if biome_shape_map.has_method("has_renderable_polygons") and biome_shape_map.has_renderable_polygons():
 			_draw_shape_map(content_rect, view_world_rect)
 			return
-	if terrain_cell_map != null:
+	if terrain_cell_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_cell_map_fallback", true)):
 		_draw_cell_map(content_rect, view_world_rect)
 		return
 	if biome_zones.is_empty():
@@ -374,9 +374,9 @@ func _draw_shape_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if has_renderable_polygons:
 		draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
 	else:
-		if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
+		if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_cell_map_fallback", true)):
 			_draw_cell_map(content_rect, view_world_rect)
-		elif biome_shape_map.has_method("get_sample_grid_size"):
+		elif biome_shape_map.has_method("get_sample_grid_size") and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_sample_grid_underlay", false)):
 			_draw_shape_map_sample_grid(content_rect, view_world_rect)
 		else:
 			draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
@@ -673,6 +673,8 @@ func _draw_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:
 func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for landmark in landmarks:
 		var landmark_type := str(landmark.get("type", ""))
+		if landmark_type in ["pond", "hill"] and not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)):
+			continue
 		var world_position := Vector2(landmark.get("position", Vector2.ZERO))
 		var radius_world := float(landmark.get("radius", 80.0))
 		if not _intersects_view_circle(world_position, radius_world, view_world_rect):

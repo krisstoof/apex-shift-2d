@@ -540,8 +540,31 @@ func get_landmarks() -> Array[Dictionary]:
 	return _ensure_landmark_service().get_landmarks()
 
 
+func get_topography_features() -> Array[Dictionary]:
+	if world_topography == null or not world_topography.has_method("get_topography_features_by_type"):
+		return []
+	var result: Array[Dictionary] = []
+	for feature_type in ["pond", "highland", "rocky_patch"]:
+		for feature_value in Array(world_topography.get_topography_features_by_type(feature_type)):
+			result.append(Dictionary(feature_value).duplicate(true))
+	return result
+
+
+func get_topography_features_by_type(feature_type: String) -> Array[Dictionary]:
+	if world_topography == null or not world_topography.has_method("get_topography_features_by_type"):
+		return []
+	return world_topography.get_topography_features_by_type(feature_type)
+
+
 func get_safe_player_start_position() -> Vector2:
-	return WORLD_CONFIG.get_safe_player_start_position(landmarks)
+	return _get_safe_player_start_position()
+
+
+func _get_safe_player_start_position() -> Vector2:
+	var safe_landmarks: Array[Dictionary] = []
+	safe_landmarks.append_array(get_topography_features_by_type("pond"))
+	safe_landmarks.append_array(get_topography_features_by_type("highland"))
+	return WORLD_CONFIG.get_safe_player_start_position(safe_landmarks)
 
 
 func get_world_seed() -> int:
@@ -561,6 +584,9 @@ func get_world_generation_debug() -> Dictionary:
 	debug["cell_terrain_renderer_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
 	debug["biome_shape_renderer_in_world_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer_in_world", false))
 	debug["biome_shape_map_for_maps_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true))
+	debug["landmark_count"] = landmarks.size()
+	debug["poi_landmark_count"] = landmarks.size()
+	debug["topography_feature_counts"] = get_topography_debug_summary().get("topography_feature_counts", {})
 	return debug
 
 
@@ -572,7 +598,7 @@ func get_world_generation_summary() -> String:
 		int(debug.get("seed", world_seed)),
 		int(debug.get("version", 0)),
 		int(debug.get("biomes", 0)),
-		int(debug.get("landmarks", 0)),
+		int(debug.get("poi_landmark_count", debug.get("landmarks", 0))),
 		int(debug.get("creature_spawn_zones", 0))
 	]
 
@@ -1311,6 +1337,12 @@ func get_query_service():
 
 func get_landmark_counts() -> Dictionary:
 	return _ensure_landmark_service().get_landmark_counts()
+
+
+func get_topography_feature_counts() -> Dictionary:
+	if world_topography != null and world_topography.has_method("get_topography_feature_counts_debug"):
+		return Dictionary(world_topography.get_topography_feature_counts_debug())
+	return {}
 
 
 func get_nearest_landmark_data(world_position: Vector2) -> Dictionary:
@@ -2398,7 +2430,7 @@ func _place_player_on_safe_start() -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null or not (player is Node2D):
 		return
-	var safe_start := WORLD_CONFIG.get_safe_player_start_position(landmarks)
+	var safe_start := get_safe_player_start_position()
 	if safe_start == Vector2.INF:
 		return
 	(player as Node2D).global_position = safe_start
@@ -6422,6 +6454,8 @@ func _get_biome_texture_position(terrain_pattern: Dictionary, world_position: Ve
 
 
 func _draw_landmarks() -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)):
+		return
 	for landmark in landmarks:
 		match str(landmark.get("type", "")):
 			"hill":
@@ -6431,6 +6465,8 @@ func _draw_landmarks() -> void:
 
 
 func _draw_landmark_debug_overlay() -> void:
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_topography_labels_on_map", false)):
+		return
 	var font := ThemeDB.fallback_font
 	for landmark_value in landmarks:
 		var landmark := Dictionary(landmark_value)
