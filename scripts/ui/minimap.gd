@@ -1278,7 +1278,8 @@ func _mark_static_layer_dirty() -> void:
 	static_layer_dirty = true
 	if is_instance_valid(static_layer_viewport):
 		static_layer_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
-		static_layer_viewport.queue_redraw()
+	if is_instance_valid(static_layer_node):
+		static_layer_node.queue_redraw()
 
 
 func _request_dynamic_redraw() -> void:
