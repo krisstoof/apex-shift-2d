@@ -127,6 +127,15 @@ class SurfaceShapeMapStub:
 			"source": "polygon"
 		}
 
+	func sample_visual_surface_exact_at(position: Vector2) -> Dictionary:
+		last_position = position
+		return {
+			"biome_id": "shape_biome",
+			"terrain_id": "shape_terrain",
+			"layer_id": "shape_layer",
+			"source": "exact_polygon_record"
+		}
+
 
 class SurfaceSamplingWorldStub:
 	extends Node
@@ -1202,14 +1211,14 @@ func _test_terrain_surface_renderer_samples_biome_shape_map(failures: Array[Stri
 	player.add_child(camera)
 	renderer.bind(world, player, camera)
 	var sample: Dictionary = renderer.call("_sample_surface_ids", Vector2(128.0, 256.0))
-	TEST_UTILS.expect_equal(str(sample.get("source", "")), "polygon", failures, "Terrain surface renderer should sample the biome shape map before falling back to world terrain")
+	TEST_UTILS.expect_equal(str(sample.get("source", "")), "exact_polygon_record", failures, "Terrain surface renderer should sample the exact biome polygon surface before falling back to world terrain")
 	TEST_UTILS.expect_equal(str(sample.get("terrain_id", "")), "shape_terrain", failures, "Terrain surface renderer should use the biome shape map terrain id")
 	TEST_UTILS.expect_equal(str(sample.get("biome_id", "")), "shape_biome", failures, "Terrain surface renderer should use the biome shape map biome id")
 	TEST_UTILS.expect_equal(world.shape_map.last_position, Vector2(128.0, 256.0), failures, "Biome shape map should receive the exact sampled position")
 	renderer.call("_sample_surface_color", Vector2(128.0, 256.0))
 	var debug: Dictionary = renderer.get_debug_data()
 	var source_counts := Dictionary(debug.get("terrain_surface_sample_source_counts", {}))
-	TEST_UTILS.expect_equal(int(source_counts.get("polygon", 0)) >= 1, true, failures, "Terrain surface renderer should track biome shape map sample sources")
+	TEST_UTILS.expect_equal(int(source_counts.get("exact_polygon_record", 0)) >= 1, true, failures, "Terrain surface renderer should track exact biome polygon sample sources")
 	renderer.free()
 	player.free()
 	world.free()

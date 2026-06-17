@@ -20,6 +20,7 @@ var biome_shape_map_uses_convex_hull := false
 var biome_shape_map_contour_mode := "marching_squares"
 var biome_shape_map_rejected_polygon_count := 0
 var biome_shape_map_self_crossing_guard_enabled := true
+var polygon_records: Array[Dictionary] = []
 var visual_surface_grid: Array[Array] = []
 var visual_surface_grid_size := Vector2i.ZERO
 var visual_surface_sample_size := 48.0
@@ -36,12 +37,14 @@ func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topogr
 	biome_grid.clear()
 	terrain_grid.clear()
 	polygons_by_layer.clear()
+	polygon_records.clear()
 	details.clear()
 	visual_surface_grid.clear()
 	visual_surface_grid_size = Vector2i.ZERO
 	visual_surface_source = "none"
 	_build_sample_grids(world_generator, world_topography)
 	_build_connected_region_polygons()
+	_build_polygon_records()
 	_build_visual_surface_grid_from_polygons()
 	_build_details(world_generator)
 	build_count += 1
@@ -105,6 +108,33 @@ func sample_visual_surface_at(position: Vector2) -> Dictionary:
 		"source": "grid_fallback_no_visual_surface"
 	}
 
+func sample_visual_surface_exact_at(position: Vector2) -> Dictionary:
+	if not world_rect.has_point(position):
+		return {
+			"biome_id": "",
+			"terrain_id": "deep_ocean",
+			"layer_id": "terrain:deep_ocean",
+			"source": "exact_outside_world_rect"
+		}
+	for i in range(polygon_records.size() - 1, -1, -1):
+		var record := Dictionary(polygon_records[i])
+		var bounds := Rect2(record.get("bounds", Rect2()))
+		if not bounds.has_point(position):
+			continue
+		var points := PackedVector2Array(record.get("points", PackedVector2Array()))
+		if points.size() < 3:
+			continue
+		if Geometry2D.is_point_in_polygon(position, points):
+			return {
+				"biome_id": str(record.get("biome_id", "")),
+				"terrain_id": str(record.get("terrain_id", "land")),
+				"layer_id": str(record.get("layer_id", "")),
+				"source": "exact_polygon_record"
+			}
+	var fallback := sample_visual_surface_at(position)
+	fallback["source"] = "exact_grid_fallback"
+	return fallback
+
 func get_debug_data() -> Dictionary:
 	return {
 		"biome_shape_map_enabled": true,
@@ -123,6 +153,7 @@ func get_debug_data() -> Dictionary:
 		"biome_shape_map_contour_mode": biome_shape_map_contour_mode,
 		"biome_shape_map_rejected_polygon_count": biome_shape_map_rejected_polygon_count,
 		"biome_shape_map_self_crossing_guard_enabled": biome_shape_map_self_crossing_guard_enabled,
+		"biome_shape_polygon_record_count": polygon_records.size(),
 		"biome_shape_map_largest_polygon_bounds_by_layer": _get_largest_polygon_bounds_by_layer(),
 		"biome_shape_map_largest_polygon_area_ratio_by_layer": _get_largest_polygon_area_ratio_by_layer(),
 		"biome_shape_visual_surface_grid_size": visual_surface_grid_size,
@@ -219,6 +250,23 @@ func _build_connected_region_polygons() -> void:
 			created += 1
 			if created >= max_polygons:
 				return
+
+func _build_polygon_records() -> void:
+	polygon_records.clear()
+	var draw_order := _get_layer_draw_order(polygons_by_layer)
+	for layer_id in draw_order:
+		for polygon_value in Array(polygons_by_layer.get(layer_id, [])):
+			var polygon := Dictionary(polygon_value)
+			var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
+			if points.size() < 3:
+				continue
+			polygon_records.append({
+				"layer_id": layer_id,
+				"biome_id": str(polygon.get("biome_id", "")),
+				"terrain_id": str(polygon.get("terrain_id", "land")),
+				"points": points,
+				"bounds": _get_polygon_bounds(points)
+			})
 
 func _build_details(world_generator: RefCounted) -> void:
 	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_detail_enabled", true)):

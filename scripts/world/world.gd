@@ -436,8 +436,11 @@ func _process(delta: float) -> void:
 	if decorative_vegetation_visibility_timer <= 0.0:
 		decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
 		_update_decorative_vegetation_visible_rect()
-	_update_biome_detail_overlay(delta)
-	_build_pending_biome_detail_overlay_chunks()
+	var use_surface_renderer := bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
+	var allow_legacy_overlay := bool(GAME_BALANCE.BIOME_TEXTURES.get("legacy_biome_detail_overlay_enabled_with_surface_renderer", false))
+	if not use_surface_renderer or allow_legacy_overlay:
+		_update_biome_detail_overlay(delta)
+		_build_pending_biome_detail_overlay_chunks()
 	_update_night_overlay(current_night_amount)
 
 

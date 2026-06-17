@@ -37,6 +37,9 @@ var max_rows_built_per_frame := 8
 var max_build_ms_per_frame := 4.0
 var pending_focus_chunk := Vector2i.ZERO
 var surface_sample_source_counts := {}
+var exact_surface_sample_count := 0
+var grid_surface_sample_count := 0
+var world_fallback_surface_sample_count := 0
 
 func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 	var previous_world := world
@@ -74,6 +77,9 @@ func mark_dirty(reason := "unknown") -> void:
 	active_builds.clear()
 	sample_cache.clear()
 	surface_sample_source_counts.clear()
+	exact_surface_sample_count = 0
+	grid_surface_sample_count = 0
+	world_fallback_surface_sample_count = 0
 	last_visible_signature = ""
 	visible_chunk_count = 0
 	cached_chunk_count = 0
@@ -139,6 +145,10 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_transition_enabled": bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_transition_enabled", false)),
 		"terrain_surface_uses_biome_shape_map": biome_shape_map != null and biome_shape_map.has_method("sample_visual_surface_at"),
 		"terrain_surface_sample_source_counts": surface_sample_source_counts,
+		"terrain_surface_exact_surface_sample_count": exact_surface_sample_count,
+		"terrain_surface_grid_surface_sample_count": grid_surface_sample_count,
+		"terrain_surface_world_fallback_surface_sample_count": world_fallback_surface_sample_count,
+		"terrain_surface_use_exact_shape_sampling": bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_exact_shape_sampling", true)),
 		"terrain_surface_chunk_world_size": chunk_world_size,
 		"terrain_surface_chunk_texture_size": chunk_texture_size,
 		"terrain_surface_visible_signature": last_visible_signature,
@@ -230,36 +240,80 @@ func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int) -> void:
 		image.set_pixel(x, y, _sample_surface_color(world_pos))
 
 func _sample_surface_color(world_pos: Vector2) -> Color:
-	var cache_step := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_sample_cache_step", 32.0)), 8.0)
-	var cache_key := "%d,%d" % [int(floor(world_pos.x / cache_step)), int(floor(world_pos.y / cache_step))]
+	var base := _sample_surface_color_single(world_pos)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_edge_supersampling_enabled", true)):
+		var radius := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_edge_supersample_radius", 6.0)), 0.0)
+		var sample_count := maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_edge_supersample_count", 5)), 1)
+		var sample_points: Array[Vector2] = [world_pos]
+		for i in range(sample_count - 1):
+			var angle := TAU * float(i) / float(maxi(sample_count - 1, 1))
+			sample_points.append(world_pos + Vector2(cos(angle), sin(angle)) * radius)
+		var mixed := Color(0.0, 0.0, 0.0, 0.0)
+		for sample_point in sample_points:
+			mixed += _sample_surface_color_single(sample_point)
+		base = mixed / float(sample_points.size())
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_noise_enabled", true)):
+		var surface := _sample_surface_ids(world_pos)
+		base = _apply_surface_variation(base, str(surface.get("biome_id", "hearth_meadow")), str(surface.get("terrain_id", "land")), world_pos)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_transition_enabled", false)):
+		var transition_surface := _sample_surface_ids(world_pos)
+		return _apply_local_transition(base, str(transition_surface.get("biome_id", "hearth_meadow")), str(transition_surface.get("terrain_id", "land")), world_pos)
+	return base
+
+func _sample_surface_color_single(world_pos: Vector2) -> Color:
+	var cache_enabled := bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_sample_cache_enabled", false))
+	var cache_step := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_sample_cache_step", 8.0)), 4.0)
 	var terrain_id := ""
 	var biome_id := ""
-	if sample_cache.has(cache_key):
-		var cached := Dictionary(sample_cache[cache_key])
-		terrain_id = str(cached.get("terrain_id", "land"))
-		biome_id = str(cached.get("biome_id", "hearth_meadow"))
+	if cache_enabled:
+		var cache_key := "%d,%d" % [int(floor(world_pos.x / cache_step)), int(floor(world_pos.y / cache_step))]
+		if sample_cache.has(cache_key):
+			var cached := Dictionary(sample_cache[cache_key])
+			terrain_id = str(cached.get("terrain_id", "land"))
+			biome_id = str(cached.get("biome_id", "hearth_meadow"))
+		else:
+			var surface := _sample_surface_ids(world_pos)
+			var source := str(surface.get("source", "unknown"))
+			surface_sample_source_counts[source] = int(surface_sample_source_counts.get(source, 0)) + 1
+			terrain_id = str(surface.get("terrain_id", "land"))
+			biome_id = str(surface.get("biome_id", "hearth_meadow"))
+			sample_cache[cache_key] = {
+				"terrain_id": terrain_id,
+				"biome_id": biome_id
+			}
 	else:
 		var surface := _sample_surface_ids(world_pos)
 		var source := str(surface.get("source", "unknown"))
 		surface_sample_source_counts[source] = int(surface_sample_source_counts.get(source, 0)) + 1
 		terrain_id = str(surface.get("terrain_id", "land"))
 		biome_id = str(surface.get("biome_id", "hearth_meadow"))
-		sample_cache[cache_key] = {
-			"terrain_id": terrain_id,
-			"biome_id": biome_id
-		}
 	var base := _get_base_surface_color(biome_id, terrain_id)
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_noise_enabled", true)):
-		base = _apply_surface_variation(base, biome_id, terrain_id, world_pos)
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_transition_enabled", false)):
-		return _apply_local_transition(base, biome_id, terrain_id, world_pos)
 	return base
 
 func _sample_surface_ids(world_pos: Vector2) -> Dictionary:
 	if biome_shape_map != null and biome_shape_map.has_method("sample_visual_surface_at"):
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_exact_shape_sampling", true)) and biome_shape_map.has_method("sample_visual_surface_exact_at"):
+			var exact_surface := Dictionary(biome_shape_map.sample_visual_surface_exact_at(world_pos))
+			if not exact_surface.is_empty():
+				var exact_source := str(exact_surface.get("source", "unknown"))
+				if exact_source.begins_with("exact_polygon"):
+					exact_surface_sample_count += 1
+				elif exact_source.find("grid") != -1:
+					grid_surface_sample_count += 1
+				elif exact_source == "world_fallback":
+					world_fallback_surface_sample_count += 1
+				return exact_surface
 		var surface := Dictionary(biome_shape_map.sample_visual_surface_at(world_pos))
 		if not surface.is_empty():
+			var source := str(surface.get("source", "unknown"))
+			if source.begins_with("exact_polygon"):
+				exact_surface_sample_count += 1
+			elif source.find("grid") != -1:
+				grid_surface_sample_count += 1
+			elif source == "world_fallback":
+				world_fallback_surface_sample_count += 1
 			return surface
+	world_fallback_surface_sample_count += 1
 	return {
 		"terrain_id": _get_surface_terrain(world_pos),
 		"biome_id": _get_visual_biome(world_pos),
