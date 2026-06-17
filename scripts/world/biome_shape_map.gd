@@ -27,9 +27,24 @@ var visual_surface_sample_size := 48.0
 var visual_surface_build_count := 0
 var visual_surface_last_build_ms := 0.0
 var visual_surface_source := "none"
+var biome_shape_map_build_skipped_same_key_count := 0
+var biome_shape_map_sync_build_blocked_count := 0
+var biome_shape_map_build_blocked_ms := 0.0
+var biome_shape_map_last_build_reason := ""
+var biome_shape_visual_surface_build_skipped_same_key_count := 0
+var biome_shape_visual_surface_sync_build_blocked_count := 0
+var biome_shape_visual_surface_build_blocked_ms := 0.0
+var biome_shape_visual_surface_last_build_reason := ""
+var _last_build_key := ""
+var _last_visual_surface_key := ""
 
 func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topography: RefCounted, assigned_seed: int) -> void:
 	var start_ms := Time.get_ticks_msec()
+	var build_key := _make_build_key(assigned_world_rect, assigned_seed, world_generator, world_topography)
+	if build_count > 0 and build_key == _last_build_key:
+		biome_shape_map_build_skipped_same_key_count += 1
+		biome_shape_map_last_build_reason = "same_key_skip"
+		return
 	world_rect = assigned_world_rect
 	seed = assigned_seed
 	sample_size = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_sample_size", 96.0)), 32.0)
@@ -51,7 +66,9 @@ func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topogr
 	last_build_ms = float(Time.get_ticks_msec() - start_ms)
 	last_polygon_count = _count_polygons()
 	last_detail_count = details.size()
-	last_key = "shape_map_v2|seed=%d|grid=%s|polys=%d|details=%d" % [seed, str(grid_size), last_polygon_count, last_detail_count]
+	last_key = build_key
+	_last_build_key = build_key
+	biome_shape_map_last_build_reason = "initial_or_dirty_build"
 
 func get_polygons_by_layer() -> Dictionary:
 	return polygons_by_layer
@@ -153,6 +170,10 @@ func get_debug_data() -> Dictionary:
 		"biome_shape_map_contour_mode": biome_shape_map_contour_mode,
 		"biome_shape_map_rejected_polygon_count": biome_shape_map_rejected_polygon_count,
 		"biome_shape_map_self_crossing_guard_enabled": biome_shape_map_self_crossing_guard_enabled,
+		"biome_shape_map_build_skipped_same_key_count": biome_shape_map_build_skipped_same_key_count,
+		"biome_shape_map_sync_build_blocked_count": biome_shape_map_sync_build_blocked_count,
+		"biome_shape_map_build_blocked_ms": biome_shape_map_build_blocked_ms,
+		"biome_shape_map_last_build_reason": biome_shape_map_last_build_reason,
 		"biome_shape_polygon_record_count": polygon_records.size(),
 		"biome_shape_map_largest_polygon_bounds_by_layer": _get_largest_polygon_bounds_by_layer(),
 		"biome_shape_map_largest_polygon_area_ratio_by_layer": _get_largest_polygon_area_ratio_by_layer(),
@@ -161,7 +182,11 @@ func get_debug_data() -> Dictionary:
 		"biome_shape_visual_surface_build_count": visual_surface_build_count,
 		"biome_shape_visual_surface_last_build_ms": visual_surface_last_build_ms,
 		"biome_shape_visual_surface_source": visual_surface_source,
-		"biome_shape_visual_surface_enabled": not visual_surface_grid.is_empty()
+		"biome_shape_visual_surface_enabled": not visual_surface_grid.is_empty(),
+		"biome_shape_visual_surface_build_skipped_same_key_count": biome_shape_visual_surface_build_skipped_same_key_count,
+		"biome_shape_visual_surface_sync_build_blocked_count": biome_shape_visual_surface_sync_build_blocked_count,
+		"biome_shape_visual_surface_build_blocked_ms": biome_shape_visual_surface_build_blocked_ms,
+		"biome_shape_visual_surface_last_build_reason": biome_shape_visual_surface_last_build_reason
 	}
 
 func _sample_grid_surface_at(position: Vector2) -> Dictionary:
@@ -205,6 +230,16 @@ func _build_sample_grids(world_generator: RefCounted, world_topography: RefCount
 			terrain_row.append(terrain_id)
 		biome_grid.append(biome_row)
 		terrain_grid.append(terrain_row)
+
+
+func _make_build_key(assigned_world_rect: Rect2, assigned_seed: int, world_generator: RefCounted, world_topography: RefCounted) -> String:
+	var generator_key := ""
+	if world_generator != null and world_generator.has_method("get_debug_data"):
+		generator_key = str(Dictionary(world_generator.get_debug_data()).hash())
+	var topography_key := ""
+	if world_topography != null and world_topography.has_method("get_topography_feature_counts_debug"):
+		topography_key = str(Dictionary(world_topography.get_topography_feature_counts_debug()).hash())
+	return "shape_map_v2|seed=%d|rect=%s|gen=%s|topo=%s|sample=%s" % [assigned_seed, str(assigned_world_rect), generator_key, topography_key, str(sample_size)]
 
 func _build_connected_region_polygons() -> void:
 	var visited: Dictionary = {}
@@ -296,6 +331,11 @@ func _build_details(world_generator: RefCounted) -> void:
 			})
 
 func _build_visual_surface_grid_from_polygons() -> void:
+	var visual_key := "%s|sample=%s|polygons=%d" % [last_key, str(visual_surface_sample_size), _count_polygons()]
+	if visual_surface_build_count > 0 and visual_key == _last_visual_surface_key:
+		biome_shape_visual_surface_build_skipped_same_key_count += 1
+		biome_shape_visual_surface_last_build_reason = "same_key_skip"
+		return
 	var start_ms := Time.get_ticks_msec()
 	visual_surface_sample_size = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_runtime_sample_size", 48.0)), 24.0)
 	visual_surface_grid_size = Vector2i(
@@ -345,6 +385,8 @@ func _build_visual_surface_grid_from_polygons() -> void:
 	visual_surface_build_count += 1
 	visual_surface_last_build_ms = float(Time.get_ticks_msec() - start_ms)
 	visual_surface_source = "polygons_by_layer"
+	_last_visual_surface_key = visual_key
+	biome_shape_visual_surface_last_build_reason = "built_from_polygons"
 
 func _seal_visual_surface_grid_seams() -> void:
 	if visual_surface_grid_size == Vector2i.ZERO or visual_surface_grid.is_empty():

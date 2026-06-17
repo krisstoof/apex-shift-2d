@@ -2198,7 +2198,7 @@ func _queue_boot_biome_shape_map_build() -> void:
 
 func _build_boot_biome_shape_map() -> void:
 	_biome_shape_map_build_queued = false
-	_ensure_biome_shape_map_built(true)
+	_ensure_biome_shape_map_built(false)
 
 
 func _ensure_biome_shape_renderer():
@@ -2224,9 +2224,13 @@ func _sync_biome_shape_renderer(force_rebuild_map := false) -> void:
 	var shape_map: Object = _ensure_biome_shape_map()
 	var renderer: Object = _ensure_biome_shape_renderer()
 	renderer.visible = true
-	if force_rebuild_map or biome_shape_map_dirty or shape_map.get_debug_data().get("biome_shape_map_build_count", 0) == 0:
+	var current_build_count := int(Dictionary(shape_map.get_debug_data()).get("biome_shape_map_build_count", 0))
+	var should_rebuild := force_rebuild_map or biome_shape_map_dirty or current_build_count == 0
+	if should_rebuild:
+		var before_build_count := current_build_count
 		_ensure_biome_shape_map_built(force_rebuild_map)
-		if renderer.has_method("clear_cache"):
+		var after_build_count := int(Dictionary(shape_map.get_debug_data()).get("biome_shape_map_build_count", 0))
+		if after_build_count > before_build_count and renderer.has_method("clear_cache"):
 			renderer.clear_cache()
 	var player_node := get_tree().get_first_node_in_group("player") as Node2D
 	if force_rebuild_map or not biome_shape_renderer_bound:
