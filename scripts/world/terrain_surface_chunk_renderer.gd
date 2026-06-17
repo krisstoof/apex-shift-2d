@@ -327,40 +327,39 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow
 	if not active_builds.has(chunk_key):
 		return
 	var state := Dictionary(active_builds[chunk_key])
+	var chunk_rect = Rect2(state.get("chunk_rect", Rect2()))
+	var next_y := int(state.get("next_y", 0))
+	var stage := str(state.get("stage", "preview"))
+	if stage == "refine_pending":
+		if not allow_refine:
+			active_builds[chunk_key] = state
+			return
+		var ready_at := float(state.get("stage_ready_at", 0.0))
+		var now_s := float(Time.get_ticks_msec()) / 1000.0
+		if now_s < ready_at:
+			active_builds[chunk_key] = state
+			return
+		if not _can_start_refine_chunk():
+			active_builds[chunk_key] = state
+			return
+		var refine_texture_size := refined_chunk_texture_size
+		var refine_image := Image.create(refine_texture_size, refine_texture_size, false, Image.FORMAT_RGBA8)
+		state["image"] = refine_image
+		state["next_y"] = 0
+		state["stage"] = "refine"
+		state["texture_size"] = refine_texture_size
+		stage = "refine"
+		next_y = 0
 	var image: Image = state.get("image")
 	if image == null:
 		active_builds.erase(chunk_key)
 		return
-	var chunk_rect = Rect2(state.get("chunk_rect", Rect2()))
-	var next_y := int(state.get("next_y", 0))
-	var stage := str(state.get("stage", "preview"))
 	var texture_size := int(state.get("texture_size", image.get_width()))
 	if texture_size <= 0:
 		texture_size = image.get_width()
 	texture_size = min(min(texture_size, image.get_width()), image.get_height())
 	var rows_per_frame := preview_max_chunks_built_per_frame if stage == "preview" else refined_max_rows_built_per_frame
 	var build_ms_budget := max_build_ms_per_frame
-	if stage == "refine_pending":
-		if not allow_refine:
-			active_builds[chunk_key] = state
-			return
-		var ready_at := float(state.get("stage_ready_at", 0.0))
-		var now_ms := float(Time.get_ticks_msec()) / 1000.0
-		if now_ms < ready_at:
-			active_builds[chunk_key] = state
-			return
-		if not _can_start_refine_chunk():
-			active_builds[chunk_key] = state
-			return
-		stage = "refine"
-		texture_size = refined_chunk_texture_size
-		rows_per_frame = refined_max_rows_built_per_frame
-		image = Image.create(texture_size, texture_size, false, Image.FORMAT_RGBA8)
-		state["image"] = image
-		state["next_y"] = 0
-		state["stage"] = "refine"
-		state["texture_size"] = texture_size
-		next_y = 0
 	var rows_done := 0
 	while next_y < texture_size and rows_done < rows_per_frame:
 		if stage == "preview":
