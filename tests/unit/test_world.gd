@@ -352,6 +352,8 @@ func run() -> Array[String]:
 	_test_world_marks_terrain_surface_chunks_dirty_after_biome_shape_rebuild(failures)
 	_test_terrain_surface_renderer_samples_biome_shape_map(failures)
 	_test_terrain_surface_renderer_uses_preview_then_refine_pipeline(failures)
+	_test_terrain_surface_renderer_starts_multiple_preview_builds(failures)
+	_test_terrain_surface_renderer_refine_pending_does_not_block_preview(failures)
 	_test_terrain_surface_renderer_keeps_active_build_texture_size_stable(failures)
 	_test_small_prey_spawn_sync_uses_cooldown_after_failure(failures)
 	_test_varnak_spawn_sync_uses_cooldown_after_failure(failures)
@@ -1242,11 +1244,91 @@ func _test_terrain_surface_renderer_uses_preview_then_refine_pipeline(failures: 
 	renderer.refined_max_build_ms_per_frame = 1000.0
 	renderer.refine_delay_seconds = 0.0
 	renderer.call("_start_chunk_build", Vector2i.ZERO)
-	renderer.call("_process_active_chunk_build", Vector2i.ZERO, Time.get_ticks_msec())
-	renderer.call("_process_active_chunk_build", Vector2i.ZERO, Time.get_ticks_msec())
+	renderer.call("_process_active_chunk_build", Vector2i.ZERO, Time.get_ticks_usec())
+	renderer.call("_process_active_chunk_build", Vector2i.ZERO, Time.get_ticks_usec())
 	var debug: Dictionary = renderer.get_debug_data()
 	TEST_UTILS.expect_equal(int(debug.get("terrain_surface_preview_build_count", 0)) >= 1, true, failures, "Terrain surface renderer should build a preview texture before refining")
 	TEST_UTILS.expect_equal(int(debug.get("terrain_surface_refined_build_count", 0)) >= 1, true, failures, "Terrain surface renderer should refine the preview into a final chunk texture")
+	renderer.free()
+	world.free()
+
+
+func _test_terrain_surface_renderer_starts_multiple_preview_builds(failures: Array[String]) -> void:
+	var renderer := TerrainSurfaceChunkRenderer.new()
+	var world := SurfaceSamplingWorldStub.new()
+	renderer.world_rect = WORLD_CONFIG.WORLD_RECT
+	renderer.world = world
+	renderer.biome_shape_map = world.get_biome_shape_map()
+	renderer.preview_enabled = true
+	renderer.preview_chunk_texture_size = 8
+	renderer.refined_chunk_texture_size = 16
+	renderer.preview_active_build_limit = 3
+	renderer.preview_build_cell_batch_size = 8
+	renderer.max_chunks_built_per_frame = 1
+	renderer.max_build_ms_per_frame = 1000.0
+	renderer.hard_budget_enabled = true
+	renderer.hard_budget_ms = 1000.0
+	renderer.visible_chunks = {
+		Vector2i(0, 0): true,
+		Vector2i(1, 0): true,
+		Vector2i(2, 0): true
+	}
+	renderer.pending_chunks = [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0)]
+	renderer.pending_chunk_set = {
+		Vector2i(0, 0): true,
+		Vector2i(1, 0): true,
+		Vector2i(2, 0): true
+	}
+	renderer.process_build_queue(0.016)
+	var debug: Dictionary = renderer.get_debug_data()
+	TEST_UTILS.expect_equal(int(debug.get("terrain_surface_build_chunks_started_last_frame", 0)) >= 3, true, failures, "Terrain surface renderer should start multiple preview builds for visible chunks in one budgeted pass")
+	TEST_UTILS.expect_equal(int(debug.get("terrain_surface_build_pixels_last_frame", 0)) >= 8, true, failures, "Terrain surface preview build should process a useful pixel batch instead of collapsing to one pixel")
+	renderer.free()
+	world.free()
+
+
+func _test_terrain_surface_renderer_refine_pending_does_not_block_preview(failures: Array[String]) -> void:
+	var renderer := TerrainSurfaceChunkRenderer.new()
+	var world := SurfaceSamplingWorldStub.new()
+	renderer.world_rect = WORLD_CONFIG.WORLD_RECT
+	renderer.world = world
+	renderer.biome_shape_map = world.get_biome_shape_map()
+	renderer.preview_enabled = true
+	renderer.preview_chunk_texture_size = 8
+	renderer.refined_chunk_texture_size = 16
+	renderer.preview_active_build_limit = 3
+	renderer.preview_build_cell_batch_size = 8
+	renderer.max_chunks_built_per_frame = 1
+	renderer.max_build_ms_per_frame = 1000.0
+	renderer.hard_budget_enabled = true
+	renderer.hard_budget_ms = 1000.0
+	for i in range(7):
+		renderer.active_builds[Vector2i(i, -1)] = {
+			"chunk_key": Vector2i(i, -1),
+			"image": null,
+			"chunk_rect": Rect2(),
+			"next_y": 0,
+			"next_x": 0,
+			"stage": "refine_pending",
+			"texture_size": 16,
+			"stage_ready_at": 999999.0
+		}
+	renderer.visible_chunks = {
+		Vector2i(0, 0): true,
+		Vector2i(1, 0): true,
+		Vector2i(2, 0): true
+	}
+	renderer.pending_chunks = [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0)]
+	renderer.pending_chunk_set = {
+		Vector2i(0, 0): true,
+		Vector2i(1, 0): true,
+		Vector2i(2, 0): true
+	}
+	renderer.process_build_queue(0.016)
+	var debug: Dictionary = renderer.get_debug_data()
+	TEST_UTILS.expect_equal(int(debug.get("terrain_surface_active_refine_pending_count", 0)), 7, failures, "Terrain surface renderer should keep refine-pending chunks tracked")
+	TEST_UTILS.expect_equal(int(debug.get("terrain_surface_active_preview_build_count", 0)) >= 3, true, failures, "Terrain surface renderer should start preview work even when refine-pending chunks fill active_builds")
+	TEST_UTILS.expect_equal(int(debug.get("terrain_surface_build_chunks_started_last_frame", 0)) >= 3, true, failures, "Terrain surface renderer should not count refine-pending chunks against preview startup capacity")
 	renderer.free()
 	world.free()
 
@@ -1269,7 +1351,7 @@ func _test_terrain_surface_renderer_keeps_active_build_texture_size_stable(failu
 	TEST_UTILS.expect_equal(int(state.get("texture_size", 0)), 4, failures, "Terrain surface renderer should store the active build texture size in state")
 	renderer.refined_chunk_texture_size = 96
 	renderer.chunk_texture_size = 96
-	renderer.call("_process_active_chunk_build", Vector2i.ZERO, Time.get_ticks_msec())
+	renderer.call("_process_active_chunk_build", Vector2i.ZERO, Time.get_ticks_usec())
 	var chunk_textures: Dictionary = Dictionary(renderer.get("chunk_textures"))
 	var texture: ImageTexture = chunk_textures.get(Vector2i.ZERO)
 	TEST_UTILS.expect(texture != null, failures, "Terrain surface renderer should finish the active build after the budget changes")
