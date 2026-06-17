@@ -9,6 +9,7 @@ const SAMPLE_INTERVAL_SECONDS := 1.0
 const LOG_DIRECTORY := "user://benchmark_logs"
 const BENCHMARK_THRESHOLDS_PATH := "res://config/benchmark_thresholds.json"
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 
 const PERFORMANCE_MONITORS := {
 	"fps": Performance.TIME_FPS,
@@ -71,6 +72,7 @@ func start() -> bool:
 	running = true
 	elapsed_seconds = 0.0
 	sample_timer = 0.0
+	RUNTIME_PROFILER.reset()
 	start_ticks_usec = Time.get_ticks_usec()
 	start_unix_time = Time.get_unix_time_from_system()
 	benchmark_base_name = "benchmark_%d" % int(start_unix_time)
@@ -183,6 +185,7 @@ func _report_progress() -> void:
 
 
 func _capture_sample() -> Dictionary:
+	var sample_collection_start := Time.get_ticks_usec()
 	var sample: Dictionary = {}
 	sample["sample_index"] = samples.size() + 1
 	sample["elapsed_seconds"] = elapsed_seconds
@@ -197,6 +200,12 @@ func _capture_sample() -> Dictionary:
 	sample["driver_scores"] = _calculate_driver_scores(sample)
 	sample["likely_driver"] = _pick_likely_driver(Dictionary(sample.get("driver_scores", {})))
 	sample["load_score"] = _calculate_load_score(sample)
+	var render_attribution := RUNTIME_PROFILER.get_rolling_summary()
+	render_attribution["benchmark_sample_collection_ms"] = float(Time.get_ticks_usec() - sample_collection_start) / 1000.0
+	sample["render_attribution"] = render_attribution
+	if str(sample.get("likely_driver", "")) == "render":
+		sample["likely_render_subsystem"] = str(render_attribution.get("top_subsystem", ""))
+		sample["likely_render_subsystem_reason"] = "highest avg/max render attribution in sample window"
 	return sample
 
 
@@ -1327,6 +1336,23 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			int(terrain_stats.get("biome_shape_renderer_drawn_polygon_count", 0)),
 			int(terrain_stats.get("biome_shape_renderer_drawn_detail_count", 0))
 		])
+	var render_attribution: Dictionary = Dictionary(sample.get("render_attribution", {}))
+	var render_subsystem := str(sample.get("likely_render_subsystem", ""))
+	if not render_attribution.is_empty():
+		var top_subsystem := str(render_attribution.get("top_subsystem", ""))
+		var top_avg := float(render_attribution.get("top_subsystem_avg_ms", 0.0))
+		var top_max := float(render_attribution.get("top_subsystem_max_ms", 0.0))
+		diagnostics.append("render_attribution top=%s avg=%.2f max=%.2f sample_ms=%.2f" % [
+			top_subsystem,
+			top_avg,
+			top_max,
+			float(render_attribution.get("benchmark_sample_collection_ms", 0.0))
+		])
+		if not render_subsystem.is_empty():
+			diagnostics.append("render_likely subsystem=%s reason=%s" % [
+				render_subsystem,
+				str(sample.get("likely_render_subsystem_reason", ""))
+			])
 	if not minimap_stats.is_empty():
 		diagnostics.append("minimap redraw=%d static=%d dynamic=%d player=%d static_cache=%d marker_cache=%d landmark_cache=%d texture_builds=%d last_build_ms=%.2f checks=%d/%d shoreline=%d/%d queue=%d/%d/%d dirty=%s/%s/%s/%s/%s" % [
 			int(minimap_stats.get("redraw_count", 0)),

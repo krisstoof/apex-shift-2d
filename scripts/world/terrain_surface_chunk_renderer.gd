@@ -2,6 +2,7 @@ extends Node2D
 class_name TerrainSurfaceChunkRenderer
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 
 var world: Node
 var player: Node2D
@@ -194,6 +195,8 @@ func process_visibility(_delta: float) -> void:
 	queue_redraw()
 
 func process_build_queue(delta: float = 0.0) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("terrain_surface_chunk_build_queue_ms")
 	chunks_built_last_frame = 0
 	preview_chunks_built_last_frame = 0
 	refined_chunks_built_last_frame = 0
@@ -215,6 +218,8 @@ func process_build_queue(delta: float = 0.0) -> void:
 	cached_chunk_count = chunk_textures.size()
 	if chunks_built_last_frame > 0:
 		queue_redraw()
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("terrain_surface_chunk_build_queue_ms")
 
 func get_debug_data() -> Dictionary:
 	return {
@@ -267,6 +272,8 @@ func get_debug_data() -> Dictionary:
 func _draw() -> void:
 	if not visible:
 		return
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("terrain_surface_chunk_draw_ms")
 	terrain_surface_drawn_chunk_count = 0
 	terrain_surface_skipped_chunk_count = 0
 	var actual_visible_rect := _get_actual_camera_world_rect()
@@ -283,6 +290,8 @@ func _draw() -> void:
 			continue
 		draw_texture_rect(texture, chunk_rect, false)
 		terrain_surface_drawn_chunk_count += 1
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("terrain_surface_chunk_draw_ms")
 
 func _queue_chunk_build(chunk_key: Vector2i) -> void:
 	if pending_chunk_set.has(chunk_key):

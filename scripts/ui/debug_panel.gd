@@ -2,6 +2,7 @@ extends Control
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 const DEBUG_TABS := [
 	"Overview",
 	"Player",
@@ -105,14 +106,20 @@ func _process(_delta: float) -> void:
 	if not visible:
 		debug_panel_hidden_skip_count += 1
 		return
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("debug_panel_process_ms")
 	state_refresh_timer += _delta
 	if state_refresh_timer < DEBUG_STATE_REFRESH_INTERVAL:
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.end_scope("debug_panel_process_ms")
 		return
 	state_refresh_timer = 0.0
 	_set_state_text(_build_state_text())
 	debug_panel_refresh_count += 1
 	if active_tab == "Creatures":
 		_refresh_creature_debug_overlays()
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("debug_panel_process_ms")
 
 
 func toggle() -> void:

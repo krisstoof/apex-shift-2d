@@ -2,6 +2,7 @@ extends RefCounted
 class_name BiomeShapeMap
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 
 var world_rect := Rect2()
 var sample_size := 96.0
@@ -38,7 +39,7 @@ var biome_shape_visual_surface_last_build_reason := ""
 var _last_build_key := ""
 var _last_visual_surface_key := ""
 
-func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topography: RefCounted, assigned_seed: int) -> void:
+func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topography: RefCounted, assigned_seed: int, build_visual_surface_now := true) -> void:
 	var start_ms := Time.get_ticks_msec()
 	var build_key := _make_build_key(assigned_world_rect, assigned_seed, world_generator, world_topography)
 	if build_count > 0 and build_key == _last_build_key:
@@ -57,11 +58,21 @@ func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topogr
 	visual_surface_grid.clear()
 	visual_surface_grid_size = Vector2i.ZERO
 	visual_surface_source = "none"
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("biome_shape_map_build_ms")
 	_build_sample_grids(world_generator, world_topography)
 	_build_connected_region_polygons()
 	_build_polygon_records()
-	_build_visual_surface_grid_from_polygons()
+	if build_visual_surface_now:
+		_build_visual_surface_grid_from_polygons()
+	else:
+		visual_surface_grid.clear()
+		visual_surface_grid_size = Vector2i.ZERO
+		visual_surface_source = "deferred"
+		biome_shape_visual_surface_last_build_reason = "deferred"
 	_build_details(world_generator)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("biome_shape_map_build_ms")
 	build_count += 1
 	last_build_ms = float(Time.get_ticks_msec() - start_ms)
 	last_polygon_count = _count_polygons()
@@ -337,6 +348,8 @@ func _build_visual_surface_grid_from_polygons() -> void:
 		biome_shape_visual_surface_last_build_reason = "same_key_skip"
 		return
 	var start_ms := Time.get_ticks_msec()
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("biome_shape_visual_surface_build_ms")
 	visual_surface_sample_size = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_runtime_sample_size", 48.0)), 24.0)
 	visual_surface_grid_size = Vector2i(
 		maxi(2, int(ceil(world_rect.size.x / visual_surface_sample_size))),
@@ -387,6 +400,17 @@ func _build_visual_surface_grid_from_polygons() -> void:
 	visual_surface_source = "polygons_by_layer"
 	_last_visual_surface_key = visual_key
 	biome_shape_visual_surface_last_build_reason = "built_from_polygons"
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("biome_shape_visual_surface_build_ms")
+
+
+func build_visual_surface_if_needed() -> void:
+	var visual_key := "%s|sample=%s|polygons=%d" % [last_key, str(visual_surface_sample_size), _count_polygons()]
+	if visual_surface_build_count > 0 and visual_key == _last_visual_surface_key:
+		biome_shape_visual_surface_build_skipped_same_key_count += 1
+		biome_shape_visual_surface_last_build_reason = "same_key_skip"
+		return
+	_build_visual_surface_grid_from_polygons()
 
 func _seal_visual_surface_grid_seams() -> void:
 	if visual_surface_grid_size == Vector2i.ZERO or visual_surface_grid.is_empty():

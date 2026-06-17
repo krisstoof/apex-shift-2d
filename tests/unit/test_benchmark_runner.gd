@@ -1,6 +1,7 @@
 extends RefCounted
 
 const BENCHMARK_RUNNER := preload("res://scripts/systems/benchmark_runner.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 const RESOURCE_NODE_SCENE := preload("res://scenes/world/resource_node.tscn")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
@@ -321,7 +322,25 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 	var sample := {
 		"time_label": "00:10",
 		"likely_driver": "render",
+		"likely_render_subsystem": "terrain_surface_chunk_draw_ms",
+		"likely_render_subsystem_reason": "highest avg/max render attribution in sample window",
 		"load_score": 123.4,
+		"render_attribution": {
+			"enabled": true,
+			"window_seconds": 1.0,
+			"top_subsystem": "terrain_surface_chunk_draw_ms",
+			"top_subsystem_avg_ms": 4.25,
+			"top_subsystem_max_ms": 7.75,
+			"samples_with_render_attribution": 3,
+			"subsystems": {
+				"terrain_surface_chunk_draw_ms": {
+					"avg": 4.25,
+					"max": 7.75,
+					"count": 3
+				}
+			},
+			"benchmark_sample_collection_ms": 0.18
+		},
 		"performance": {
 			"fps": 12,
 			"frame_time_s": 0.02,
@@ -434,6 +453,8 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 	TEST_UTILS.expect(line.contains("resource_render_mode render_only_resources=2 render_only_grass=2 active_resource_collisions=1"), failures, "Benchmark runner diagnostics should include render-only resource mode counts")
 	TEST_UTILS.expect(line.contains("registry resources=3 buildings=1"), failures, "Benchmark runner diagnostics should include registry totals")
 	TEST_UTILS.expect(line.contains("terrain surface_visible=9 surface_cached=12 surface_pending=2 surface_built=1 cell_visible=4 cell_drawn=128 shape_polygons=5 shape_details=17"), failures, "Benchmark runner diagnostics should include terrain renderer attribution")
+	TEST_UTILS.expect(line.contains("render_attribution top=terrain_surface_chunk_draw_ms avg=4.25 max=7.75 sample_ms=0.18"), failures, "Benchmark runner diagnostics should include render attribution summary")
+	TEST_UTILS.expect(line.contains("render_likely subsystem=terrain_surface_chunk_draw_ms reason=highest avg/max render attribution in sample window"), failures, "Benchmark runner diagnostics should include likely render subsystem text")
 	TEST_UTILS.expect(line.contains("minimap redraw=4 static=1 dynamic=3 player=3 static_cache=8 marker_cache=5 landmark_cache=6 texture_builds=7 last_build_ms=3.50"), failures, "Benchmark runner diagnostics should include minimap metrics")
 	TEST_UTILS.expect(line.contains("checks=4/3 shoreline=2/1 queue=1/3/3 dirty=false/false/false/false/false"), failures, "Benchmark runner diagnostics should include minimap cache counters")
 	TEST_UTILS.expect(line.contains("map_screen redraw=8 cache=9 skipped_hidden=2 texture_builds=10 last_build_ms=4.50"), failures, "Benchmark runner diagnostics should include map screen metrics")

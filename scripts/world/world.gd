@@ -28,6 +28,7 @@ const TERRAIN_CHUNK_RENDERER_SCRIPT := preload("res://scripts/world/terrain_chun
 const TERRAIN_SURFACE_CHUNK_RENDERER_SCRIPT := preload("res://scripts/world/terrain_surface_chunk_renderer.gd")
 const BIOME_SHAPE_MAP_SCRIPT := preload("res://scripts/world/biome_shape_map.gd")
 const BIOME_SHAPE_RENDERER_SCRIPT := preload("res://scripts/world/biome_shape_renderer.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 
 const SMALL_PREY_SPAWN_TICK_SECONDS := 4.0
 const SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS := 5.0
@@ -286,6 +287,7 @@ var terrain_renderer_update_timer := 0.0
 var terrain_surface_renderer_update_timer := 0.0
 var biome_shape_map_dirty := true
 var _biome_shape_map_build_queued := false
+var _biome_shape_visual_surface_build_queued := false
 var _boot_surface_sync_queued := false
 var _surface_texture_build_queued := false
 var biome_shape_renderer_bound := false
@@ -409,6 +411,12 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.set_enabled(true)
+		var frame_snapshot := RUNTIME_PROFILER.get_and_reset_frame_snapshot()
+		if not frame_snapshot.is_empty():
+			RUNTIME_PROFILER.record_frame_snapshot(frame_snapshot)
+		RUNTIME_PROFILER.begin_scope("world_process_render_sync_ms")
 	_log_hitch(delta, "World", {
 		"biome_textures_enabled": biome_textures_enabled,
 		"background_visible": is_instance_valid(biome_blend_background) and biome_blend_background.visible,
@@ -432,14 +440,26 @@ func _process(delta: float) -> void:
 	if terrain_surface_renderer_update_timer <= 0.0:
 		terrain_surface_renderer_update_timer = TERRAIN_SURFACE_RENDERER_UPDATE_INTERVAL
 		if is_instance_valid(terrain_surface_chunk_renderer):
+			if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+				RUNTIME_PROFILER.begin_scope("terrain_surface_chunk_visibility_ms")
 			terrain_surface_chunk_renderer.process_visibility(delta)
+			if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+				RUNTIME_PROFILER.end_scope("terrain_surface_chunk_visibility_ms")
 	if is_instance_valid(terrain_surface_chunk_renderer):
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.begin_scope("terrain_surface_chunk_build_ms")
 		terrain_surface_chunk_renderer.process_build_queue()
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.end_scope("terrain_surface_chunk_build_ms")
 	biome_shape_renderer_update_timer -= delta
 	if biome_shape_renderer_update_timer <= 0.0:
 		biome_shape_renderer_update_timer = BIOME_SHAPE_RENDERER_UPDATE_INTERVAL
 		if is_instance_valid(biome_shape_renderer):
+			if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+				RUNTIME_PROFILER.begin_scope("biome_shape_renderer_visibility_ms")
 			biome_shape_renderer.process_visibility(delta)
+			if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+				RUNTIME_PROFILER.end_scope("biome_shape_renderer_visibility_ms")
 	_update_terrain_renderer(delta)
 	_update_spatial_index_debug_cache(delta)
 	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
@@ -464,7 +484,13 @@ func _process(delta: float) -> void:
 	if should_redraw_background:
 		queue_redraw()
 	if boot_ready and visibility_controller != null:
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.begin_scope("world_visibility_controller_ms")
 		visibility_controller.process(delta)
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.end_scope("world_visibility_controller_ms")
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("world_process_render_sync_ms")
 	decorative_vegetation_visibility_timer -= delta
 	if decorative_vegetation_visibility_timer <= 0.0:
 		decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
@@ -2183,7 +2209,7 @@ func _ensure_biome_shape_map_built(force_rebuild := false) -> void:
 	if shape_map != null and shape_map.has_method("get_debug_data"):
 		build_count = int(Dictionary(shape_map.get_debug_data()).get("biome_shape_map_build_count", 0))
 	if force_rebuild or biome_shape_map_dirty or build_count == 0:
-		shape_map.build(WORLD_CONFIG.WORLD_RECT, world_generator, world_topography, world_seed)
+		shape_map.build(WORLD_CONFIG.WORLD_RECT, world_generator, world_topography, world_seed, false)
 		biome_shape_map_dirty = false
 		if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("mark_dirty"):
 			terrain_surface_chunk_renderer.mark_dirty("biome_shape_map_rebuilt")
@@ -2199,6 +2225,23 @@ func _queue_boot_biome_shape_map_build() -> void:
 func _build_boot_biome_shape_map() -> void:
 	_biome_shape_map_build_queued = false
 	_ensure_biome_shape_map_built(false)
+	_queue_boot_biome_shape_visual_surface_build()
+
+
+func _queue_boot_biome_shape_visual_surface_build() -> void:
+	if _biome_shape_visual_surface_build_queued:
+		return
+	_biome_shape_visual_surface_build_queued = true
+	call_deferred("_build_boot_biome_shape_visual_surface")
+
+
+func _build_boot_biome_shape_visual_surface() -> void:
+	_biome_shape_visual_surface_build_queued = false
+	if biome_shape_map == null or not biome_shape_map.has_method("build_visual_surface_if_needed"):
+		return
+	biome_shape_map.build_visual_surface_if_needed()
+	if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("mark_dirty"):
+		terrain_surface_chunk_renderer.mark_dirty("biome_shape_visual_surface_rebuilt")
 
 
 func _ensure_biome_shape_renderer():
@@ -5640,6 +5683,8 @@ func _data_to_vector(data: Variant) -> Vector2:
 
 
 func _draw() -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("world_draw_ms")
 	var has_biome_blend_background := (
 		biome_textures_enabled
 		and is_instance_valid(biome_blend_background)
@@ -5659,6 +5704,8 @@ func _draw() -> void:
 	if debug_landmark_overlay_enabled:
 		_draw_landmark_debug_overlay()
 		_draw_world_boundary()
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("world_draw_ms")
 
 
 func _get_night_amount() -> float:

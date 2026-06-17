@@ -3,6 +3,8 @@ extends CanvasLayer
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 const WORLD_SNAPSHOT_SERVICE := preload("res://scripts/systems/world_snapshot_service.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 const ECOSYSTEM_MESSAGE_COOLDOWN_SECONDS := 30.0
 const HUD_REFRESH_INTERVAL := 0.10
 const CRITICAL_HEALTH_THRESHOLD := 0.20
@@ -153,6 +155,8 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 func _process(delta: float) -> void:
 	if not player or not evolution_director or not day_night_system:
 		return
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("hud_process_ms")
 	_update_critical_health_warning(delta)
 	_update_low_stat_warning(delta)
 	_update_survival_warning_messages(delta)
@@ -168,9 +172,13 @@ func _process(delta: float) -> void:
 	_prune_message_history()
 	hud_refresh_timer += delta
 	if hud_refresh_timer < HUD_REFRESH_INTERVAL:
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.end_scope("hud_process_ms")
 		return
 	hud_refresh_timer = 0.0
 	_refresh_hud_text()
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("hud_process_ms")
 
 
 func _refresh_hud_text() -> void:

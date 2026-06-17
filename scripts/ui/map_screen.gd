@@ -2,6 +2,7 @@ extends Control
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 const PADDING := 24.0
 const PANEL_GAP := 20.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(192, 118)
@@ -173,6 +174,8 @@ func _process(_delta: float) -> void:
 
 
 func _draw() -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("map_screen_draw_ms")
 	map_screen_redraw_count += 1
 	var screen_rect := Rect2(Vector2.ZERO, size)
 	var inner_rect := screen_rect.grow(-PADDING)
@@ -183,9 +186,13 @@ func _draw() -> void:
 	draw_rect(screen_rect, Color(0.015, 0.018, 0.018, 0.94), true)
 	_draw_map_panel(map_rect)
 	_draw_info_panel(info_rect)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("map_screen_draw_ms")
 
 
 func _draw_map_panel(rect: Rect2) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("map_screen_map_panel_draw_ms")
 	draw_rect(rect, Color(0.04, 0.05, 0.05, 0.96), true)
 	draw_rect(rect, Color(0.70, 0.74, 0.66, 0.78), false, 1.0)
 	var map_rect := _fit_world_rect(rect.grow(-16.0))
@@ -206,13 +213,19 @@ func _draw_map_panel(rect: Rect2) -> void:
 	_draw_player(map_rect)
 	_draw_map_legend(map_rect)
 	draw_rect(map_rect, Color(0.30, 0.36, 0.28, 0.85), false, 1.0)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("map_screen_map_panel_draw_ms")
 
 
 func _draw_info_panel(rect: Rect2) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("map_screen_info_panel_draw_ms")
 	draw_rect(rect, Color(0.04, 0.05, 0.05, 0.96), true)
 	draw_rect(rect, Color(0.70, 0.74, 0.66, 0.78), false, 1.0)
 	var lines := _build_info_lines()
 	_draw_lines(lines, rect.position + Vector2(16.0, 28.0), rect.size.x - 32.0)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("map_screen_info_panel_draw_ms")
 
 
 func _build_info_lines() -> Array[String]:
@@ -354,19 +367,31 @@ func _fit_world_rect(bounds: Rect2) -> Rect2:
 
 
 func _draw_biomes(map_rect: Rect2) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("map_screen_biomes_draw_ms")
 	if not _is_drawing_biomes:
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.end_scope("map_screen_biomes_draw_ms")
 		return
 	if biome_blend_texture:
 		draw_texture_rect(biome_blend_texture, map_rect, false)
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.end_scope("map_screen_biomes_draw_ms")
 		return
 	if terrain_cell_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_draw_cell_map_fallback", true)):
 		_draw_cell_map(map_rect)
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.end_scope("map_screen_biomes_draw_ms")
 		return
 	if biome_shape_map != null and biome_shape_map.has_method("get_sample_grid_size") and bool(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_draw_sample_grid_underlay", false)):
 		_draw_shape_map_sample_grid(map_rect)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("map_screen_biomes_draw_ms")
 
 
 func _draw_shoreline_overlay(map_rect: Rect2) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("map_screen_shoreline_draw_ms")
 	for segment_value in shoreline_segments:
 		var segment := Dictionary(segment_value)
 		draw_line(
@@ -375,6 +400,8 @@ func _draw_shoreline_overlay(map_rect: Rect2) -> void:
 			Color(0.90, 0.84, 0.58, 0.55),
 			1.2
 		)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("map_screen_shoreline_draw_ms")
 
 
 func _draw_grid(map_rect: Rect2) -> void:
@@ -387,9 +414,13 @@ func _draw_grid(map_rect: Rect2) -> void:
 
 
 func _draw_resources(map_rect: Rect2) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("map_screen_resources_draw_ms")
 	for resource_marker_value in cached_resources:
 		var resource_marker := Dictionary(resource_marker_value)
 		draw_circle(_world_to_map(Vector2(resource_marker.get("position", Vector2.ZERO)), map_rect), 3.0, _get_resource_color(resource_marker))
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("map_screen_resources_draw_ms")
 
 
 func _draw_small_prey(map_rect: Rect2) -> void:
@@ -642,9 +673,13 @@ func _draw_varnaks(map_rect: Rect2) -> void:
 func _draw_player(map_rect: Rect2) -> void:
 	if not is_instance_valid(player):
 		return
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("map_screen_player_draw_ms")
 	var pos := _world_to_map(player.global_position, map_rect)
 	draw_circle(pos, 6.5, Color(0.17, 0.48, 1.0))
 	draw_circle(pos, 3.0, Color.WHITE)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("map_screen_player_draw_ms")
 
 
 func _sync_biome_texture() -> void:

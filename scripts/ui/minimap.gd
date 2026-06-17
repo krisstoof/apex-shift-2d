@@ -2,6 +2,7 @@ extends Control
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 const PADDING := 14.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(224, 136)
 const POND_MARKER_Y_SCALE := 0.62
@@ -253,6 +254,8 @@ func _draw() -> void:
 
 
 func _draw_static_layer(target: CanvasItem) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("minimap_static_layer_draw_ms")
 	static_layer_redraw_count += 1
 	var map_rect := Rect2(Vector2.ZERO, size)
 	var content_rect := _get_content_rect(map_rect)
@@ -262,9 +265,13 @@ func _draw_static_layer(target: CanvasItem) -> void:
 	target.draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
 	target.draw_rect(content_rect, Color(0.35, 0.43, 0.32, 0.8), false, 1.0)
 	_draw_static_contents(target, content_rect, view_world_rect)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("minimap_static_layer_draw_ms")
 
 
 func _draw_dynamic_layer(target: CanvasItem) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("minimap_dynamic_layer_draw_ms")
 	dynamic_layer_redraw_count += 1
 	var map_rect := Rect2(Vector2.ZERO, size)
 	var content_rect := _get_content_rect(map_rect)
@@ -275,6 +282,8 @@ func _draw_dynamic_layer(target: CanvasItem) -> void:
 	_draw_varnaks(target, content_rect, view_world_rect)
 	_draw_player(target, content_rect, view_world_rect)
 	_draw_zone_label(target, map_rect)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("minimap_dynamic_layer_draw_ms")
 
 
 func _get_content_rect(map_rect: Rect2) -> Rect2:
@@ -1124,6 +1133,8 @@ func _draw_filled_ellipse(target: CanvasItem, rect: Rect2, ellipse_color: Color)
 
 
 func _draw_resources(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("minimap_resources_draw_ms")
 	for resource_marker_value in cached_resources:
 		var resource_marker := Dictionary(resource_marker_value)
 		var marker_position := Vector2(resource_marker.get("position", Vector2.ZERO))
@@ -1131,6 +1142,8 @@ func _draw_resources(target: CanvasItem, content_rect: Rect2, view_world_rect: R
 			continue
 		var color := _get_resource_marker_color(resource_marker)
 		target.draw_circle(_world_to_map(marker_position, content_rect, view_world_rect), 3.3, color)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("minimap_resources_draw_ms")
 
 
 func _draw_campfires(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
@@ -1170,10 +1183,14 @@ func _draw_grazers(target: CanvasItem, content_rect: Rect2, view_world_rect: Rec
 func _draw_player(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if not is_instance_valid(player):
 		return
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("minimap_player_draw_ms")
 	player_marker_redraw_count += 1
 	var pos := _world_to_map(player.global_position, content_rect, view_world_rect)
 	target.draw_circle(pos, 6.4, Color(0.17, 0.48, 1.0))
 	target.draw_circle(pos, 3.0, Color.WHITE)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.end_scope("minimap_player_draw_ms")
 
 
 func _draw_zone_label(target: CanvasItem, map_rect: Rect2) -> void:
