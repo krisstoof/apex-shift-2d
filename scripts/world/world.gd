@@ -2375,10 +2375,14 @@ func _sync_biome_blend_background() -> void:
 
 
 func get_surface_texture() -> ImageTexture:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+		return null
 	return _ensure_surface_texture()
 
 
 func get_surface_texture_key() -> String:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+		return ""
 	return _ensure_surface_texture_key()
 
 
@@ -2433,6 +2437,8 @@ func _ensure_surface_texture_key() -> String:
 
 
 func _ensure_surface_texture() -> ImageTexture:
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+		return null
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("disable_global_surface_texture_on_boot", true)) and not boot_ready:
 		return null
 	var current_key := _ensure_surface_texture_key()

@@ -572,20 +572,32 @@ const RENDER_PERFORMANCE := {
 	"normal": {
 		"decorative_vegetation_max_drawn": 90,
 		"decorative_far_lod_every_nth": 2,
-		"minimap_redraw_interval": 0.35,
-		"minimap_marker_rebuild_interval": 0.5,
+		"minimap_redraw_interval": 0.50,
+		"minimap_marker_rebuild_interval": 1.0,
+		"minimap_player_redraw_interval": 0.08,
+		"minimap_marker_view_recenter_distance": 96.0,
+		"terrain_visible_margin_chunks": 1,
 		"terrain_refined_chunks_per_frame": 1,
 		"terrain_build_budget_ms": 2.0,
+		"terrain_refined_texture_size": 128,
+		"terrain_refine_pause_when_fps_below": 45,
+		"terrain_max_refined_chunks_per_second": 4,
 		"resource_far_update_interval": 0.25
 	},
 	"pressure": {
-		"decorative_vegetation_max_drawn": 60,
-		"decorative_far_lod_every_nth": 3,
-		"minimap_redraw_interval": 0.75,
-		"minimap_marker_rebuild_interval": 1.0,
+		"decorative_vegetation_max_drawn": 45,
+		"decorative_far_lod_every_nth": 4,
+		"minimap_redraw_interval": 0.90,
+		"minimap_marker_rebuild_interval": 1.25,
+		"minimap_player_redraw_interval": 0.10,
+		"minimap_marker_view_recenter_distance": 160.0,
+		"terrain_visible_margin_chunks": 0,
 		"terrain_refined_chunks_per_frame": 1,
-		"terrain_build_budget_ms": 1.0,
-		"resource_far_update_interval": 0.5
+		"terrain_build_budget_ms": 0.75,
+		"terrain_refined_texture_size": 96,
+		"terrain_refine_pause_when_fps_below": 50,
+		"terrain_max_refined_chunks_per_second": 2,
+		"resource_far_update_interval": 0.75
 	},
 	"recovery_seconds": 3.0
 }

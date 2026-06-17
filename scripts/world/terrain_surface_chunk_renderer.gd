@@ -40,6 +40,10 @@ var visible_chunk_count := 0
 var cached_chunk_count := 0
 var preview_chunk_count := 0
 var refined_chunk_count := 0
+var terrain_surface_drawn_chunk_count := 0
+var terrain_surface_skipped_chunk_count := 0
+var terrain_surface_refine_skipped_due_to_camera_movement_count := 0
+var terrain_surface_refine_skipped_due_to_fps_count := 0
 var chunks_built_last_frame := 0
 var preview_chunks_built_last_frame := 0
 var refined_chunks_built_last_frame := 0
@@ -106,6 +110,11 @@ func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 func apply_render_budget(budget: Dictionary) -> void:
 	max_chunks_built_per_frame = maxi(int(budget.get("terrain_refined_chunks_per_frame", max_chunks_built_per_frame)), 1)
 	max_build_ms_per_frame = maxf(float(budget.get("terrain_build_budget_ms", max_build_ms_per_frame)), 0.5)
+	visible_margin_chunks = maxi(int(budget.get("terrain_visible_margin_chunks", visible_margin_chunks)), 0)
+	refined_chunk_texture_size = maxi(int(budget.get("terrain_refined_texture_size", refined_chunk_texture_size)), 32)
+	chunk_texture_size = refined_chunk_texture_size
+	refine_pause_when_fps_below = maxi(int(budget.get("terrain_refine_pause_when_fps_below", refine_pause_when_fps_below)), 0)
+	max_refined_chunks_per_second = maxi(int(budget.get("terrain_max_refined_chunks_per_second", max_refined_chunks_per_second)), 1)
 
 func mark_dirty(reason := "unknown") -> void:
 	dirty = true
@@ -224,6 +233,10 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_preview_build_count": preview_build_count,
 		"terrain_surface_refined_build_count": refined_build_count,
 		"terrain_surface_active_build_count": active_builds.size(),
+		"terrain_surface_drawn_chunk_count": terrain_surface_drawn_chunk_count,
+		"terrain_surface_skipped_chunk_count": terrain_surface_skipped_chunk_count,
+		"terrain_surface_refine_skipped_due_to_camera_movement_count": terrain_surface_refine_skipped_due_to_camera_movement_count,
+		"terrain_surface_refine_skipped_due_to_fps_count": terrain_surface_refine_skipped_due_to_fps_count,
 		"terrain_surface_chunk_build_started_count": chunk_build_started_count,
 		"terrain_surface_chunk_build_completed_count": chunk_build_completed_count,
 		"terrain_surface_preview_enabled": preview_enabled,
@@ -254,15 +267,22 @@ func get_debug_data() -> Dictionary:
 func _draw() -> void:
 	if not visible:
 		return
+	terrain_surface_drawn_chunk_count = 0
+	terrain_surface_skipped_chunk_count = 0
+	var actual_visible_rect := _get_actual_camera_world_rect()
 	for key_value in visible_chunks.keys():
 		var chunk_key: Vector2i = key_value
+		var chunk_rect := _get_chunk_world_rect(chunk_key)
+		if not chunk_rect.intersects(actual_visible_rect.grow(chunk_world_size * 0.15)):
+			terrain_surface_skipped_chunk_count += 1
+			continue
 		var texture = chunk_textures.get(chunk_key, null)
 		if texture == null:
 			if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_draw_placeholders", false)):
 				_draw_chunk_placeholder(chunk_key)
 			continue
-		var chunk_rect := _get_chunk_world_rect(chunk_key)
 		draw_texture_rect(texture, chunk_rect, false)
+		terrain_surface_drawn_chunk_count += 1
 
 func _queue_chunk_build(chunk_key: Vector2i) -> void:
 	if pending_chunk_set.has(chunk_key):
@@ -375,8 +395,10 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow
 
 func _can_process_refine() -> bool:
 	if preview_only_during_fast_movement and refine_pause_when_camera_moving and _is_camera_moving_fast():
+		terrain_surface_refine_skipped_due_to_camera_movement_count += 1
 		return false
 	if refine_pause_when_fps_below > 0 and Engine.get_frames_per_second() > 0 and Engine.get_frames_per_second() < refine_pause_when_fps_below:
+		terrain_surface_refine_skipped_due_to_fps_count += 1
 		return false
 	if max_refined_chunks_per_second <= 0:
 		return true
@@ -412,8 +434,24 @@ func _get_motion_sample_position() -> Vector2:
 		return player.global_position
 	return world_rect.get_center()
 
+
+func _get_actual_camera_world_rect() -> Rect2:
+	if camera != null and is_instance_valid(camera):
+		var viewport := get_viewport()
+		var viewport_size := viewport.get_visible_rect().size if viewport != null else Vector2(1920.0, 1080.0)
+		var zoom := camera.zoom if camera.zoom != Vector2.ZERO else Vector2.ONE
+		var safe_zoom := Vector2(maxf(absf(zoom.x), 0.01), maxf(absf(zoom.y), 0.01))
+		var half_size := Vector2(viewport_size.x / safe_zoom.x, viewport_size.y / safe_zoom.y) * 0.5
+		return Rect2(camera.global_position - half_size, half_size * 2.0)
+	if player != null and is_instance_valid(player):
+		return Rect2(player.global_position - Vector2(960.0, 540.0), Vector2(1920.0, 1080.0))
+	return world_rect
+
 func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_size: int) -> void:
-	for x in range(texture_size):
+	var width := image.get_width()
+	if y < 0 or y >= image.get_height():
+		return
+	for x in range(mini(texture_size, width)):
 		var uv := Vector2(
 			(float(x) + 0.5) / float(texture_size),
 			(float(y) + 0.5) / float(texture_size)
@@ -422,7 +460,10 @@ func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_s
 		image.set_pixel(x, y, _sample_surface_color(world_pos))
 
 func _build_preview_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_size: int) -> void:
-	for x in range(texture_size):
+	var width := image.get_width()
+	if y < 0 or y >= image.get_height():
+		return
+	for x in range(mini(texture_size, width)):
 		var uv := Vector2(
 			(float(x) + 0.5) / float(texture_size),
 			(float(y) + 0.5) / float(texture_size)

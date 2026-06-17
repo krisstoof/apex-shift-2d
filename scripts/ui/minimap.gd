@@ -64,11 +64,19 @@ var camera_world_size_override := Vector2.ZERO
 var hitch_log_cooldowns: Dictionary = {}
 var static_layer_control: Control
 var dynamic_layer_control: Control
+var player_layer_control: Control
 var static_layer_dirty := true
 var static_layer_redraw_count := 0
 var dynamic_layer_redraw_count := 0
 var player_marker_redraw_count := 0
 var static_cache_rebuild_count := 0
+var minimap_player_redraw_interval := 0.10
+var minimap_marker_view_recenter_distance := 96.0
+var _marker_view_redraw_timer := 0.0
+var _player_redraw_timer := 0.0
+var _last_marker_view_player_position := Vector2.INF
+var _last_player_marker_position := Vector2.INF
+var _last_player_marker_biome_id := ""
 
 
 func _ready() -> void:
@@ -82,8 +90,11 @@ func _exit_tree() -> void:
 		static_layer_control.queue_free()
 	if is_instance_valid(dynamic_layer_control):
 		dynamic_layer_control.queue_free()
+	if is_instance_valid(player_layer_control):
+		player_layer_control.queue_free()
 	static_layer_control = null
 	dynamic_layer_control = null
+	player_layer_control = null
 	biome_blend_texture = null
 	cached_resources.clear()
 	cached_campfires.clear()
@@ -121,12 +132,16 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	landmarks_signature = _build_landmarks_signature()
 	shoreline_segments_cache_valid = false
 	_needs_redraw_due_to_data_change = true
-	last_redraw_player_position = Vector2.INF
-	last_redraw_player_biome_id = ""
+	_last_marker_view_player_position = Vector2.INF
+	_last_player_marker_position = Vector2.INF
+	_last_player_marker_biome_id = ""
+	_marker_view_redraw_timer = 0.0
+	_player_redraw_timer = 0.0
 	minimap_redraw_timer = 0.0
 	minimap_static_redraw_timer = 0.0
 	_mark_static_layer_dirty()
-	_request_dynamic_redraw()
+	_request_marker_redraw()
+	_request_player_redraw()
 
 
 func _process(delta: float) -> void:
@@ -139,34 +154,45 @@ func _process(delta: float) -> void:
 	})
 	_sync_biome_texture()
 	_sync_shoreline_overlay_cache()
-	var redraw_distance := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("minimap_redraw_on_player_move_distance", 24.0)), 0.0)
 	var budget := Dictionary(_get_world_render_budget())
 	minimap_redraw_interval = float(budget.get("minimap_redraw_interval", minimap_redraw_interval))
 	minimap_marker_rebuild_interval = float(budget.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval))
+	minimap_player_redraw_interval = float(budget.get("minimap_player_redraw_interval", minimap_player_redraw_interval))
+	minimap_marker_view_recenter_distance = float(budget.get("minimap_marker_view_recenter_distance", minimap_marker_view_recenter_distance))
 	var current_player_position := _get_player_position()
 	var current_biome_id := _get_player_biome_id()
-	var should_redraw := false
-	if last_redraw_player_position == Vector2.INF:
-		should_redraw = true
-	elif current_player_position.distance_to(last_redraw_player_position) >= redraw_distance:
-		should_redraw = true
-	elif current_biome_id != last_redraw_player_biome_id:
-		should_redraw = true
-	if should_redraw:
-		last_redraw_player_position = current_player_position
-		last_redraw_player_biome_id = current_biome_id
-		minimap_static_redraw_timer = 0.0
-		minimap_redraw_timer = 0.0
-		_needs_redraw_due_to_data_change = false
-		_request_dynamic_redraw()
-	else:
+	_marker_view_redraw_timer += delta
+	_player_redraw_timer += delta
+	var marker_view_moved := false
+	if _last_marker_view_player_position == Vector2.INF:
+		marker_view_moved = true
+	elif current_player_position.distance_to(_last_marker_view_player_position) >= minimap_marker_view_recenter_distance:
+		marker_view_moved = true
+	if marker_view_moved and _marker_view_redraw_timer >= maxf(minimap_redraw_interval, 0.10):
+		_marker_view_redraw_timer = 0.0
+		_last_marker_view_player_position = current_player_position
+		_request_marker_redraw()
+	var should_redraw_player := false
+	if _last_player_marker_position == Vector2.INF:
+		should_redraw_player = true
+	elif _player_redraw_timer >= maxf(minimap_player_redraw_interval, 0.03):
+		should_redraw_player = true
+	elif current_biome_id != _last_player_marker_biome_id:
+		should_redraw_player = true
+	if should_redraw_player:
+		_player_redraw_timer = 0.0
+		_last_player_marker_position = current_player_position
+		_last_player_marker_biome_id = current_biome_id
+		_request_player_redraw()
+	if _needs_redraw_due_to_data_change:
 		minimap_static_redraw_timer += delta
-		if minimap_static_redraw_timer >= maxf(minimap_redraw_interval, 0.1) and _needs_redraw_due_to_data_change:
+		if minimap_static_redraw_timer >= maxf(minimap_redraw_interval, 0.1):
 			minimap_static_redraw_timer = 0.0
 			minimap_redraw_timer = 0.0
 			_needs_redraw_due_to_data_change = false
 			_mark_static_layer_dirty()
-			_request_dynamic_redraw()
+			_request_marker_redraw()
+			_request_player_redraw()
 	minimap_redraw_timer += delta
 	_marker_rebuild_timer += delta
 	if _marker_rebuild_timer >= minimap_marker_rebuild_interval:
@@ -1256,8 +1282,13 @@ func _ensure_minimap_layers() -> void:
 		dynamic_layer_control = _MinimapDynamicLayer.new()
 		dynamic_layer_control.name = "MinimapDynamicLayer"
 		add_child(dynamic_layer_control)
+	if not is_instance_valid(player_layer_control):
+		player_layer_control = _MinimapPlayerLayer.new()
+		player_layer_control.name = "MinimapPlayerLayer"
+		add_child(player_layer_control)
 	_mark_static_layer_dirty()
-	_request_dynamic_redraw()
+	_request_marker_redraw()
+	_request_player_redraw()
 
 
 func _mark_static_layer_dirty() -> void:
@@ -1267,8 +1298,18 @@ func _mark_static_layer_dirty() -> void:
 
 
 func _request_dynamic_redraw() -> void:
+	_request_marker_redraw()
+	_request_player_redraw()
+
+
+func _request_marker_redraw() -> void:
 	if is_instance_valid(dynamic_layer_control):
 		dynamic_layer_control.queue_redraw()
+
+
+func _request_player_redraw() -> void:
+	if is_instance_valid(player_layer_control):
+		player_layer_control.queue_redraw()
 
 
 class _MinimapStaticLayer:
@@ -1317,6 +1358,25 @@ class _MinimapDynamicLayer:
 		minimap._draw_campfires(self, content_rect, view_world_rect)
 		minimap._draw_grazers(self, content_rect, view_world_rect)
 		minimap._draw_varnaks(self, content_rect, view_world_rect)
+
+
+class _MinimapPlayerLayer:
+	extends Control
+
+	var minimap: Control
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		minimap = get_parent() as Control
+
+	func _draw() -> void:
+		if minimap == null or not is_instance_valid(minimap):
+			return
+		minimap.player_marker_redraw_count += 1
+		var map_rect: Rect2 = Rect2(Vector2.ZERO, minimap.size)
+		var content_rect: Rect2 = minimap._get_content_rect(map_rect)
+		var view_world_rect: Rect2 = minimap._get_minimap_view_world_rect(content_rect)
 		minimap._draw_player(self, content_rect, view_world_rect)
 		minimap._draw_zone_label(self, map_rect)
 
