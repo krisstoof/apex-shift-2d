@@ -166,7 +166,8 @@ func _draw_map_panel(rect: Rect2) -> void:
 	_draw_biomes(map_rect)
 	_is_drawing_biomes = false
 	_draw_shoreline_overlay(map_rect)
-	_draw_grid(map_rect)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_detail_enabled", false)):
+		_draw_grid(map_rect)
 	_draw_landmarks(map_rect)
 	if _should_show_resource_markers():
 		_draw_resources(map_rect)
@@ -783,12 +784,16 @@ func _draw_cell_map(map_rect: Rect2) -> void:
 func _draw_shape_map(map_rect: Rect2) -> void:
 	if biome_shape_map == null:
 		return
-	if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
-		_draw_cell_map(map_rect)
-	elif biome_shape_map.has_method("get_sample_grid_size"):
-		_draw_shape_map_sample_grid(map_rect)
-	else:
+	var has_renderable_polygons: bool = biome_shape_map.has_method("has_renderable_polygons") and biome_shape_map.has_renderable_polygons()
+	if has_renderable_polygons:
 		draw_rect(map_rect, Color(0.06, 0.18, 0.36), true)
+	else:
+		if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
+			_draw_cell_map(map_rect)
+		elif biome_shape_map.has_method("get_sample_grid_size"):
+			_draw_shape_map_sample_grid(map_rect)
+		else:
+			draw_rect(map_rect, Color(0.06, 0.18, 0.36), true)
 	var polygons_by_layer: Dictionary = biome_shape_map.get_polygons_by_layer()
 	for layer_id in _get_shape_map_draw_order(polygons_by_layer):
 		for polygon_value in Array(polygons_by_layer.get(layer_id, [])):

@@ -671,7 +671,7 @@ func get_surface_terrain_zone_at(position: Vector2) -> String:
 func get_topography_debug_summary() -> Dictionary:
 	if world_topography == null:
 		return {
-			"feature_counts": {},
+			"topography_feature_counts": {},
 			"sample_position": Vector2.ZERO,
 			"sample": {}
 		}
@@ -679,7 +679,7 @@ func get_topography_debug_summary() -> Dictionary:
 	if sample_position == Vector2.ZERO:
 		sample_position = WORLD_CONFIG.WORLD_RECT.get_center()
 	return {
-		"feature_counts": Dictionary(world_topography.get_topography_feature_counts_debug()) if world_topography.has_method("get_topography_feature_counts_debug") else {},
+		"topography_feature_counts": Dictionary(world_topography.get_topography_feature_counts_debug()) if world_topography.has_method("get_topography_feature_counts_debug") else {},
 		"sample_position": sample_position,
 		"sample": get_topography_debug_at(sample_position)
 	}
@@ -850,12 +850,12 @@ func get_map_surface_debug_key() -> String:
 	var generator_key := "no_generator"
 	if world_generator != null and world_generator.has_method("get_debug_generation_key"):
 		generator_key = str(world_generator.get_debug_generation_key())
-	var feature_counts := {}
+	var topography_feature_counts := {}
 	if world_topography != null and world_topography.has_method("get_topography_feature_counts_debug"):
-		feature_counts = Dictionary(world_topography.get_topography_feature_counts_debug())
-	var ponds := int(feature_counts.get("pond", 0))
-	var highlands := int(feature_counts.get("highland", 0))
-	var rocks := int(feature_counts.get("rocky_patch", 0))
+		topography_feature_counts = Dictionary(world_topography.get_topography_feature_counts_debug())
+	var ponds := int(topography_feature_counts.get("pond", 0))
+	var highlands := int(topography_feature_counts.get("highland", 0))
+	var rocks := int(topography_feature_counts.get("rocky_patch", 0))
 	var transition_version := _get_biome_transition_texture_version_key()
 	return "surface_v15|seed=%d|generator_key=%s|topography_rules=%s|transition=%s|ponds=%d|highlands=%d|rocks=%d" % [
 		world_seed,
@@ -2406,14 +2406,34 @@ func _place_player_on_safe_start() -> void:
 
 func _rebuild_landmark_runtime_state() -> void:
 	_ensure_landmark_service()
-	hill_landmarks.clear()
-	pond_landmarks.clear()
-	pond_water_search_radius = 0.0
 	landmark_service.sync_runtime_landmarks(landmarks, Callable(self, "_create_landmark_area"))
-	hill_landmarks = landmark_service.get_hill_landmarks()
-	pond_landmarks = landmark_service.get_pond_landmarks()
-	pond_water_search_radius = landmark_service.get_pond_water_search_radius()
+	_sync_topography_landmark_runtime_state()
 	_ensure_query_service()
+
+
+func _sync_topography_landmark_runtime_state() -> void:
+	hill_landmarks = _get_topography_landmarks_as_runtime_entries("highland", "hill")
+	pond_landmarks = _get_topography_landmarks_as_runtime_entries("pond", "pond")
+	pond_water_search_radius = _get_topography_pond_water_search_radius()
+
+
+func _get_topography_landmarks_as_runtime_entries(feature_type: String, runtime_type: String) -> Array[Dictionary]:
+	var runtime_landmarks: Array[Dictionary] = []
+	if world_topography == null or not world_topography.has_method("get_topography_features_by_type"):
+		return runtime_landmarks
+	for feature_value in Array(world_topography.get_topography_features_by_type(feature_type)):
+		var feature := Dictionary(feature_value).duplicate(true)
+		feature["type"] = runtime_type
+		feature["gameplay_tags"] = Array(feature.get("gameplay_tags", []))
+		runtime_landmarks.append(feature)
+	return runtime_landmarks
+
+
+func _get_topography_pond_water_search_radius() -> float:
+	var max_radius := 0.0
+	for pond in pond_landmarks:
+		max_radius = maxf(max_radius, float(pond.get("radius", 0.0)))
+	return maxf(max_radius * 1.2, 0.0)
 
 
 func restore_landmarks(landmark_data: Array, restored_world_seed: int = 0) -> void:
