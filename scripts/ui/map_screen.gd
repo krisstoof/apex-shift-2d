@@ -41,6 +41,16 @@ var map_screen_skipped_update_hidden_count: int = 0
 var map_screen_texture_build_count: int = 0
 var map_screen_texture_last_build_ms: float = 0.0
 var _map_screen_texture_build_queued := false
+var _map_screen_texture_build_image: Image
+var _map_screen_texture_build_key := ""
+var _map_screen_texture_build_next_y := 0
+var _map_screen_texture_build_started_at_ms := 0
+var _map_screen_texture_build_first_open_ms := 0.0
+var _map_screen_texture_build_mode := "reused"
+var _map_screen_texture_build_async := true
+var _map_screen_texture_build_reused_from_minimap_world := false
+var _map_screen_open_hitch_count := 0
+var _map_screen_open_seen := false
 var map_screen_marker_cache_check_count := 0
 var map_screen_marker_cache_rebuild_count := 0
 var map_screen_marker_cache_skipped_unchanged_count := 0
@@ -138,8 +148,13 @@ func _process(_delta: float) -> void:
 		"build_count": map_screen_texture_build_count,
 		"last_build_ms": snappedf(map_screen_texture_last_build_ms, 0.01)
 	})
+	if visible and not _map_screen_open_seen:
+		_map_screen_open_seen = true
+		_map_screen_texture_build_started_at_ms = Time.get_ticks_msec()
 	if biome_blend_texture == null or _map_screen_texture_build_queued:
 		_sync_biome_texture()
+	if _map_screen_texture_build_queued:
+		_process_biome_texture_build()
 	if map_screen_shoreline_cache_dirty or shoreline_segments_key.is_empty():
 		_sync_shoreline_overlay_cache()
 	var budget := Dictionary(_get_world_render_budget())
@@ -693,23 +708,29 @@ func _sync_biome_texture() -> void:
 	if active_world.has_method("get_surface_texture") and active_world.has_method("get_surface_texture_key"):
 		var current_key := str(active_world.get_surface_texture_key())
 		if biome_blend_texture != null and biome_blend_colors_key == current_key:
+			_map_screen_texture_build_mode = "shared_world"
+			_map_screen_texture_build_reused_from_minimap_world = true
 			return
 		var shared_texture: ImageTexture = active_world.get_surface_texture()
 		if shared_texture != null:
 			biome_blend_texture = shared_texture
 			biome_blend_colors_key = current_key
 			_map_screen_texture_build_queued = false
+			_map_screen_texture_build_mode = "shared_world"
+			_map_screen_texture_build_reused_from_minimap_world = true
 			return
 	if not _map_screen_texture_build_queued and is_visible_in_tree():
 		_map_screen_texture_build_queued = true
-		call_deferred("_ensure_biome_texture_deferred")
+		_map_screen_texture_build_mode = "incremental_local"
+		_map_screen_texture_build_reused_from_minimap_world = false
+		_start_biome_texture_build(_get_biome_texture_key())
 
 
 func _ensure_biome_texture_deferred() -> void:
 	_map_screen_texture_build_queued = false
 	if not is_visible_in_tree():
 		return
-	_ensure_biome_texture()
+	_sync_biome_texture()
 
 
 func _sync_shoreline_overlay_cache() -> void:
@@ -734,30 +755,53 @@ func _sync_shoreline_overlay_cache() -> void:
 	shoreline_segments_last_build_ms = float(Time.get_ticks_msec() - start_ms)
 
 
-func _ensure_biome_texture() -> void:
+func _start_biome_texture_build(texture_key: String) -> void:
 	if biome_zones.is_empty():
 		return
-	var current_key := _get_biome_texture_key()
-	if biome_blend_texture and biome_blend_colors_key == current_key:
+	_map_screen_texture_build_key = texture_key
+	_map_screen_texture_build_next_y = 0
+	_map_screen_texture_build_image = Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
+	_map_screen_texture_build_queued = true
+	_map_screen_texture_build_async = true
+
+
+func _process_biome_texture_build() -> void:
+	if not _map_screen_texture_build_queued or _map_screen_texture_build_image == null:
 		return
-	var build_start_ms: int = Time.get_ticks_msec()
-	var image := Image.create(BIOME_BLEND_TEXTURE_SIZE.x, BIOME_BLEND_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
-	var colors: Array[Color] = []
-	for biome in biome_zones:
-		colors.append(_get_biome_base_color(Dictionary(biome)))
-	for y in range(BIOME_BLEND_TEXTURE_SIZE.y):
+	var build_start_ms := Time.get_ticks_msec()
+	var max_ms := float(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_surface_build_budget_ms", 1.0))
+	var rows_per_frame := maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_surface_rows_per_frame", 6)), 1)
+	var rows_done := 0
+	while _map_screen_texture_build_next_y < BIOME_BLEND_TEXTURE_SIZE.y and rows_done < rows_per_frame:
+		var batch_end := Time.get_ticks_msec()
+		if float(batch_end - build_start_ms) >= max_ms:
+			break
 		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
 			var uv := Vector2(
 				(float(x) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.x),
-				(float(y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
+				(float(_map_screen_texture_build_next_y) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.y)
 			)
 			var world_position := world_rect.position + uv * world_rect.size
-			image.set_pixel(x, y, _get_world_surface_color_at(world_position))
-	biome_blend_texture = ImageTexture.create_from_image(image)
-	biome_blend_colors_key = current_key
-	map_screen_texture_build_count += 1
-	map_screen_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
-	print("[MAP_SCREEN] surface texture build count=%d last_build_ms=%.2f key=%s" % [map_screen_texture_build_count, map_screen_texture_last_build_ms, current_key])
+			_map_screen_texture_build_image.set_pixel(x, _map_screen_texture_build_next_y, _get_world_surface_color_at(world_position))
+		_map_screen_texture_build_next_y += 1
+		rows_done += 1
+	if _map_screen_open_seen and _map_screen_texture_build_first_open_ms <= 0.0:
+		_map_screen_texture_build_first_open_ms = float(Time.get_ticks_msec() - _map_screen_texture_build_started_at_ms)
+		if _map_screen_texture_build_first_open_ms > 50.0:
+			_map_screen_open_hitch_count += 1
+	if _map_screen_texture_build_next_y >= BIOME_BLEND_TEXTURE_SIZE.y:
+		biome_blend_texture = ImageTexture.create_from_image(_map_screen_texture_build_image)
+		biome_blend_colors_key = _map_screen_texture_build_key
+		map_screen_texture_build_count += 1
+		map_screen_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
+		print("[MAP_SCREEN] surface texture build count=%d last_build_ms=%.2f key=%s" % [map_screen_texture_build_count, map_screen_texture_last_build_ms, _map_screen_texture_build_key])
+		_map_screen_texture_build_image = null
+		_map_screen_texture_build_key = ""
+		_map_screen_texture_build_next_y = 0
+		_map_screen_texture_build_queued = false
+		_map_screen_texture_build_async = true
+		_map_screen_texture_build_mode = "incremental_local"
+		_map_screen_texture_build_reused_from_minimap_world = false
 
 
 func _get_world_surface_color_at(world_position: Vector2) -> Color:
@@ -1519,6 +1563,11 @@ func get_map_screen_performance_debug() -> Dictionary:
 		"skipped_update_hidden_count": map_screen_skipped_update_hidden_count,
 		"texture_build_count": map_screen_texture_build_count,
 		"texture_last_build_ms": map_screen_texture_last_build_ms,
+		"map_screen_first_open_ms": _map_screen_texture_build_first_open_ms,
+		"map_screen_open_hitch_count": _map_screen_open_hitch_count,
+		"map_screen_surface_build_mode": _map_screen_texture_build_mode,
+		"map_screen_surface_build_async": _map_screen_texture_build_async,
+		"map_screen_texture_reused_from_minimap_world": _map_screen_texture_build_reused_from_minimap_world,
 		"shoreline_build_count": shoreline_segments_build_count,
 		"shoreline_last_build_ms": shoreline_segments_last_build_ms,
 		"shoreline_segment_count": shoreline_segments.size(),

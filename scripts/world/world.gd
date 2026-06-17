@@ -214,6 +214,10 @@ var group_nodes_cache_timestamps: Dictionary = {}
 var pending_biome_vegetation_syncs: Dictionary = {}
 var biome_vegetation_sync_scheduled := false
 var boot_ready := false
+var world_generation_start_ms := 0
+var world_generation_total_ms := 0.0
+var world_ready_ms := 0.0
+var terrain_surface_initial_queue_size := 0
 var boot_status_message := "Preparing world..."
 var boot_status_progress := 0.0
 var integration_test_mode := false
@@ -301,6 +305,7 @@ signal world_initialized
 signal world_boot_stage_changed(stage_message: String, progress: float)
 
 func _ready() -> void:
+	world_generation_start_ms = Time.get_ticks_msec()
 	var graphics_settings_node := get_node_or_null("/root/GraphicsSettings")
 	if graphics_settings_node != null:
 		graphics_settings = graphics_settings_node
@@ -386,6 +391,10 @@ func _ready() -> void:
 	_update_biome_detail_overlay(0.0, true)
 	_initialize_visibility_controller()
 	_update_world_object_visibility()
+	world_ready_ms = float(Time.get_ticks_msec() - world_generation_start_ms)
+	world_generation_total_ms = world_ready_ms
+	if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("get_debug_data"):
+		terrain_surface_initial_queue_size = int(Dictionary(terrain_surface_chunk_renderer.get_debug_data()).get("terrain_surface_chunk_pending_count", 0))
 	world_initialized.emit()
 	queue_redraw()
 
@@ -734,6 +743,9 @@ func get_world_generation_debug() -> Dictionary:
 	debug["poi_landmark_count"] = int(landmark_counts.get("generated", 0))
 	debug["landmark_debug"] = landmark_counts
 	debug["topography_feature_counts"] = get_topography_debug_summary().get("topography_feature_counts", {})
+	debug["world_generation_total_ms"] = world_generation_total_ms
+	debug["world_ready_ms"] = world_ready_ms
+	debug["terrain_surface_initial_queue_size"] = terrain_surface_initial_queue_size
 	return debug
 
 
@@ -1341,7 +1353,8 @@ func get_boot_progress_state() -> Dictionary:
 	return {
 		"message": boot_status_message,
 		"progress": boot_status_progress,
-		"boot_ready": boot_ready
+		"boot_ready": boot_ready,
+		"world_ready_ms": world_ready_ms
 	}
 
 

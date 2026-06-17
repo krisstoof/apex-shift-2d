@@ -279,6 +279,10 @@ func _capture_world_stats() -> Dictionary:
 	stats["total_creatures"] = _sum_group_counts(stats["creature_counts"])
 	stats["total_resources"] = _sum_group_counts(stats["resource_counts"])
 	stats["render_pressure"] = _capture_world_render_pressure(stats)
+	var world_debug := Dictionary(world.get_world_generation_debug()) if world.has_method("get_world_generation_debug") else {}
+	stats["world_generation_total_ms"] = float(world_debug.get("world_generation_total_ms", 0.0))
+	stats["world_ready_ms"] = float(world_debug.get("world_ready_ms", 0.0))
+	stats["terrain_surface_initial_queue_size"] = int(world_debug.get("terrain_surface_initial_queue_size", 0))
 	return stats
 
 
@@ -291,7 +295,13 @@ func _capture_minimap_stats() -> Dictionary:
 func _capture_map_screen_stats() -> Dictionary:
 	if not is_instance_valid(map_screen) or not map_screen.has_method("get_map_screen_performance_debug"):
 		return {}
-	return Dictionary(map_screen.call("get_map_screen_performance_debug"))
+	var stats := Dictionary(map_screen.call("get_map_screen_performance_debug"))
+	stats["map_screen_first_open_ms"] = float(stats.get("map_screen_first_open_ms", 0.0))
+	stats["map_screen_surface_build_mode"] = str(stats.get("map_screen_surface_build_mode", "unknown"))
+	stats["map_screen_surface_build_async"] = bool(stats.get("map_screen_surface_build_async", false))
+	stats["map_screen_texture_reused_from_minimap_world"] = bool(stats.get("map_screen_texture_reused_from_minimap_world", false))
+	stats["map_screen_open_hitch_count"] = int(stats.get("map_screen_open_hitch_count", 0))
+	return stats
 
 
 func _capture_ai_decision_stats() -> Dictionary:
@@ -1442,12 +1452,16 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			str(minimap_stats.get("minimap_view_dirty", false))
 		])
 	if not map_screen_stats.is_empty():
-		diagnostics.append("map_screen redraw=%d cache=%d skipped_hidden=%d texture_builds=%d last_build_ms=%.2f checks=%d/%d shoreline=%d/%d" % [
+		diagnostics.append("map_screen redraw=%d cache=%d skipped_hidden=%d texture_builds=%d last_build_ms=%.2f open_ms=%.2f mode=%s async=%s reused=%s checks=%d/%d shoreline=%d/%d" % [
 			int(map_screen_stats.get("redraw_count", 0)),
 			int(map_screen_stats.get("cache_rebuild_count", 0)),
 			int(map_screen_stats.get("skipped_update_hidden_count", 0)),
 			int(map_screen_stats.get("texture_build_count", 0)),
 			float(map_screen_stats.get("texture_last_build_ms", 0.0)),
+			float(map_screen_stats.get("map_screen_first_open_ms", 0.0)),
+			str(map_screen_stats.get("map_screen_surface_build_mode", "unknown")),
+			"true" if bool(map_screen_stats.get("map_screen_surface_build_async", false)) else "false",
+			"true" if bool(map_screen_stats.get("map_screen_texture_reused_from_minimap_world", false)) else "false",
 			int(map_screen_stats.get("map_screen_marker_cache_check_count", 0)),
 			int(map_screen_stats.get("map_screen_marker_cache_skipped_unchanged_count", 0)),
 			int(map_screen_stats.get("map_screen_shoreline_check_count", 0)),

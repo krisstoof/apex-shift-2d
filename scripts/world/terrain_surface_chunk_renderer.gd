@@ -71,6 +71,8 @@ var grid_surface_sample_count := 0
 var world_fallback_surface_sample_count := 0
 var terrain_surface_build_budget_exceeded_count := 0
 var terrain_surface_build_budget_max_overrun_ms := 0.0
+var terrain_surface_build_soft_budget_exceeded_count := 0
+var terrain_surface_build_hard_budget_exceeded_count := 0
 var terrain_surface_build_steps_last_frame := 0
 var terrain_surface_build_pixels_last_frame := 0
 var terrain_surface_build_rows_last_frame := 0
@@ -273,6 +275,8 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_chunk_build_completed_count": chunk_build_completed_count,
 		"terrain_surface_build_budget_exceeded_count": terrain_surface_build_budget_exceeded_count,
 		"terrain_surface_build_budget_max_overrun_ms": terrain_surface_build_budget_max_overrun_ms,
+		"terrain_surface_build_soft_budget_exceeded_count": terrain_surface_build_soft_budget_exceeded_count,
+		"terrain_surface_build_hard_budget_exceeded_count": terrain_surface_build_hard_budget_exceeded_count,
 		"terrain_surface_build_steps_last_frame": terrain_surface_build_steps_last_frame,
 		"terrain_surface_build_pixels_last_frame": terrain_surface_build_pixels_last_frame,
 		"terrain_surface_build_rows_last_frame": terrain_surface_build_rows_last_frame,
@@ -410,13 +414,22 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow
 	while next_y < texture_size and rows_done < rows_per_frame:
 		if float(Time.get_ticks_msec()) >= hard_budget_deadline_ms or float(Time.get_ticks_msec() - frame_start_ms) >= build_ms_budget:
 			break
+		var step_start_ms: int = Time.get_ticks_msec()
 		var batch_end_x := mini(next_x + build_cell_batch_size, texture_size)
 		if stage == "preview":
 			_build_preview_chunk_texture_span(image, chunk_rect, next_y, next_x, batch_end_x, texture_size)
 		else:
 			_build_chunk_texture_span(image, chunk_rect, next_y, next_x, batch_end_x, texture_size)
+		var step_ms := float(Time.get_ticks_msec() - step_start_ms)
 		terrain_surface_build_steps_last_frame += 1
 		terrain_surface_build_pixels_last_frame += batch_end_x - next_x
+		if step_ms > build_ms_budget:
+			terrain_surface_build_soft_budget_exceeded_count += 1
+			terrain_surface_build_budget_exceeded_count += 1
+			terrain_surface_build_budget_max_overrun_ms = maxf(terrain_surface_build_budget_max_overrun_ms, step_ms - build_ms_budget)
+			build_cell_batch_size = maxi(int(floor(float(build_cell_batch_size) * 0.5)), 1)
+		elif step_ms > hard_budget_ms:
+			terrain_surface_build_hard_budget_exceeded_count += 1
 		next_x = batch_end_x
 		if next_x >= texture_size:
 			next_x = 0
