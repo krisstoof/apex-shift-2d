@@ -32,6 +32,7 @@ var biome_shape_map
 var terrain_cell_map: TerrainCellMap
 var shoreline_segments: Array[Dictionary] = []
 var shoreline_segments_key := ""
+var shoreline_segments_cache_valid := false
 var shoreline_segments_build_count := 0
 var shoreline_segments_last_build_ms := 0.0
 var minimap_redraw_count: int = 0
@@ -58,6 +59,7 @@ var cached_varnaks_signature := ""
 var cached_grazers_signature := ""
 var markers_cache_timer := 0.0
 var landmarks_signature := ""
+var _needs_redraw_due_to_data_change := true
 var camera_world_size_override := Vector2.ZERO
 var hitch_log_cooldowns: Dictionary = {}
 
@@ -84,6 +86,7 @@ func invalidate_map_surface_cache() -> void:
 	biome_blend_colors_key = ""
 	shoreline_segments.clear()
 	shoreline_segments_key = ""
+	shoreline_segments_cache_valid = false
 	landmarks_signature = ""
 	queue_redraw()
 
@@ -102,6 +105,8 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	if _update_marker_cache():
 		minimap_marker_cache_rebuild_count += 1
 	landmarks_signature = _build_landmarks_signature()
+	shoreline_segments_cache_valid = false
+	_needs_redraw_due_to_data_change = true
 	last_redraw_player_position = Vector2.INF
 	last_redraw_player_biome_id = ""
 	minimap_redraw_timer = 0.0
@@ -123,7 +128,6 @@ func _process(delta: float) -> void:
 	var budget := Dictionary(_get_world_render_budget())
 	minimap_redraw_interval = float(budget.get("minimap_redraw_interval", minimap_redraw_interval))
 	minimap_marker_rebuild_interval = float(budget.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval))
-	var static_redraw_interval := maxf(minimap_redraw_interval, 0.1)
 	var current_player_position := _get_player_position()
 	var current_biome_id := _get_player_biome_id()
 	var should_redraw := false
@@ -138,12 +142,14 @@ func _process(delta: float) -> void:
 		last_redraw_player_biome_id = current_biome_id
 		minimap_static_redraw_timer = 0.0
 		minimap_redraw_timer = 0.0
+		_needs_redraw_due_to_data_change = false
 		queue_redraw()
 	else:
 		minimap_static_redraw_timer += delta
-		if minimap_static_redraw_timer >= static_redraw_interval:
+		if minimap_static_redraw_timer >= maxf(minimap_redraw_interval, 0.1) and _needs_redraw_due_to_data_change:
 			minimap_static_redraw_timer = 0.0
 			minimap_redraw_timer = 0.0
+			_needs_redraw_due_to_data_change = false
 			queue_redraw()
 	minimap_redraw_timer += delta
 	_marker_rebuild_timer += delta
@@ -226,11 +232,16 @@ func _draw_shoreline_overlay(content_rect: Rect2, view_world_rect: Rect2) -> voi
 func _refresh_static_caches() -> void:
 	var landmarks_changed := _refresh_landmarks_from_world()
 	var marker_cache_changed := _update_marker_cache()
+	var shoreline_changed := false
+	var current_shoreline_key := _get_biome_texture_key()
+	if not shoreline_segments_cache_valid or shoreline_segments_key != current_shoreline_key:
+		shoreline_changed = true
 	if landmarks_changed:
 		minimap_landmark_cache_rebuild_count += 1
 	if marker_cache_changed:
 		minimap_marker_cache_rebuild_count += 1
-	if landmarks_changed or marker_cache_changed:
+	if landmarks_changed or marker_cache_changed or shoreline_changed:
+		_needs_redraw_due_to_data_change = true
 		queue_redraw()
 
 
@@ -256,13 +267,17 @@ func _sync_shoreline_overlay_cache() -> void:
 	if active_world == null:
 		shoreline_segments.clear()
 		shoreline_segments_key = ""
+		shoreline_segments_cache_valid = false
+		_needs_redraw_due_to_data_change = true
 		return
 	var current_key := _get_biome_texture_key()
-	if shoreline_segments_key == current_key and not shoreline_segments.is_empty():
+	if shoreline_segments_cache_valid and shoreline_segments_key == current_key:
 		return
 	var start_ms := Time.get_ticks_msec()
 	shoreline_segments = _build_shoreline_segments(active_world)
 	shoreline_segments_key = current_key
+	shoreline_segments_cache_valid = true
+	_needs_redraw_due_to_data_change = true
 	shoreline_segments_build_count += 1
 	shoreline_segments_last_build_ms = float(Time.get_ticks_msec() - start_ms)
 
@@ -1197,6 +1212,7 @@ func _update_marker_cache() -> bool:
 	cached_varnaks_signature = varnak_signature
 	cached_grazers_signature = grazer_signature
 	return changed
+
 
 
 func _update_resources_cache() -> void:

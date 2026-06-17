@@ -61,6 +61,8 @@ var surface_sample_source_counts := {}
 var exact_surface_sample_count := 0
 var grid_surface_sample_count := 0
 var world_fallback_surface_sample_count := 0
+var use_shape_map_sampling_override := false
+var has_use_shape_map_sampling_override := false
 
 func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 	var previous_world := world
@@ -490,7 +492,10 @@ func _sample_surface_color_single(world_pos: Vector2) -> Color:
 	return base
 
 func _sample_surface_ids(world_pos: Vector2) -> Dictionary:
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_shape_map_sampling", false)) and biome_shape_map != null and biome_shape_map.has_method("sample_visual_surface_at"):
+	var use_shape_map_sampling := bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_shape_map_sampling", false))
+	if has_use_shape_map_sampling_override:
+		use_shape_map_sampling = use_shape_map_sampling_override
+	if use_shape_map_sampling and biome_shape_map != null and biome_shape_map.has_method("sample_visual_surface_at"):
 		if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_exact_shape_sampling", true)) and biome_shape_map.has_method("sample_visual_surface_exact_at"):
 			var exact_surface := Dictionary(biome_shape_map.sample_visual_surface_exact_at(world_pos))
 			if not exact_surface.is_empty():

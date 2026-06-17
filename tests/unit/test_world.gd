@@ -1205,13 +1205,13 @@ func _test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures: Ar
 
 
 func _test_terrain_surface_renderer_samples_biome_shape_map(failures: Array[String]) -> void:
-	var previous_use_shape_map_sampling := GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_shape_map_sampling", false)
-	GAME_BALANCE.BIOME_TEXTURES["terrain_surface_use_shape_map_sampling"] = true
 	var renderer := TerrainSurfaceChunkRenderer.new()
 	var world := SurfaceSamplingWorldStub.new()
 	var player := Node2D.new()
 	var camera := Camera2D.new()
 	player.add_child(camera)
+	renderer.use_shape_map_sampling_override = true
+	renderer.has_use_shape_map_sampling_override = true
 	renderer.bind(world, player, camera)
 	var sample: Dictionary = renderer.call("_sample_surface_ids", Vector2(128.0, 256.0))
 	TEST_UTILS.expect_equal(str(sample.get("source", "")), "polygon", failures, "Terrain surface renderer should prefer the biome shape map surface without falling back to world terrain")
@@ -1225,7 +1225,6 @@ func _test_terrain_surface_renderer_samples_biome_shape_map(failures: Array[Stri
 	renderer.free()
 	player.free()
 	world.free()
-	GAME_BALANCE.BIOME_TEXTURES["terrain_surface_use_shape_map_sampling"] = previous_use_shape_map_sampling
 
 
 func _test_terrain_surface_renderer_uses_preview_then_refine_pipeline(failures: Array[String]) -> void:
