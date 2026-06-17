@@ -39,6 +39,7 @@ var map_screen_cache_rebuild_count: int = 0
 var map_screen_skipped_update_hidden_count: int = 0
 var map_screen_texture_build_count: int = 0
 var map_screen_texture_last_build_ms: float = 0.0
+var _map_screen_texture_build_queued := false
 var _is_drawing_biomes := false
 var cached_resources: Array[Dictionary] = []
 var cached_campfires: Array[Dictionary] = []
@@ -639,7 +640,17 @@ func _sync_biome_texture() -> void:
 		if shared_texture != null:
 			biome_blend_texture = shared_texture
 			biome_blend_colors_key = str(active_world.get_surface_texture_key())
+			_map_screen_texture_build_queued = false
 			return
+	if not _map_screen_texture_build_queued and is_visible_in_tree():
+		_map_screen_texture_build_queued = true
+		call_deferred("_ensure_biome_texture_deferred")
+
+
+func _ensure_biome_texture_deferred() -> void:
+	_map_screen_texture_build_queued = false
+	if not is_visible_in_tree():
+		return
 	_ensure_biome_texture()
 
 

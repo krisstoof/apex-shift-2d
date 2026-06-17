@@ -458,7 +458,9 @@ func _get_actual_camera_world_rect() -> Rect2:
 func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_size: int) -> void:
 	if image == null:
 		return
-	var safe_texture_size: int = min(min(texture_size, image.get_width()), image.get_height())
+	var safe_texture_size: int = texture_size
+	safe_texture_size = mini(safe_texture_size, image.get_width())
+	safe_texture_size = mini(safe_texture_size, image.get_height())
 	if y < 0 or y >= safe_texture_size:
 		return
 	for x in range(safe_texture_size):
@@ -472,7 +474,9 @@ func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_s
 func _build_preview_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_size: int) -> void:
 	if image == null:
 		return
-	var safe_texture_size: int = min(min(texture_size, image.get_width()), image.get_height())
+	var safe_texture_size: int = texture_size
+	safe_texture_size = mini(safe_texture_size, image.get_width())
+	safe_texture_size = mini(safe_texture_size, image.get_height())
 	if y < 0 or y >= safe_texture_size:
 		return
 	for x in range(safe_texture_size):

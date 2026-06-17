@@ -285,6 +285,9 @@ var terrain_renderer_bound := false
 var terrain_renderer_update_timer := 0.0
 var terrain_surface_renderer_update_timer := 0.0
 var biome_shape_map_dirty := true
+var _biome_shape_map_build_queued := false
+var _boot_surface_sync_queued := false
+var _surface_texture_build_queued := false
 var biome_shape_renderer_bound := false
 var biome_shape_renderer_update_timer := 0.0
 const BIOME_SHAPE_RENDERER_UPDATE_INTERVAL := 0.15
@@ -370,9 +373,10 @@ func _ready() -> void:
 	_update_decorative_vegetation_visible_rect()
 	_rebuild_chunk_assignments()
 	decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
-	_ensure_biome_shape_map_built(true)
 	_sync_biome_shape_renderer(true)
 	_sync_terrain_surface_chunk_renderer(true)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
+		_queue_boot_biome_shape_map_build()
 	if is_instance_valid(terrain_chunk_renderer):
 		terrain_chunk_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
 	if is_instance_valid(biome_shape_renderer):
@@ -2185,6 +2189,18 @@ func _ensure_biome_shape_map_built(force_rebuild := false) -> void:
 			terrain_surface_chunk_renderer.mark_dirty("biome_shape_map_rebuilt")
 
 
+func _queue_boot_biome_shape_map_build() -> void:
+	if _biome_shape_map_build_queued:
+		return
+	_biome_shape_map_build_queued = true
+	call_deferred("_build_boot_biome_shape_map")
+
+
+func _build_boot_biome_shape_map() -> void:
+	_biome_shape_map_build_queued = false
+	_ensure_biome_shape_map_built(true)
+
+
 func _ensure_biome_shape_renderer():
 	if is_instance_valid(biome_shape_renderer):
 		return biome_shape_renderer
@@ -2275,12 +2291,26 @@ func _sync_terrain_surface_chunk_renderer(force_rebuild := false) -> void:
 	renderer.bind(self, player_node, camera_node)
 	if force_rebuild and renderer.has_method("mark_dirty"):
 		renderer.mark_dirty("world_sync_force_rebuild")
-	renderer.process_visibility(0.0)
+	if boot_ready:
+		renderer.process_visibility(0.0)
+	elif not _boot_surface_sync_queued:
+		_boot_surface_sync_queued = true
+		call_deferred("_finish_boot_surface_sync")
+
+
+func _finish_boot_surface_sync() -> void:
+	_boot_surface_sync_queued = false
+	if not is_instance_valid(terrain_surface_chunk_renderer):
+		return
+	terrain_surface_chunk_renderer.process_visibility(0.0)
 
 
 func get_biome_shape_map():
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
-		_ensure_biome_shape_map_built(false)
+		if boot_ready:
+			_ensure_biome_shape_map_built(false)
+		elif biome_shape_map_dirty:
+			_queue_boot_biome_shape_map_build()
 	return _ensure_biome_shape_map()
 
 
@@ -2444,6 +2474,12 @@ func _ensure_surface_texture() -> ImageTexture:
 	var current_key := _ensure_surface_texture_key()
 	if world_surface_texture != null and world_surface_texture_key == current_key:
 		return world_surface_texture
+	if not boot_ready:
+		if not _surface_texture_build_queued:
+			_surface_texture_build_queued = true
+			call_deferred("_build_surface_texture_deferred")
+		return null
+	_surface_texture_build_queued = false
 	var texture_size := SURFACE_BLEND_TEXTURE_SIZE
 	if _is_low_end_static_surface_mode_enabled():
 		texture_size = Vector2i(192, 118)
@@ -2462,6 +2498,13 @@ func _ensure_surface_texture() -> ImageTexture:
 	world_surface_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 	print("[WORLD] surface texture build count=%d last_build_ms=%.2f key=%s" % [world_surface_texture_build_count, world_surface_texture_last_build_ms, world_surface_texture_key])
 	return world_surface_texture
+
+
+func _build_surface_texture_deferred() -> void:
+	_surface_texture_build_queued = false
+	if not boot_ready:
+		return
+	_ensure_surface_texture()
 
 
 func _invalidate_surface_texture_cache() -> void:

@@ -80,6 +80,7 @@ var _last_player_marker_biome_id := ""
 var cached_minimap_view_world_rect := Rect2()
 var cached_minimap_view_valid := false
 var cached_minimap_view_center := Vector2.INF
+var _minimap_texture_build_queued := false
 
 
 func _ready() -> void:
@@ -328,7 +329,17 @@ func _sync_biome_texture() -> void:
 		if shared_texture != null:
 			biome_blend_texture = shared_texture
 			biome_blend_colors_key = str(active_world.get_surface_texture_key())
+			_minimap_texture_build_queued = false
 			return
+	if not _minimap_texture_build_queued and is_visible_in_tree():
+		_minimap_texture_build_queued = true
+		call_deferred("_ensure_biome_texture_deferred")
+
+
+func _ensure_biome_texture_deferred() -> void:
+	_minimap_texture_build_queued = false
+	if not is_visible_in_tree():
+		return
 	_ensure_biome_texture()
 
 
