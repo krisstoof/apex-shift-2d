@@ -62,14 +62,28 @@ var landmarks_signature := ""
 var _needs_redraw_due_to_data_change := true
 var camera_world_size_override := Vector2.ZERO
 var hitch_log_cooldowns: Dictionary = {}
+var static_layer_control: Control
+var dynamic_layer_control: Control
+var static_layer_dirty := true
+var static_layer_redraw_count := 0
+var dynamic_layer_redraw_count := 0
+var player_marker_redraw_count := 0
+var static_cache_rebuild_count := 0
 
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_ensure_minimap_layers()
 	_update_marker_cache()
 
 
 func _exit_tree() -> void:
+	if is_instance_valid(static_layer_control):
+		static_layer_control.queue_free()
+	if is_instance_valid(dynamic_layer_control):
+		dynamic_layer_control.queue_free()
+	static_layer_control = null
+	dynamic_layer_control = null
 	biome_blend_texture = null
 	cached_resources.clear()
 	cached_campfires.clear()
@@ -88,7 +102,7 @@ func invalidate_map_surface_cache() -> void:
 	shoreline_segments_key = ""
 	shoreline_segments_cache_valid = false
 	landmarks_signature = ""
-	queue_redraw()
+	_mark_static_layer_dirty()
 
 
 func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = [], p_snapshot_service = null) -> void:
@@ -111,7 +125,8 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	last_redraw_player_biome_id = ""
 	minimap_redraw_timer = 0.0
 	minimap_static_redraw_timer = 0.0
-	queue_redraw()
+	_mark_static_layer_dirty()
+	_request_dynamic_redraw()
 
 
 func _process(delta: float) -> void:
@@ -143,14 +158,15 @@ func _process(delta: float) -> void:
 		minimap_static_redraw_timer = 0.0
 		minimap_redraw_timer = 0.0
 		_needs_redraw_due_to_data_change = false
-		queue_redraw()
+		_request_dynamic_redraw()
 	else:
 		minimap_static_redraw_timer += delta
 		if minimap_static_redraw_timer >= maxf(minimap_redraw_interval, 0.1) and _needs_redraw_due_to_data_change:
 			minimap_static_redraw_timer = 0.0
 			minimap_redraw_timer = 0.0
 			_needs_redraw_due_to_data_change = false
-			queue_redraw()
+			_mark_static_layer_dirty()
+			_request_dynamic_redraw()
 	minimap_redraw_timer += delta
 	_marker_rebuild_timer += delta
 	if _marker_rebuild_timer >= minimap_marker_rebuild_interval:
@@ -159,28 +175,32 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	minimap_redraw_count += 1
+	pass
+
+
+func _draw_static_layer(target: CanvasItem) -> void:
+	static_layer_redraw_count += 1
 	var map_rect := Rect2(Vector2.ZERO, size)
 	var content_rect := _get_content_rect(map_rect)
 	var view_world_rect := _get_minimap_view_world_rect(content_rect)
+	target.draw_rect(map_rect, Color(0.04, 0.05, 0.05, 0.86), true)
+	target.draw_rect(map_rect, Color(0.74, 0.78, 0.68, 0.9), false, 1.0)
+	target.draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
+	target.draw_rect(content_rect, Color(0.35, 0.43, 0.32, 0.8), false, 1.0)
+	_draw_static_contents(target, content_rect, view_world_rect)
 
-	draw_rect(map_rect, Color(0.04, 0.05, 0.05, 0.86), true)
-	draw_rect(map_rect, Color(0.74, 0.78, 0.68, 0.9), false, 1.0)
-	draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
-	draw_rect(content_rect, Color(0.35, 0.43, 0.32, 0.8), false, 1.0)
-	_is_drawing_biomes = true
-	_draw_biomes(content_rect, view_world_rect)
-	_is_drawing_biomes = false
-	_draw_shoreline_overlay(content_rect, view_world_rect)
-	_draw_landmarks(content_rect, view_world_rect)
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_grid_overlay", false)):
-		_draw_grid(content_rect, view_world_rect)
-	_draw_resources(content_rect, view_world_rect)
-	_draw_campfires(content_rect, view_world_rect)
-	_draw_grazers(content_rect, view_world_rect)
-	_draw_varnaks(content_rect, view_world_rect)
-	_draw_player(content_rect, view_world_rect)
-	_draw_zone_label(map_rect)
+
+func _draw_dynamic_layer(target: CanvasItem) -> void:
+	dynamic_layer_redraw_count += 1
+	var map_rect := Rect2(Vector2.ZERO, size)
+	var content_rect := _get_content_rect(map_rect)
+	var view_world_rect := _get_minimap_view_world_rect(content_rect)
+	_draw_resources(target, content_rect, view_world_rect)
+	_draw_campfires(target, content_rect, view_world_rect)
+	_draw_grazers(target, content_rect, view_world_rect)
+	_draw_varnaks(target, content_rect, view_world_rect)
+	_draw_player(target, content_rect, view_world_rect)
+	_draw_zone_label(target, map_rect)
 
 
 func _get_content_rect(map_rect: Rect2) -> Rect2:
@@ -193,7 +213,17 @@ func _get_content_rect(map_rect: Rect2) -> Rect2:
 	)
 
 
-func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_static_contents(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
+	_is_drawing_biomes = true
+	_draw_biomes(target, content_rect, view_world_rect)
+	_is_drawing_biomes = false
+	_draw_shoreline_overlay(target, content_rect, view_world_rect)
+	_draw_landmarks(target, content_rect, view_world_rect)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_grid_overlay", false)):
+		_draw_grid(target, content_rect, view_world_rect)
+
+
+func _draw_biomes(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if not _is_drawing_biomes:
 		return
 	if biome_blend_texture:
@@ -204,23 +234,23 @@ func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
 		var source_rect := _world_rect_to_texture_region(visible_world_rect)
 		if destination_rect.size.x <= 0.0 or destination_rect.size.y <= 0.0:
 			return
-		draw_texture_rect_region(biome_blend_texture, destination_rect, source_rect)
+		target.draw_texture_rect_region(biome_blend_texture, destination_rect, source_rect)
 		return
 	if terrain_cell_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_cell_map_fallback", true)):
-		_draw_cell_map(content_rect, view_world_rect)
+		_draw_cell_map(target, content_rect, view_world_rect)
 		return
 	if biome_shape_map != null and biome_shape_map.has_method("get_sample_grid_size") and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_sample_grid_underlay", false)):
-		_draw_shape_map_sample_grid(content_rect, view_world_rect)
+		_draw_shape_map_sample_grid(target, content_rect, view_world_rect)
 
 
-func _draw_shoreline_overlay(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_shoreline_overlay(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for segment_value in shoreline_segments:
 		var segment := Dictionary(segment_value)
 		var from := Vector2(segment.get("from", Vector2.ZERO))
 		var to := Vector2(segment.get("to", Vector2.ZERO))
 		if not view_world_rect.has_point(from) and not view_world_rect.has_point(to):
 			continue
-		draw_line(
+		target.draw_line(
 			_world_to_map(from, content_rect, view_world_rect),
 			_world_to_map(to, content_rect, view_world_rect),
 			Color(0.88, 0.82, 0.56, 0.42),
@@ -386,7 +416,7 @@ func _get_biome_base_color(biome: Dictionary) -> Color:
 			return Color(0.35, 0.48, 0.30)
 
 
-func _draw_cell_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_cell_map(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if terrain_cell_map == null:
 		return
 	var grid := terrain_cell_map.get_grid_size()
@@ -403,22 +433,22 @@ func _draw_cell_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
 			var destination_rect := _world_rect_to_map_rect(cell_rect.intersection(view_world_rect), content_rect, view_world_rect)
 			if destination_rect.size.x <= 0.0 or destination_rect.size.y <= 0.0:
 				continue
-			draw_rect(destination_rect, _get_cell_map_color(cell), true)
+			target.draw_rect(destination_rect, _get_cell_map_color(cell), true)
 
 
-func _draw_shape_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_shape_map(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if biome_shape_map == null:
 		return
 	var has_renderable_polygons: bool = biome_shape_map.has_method("has_renderable_polygons") and biome_shape_map.has_renderable_polygons()
 	if has_renderable_polygons:
-		draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
+		target.draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
 	else:
 		if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_cell_map_fallback", true)):
-			_draw_cell_map(content_rect, view_world_rect)
+			_draw_cell_map(target, content_rect, view_world_rect)
 		elif biome_shape_map.has_method("get_sample_grid_size") and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_sample_grid_underlay", false)):
-			_draw_shape_map_sample_grid(content_rect, view_world_rect)
+			_draw_shape_map_sample_grid(target, content_rect, view_world_rect)
 		else:
-			draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
+			target.draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
 	var polygons_by_layer: Dictionary = biome_shape_map.get_polygons_by_layer()
 	for layer_id in _get_shape_map_draw_order(polygons_by_layer):
 		for polygon_value in Array(polygons_by_layer.get(layer_id, [])):
@@ -445,13 +475,13 @@ func _draw_shape_map(content_rect: Rect2, view_world_rect: Rect2) -> void:
 			mapped = _sanitize_polygon_points(mapped)
 			if mapped.size() < 3 or not _is_polygon_triangulatable(mapped):
 				continue
-			draw_colored_polygon(mapped, _get_shape_map_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
+			target.draw_colored_polygon(mapped, _get_shape_map_color(str(polygon.get("biome_id", "")), str(polygon.get("terrain_id", "land"))))
 
 
-func _draw_shape_map_sample_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_shape_map_sample_grid(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	var grid_size: Vector2i = biome_shape_map.get_sample_grid_size()
 	if grid_size == Vector2i.ZERO:
-		draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
+		target.draw_rect(content_rect, Color(0.06, 0.18, 0.36), true)
 		return
 	for y in range(grid_size.y):
 		for x in range(grid_size.x):
@@ -465,7 +495,7 @@ func _draw_shape_map_sample_grid(content_rect: Rect2, view_world_rect: Rect2) ->
 			var cell := _get_world_surface_cell(cell_rect.get_center())
 			if cell.is_empty():
 				cell = Dictionary(biome_shape_map.get_sample_grid_cell(x, y))
-			draw_rect(destination_rect, _get_shape_map_color(str(cell.get("biome_id", "")), str(cell.get("terrain_id", "deep_ocean"))), true)
+			target.draw_rect(destination_rect, _get_shape_map_color(str(cell.get("biome_id", "")), str(cell.get("terrain_id", "deep_ocean"))), true)
 
 
 func _get_world_surface_cell(world_position: Vector2) -> Dictionary:
@@ -692,24 +722,24 @@ func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> vo
 	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
-func _draw_grid(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_grid(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	var grid_color := Color(0.23, 0.31, 0.22, 0.55)
 	var grid_step := 320.0
 	var start_x: float = floorf(view_world_rect.position.x / grid_step) * grid_step
 	while start_x <= view_world_rect.end.x:
 		var from := _world_to_map(Vector2(start_x, view_world_rect.position.y), content_rect, view_world_rect)
 		var to := _world_to_map(Vector2(start_x, view_world_rect.end.y), content_rect, view_world_rect)
-		draw_line(from, to, grid_color, 1.0)
+		target.draw_line(from, to, grid_color, 1.0)
 		start_x += grid_step
 	var start_y: float = floorf(view_world_rect.position.y / grid_step) * grid_step
 	while start_y <= view_world_rect.end.y:
 		var from := _world_to_map(Vector2(view_world_rect.position.x, start_y), content_rect, view_world_rect)
 		var to := _world_to_map(Vector2(view_world_rect.end.x, start_y), content_rect, view_world_rect)
-		draw_line(from, to, grid_color, 1.0)
+		target.draw_line(from, to, grid_color, 1.0)
 		start_y += grid_step
 
 
-func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_landmarks(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for landmark in landmarks:
 		var landmark_type := str(landmark.get("type", ""))
 		if landmark_type in ["pond", "hill"] and not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)):
@@ -725,17 +755,17 @@ func _draw_landmarks(content_rect: Rect2, view_world_rect: Rect2) -> void:
 			continue
 		match landmark_type:
 			"pond":
-				_draw_pond_marker(center, radius, landmark)
+				_draw_pond_marker(target, center, radius, landmark)
 			"hill":
-				_draw_hill_marker(center, radius, landmark)
+				_draw_hill_marker(target, center, radius, landmark)
 			_:
-				_draw_landmark_marker(center, radius, landmark)
+				_draw_landmark_marker(target, center, radius, landmark)
 
 
-func _draw_landmark_marker(center: Vector2, radius: float, _landmark: Dictionary) -> void:
+func _draw_landmark_marker(target: CanvasItem, center: Vector2, radius: float, _landmark: Dictionary) -> void:
 	var marker_radius: float = clamp(radius, 5.0, 14.0)
-	draw_circle(center, marker_radius * 0.72, Color(0.93, 0.84, 0.56, 0.92))
-	draw_circle(center, marker_radius * 0.32, Color(0.20, 0.16, 0.10, 0.95))
+	target.draw_circle(center, marker_radius * 0.72, Color(0.93, 0.84, 0.56, 0.92))
+	target.draw_circle(center, marker_radius * 0.32, Color(0.20, 0.16, 0.10, 0.95))
 
 
 func _refresh_landmarks_from_world() -> bool:
@@ -832,13 +862,13 @@ func _get_pond_shore_radius_factor() -> float:
 	return float(GAME_BALANCE.LANDMARKS.get("pond_shore_radius_factor", 1.12))
 
 
-func _draw_pond_marker(center: Vector2, radius: float, landmark: Dictionary) -> void:
+func _draw_pond_marker(target: CanvasItem, center: Vector2, radius: float, landmark: Dictionary) -> void:
 	var marker_radius: float = clamp(radius, 7.0, 24.0)
-	_draw_filled_pond_marker(center, marker_radius, landmark, 1.0, Color(0.10, 0.36, 0.48, 0.90))
-	_draw_filled_pond_marker(center, marker_radius, landmark, 0.68, Color(0.16, 0.50, 0.58, 0.58))
+	_draw_filled_pond_marker(target, center, marker_radius, landmark, 1.0, Color(0.10, 0.36, 0.48, 0.90))
+	_draw_filled_pond_marker(target, center, marker_radius, landmark, 0.68, Color(0.16, 0.50, 0.58, 0.58))
 
 
-func _draw_filled_pond_marker(center: Vector2, radius: float, landmark: Dictionary, radius_factor: float, marker_color: Color) -> void:
+func _draw_filled_pond_marker(target: CanvasItem, center: Vector2, radius: float, landmark: Dictionary, radius_factor: float, marker_color: Color) -> void:
 	var points := PackedVector2Array()
 	var sample_count := _get_pond_shape_sample_count()
 	for i in range(sample_count):
@@ -848,7 +878,7 @@ func _draw_filled_pond_marker(center: Vector2, radius: float, landmark: Dictiona
 			cos(angle) * radius * radius_factor * shape_scale,
 			sin(angle) * radius * POND_MARKER_Y_SCALE * radius_factor * shape_scale
 		))
-	draw_colored_polygon(points, marker_color)
+	target.draw_colored_polygon(points, marker_color)
 
 
 func _get_pond_shape_scale(landmark: Dictionary, angle: float) -> float:
@@ -886,16 +916,16 @@ func _get_pond_shape_sample_count() -> int:
 	return max(16, int(GAME_BALANCE.LANDMARKS.get("pond_shape_sample_count", 48)))
 
 
-func _draw_hill_marker(center: Vector2, radius: float, landmark: Dictionary) -> void:
+func _draw_hill_marker(target: CanvasItem, center: Vector2, radius: float, landmark: Dictionary) -> void:
 	var marker_radius: float = clamp(radius, 8.0, 25.0)
-	_draw_filled_hill_marker(center + Vector2(marker_radius * 0.08, marker_radius * 0.10), marker_radius, landmark, 1.0, Color(0.12, 0.13, 0.08, 0.38))
-	_draw_filled_hill_marker(center, marker_radius, landmark, 1.0, Color(0.38, 0.36, 0.22, 0.90))
-	_draw_filled_hill_marker(center + Vector2(-marker_radius * 0.08, -marker_radius * 0.08), marker_radius, landmark, 0.56, Color(0.58, 0.55, 0.32, 0.58))
-	draw_line(center + Vector2(-marker_radius * 0.42, -marker_radius * 0.08), center + Vector2(marker_radius * 0.22, -marker_radius * 0.16), Color(0.72, 0.69, 0.43, 0.58), 1.2)
-	draw_line(center + Vector2(-marker_radius * 0.18, marker_radius * 0.18), center + Vector2(marker_radius * 0.42, marker_radius * 0.06), Color(0.15, 0.16, 0.09, 0.42), 1.2)
+	_draw_filled_hill_marker(target, center + Vector2(marker_radius * 0.08, marker_radius * 0.10), marker_radius, landmark, 1.0, Color(0.12, 0.13, 0.08, 0.38))
+	_draw_filled_hill_marker(target, center, marker_radius, landmark, 1.0, Color(0.38, 0.36, 0.22, 0.90))
+	_draw_filled_hill_marker(target, center + Vector2(-marker_radius * 0.08, -marker_radius * 0.08), marker_radius, landmark, 0.56, Color(0.58, 0.55, 0.32, 0.58))
+	target.draw_line(center + Vector2(-marker_radius * 0.42, -marker_radius * 0.08), center + Vector2(marker_radius * 0.22, -marker_radius * 0.16), Color(0.72, 0.69, 0.43, 0.58), 1.2)
+	target.draw_line(center + Vector2(-marker_radius * 0.18, marker_radius * 0.18), center + Vector2(marker_radius * 0.42, marker_radius * 0.06), Color(0.15, 0.16, 0.09, 0.42), 1.2)
 
 
-func _draw_filled_hill_marker(center: Vector2, radius: float, landmark: Dictionary, radius_factor: float, marker_color: Color) -> void:
+func _draw_filled_hill_marker(target: CanvasItem, center: Vector2, radius: float, landmark: Dictionary, radius_factor: float, marker_color: Color) -> void:
 	var points := PackedVector2Array()
 	var sample_count := _get_hill_shape_sample_count()
 	for i in range(sample_count):
@@ -905,7 +935,7 @@ func _draw_filled_hill_marker(center: Vector2, radius: float, landmark: Dictiona
 			cos(angle) * radius * radius_factor * shape_scale,
 			sin(angle) * radius * HILL_MARKER_Y_SCALE * radius_factor * shape_scale
 		))
-	draw_colored_polygon(points, marker_color)
+	target.draw_colored_polygon(points, marker_color)
 
 
 func _get_hill_shape_scale(landmark: Dictionary, angle: float) -> float:
@@ -933,27 +963,27 @@ func _get_hill_shape_sample_count() -> int:
 	return max(16, int(GAME_BALANCE.LANDMARKS.get("hill_shape_sample_count", 40)))
 
 
-func _draw_filled_ellipse(rect: Rect2, ellipse_color: Color) -> void:
+func _draw_filled_ellipse(target: CanvasItem, rect: Rect2, ellipse_color: Color) -> void:
 	var points := PackedVector2Array()
 	var center := rect.get_center()
 	var radii := rect.size * 0.5
 	for i in range(20):
 		var angle := TAU * float(i) / 20.0
 		points.append(center + Vector2(cos(angle) * radii.x, sin(angle) * radii.y))
-	draw_colored_polygon(points, ellipse_color)
+	target.draw_colored_polygon(points, ellipse_color)
 
 
-func _draw_resources(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_resources(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for resource_marker_value in cached_resources:
 		var resource_marker := Dictionary(resource_marker_value)
 		var marker_position := Vector2(resource_marker.get("position", Vector2.ZERO))
 		if not view_world_rect.has_point(marker_position):
 			continue
 		var color := _get_resource_marker_color(resource_marker)
-		draw_circle(_world_to_map(marker_position, content_rect, view_world_rect), 3.3, color)
+		target.draw_circle(_world_to_map(marker_position, content_rect, view_world_rect), 3.3, color)
 
 
-func _draw_campfires(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_campfires(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for campfire_marker_value in cached_campfires:
 		var campfire_marker := Dictionary(campfire_marker_value)
 		var marker_position := Vector2(campfire_marker.get("position", Vector2.ZERO))
@@ -963,48 +993,49 @@ func _draw_campfires(content_rect: Rect2, view_world_rect: Rect2) -> void:
 		var active: bool = campfire_marker.get("active", true) == true
 		var outer_color := Color(1.0, 0.46, 0.10) if active else Color(0.48, 0.36, 0.22)
 		var inner_color := Color(1.0, 0.88, 0.28) if active else Color(0.68, 0.58, 0.42)
-		draw_circle(pos, 5.0, outer_color)
-		draw_circle(pos, 2.2, inner_color)
+		target.draw_circle(pos, 5.0, outer_color)
+		target.draw_circle(pos, 2.2, inner_color)
 
 
-func _draw_varnaks(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_varnaks(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for varnak_marker_value in cached_varnaks:
 		var varnak_marker := Dictionary(varnak_marker_value)
 		var marker_position := Vector2(varnak_marker.get("position", Vector2.ZERO))
 		if not view_world_rect.has_point(marker_position):
 			continue
 		var pos := _world_to_map(marker_position, content_rect, view_world_rect)
-		draw_circle(pos, 5.2, Color(0.88, 0.22, 0.16))
-		draw_circle(pos, 2.2, Color(1.0, 0.82, 0.42))
+		target.draw_circle(pos, 5.2, Color(0.88, 0.22, 0.16))
+		target.draw_circle(pos, 2.2, Color(1.0, 0.82, 0.42))
 
 
-func _draw_grazers(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_grazers(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	for grazer_marker_value in cached_grazers:
 		var grazer_marker := Dictionary(grazer_marker_value)
 		var marker_position := Vector2(grazer_marker.get("position", Vector2.ZERO))
 		if not view_world_rect.has_point(marker_position):
 			continue
-		draw_circle(_world_to_map(marker_position, content_rect, view_world_rect), 2.8, Color(0.78, 0.72, 0.42, 0.85))
+		target.draw_circle(_world_to_map(marker_position, content_rect, view_world_rect), 2.8, Color(0.78, 0.72, 0.42, 0.85))
 
 
-func _draw_player(content_rect: Rect2, view_world_rect: Rect2) -> void:
+func _draw_player(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if not is_instance_valid(player):
 		return
+	player_marker_redraw_count += 1
 	var pos := _world_to_map(player.global_position, content_rect, view_world_rect)
-	draw_circle(pos, 6.4, Color(0.17, 0.48, 1.0))
-	draw_circle(pos, 3.0, Color.WHITE)
+	target.draw_circle(pos, 6.4, Color(0.17, 0.48, 1.0))
+	target.draw_circle(pos, 3.0, Color.WHITE)
 
 
-func _draw_zone_label(map_rect: Rect2) -> void:
+func _draw_zone_label(target: CanvasItem, map_rect: Rect2) -> void:
 	var label_rect := Rect2(
 		map_rect.position.x + PADDING,
 		map_rect.end.y - PADDING - MINIMAP_LABEL_HEIGHT,
 		map_rect.size.x - PADDING * 2.0,
 		MINIMAP_LABEL_HEIGHT
 	)
-	draw_rect(label_rect, Color(0.03, 0.04, 0.04, 0.88), true)
-	draw_line(label_rect.position, label_rect.position + Vector2(label_rect.size.x, 0.0), Color(0.74, 0.78, 0.68, 0.55), 1.0)
-	draw_string(get_theme_default_font(), label_rect.position + Vector2(10.0, 21.0), "Zone: %s" % _get_player_zone_name(), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 15, Color(0.90, 0.92, 0.84))
+	target.draw_rect(label_rect, Color(0.03, 0.04, 0.04, 0.88), true)
+	target.draw_line(label_rect.position, label_rect.position + Vector2(label_rect.size.x, 0.0), Color(0.74, 0.78, 0.68, 0.55), 1.0)
+	target.draw_string(get_theme_default_font(), label_rect.position + Vector2(10.0, 21.0), "Zone: %s" % _get_player_zone_name(), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 15, Color(0.90, 0.92, 0.84))
 
 
 func _get_player_zone_name() -> String:
@@ -1211,6 +1242,80 @@ func _update_marker_cache() -> bool:
 	cached_varnaks_signature = varnak_signature
 	cached_grazers_signature = grazer_signature
 	return changed
+
+
+func _ensure_minimap_layers() -> void:
+	if not is_instance_valid(static_layer_control):
+		static_layer_control = _MinimapStaticLayer.new()
+		static_layer_control.name = "MinimapStaticLayer"
+		add_child(static_layer_control)
+	if not is_instance_valid(dynamic_layer_control):
+		dynamic_layer_control = _MinimapDynamicLayer.new()
+		dynamic_layer_control.name = "MinimapDynamicLayer"
+		add_child(dynamic_layer_control)
+	_mark_static_layer_dirty()
+	_request_dynamic_redraw()
+
+
+func _mark_static_layer_dirty() -> void:
+	static_layer_dirty = true
+	if is_instance_valid(static_layer_control):
+		static_layer_control.queue_redraw()
+
+
+func _request_dynamic_redraw() -> void:
+	if is_instance_valid(dynamic_layer_control):
+		dynamic_layer_control.queue_redraw()
+
+
+class _MinimapStaticLayer:
+	extends Control
+
+	var minimap: Control
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		minimap = get_parent() as Control
+
+	func _draw() -> void:
+		if minimap == null or not is_instance_valid(minimap):
+			return
+		minimap.static_layer_redraw_count += 1
+		var map_rect := Rect2(Vector2.ZERO, minimap.size)
+		var content_rect := minimap._get_content_rect(map_rect)
+		var view_world_rect := minimap._get_minimap_view_world_rect(content_rect)
+		draw_rect(map_rect, Color(0.04, 0.05, 0.05, 0.86), true)
+		draw_rect(map_rect, Color(0.74, 0.78, 0.68, 0.9), false, 1.0)
+		draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
+		draw_rect(content_rect, Color(0.35, 0.43, 0.32, 0.8), false, 1.0)
+		minimap._draw_static_contents(self, content_rect, view_world_rect)
+		minimap.static_layer_dirty = false
+
+
+class _MinimapDynamicLayer:
+	extends Control
+
+	var minimap: Control
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		minimap = get_parent() as Control
+
+	func _draw() -> void:
+		if minimap == null or not is_instance_valid(minimap):
+			return
+		minimap.dynamic_layer_redraw_count += 1
+		var map_rect := Rect2(Vector2.ZERO, minimap.size)
+		var content_rect := minimap._get_content_rect(map_rect)
+		var view_world_rect := minimap._get_minimap_view_world_rect(content_rect)
+		minimap._draw_resources(self, content_rect, view_world_rect)
+		minimap._draw_campfires(self, content_rect, view_world_rect)
+		minimap._draw_grazers(self, content_rect, view_world_rect)
+		minimap._draw_varnaks(self, content_rect, view_world_rect)
+		minimap._draw_player(self, content_rect, view_world_rect)
+		minimap._draw_zone_label(self, map_rect)
 
 
 
