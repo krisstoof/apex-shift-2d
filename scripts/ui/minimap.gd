@@ -1282,9 +1282,9 @@ class _MinimapStaticLayer:
 		if minimap == null or not is_instance_valid(minimap):
 			return
 		minimap.static_layer_redraw_count += 1
-		var map_rect := Rect2(Vector2.ZERO, minimap.size)
-		var content_rect := minimap._get_content_rect(map_rect)
-		var view_world_rect := minimap._get_minimap_view_world_rect(content_rect)
+		var map_rect: Rect2 = Rect2(Vector2.ZERO, minimap.size)
+		var content_rect: Rect2 = minimap._get_content_rect(map_rect)
+		var view_world_rect: Rect2 = minimap._get_minimap_view_world_rect(content_rect)
 		draw_rect(map_rect, Color(0.04, 0.05, 0.05, 0.86), true)
 		draw_rect(map_rect, Color(0.74, 0.78, 0.68, 0.9), false, 1.0)
 		draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
@@ -1307,9 +1307,9 @@ class _MinimapDynamicLayer:
 		if minimap == null or not is_instance_valid(minimap):
 			return
 		minimap.dynamic_layer_redraw_count += 1
-		var map_rect := Rect2(Vector2.ZERO, minimap.size)
-		var content_rect := minimap._get_content_rect(map_rect)
-		var view_world_rect := minimap._get_minimap_view_world_rect(content_rect)
+		var map_rect: Rect2 = Rect2(Vector2.ZERO, minimap.size)
+		var content_rect: Rect2 = minimap._get_content_rect(map_rect)
+		var view_world_rect: Rect2 = minimap._get_minimap_view_world_rect(content_rect)
 		minimap._draw_resources(self, content_rect, view_world_rect)
 		minimap._draw_campfires(self, content_rect, view_world_rect)
 		minimap._draw_grazers(self, content_rect, view_world_rect)
