@@ -62,14 +62,29 @@ var landmarks_signature := ""
 var _needs_redraw_due_to_data_change := true
 var camera_world_size_override := Vector2.ZERO
 var hitch_log_cooldowns: Dictionary = {}
+var static_layer_viewport: SubViewport
+var static_layer_node: Node2D
+var static_layer_dirty := true
+var static_layer_texture: ViewportTexture
+var static_layer_size := Vector2.ZERO
+var static_layer_redraw_count := 0
+var dynamic_layer_redraw_count := 0
+var player_marker_redraw_count := 0
+var static_cache_rebuild_count := 0
+var static_layer_signature := ""
 
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_ensure_static_layer()
 	_update_marker_cache()
 
 
 func _exit_tree() -> void:
+	if is_instance_valid(static_layer_viewport):
+		static_layer_viewport.queue_free()
+	static_layer_viewport = null
+	static_layer_node = null
 	biome_blend_texture = null
 	cached_resources.clear()
 	cached_campfires.clear()
@@ -88,7 +103,8 @@ func invalidate_map_surface_cache() -> void:
 	shoreline_segments_key = ""
 	shoreline_segments_cache_valid = false
 	landmarks_signature = ""
-	queue_redraw()
+	_mark_static_layer_dirty()
+	_request_dynamic_redraw()
 
 
 func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary], p_landmarks: Array[Dictionary] = [], p_snapshot_service = null) -> void:
@@ -102,6 +118,7 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	terrain_cell_map = world.get_terrain_cell_map() if world != null and world.has_method("get_terrain_cell_map") else null
 	_sync_biome_texture()
 	_sync_shoreline_overlay_cache()
+	_mark_static_layer_dirty()
 	if _update_marker_cache():
 		minimap_marker_cache_rebuild_count += 1
 	landmarks_signature = _build_landmarks_signature()
@@ -111,7 +128,8 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	last_redraw_player_biome_id = ""
 	minimap_redraw_timer = 0.0
 	minimap_static_redraw_timer = 0.0
-	queue_redraw()
+	_mark_static_layer_dirty()
+	_request_dynamic_redraw()
 
 
 func _process(delta: float) -> void:
@@ -140,17 +158,17 @@ func _process(delta: float) -> void:
 	if should_redraw:
 		last_redraw_player_position = current_player_position
 		last_redraw_player_biome_id = current_biome_id
-		minimap_static_redraw_timer = 0.0
 		minimap_redraw_timer = 0.0
 		_needs_redraw_due_to_data_change = false
-		queue_redraw()
+		_request_dynamic_redraw()
 	else:
 		minimap_static_redraw_timer += delta
 		if minimap_static_redraw_timer >= maxf(minimap_redraw_interval, 0.1) and _needs_redraw_due_to_data_change:
 			minimap_static_redraw_timer = 0.0
 			minimap_redraw_timer = 0.0
 			_needs_redraw_due_to_data_change = false
-			queue_redraw()
+			_mark_static_layer_dirty()
+			_request_dynamic_redraw()
 	minimap_redraw_timer += delta
 	_marker_rebuild_timer += delta
 	if _marker_rebuild_timer >= minimap_marker_rebuild_interval:
@@ -159,29 +177,35 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	minimap_redraw_count += 1
+	dynamic_layer_redraw_count += 1
 	var map_rect := Rect2(Vector2.ZERO, size)
 	var content_rect := _get_content_rect(map_rect)
 	var view_world_rect := _get_minimap_view_world_rect(content_rect)
 
+	_draw_base_frame(map_rect, content_rect)
+	_draw_static_layer(content_rect, view_world_rect)
+	_draw_dynamic_layer(content_rect, view_world_rect)
+
+
+func _draw_base_frame(map_rect: Rect2, content_rect: Rect2) -> void:
 	draw_rect(map_rect, Color(0.04, 0.05, 0.05, 0.86), true)
 	draw_rect(map_rect, Color(0.74, 0.78, 0.68, 0.9), false, 1.0)
 	draw_rect(content_rect, Color(0.11, 0.18, 0.11, 0.94), true)
 	draw_rect(content_rect, Color(0.35, 0.43, 0.32, 0.8), false, 1.0)
-	_is_drawing_biomes = true
-	_draw_biomes(content_rect, view_world_rect)
-	_is_drawing_biomes = false
-	_draw_shoreline_overlay(content_rect, view_world_rect)
-	_draw_landmarks(content_rect, view_world_rect)
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_grid_overlay", false)):
-		_draw_grid(content_rect, view_world_rect)
-	if _should_show_resource_markers():
-		_draw_resources(content_rect, view_world_rect)
+
+
+func _draw_static_layer(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	if static_layer_texture != null:
+		draw_texture_rect(static_layer_texture, Rect2(content_rect.position, content_rect.size), false)
+
+
+func _draw_dynamic_layer(content_rect: Rect2, view_world_rect: Rect2) -> void:
+	_draw_resources(content_rect, view_world_rect)
 	_draw_campfires(content_rect, view_world_rect)
 	_draw_grazers(content_rect, view_world_rect)
 	_draw_varnaks(content_rect, view_world_rect)
 	_draw_player(content_rect, view_world_rect)
-	_draw_zone_label(map_rect)
+	_draw_zone_label(Rect2(Vector2.ZERO, size))
 
 
 func _get_content_rect(map_rect: Rect2) -> Rect2:
@@ -242,7 +266,7 @@ func _refresh_static_caches() -> void:
 		minimap_marker_cache_rebuild_count += 1
 	if landmarks_changed or marker_cache_changed or shoreline_changed:
 		_needs_redraw_due_to_data_change = true
-		queue_redraw()
+		_mark_static_layer_dirty()
 
 
 func _sync_biome_texture() -> void:
@@ -991,6 +1015,7 @@ func _draw_grazers(content_rect: Rect2, view_world_rect: Rect2) -> void:
 func _draw_player(content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if not is_instance_valid(player):
 		return
+	player_marker_redraw_count += 1
 	var pos := _world_to_map(player.global_position, content_rect, view_world_rect)
 	draw_circle(pos, 6.4, Color(0.17, 0.48, 1.0))
 	draw_circle(pos, 3.0, Color.WHITE)
@@ -1220,9 +1245,91 @@ func _update_resources_cache() -> void:
 		minimap_marker_cache_rebuild_count += 1
 
 
+func _ensure_static_layer() -> void:
+	if is_instance_valid(static_layer_viewport) and is_instance_valid(static_layer_node):
+		_resize_static_layer()
+		return
+	static_layer_viewport = SubViewport.new()
+	static_layer_viewport.name = "MinimapStaticLayerViewport"
+	static_layer_viewport.transparent_bg = true
+	static_layer_viewport.disable_3d = true
+	static_layer_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	add_child(static_layer_viewport)
+	static_layer_node = _MinimapStaticLayer.new()
+	static_layer_node.name = "MinimapStaticLayer"
+	static_layer_node.set_minimap(self)
+	static_layer_viewport.add_child(static_layer_node)
+	_resize_static_layer()
+	_mark_static_layer_dirty()
+
+
+func _resize_static_layer() -> void:
+	if not is_instance_valid(static_layer_viewport):
+		return
+	var target_size := Vector2(maxf(size.x, 1.0), maxf(size.y, 1.0))
+	if static_layer_size == target_size:
+		return
+	static_layer_size = target_size
+	static_layer_viewport.size = Vector2i(int(ceil(target_size.x)), int(ceil(target_size.y)))
+	_mark_static_layer_dirty()
+
+
+func _mark_static_layer_dirty() -> void:
+	static_layer_dirty = true
+	if is_instance_valid(static_layer_viewport):
+		static_layer_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+		static_layer_viewport.queue_redraw()
+
+
+func _request_dynamic_redraw() -> void:
+	minimap_redraw_count += 1
+	queue_redraw()
+
+
+func _commit_static_layer_draw() -> void:
+	static_layer_redraw_count += 1
+	if static_layer_dirty:
+		static_cache_rebuild_count += 1
+		static_layer_dirty = false
+	if is_instance_valid(static_layer_viewport):
+		static_layer_texture = static_layer_viewport.get_texture()
+
+
+func _draw_static_contents() -> void:
+	var map_rect := Rect2(Vector2.ZERO, size)
+	var content_rect := _get_content_rect(map_rect)
+	var view_world_rect := _get_minimap_view_world_rect(content_rect)
+	_is_drawing_biomes = true
+	_draw_biomes(content_rect, view_world_rect)
+	_is_drawing_biomes = false
+	_draw_shoreline_overlay(content_rect, view_world_rect)
+	_draw_landmarks(content_rect, view_world_rect)
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_grid_overlay", false)):
+		_draw_grid(content_rect, view_world_rect)
+
+
+class _MinimapStaticLayer:
+	extends Node2D
+
+	var minimap: Control
+
+	func set_minimap(p_minimap: Control) -> void:
+		minimap = p_minimap
+
+	func _draw() -> void:
+		if minimap == null or not is_instance_valid(minimap):
+			return
+		minimap._draw_static_contents()
+		minimap._commit_static_layer_draw()
+
+
 func get_minimap_performance_debug() -> Dictionary:
 	return {
 		"redraw_count": minimap_redraw_count,
+		"static_redraw_count": static_layer_redraw_count,
+		"dynamic_redraw_count": dynamic_layer_redraw_count,
+		"static_cache_rebuild_count": static_cache_rebuild_count,
+		"player_marker_redraw_count": player_marker_redraw_count,
 		"marker_cache_rebuild_count": minimap_marker_cache_rebuild_count,
 		"landmark_cache_rebuild_count": minimap_landmark_cache_rebuild_count,
 		"texture_build_count": minimap_texture_build_count,

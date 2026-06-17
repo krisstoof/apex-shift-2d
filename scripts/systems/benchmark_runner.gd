@@ -509,6 +509,10 @@ func _capture_world_render_pressure(world_stats: Dictionary) -> Dictionary:
 	result["visible_creatures"] = int(visibility.get("visible_creatures", 0))
 	result["decorative_drawn"] = int(vegetation.get("decorative_vegetation_drawn_instance_count", 0))
 	result["minimap_redraw_count"] = int(minimap.get("redraw_count", 0))
+	result["minimap_static_redraw_count"] = int(minimap.get("static_redraw_count", 0))
+	result["minimap_dynamic_redraw_count"] = int(minimap.get("dynamic_redraw_count", 0))
+	result["minimap_static_cache_rebuild_count"] = int(minimap.get("static_cache_rebuild_count", 0))
+	result["minimap_player_marker_redraw_count"] = int(minimap.get("player_marker_redraw_count", 0))
 	result["shoreline_build_count"] = int(minimap.get("shoreline_build_count", 0))
 	return result
 	return {
