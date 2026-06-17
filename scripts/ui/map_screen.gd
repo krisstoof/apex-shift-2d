@@ -105,6 +105,8 @@ func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node
 	landmarks = p_landmarks
 	biome_shape_map = world.get_biome_shape_map() if world != null and world.has_method("get_biome_shape_map") else null
 	terrain_cell_map = world.get_terrain_cell_map() if world != null and world.has_method("get_terrain_cell_map") else null
+	biome_shape_map = world.get_biome_shape_map() if world != null and world.has_method("get_biome_shape_map") else null
+	terrain_cell_map = world.get_terrain_cell_map() if world != null and world.has_method("get_terrain_cell_map") else null
 	_sync_biome_texture()
 	_sync_shoreline_overlay_cache()
 	if _update_marker_cache():
@@ -1436,10 +1438,7 @@ func get_map_screen_performance_debug() -> Dictionary:
 		"texture_last_build_ms": map_screen_texture_last_build_ms,
 		"shoreline_build_count": shoreline_segments_build_count,
 		"shoreline_last_build_ms": shoreline_segments_last_build_ms,
-		"shoreline_segment_count": shoreline_segments.size(),
-		"map_redraw_interval": map_redraw_interval,
-		"map_marker_rebuild_interval": map_marker_rebuild_interval,
-		"map_screen_shape_polygons_clipped": true
+		"shoreline_segment_count": shoreline_segments.size()
 	}
 
 
