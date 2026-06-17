@@ -238,7 +238,7 @@ func _capture_world_stats() -> Dictionary:
 	stats["registry"] = _capture_world_registry_stats()
 	stats["render_flags"] = _capture_world_render_flags()
 	stats["render_budget"] = _capture_world_render_budget()
-	stats["render_pressure"] = _capture_world_render_pressure(stats)
+	stats["terrain_renderer"] = _capture_world_terrain_renderer_stats()
 	stats["visibility_culling"] = _capture_world_visibility_culling_stats()
 	stats["creature_counts"] = _capture_group_counts(["small_prey", "grazer", "varnak"])
 	stats["resource_counts"] = _capture_group_counts([
@@ -263,6 +263,7 @@ func _capture_world_stats() -> Dictionary:
 	stats["biome_query"] = _capture_world_biome_query_stats()
 	stats["total_creatures"] = _sum_group_counts(stats["creature_counts"])
 	stats["total_resources"] = _sum_group_counts(stats["resource_counts"])
+	stats["render_pressure"] = _capture_world_render_pressure(stats)
 	return stats
 
 
@@ -497,10 +498,19 @@ func _capture_world_render_budget() -> Dictionary:
 	return {}
 
 
+func _capture_world_terrain_renderer_stats() -> Dictionary:
+	if not is_instance_valid(world):
+		return {}
+	if world.has_method("get_terrain_renderer_debug"):
+		return Dictionary(world.get_terrain_renderer_debug())
+	return {}
+
+
 func _capture_world_render_pressure(world_stats: Dictionary) -> Dictionary:
 	var result := {}
 	var vegetation := Dictionary(world_stats.get("vegetation", {}))
 	var visibility := Dictionary(world_stats.get("visibility_culling", {}))
+	var terrain := Dictionary(world_stats.get("terrain_renderer", {}))
 	var minimap := Dictionary(_capture_minimap_stats())
 	result["draw_calls"] = int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
 	result["render_primitives"] = int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
@@ -508,6 +518,17 @@ func _capture_world_render_pressure(world_stats: Dictionary) -> Dictionary:
 	result["visible_resources"] = int(visibility.get("visible_resources", 0))
 	result["visible_creatures"] = int(visibility.get("visible_creatures", 0))
 	result["decorative_drawn"] = int(vegetation.get("decorative_vegetation_drawn_instance_count", 0))
+	result["decorative_visible_chunks"] = int(vegetation.get("decorative_vegetation_visible_chunk_count", 0))
+	result["terrain_surface_visible_chunks"] = int(terrain.get("terrain_surface_chunk_visible_count", 0))
+	result["terrain_surface_cached_chunks"] = int(terrain.get("terrain_surface_chunk_cached_count", 0))
+	result["terrain_surface_pending_chunks"] = int(terrain.get("terrain_surface_chunk_pending_count", 0))
+	result["terrain_surface_chunks_built_last_frame"] = int(terrain.get("terrain_surface_chunks_built_last_frame", 0))
+	result["terrain_cell_visible_chunks"] = int(terrain.get("terrain_chunk_count_visible", 0))
+	result["terrain_cell_drawn_cells"] = int(terrain.get("terrain_chunk_drawn_cell_count", 0))
+	result["biome_shape_drawn_polygons"] = int(terrain.get("biome_shape_renderer_drawn_polygon_count", 0))
+	result["biome_shape_drawn_details"] = int(terrain.get("biome_shape_renderer_drawn_detail_count", 0))
+	result["camera_zoom"] = _capture_camera_zoom()
+	result["viewport_size"] = _capture_viewport_size()
 	result["minimap_redraw_count"] = int(minimap.get("redraw_count", 0))
 	result["minimap_static_redraw_count"] = int(minimap.get("static_redraw_count", 0))
 	result["minimap_dynamic_redraw_count"] = int(minimap.get("dynamic_redraw_count", 0))
@@ -515,12 +536,21 @@ func _capture_world_render_pressure(world_stats: Dictionary) -> Dictionary:
 	result["minimap_player_marker_redraw_count"] = int(minimap.get("player_marker_redraw_count", 0))
 	result["shoreline_build_count"] = int(minimap.get("shoreline_build_count", 0))
 	return result
-	return {
-		"low_end_rendering": world.is_low_end_rendering_enabled() if world.has_method("is_low_end_rendering_enabled") else false,
-		"biome_textures_enabled": world.are_biome_textures_enabled() if world.has_method("are_biome_textures_enabled") else true,
-		"landmark_debug_overlay_enabled": world.is_landmark_debug_overlay_enabled() if world.has_method("is_landmark_debug_overlay_enabled") else false,
-		"biome_terrain_accents_enabled": world.are_biome_terrain_accents_enabled() if world.has_method("are_biome_terrain_accents_enabled") else false
-	}
+
+
+func _capture_camera_zoom() -> Dictionary:
+	var camera: Camera2D = get_viewport().get_camera_2d() if get_viewport() != null else null
+	if camera == null and is_instance_valid(player):
+		camera = player.get_node_or_null("Camera2D") as Camera2D
+	if camera == null:
+		return {"x": 0.0, "y": 0.0}
+	return {"x": camera.zoom.x, "y": camera.zoom.y}
+
+
+func _capture_viewport_size() -> Dictionary:
+	var viewport := get_viewport()
+	var viewport_size := viewport.get_visible_rect().size if viewport != null else Vector2.ZERO
+	return {"x": viewport_size.x, "y": viewport_size.y}
 
 
 func _capture_world_visibility_culling_stats() -> Dictionary:
@@ -1285,9 +1315,25 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			int(vegetation_stats.get("edible_vegetation_node_count", 0)),
 			int(vegetation_stats.get("interactive_resource_node_count", 0))
 		])
+	var terrain_stats: Dictionary = Dictionary(world_stats.get("terrain_renderer", {}))
+	if not terrain_stats.is_empty():
+		diagnostics.append("terrain surface_visible=%d surface_cached=%d surface_pending=%d surface_built=%d cell_visible=%d cell_drawn=%d shape_polygons=%d shape_details=%d" % [
+			int(terrain_stats.get("terrain_surface_chunk_visible_count", 0)),
+			int(terrain_stats.get("terrain_surface_chunk_cached_count", 0)),
+			int(terrain_stats.get("terrain_surface_chunk_pending_count", 0)),
+			int(terrain_stats.get("terrain_surface_chunks_built_last_frame", 0)),
+			int(terrain_stats.get("terrain_chunk_count_visible", 0)),
+			int(terrain_stats.get("terrain_chunk_drawn_cell_count", 0)),
+			int(terrain_stats.get("biome_shape_renderer_drawn_polygon_count", 0)),
+			int(terrain_stats.get("biome_shape_renderer_drawn_detail_count", 0))
+		])
 	if not minimap_stats.is_empty():
-		diagnostics.append("minimap redraw=%d marker_cache=%d landmark_cache=%d texture_builds=%d last_build_ms=%.2f" % [
+		diagnostics.append("minimap redraw=%d static=%d dynamic=%d player=%d static_cache=%d marker_cache=%d landmark_cache=%d texture_builds=%d last_build_ms=%.2f" % [
 			int(minimap_stats.get("redraw_count", 0)),
+			int(minimap_stats.get("static_redraw_count", 0)),
+			int(minimap_stats.get("dynamic_redraw_count", 0)),
+			int(minimap_stats.get("player_marker_redraw_count", 0)),
+			int(minimap_stats.get("static_cache_rebuild_count", 0)),
 			int(minimap_stats.get("marker_cache_rebuild_count", 0)),
 			int(minimap_stats.get("landmark_cache_rebuild_count", 0)),
 			int(minimap_stats.get("texture_build_count", 0)),

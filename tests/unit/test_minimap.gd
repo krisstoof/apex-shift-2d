@@ -13,6 +13,25 @@ class CountingMinimap:
 		ensure_calls += 1
 
 
+class MarkerChangedMinimap:
+	extends MINIMAP_SCRIPT
+
+	var static_dirty_calls := 0
+	var dynamic_redraw_calls := 0
+
+	func _refresh_landmarks_from_world() -> bool:
+		return false
+
+	func _update_marker_cache() -> bool:
+		return true
+
+	func _mark_static_layer_dirty() -> void:
+		static_dirty_calls += 1
+
+	func _request_dynamic_redraw() -> void:
+		dynamic_redraw_calls += 1
+
+
 class MockResource:
 	extends Node2D
 	var resource_kind := "berry_bush"
@@ -104,6 +123,8 @@ func run() -> Array[String]:
 	_test_minimap_reuses_world_surface_texture_when_available(failures)
 	_test_minimap_camera_world_size_scales_inversely_with_zoom(failures)
 	_test_minimap_content_rect_reserves_footer_space(failures)
+	_test_minimap_performance_debug_reports_layer_redraws(failures)
+	_test_minimap_marker_cache_only_redraws_dynamic_layer(failures)
 	return failures
 
 
@@ -285,6 +306,32 @@ func _test_minimap_content_rect_reserves_footer_space(failures: Array[String]) -
 	var content_rect: Rect2 = minimap.call("_get_content_rect", map_rect)
 	TEST_UTILS.expect(content_rect.size.y < map_rect.size.y - 20.0, failures, "Minimap content rect should reserve room for the footer label")
 	TEST_UTILS.expect(content_rect.end.y <= map_rect.end.y - 20.0, failures, "Minimap content rect should stop above the footer label")
+	minimap.free()
+
+
+func _test_minimap_performance_debug_reports_layer_redraws(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	minimap.set("static_layer_redraw_count", 2)
+	minimap.set("dynamic_layer_redraw_count", 5)
+	minimap.set("player_marker_redraw_count", 5)
+	minimap.set("static_cache_rebuild_count", 1)
+	var debug: Dictionary = minimap.call("get_minimap_performance_debug")
+	TEST_UTILS.expect_equal(int(debug.get("redraw_count", 0)), 7, failures, "Minimap debug should report combined layer redraws")
+	TEST_UTILS.expect_equal(int(debug.get("static_redraw_count", 0)), 2, failures, "Minimap debug should expose static layer redraws")
+	TEST_UTILS.expect_equal(int(debug.get("dynamic_redraw_count", 0)), 5, failures, "Minimap debug should expose dynamic layer redraws")
+	TEST_UTILS.expect_equal(int(debug.get("player_marker_redraw_count", 0)), 5, failures, "Minimap debug should expose player marker redraws")
+	TEST_UTILS.expect_equal(int(debug.get("static_cache_rebuild_count", 0)), 1, failures, "Minimap debug should expose static cache rebuilds")
+	minimap.free()
+
+
+func _test_minimap_marker_cache_only_redraws_dynamic_layer(failures: Array[String]) -> void:
+	var minimap := MarkerChangedMinimap.new()
+	minimap.set("shoreline_segments_cache_valid", true)
+	minimap.set("shoreline_segments_key", str(minimap.call("_get_biome_texture_key")))
+	minimap.call("_refresh_static_caches")
+	TEST_UTILS.expect_equal(minimap.static_dirty_calls, 0, failures, "Marker cache changes should not dirty the static minimap layer")
+	TEST_UTILS.expect_equal(minimap.dynamic_redraw_calls, 1, failures, "Marker cache changes should request a dynamic minimap redraw")
+	TEST_UTILS.expect_equal(int(minimap.get("minimap_marker_cache_rebuild_count")), 1, failures, "Marker cache changes should still increment marker rebuild diagnostics")
 	minimap.free()
 
 

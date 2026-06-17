@@ -269,9 +269,12 @@ func _refresh_static_caches() -> void:
 		minimap_landmark_cache_rebuild_count += 1
 	if marker_cache_changed:
 		minimap_marker_cache_rebuild_count += 1
-	if landmarks_changed or marker_cache_changed or shoreline_changed:
+	if landmarks_changed or shoreline_changed:
+		static_cache_rebuild_count += 1
 		_needs_redraw_due_to_data_change = true
 		_mark_static_layer_dirty()
+	if marker_cache_changed:
+		_request_dynamic_redraw()
 
 
 func _sync_biome_texture() -> void:
@@ -1321,7 +1324,12 @@ class _MinimapDynamicLayer:
 
 func get_minimap_performance_debug() -> Dictionary:
 	return {
-		"redraw_count": minimap_redraw_count,
+		"redraw_count": static_layer_redraw_count + dynamic_layer_redraw_count,
+		"legacy_redraw_count": minimap_redraw_count,
+		"static_redraw_count": static_layer_redraw_count,
+		"dynamic_redraw_count": dynamic_layer_redraw_count,
+		"player_marker_redraw_count": player_marker_redraw_count,
+		"static_cache_rebuild_count": static_cache_rebuild_count,
 		"marker_cache_rebuild_count": minimap_marker_cache_rebuild_count,
 		"landmark_cache_rebuild_count": minimap_landmark_cache_rebuild_count,
 		"texture_build_count": minimap_texture_build_count,

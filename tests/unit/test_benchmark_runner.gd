@@ -90,6 +90,18 @@ class FakeWorld extends Node:
 			"hidden_creatures": 6
 		}
 
+	func get_terrain_renderer_debug() -> Dictionary:
+		return {
+			"terrain_surface_chunk_visible_count": 9,
+			"terrain_surface_chunk_cached_count": 12,
+			"terrain_surface_chunk_pending_count": 2,
+			"terrain_surface_chunks_built_last_frame": 1,
+			"terrain_chunk_count_visible": 4,
+			"terrain_chunk_drawn_cell_count": 128,
+			"biome_shape_renderer_drawn_polygon_count": 5,
+			"biome_shape_renderer_drawn_detail_count": 17
+		}
+
 	func get_landmark_counts() -> Dictionary:
 		return {"generated": 3, "pond": 1, "hill": 2}
 
@@ -147,6 +159,10 @@ class FakeMinimap extends Node:
 	func get_minimap_performance_debug() -> Dictionary:
 		return {
 			"redraw_count": 4,
+			"static_redraw_count": 1,
+			"dynamic_redraw_count": 3,
+			"player_marker_redraw_count": 3,
+			"static_cache_rebuild_count": 8,
 			"marker_cache_rebuild_count": 5,
 			"landmark_cache_rebuild_count": 6,
 			"texture_build_count": 7,
@@ -226,6 +242,8 @@ func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) 
 	var registry: Dictionary = Dictionary(stats.get("registry", {}))
 	var render_flags: Dictionary = Dictionary(stats.get("render_flags", {}))
 	var visibility_culling: Dictionary = Dictionary(stats.get("visibility_culling", {}))
+	var terrain_renderer: Dictionary = Dictionary(stats.get("terrain_renderer", {}))
+	var render_pressure: Dictionary = Dictionary(stats.get("render_pressure", {}))
 	var resource_render_mode: Dictionary = Dictionary(stats.get("resource_render_mode", {}))
 	var minimap_stats: Dictionary = runner.call("_capture_minimap_stats")
 	var map_screen_stats: Dictionary = runner.call("_capture_map_screen_stats")
@@ -250,6 +268,12 @@ func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) 
 	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_resources", 0)), 8, failures, "Benchmark runner should capture hidden resource counts")
 	TEST_UTILS.expect_equal(int(visibility_culling.get("visible_creatures", 0)), 2, failures, "Benchmark runner should capture visible creature counts")
 	TEST_UTILS.expect_equal(int(visibility_culling.get("hidden_creatures", 0)), 6, failures, "Benchmark runner should capture hidden creature counts")
+	TEST_UTILS.expect_equal(int(terrain_renderer.get("terrain_surface_chunk_visible_count", 0)), 9, failures, "Benchmark runner should capture terrain surface visible chunks")
+	TEST_UTILS.expect_equal(int(render_pressure.get("terrain_surface_visible_chunks", 0)), 9, failures, "Benchmark runner should attribute terrain surface visible chunks in render pressure")
+	TEST_UTILS.expect_equal(int(render_pressure.get("terrain_cell_drawn_cells", 0)), 128, failures, "Benchmark runner should attribute cell terrain draw pressure")
+	TEST_UTILS.expect_equal(int(render_pressure.get("biome_shape_drawn_details", 0)), 17, failures, "Benchmark runner should attribute biome shape detail draw pressure")
+	TEST_UTILS.expect_equal(int(render_pressure.get("minimap_static_redraw_count", 0)), 1, failures, "Benchmark runner should attribute static minimap redraws")
+	TEST_UTILS.expect_equal(int(render_pressure.get("minimap_dynamic_redraw_count", 0)), 3, failures, "Benchmark runner should attribute dynamic minimap redraws")
 	TEST_UTILS.expect_equal(int(resource_render_mode.get("render_only_resources", 0)), 2, failures, "Benchmark runner should capture render-only resource counts")
 	TEST_UTILS.expect_equal(int(resource_render_mode.get("render_only_grass", 0)), 2, failures, "Benchmark runner should capture render-only grass counts")
 	TEST_UTILS.expect_equal(int(resource_render_mode.get("active_resource_collisions", 0)), 1, failures, "Benchmark runner should capture active resource collision counts")
@@ -333,12 +357,29 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 			"vegetation": {
 				"decorative_grass_node_count": 11,
 				"decorative_vegetation_visual_instance_count": 22,
+				"decorative_vegetation_total_instance_count": 33,
+				"decorative_vegetation_drawn_instance_count": 18,
+				"decorative_vegetation_visible_chunk_count": 4,
 				"edible_vegetation_node_count": 4,
 				"interactive_resource_node_count": 6
+			},
+			"terrain_renderer": {
+				"terrain_surface_chunk_visible_count": 9,
+				"terrain_surface_chunk_cached_count": 12,
+				"terrain_surface_chunk_pending_count": 2,
+				"terrain_surface_chunks_built_last_frame": 1,
+				"terrain_chunk_count_visible": 4,
+				"terrain_chunk_drawn_cell_count": 128,
+				"biome_shape_renderer_drawn_polygon_count": 5,
+				"biome_shape_renderer_drawn_detail_count": 17
 			}
 		},
 		"minimap": {
 			"redraw_count": 4,
+			"static_redraw_count": 1,
+			"dynamic_redraw_count": 3,
+			"player_marker_redraw_count": 3,
+			"static_cache_rebuild_count": 8,
 			"marker_cache_rebuild_count": 5,
 			"landmark_cache_rebuild_count": 6,
 			"texture_build_count": 7,
@@ -365,7 +406,8 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 	TEST_UTILS.expect(line.contains("culling enabled=true visible_resources=3 hidden_resources=8 visible_creatures=2 hidden_creatures=6"), failures, "Benchmark runner diagnostics should include visibility culling counts")
 	TEST_UTILS.expect(line.contains("resource_render_mode render_only_resources=2 render_only_grass=2 active_resource_collisions=1"), failures, "Benchmark runner diagnostics should include render-only resource mode counts")
 	TEST_UTILS.expect(line.contains("registry resources=3 buildings=1"), failures, "Benchmark runner diagnostics should include registry totals")
-	TEST_UTILS.expect(line.contains("minimap redraw=4 marker_cache=5 landmark_cache=6 texture_builds=7 last_build_ms=3.50"), failures, "Benchmark runner diagnostics should include minimap metrics")
+	TEST_UTILS.expect(line.contains("terrain surface_visible=9 surface_cached=12 surface_pending=2 surface_built=1 cell_visible=4 cell_drawn=128 shape_polygons=5 shape_details=17"), failures, "Benchmark runner diagnostics should include terrain renderer attribution")
+	TEST_UTILS.expect(line.contains("minimap redraw=4 static=1 dynamic=3 player=3 static_cache=8 marker_cache=5 landmark_cache=6 texture_builds=7 last_build_ms=3.50"), failures, "Benchmark runner diagnostics should include minimap metrics")
 	TEST_UTILS.expect(line.contains("map_screen redraw=8 cache=9 skipped_hidden=2 texture_builds=10 last_build_ms=4.50"), failures, "Benchmark runner diagnostics should include map screen metrics")
 	TEST_UTILS.expect(line.contains("ai small_prey=2/12 avg=6.0 grazer=1/6 avg=6.0 varnak=1/9 avg=9.0"), failures, "Benchmark runner diagnostics should include AI decision counts")
 	TEST_UTILS.expect(line.contains("world biome=Westwood rect=Rect2(0, 0, 100, 100) total_resources=10 total_creatures=3 oob=0"), failures, "Benchmark runner diagnostics should include world summary metrics")
