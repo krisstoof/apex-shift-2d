@@ -202,6 +202,7 @@ var debug_landmark_overlay_enabled: bool = false
 var biome_textures_enabled: bool = true
 var biome_terrain_accents_enabled: bool = false
 var visibility_culling_enabled: bool = true
+var benchmark_preset_name: String = ""
 var pool_manager: PoolManager
 var chunk_manager: Node
 var vegetation_visual_layer: VegetationVisualLayer
@@ -2795,6 +2796,11 @@ func debug_regenerate_landmarks() -> void:
 	var event_bus: Node = get_node_or_null("/root/EventBus")
 	if event_bus and event_bus.has_method("post_message"):
 		event_bus.post_message("Regenerated landmarks with seed %d" % world_seed)
+
+
+func set_benchmark_preset_name(preset_name: String) -> void:
+	"""Store preset name for benchmark reporting."""
+	benchmark_preset_name = preset_name
 
 
 func _regenerate_decorative_vegetation_visuals_for_loaded_world() -> void:

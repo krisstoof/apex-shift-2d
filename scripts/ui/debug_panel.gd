@@ -313,6 +313,8 @@ func _create_future_tool_buttons() -> void:
 	_add_tool_button("Force rebuild surface textures", _on_force_rebuild_surface_textures_pressed, "World")
 	god_mode_button = _add_tool_button("God Mode: OFF", _on_toggle_god_mode_pressed, "Tools")
 	benchmark_button = _add_tool_button("Run 60s benchmark", _on_run_benchmark_pressed, "Tools")
+	_add_tool_button("Benchmark: Normal preset", _on_run_benchmark_normal_pressed, "Tools")
+	_add_tool_button("Benchmark: Low-end preset", _on_run_benchmark_low_end_pressed, "Tools")
 
 
 func _build_state_text() -> String:
@@ -1763,7 +1765,15 @@ func _on_run_benchmark_pressed() -> void:
 	_start_benchmark()
 
 
-func _start_benchmark() -> void:
+func _on_run_benchmark_normal_pressed() -> void:
+	_start_benchmark("normal")
+
+
+func _on_run_benchmark_low_end_pressed() -> void:
+	_start_benchmark("low_end")
+
+
+func _start_benchmark(preset_name: String = "normal") -> void:
 	if is_instance_valid(benchmark_runner):
 		_post_debug_message("Benchmark is already running")
 		return
@@ -1785,9 +1795,9 @@ func _start_benchmark() -> void:
 	if benchmark_runner.has_signal("benchmark_progress"):
 		benchmark_runner.benchmark_progress.connect(_on_benchmark_progress)
 	if benchmark_runner.has_method("start"):
-		var started: bool = benchmark_runner.call("start") == true
+		var started: bool = benchmark_runner.call("start", preset_name) == true
 		if started:
-			_post_debug_message("Benchmark started for 60 seconds")
+			_post_debug_message("Benchmark started for 60 seconds with %s preset" % preset_name)
 		else:
 			_reset_benchmark_button()
 			benchmark_runner.queue_free()

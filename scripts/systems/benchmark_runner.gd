@@ -42,6 +42,7 @@ var last_process_ticks_msec := 0
 var realtime_hitch_count := 0
 var max_realtime_delta_ms := 0
 var realtime_hitches: Array = []
+var active_preset_name := "normal"
 
 # HITCH LOGGER COUNTERS
 var benchmark_sample_build_ms: float = 0.0
@@ -62,20 +63,22 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 
-func start() -> bool:
+func start(preset_name: String = "normal") -> bool:
 	if running:
 		return false
+	active_preset_name = preset_name
 	if not _capture_context():
 		_post_message("Benchmark could not start: missing game state")
 		queue_free()
 		return false
+	_apply_biome_textures_preset(preset_name)
 	running = true
 	elapsed_seconds = 0.0
 	sample_timer = 0.0
 	RUNTIME_PROFILER.reset()
 	start_ticks_usec = Time.get_ticks_usec()
 	start_unix_time = Time.get_unix_time_from_system()
-	benchmark_base_name = "benchmark_%d" % int(start_unix_time)
+	benchmark_base_name = "benchmark_%s_%d" % [preset_name, int(start_unix_time)]
 	samples.clear()
 	last_process_ticks_msec = 0
 	realtime_hitch_count = 0
@@ -161,6 +164,29 @@ func _find_active_scene(root: Node) -> Node:
 		if child_node.get_node_or_null("World") != null and child_node.get_node_or_null("HUD") != null:
 			return child_node
 	return root.get_child(0) if root.get_child_count() > 0 else null
+
+
+func _apply_biome_textures_preset(preset_name: String) -> void:
+	"""Apply BIOME_TEXTURES preset and sync graphics settings (debug/benchmark only)."""
+	if not is_instance_valid(world):
+		return
+	
+	# Get preset configuration
+	var preset_config := GAME_BALANCE.get_biome_textures_with_preset(preset_name)
+	
+	# Apply key preset values to world
+	if "biome_textures_enabled" in preset_config:
+		if world.has_method("debug_toggle_biome_textures"):
+			var current_state := world.are_biome_textures_enabled() if world.has_method("are_biome_textures_enabled") else true
+			var target_state := bool(preset_config["biome_textures_enabled"])
+			if current_state != target_state:
+				world.debug_toggle_biome_textures()
+	
+	# Store preset in world for reporting
+	if world.has_method("set_benchmark_preset_name"):
+		world.set_benchmark_preset_name(preset_name)
+	
+	_post_message("Applied BIOME_TEXTURES preset: %s" % preset_name)
 
 
 func _record_sample() -> void:
@@ -897,6 +923,7 @@ func _build_report() -> Dictionary:
 		max_physics_time_ms = max(max_physics_time_ms, physics_time_ms)
 	var report := {
 		"benchmark_name": "apex_shift_60_second_debug_benchmark",
+		"benchmark_preset": active_preset_name,
 		"duration_target_seconds": BENCHMARK_DURATION_SECONDS,
 		"actual_duration_seconds": elapsed_seconds,
 		"started_unix_time": int(start_unix_time),

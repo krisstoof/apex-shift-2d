@@ -553,7 +553,7 @@ const BIOME_TEXTURES := {
 	},
 	"detail_tile_world_size": 128.0,
 	"blend_cache_scale": 0.65,
-	"blend_cache_scale_min": 0.35,
+	"blend_cache_scale_min": 0.15,
 	"blend_cache_scale_max": 0.85,
 	"blend_texture_filter_linear": true,
 	"visual_biome_query_bypasses_cell_cache": true,
@@ -606,6 +606,37 @@ const RENDER_PERFORMANCE := {
 		"resource_far_update_interval": 0.75
 	},
 	"recovery_seconds": 3.0
+}
+
+const BIOME_TEXTURES_PRESETS := {
+	"normal": {
+		"blend_cache_scale": 0.65,
+		"blend_cache_scale_min": 0.15,
+		"biome_textures_enabled": true,
+		"use_terrain_surface_chunk_renderer": true,
+		"terrain_surface_chunk_texture_size": 96,
+		"terrain_surface_refined_texture_size": 160,
+		"terrain_surface_max_chunks_built_per_frame": 4,
+		"terrain_surface_max_rows_built_per_frame": 12,
+		"terrain_surface_max_build_ms_per_frame": 6.0,
+		"terrain_surface_refine_max_rows_built_per_frame": 12,
+		"terrain_surface_refine_max_build_ms_per_frame": 6.0,
+	},
+	"low_end": {
+		"blend_cache_scale": 0.20,
+		"blend_cache_scale_min": 0.15,
+		"biome_textures_enabled": false,
+		"use_terrain_surface_chunk_renderer": false,
+		"disable_global_biome_blend_texture": true,
+		"disable_global_surface_texture_on_boot": true,
+		"terrain_surface_chunk_texture_size": 64,
+		"terrain_surface_refined_texture_size": 96,
+		"terrain_surface_max_chunks_built_per_frame": 2,
+		"terrain_surface_max_rows_built_per_frame": 8,
+		"terrain_surface_max_build_ms_per_frame": 3.0,
+		"terrain_surface_refine_max_rows_built_per_frame": 8,
+		"terrain_surface_refine_max_build_ms_per_frame": 3.0,
+	}
 }
 
 const POPULATION_RECOVERY := {
@@ -686,6 +717,20 @@ const ECOSYSTEM := {
 const DEBUG_PLAYER_DAMAGE_AMOUNT := 25.0
 const DEBUG_PLAYER_HEAL_AMOUNT := 25.0
 const DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT := 25.0
+
+
+static func get_biome_textures_with_preset(preset_name: String = "normal") -> Dictionary:
+	"""Apply a BIOME_TEXTURES preset by name, returning merged BIOME_TEXTURES dict."""
+	var result := Dictionary(BIOME_TEXTURES)
+	if not BIOME_TEXTURES_PRESETS.has(preset_name):
+		push_warning("Unknown biome_textures preset: %s, using normal" % preset_name)
+		preset_name = "normal"
+	
+	var preset: Dictionary = Dictionary(BIOME_TEXTURES_PRESETS.get(preset_name, {}))
+	# Merge preset values into result (preset values override defaults)
+	for key in preset.keys():
+		result[key] = preset[key]
+	return result
 
 
 static func get_first_week_difficulty(day: int) -> Dictionary:
