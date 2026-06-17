@@ -145,8 +145,13 @@ func bind_world_context(world_node: Node, ecosystem_node: Node = null, debug_pan
 
 
 func set_visibility_culled(should_be_visible: bool) -> void:
+	var culled_state := not should_be_visible
+	# Early return if state already matches
+	if is_visibility_culled == culled_state:
+		return
+	
 	var previous_mode := "background" if _is_background_simulation_mode() else "active"
-	is_visibility_culled = not should_be_visible
+	is_visibility_culled = culled_state
 	visible = should_be_visible
 	_update_simulation_level()
 	if should_be_visible:
@@ -164,8 +169,10 @@ func set_visibility_culled(should_be_visible: bool) -> void:
 	else:
 		collision_layer = stored_collision_layer
 		collision_mask = stored_collision_mask
-		set_physics_process(true)
-		set_process(true)
+		if not is_physics_processing():
+			set_physics_process(true)
+		if not is_processing():
+			set_process(true)
 	_on_simulation_mode_changed(previous_mode, "active" if should_be_visible else "background")
 
 

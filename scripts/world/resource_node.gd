@@ -810,11 +810,22 @@ func is_render_only_resource() -> bool:
 
 
 func set_visibility_culled(should_be_visible: bool) -> void:
-	is_visibility_culled = not should_be_visible
+	var culled_state := not should_be_visible
+	# Early return if state already matches
+	if is_visibility_culled == culled_state:
+		return
+	
+	is_visibility_culled = culled_state
 	visible = should_be_visible
 	_sync_collision_state()
-	set_process(should_be_visible)
-	set_physics_process(should_be_visible)
+	
+	# Only update process states if they need to change
+	var needs_process := should_be_visible
+	if is_processing() != needs_process:
+		set_process(needs_process)
+	if is_physics_processing() != needs_process:
+		set_physics_process(needs_process)
+	
 	queue_redraw()
 
 

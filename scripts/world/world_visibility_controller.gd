@@ -15,6 +15,16 @@ var visible_creature_count := 0
 var hidden_creature_count := 0
 var last_visible_rect := Rect2()
 
+# Batching & hysteresis
+var pending_visibility_show: Array[Node] = []
+var pending_visibility_hide: Array[Node] = []
+var visibility_changes_budget := 25
+var shown_this_frame := 0
+var hidden_this_frame := 0
+var hysteresis_margin := 0.15  # 15% additional margin for hide_rect to prevent flickering
+var show_rect := Rect2()  # Inner rect - where to show nodes
+var hide_rect := Rect2()  # Outer rect with extra margin - where to hide nodes
+
 
 func setup(config: Dictionary) -> void:
 	world = config.get("world", world)
@@ -28,6 +38,9 @@ func setup(config: Dictionary) -> void:
 func process(delta: float) -> void:
 	if not enabled or not is_instance_valid(world):
 		return
+	shown_this_frame = 0
+	hidden_this_frame = 0
+	_process_pending_visibility_changes()
 	update_timer += delta
 	if update_timer < interval_seconds:
 		return
@@ -50,7 +63,12 @@ func get_debug_data() -> Dictionary:
 		"visible_resources": visible_resource_count,
 		"hidden_resources": hidden_resource_count,
 		"visible_creatures": visible_creature_count,
-		"hidden_creatures": hidden_creature_count
+		"hidden_creatures": hidden_creature_count,
+		"shown_this_frame": shown_this_frame,
+		"hidden_this_frame": hidden_this_frame,
+		"pending_show_count": pending_visibility_show.size(),
+		"pending_hide_count": pending_visibility_hide.size(),
+		"visibility_changes_budget": visibility_changes_budget
 	}
 
 
@@ -62,30 +80,52 @@ func reset() -> void:
 	visible_creature_count = 0
 	hidden_creature_count = 0
 	last_visible_rect = Rect2()
+	pending_visibility_show.clear()
+	pending_visibility_hide.clear()
+	shown_this_frame = 0
+	hidden_this_frame = 0
+	show_rect = Rect2()
+	hide_rect = Rect2()
 
 
 func _update_visibility() -> void:
 	if not is_instance_valid(world):
 		return
-	var visible_rect := _get_expanded_visible_rect()
-	if visible_rect == Rect2():
+	show_rect = _get_expanded_visible_rect()
+	if show_rect == Rect2():
 		return
+	# hide_rect has additional hysteresis margin to prevent flickering
+	hide_rect = show_rect.grow(show_rect.get_longest_axis_size() * hysteresis_margin)
+	
 	var current_visible_nodes: Dictionary = {}
 	visible_resource_count = 0
 	hidden_resource_count = 0
 	visible_creature_count = 0
 	hidden_creature_count = 0
-	var query_rect := visible_rect.grow(48.0)
+	var query_rect := show_rect.grow(48.0)
 	for node in _query_resources(query_rect):
-		_mark_visible(node, true, current_visible_nodes)
+		_queue_visibility_change(node, true, true, current_visible_nodes)
 	for node in _query_meat(query_rect):
-		_mark_visible(node, true, current_visible_nodes)
+		_queue_visibility_change(node, true, true, current_visible_nodes)
 	for creature_type in ["small_prey", "grazer", "varnak"]:
 		for node in _query_creatures(query_rect, creature_type):
-			_mark_visible(node, false, current_visible_nodes)
-	_hide_nodes_that_left_visibility_rect(current_visible_nodes)
+			_queue_visibility_change(node, true, false, current_visible_nodes)
+	
+	# Queue hide for nodes that left visibility rect
+	for previous_id in last_visible_nodes.keys():
+		if current_visible_nodes.has(previous_id):
+			continue
+		var previous_node: Variant = last_visible_nodes.get(previous_id, null)
+		if previous_node == null or not is_instance_valid(previous_node):
+			continue
+		var node := previous_node as Node
+		if node == null:
+			continue
+		var is_resource := node.is_in_group("resources")
+		_queue_visibility_change(node, false, is_resource, {})
+	
 	last_visible_nodes = current_visible_nodes
-	last_visible_rect = visible_rect
+	last_visible_rect = show_rect
 
 
 func _get_expanded_visible_rect() -> Rect2:
@@ -124,7 +164,7 @@ func _mark_visible(node: Node, is_resource: bool, current_visible_nodes: Diction
 	if not is_instance_valid(node):
 		return
 	current_visible_nodes[node.get_instance_id()] = node
-	_set_visibility(node, true)
+	_queue_visibility_change(node, true, is_resource, current_visible_nodes)
 	if is_resource:
 		visible_resource_count += 1
 	else:
@@ -142,11 +182,52 @@ func _hide_nodes_that_left_visibility_rect(current_visible_nodes: Dictionary) ->
 		if node == null:
 			continue
 		var is_resource := node.is_in_group("resources")
-		_set_visibility(node, false)
+		_queue_visibility_change(node, false, is_resource, {})
 		if is_resource:
 			hidden_resource_count += 1
 		else:
 			hidden_creature_count += 1
+
+
+func _queue_visibility_change(node: Node, should_be_visible: bool, is_resource: bool, current_visible_nodes: Dictionary) -> void:
+	if not is_instance_valid(node):
+		return
+	if should_be_visible:
+		if node not in pending_visibility_show:
+			pending_visibility_show.append(node)
+		if is_resource:
+			visible_resource_count += 1
+		else:
+			visible_creature_count += 1
+	else:
+		if node not in pending_visibility_hide:
+			pending_visibility_hide.append(node)
+		if is_resource:
+			hidden_resource_count += 1
+		else:
+			hidden_creature_count += 1
+	if should_be_visible:
+		current_visible_nodes[node.get_instance_id()] = node
+
+
+func _process_pending_visibility_changes() -> void:
+	var budget_used := 0
+	
+	# Process show queue
+	while budget_used < visibility_changes_budget and pending_visibility_show.size() > 0:
+		var node := pending_visibility_show.pop_front() as Node
+		if is_instance_valid(node):
+			_set_visibility(node, true)
+			shown_this_frame += 1
+		budget_used += 1
+	
+	# Process hide queue with remaining budget
+	while budget_used < visibility_changes_budget and pending_visibility_hide.size() > 0:
+		var node := pending_visibility_hide.pop_front() as Node
+		if is_instance_valid(node):
+			_set_visibility(node, false)
+			hidden_this_frame += 1
+		budget_used += 1
 
 
 func _set_visibility(node: Node, should_be_visible: bool) -> void:
@@ -155,4 +236,6 @@ func _set_visibility(node: Node, should_be_visible: bool) -> void:
 	if node.has_method("set_visibility_culled"):
 		node.call("set_visibility_culled", should_be_visible)
 	elif node is Node2D:
-		(node as Node2D).visible = should_be_visible
+		var node2d := node as Node2D
+		if node2d.visible != should_be_visible:
+			node2d.visible = should_be_visible
