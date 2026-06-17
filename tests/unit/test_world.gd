@@ -311,7 +311,7 @@ func run() -> Array[String]:
 	_test_water_zone_detection_uses_pond_geometry(failures)
 	_test_plant_resources_are_blocked_by_water(failures)
 	_test_non_plant_resources_ignore_water_blocking(failures)
-	_test_hills_block_navigation(failures)
+	_test_highlands_no_longer_block_navigation(failures)
 	_test_terrain_speed_multiplier_changes_in_water(failures)
 	_test_landmark_save_data_round_trip_vectors(failures)
 	_test_world_save_data_includes_seed_and_landmark_fields(failures)
@@ -604,9 +604,9 @@ func _test_non_plant_resources_ignore_water_blocking(failures: Array[String]) ->
 	world.free()
 
 
-func _test_hills_block_navigation(failures: Array[String]) -> void:
+func _test_highlands_no_longer_block_navigation(failures: Array[String]) -> void:
 	var world := _make_world_with_single_hill()
-	TEST_UTILS.expect(world.is_creature_navigation_blocked(Vector2.ZERO), failures, "Hill centers should block navigation")
+	TEST_UTILS.expect(not world.is_creature_navigation_blocked(Vector2.ZERO), failures, "Legacy hill landmarks should no longer block navigation")
 	TEST_UTILS.expect(not world.is_creature_navigation_blocked(Vector2(220.0, 0.0)), failures, "Positions far from the hill should remain navigable")
 	world.free()
 
@@ -927,9 +927,9 @@ func _test_landmark_debug_counts_and_nearest_selection(failures: Array[String]) 
 	world.pond_landmarks = [world.landmarks[0]]
 	world.hill_landmarks = [world.landmarks[1]]
 	var counts: Dictionary = world.get_landmark_counts()
-	TEST_UTILS.expect_equal(int(counts.get("generated", 0)), 2, failures, "Landmark debug counts should include the generated landmark total")
-	TEST_UTILS.expect_equal(int(counts.get("pond", 0)), 1, failures, "Landmark debug counts should report pond totals")
-	TEST_UTILS.expect_equal(int(counts.get("hill", 0)), 1, failures, "Landmark debug counts should report hill totals")
+	TEST_UTILS.expect_equal(int(counts.get("generated", 0)), 0, failures, "Landmark debug counts should only include active POI landmarks")
+	TEST_UTILS.expect_equal(int(counts.get("pond", 0)), 0, failures, "Landmark debug counts should no longer report pond totals")
+	TEST_UTILS.expect_equal(int(counts.get("hill", 0)), 0, failures, "Landmark debug counts should no longer report hill totals")
 	var nearest: Dictionary = world.get_nearest_landmark_data(Vector2(100.0, 35.0))
 	TEST_UTILS.expect_equal(str(nearest.get("id", "")), "near_pond", failures, "Nearest landmark lookup should prefer the closest landmark")
 	TEST_UTILS.expect_equal(str(nearest.get("type", "")), "pond", failures, "Nearest landmark lookup should preserve landmark type")
@@ -1205,6 +1205,8 @@ func _test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures: Ar
 
 
 func _test_terrain_surface_renderer_samples_biome_shape_map(failures: Array[String]) -> void:
+	var previous_use_shape_map_sampling := GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_shape_map_sampling", false)
+	GAME_BALANCE.BIOME_TEXTURES["terrain_surface_use_shape_map_sampling"] = true
 	var renderer := TerrainSurfaceChunkRenderer.new()
 	var world := SurfaceSamplingWorldStub.new()
 	var player := Node2D.new()
@@ -1212,17 +1214,18 @@ func _test_terrain_surface_renderer_samples_biome_shape_map(failures: Array[Stri
 	player.add_child(camera)
 	renderer.bind(world, player, camera)
 	var sample: Dictionary = renderer.call("_sample_surface_ids", Vector2(128.0, 256.0))
-	TEST_UTILS.expect_equal(str(sample.get("source", "")), "exact_polygon_record", failures, "Terrain surface renderer should sample the exact biome polygon surface before falling back to world terrain")
+	TEST_UTILS.expect_equal(str(sample.get("source", "")), "polygon", failures, "Terrain surface renderer should prefer the biome shape map surface without falling back to world terrain")
 	TEST_UTILS.expect_equal(str(sample.get("terrain_id", "")), "shape_terrain", failures, "Terrain surface renderer should use the biome shape map terrain id")
 	TEST_UTILS.expect_equal(str(sample.get("biome_id", "")), "shape_biome", failures, "Terrain surface renderer should use the biome shape map biome id")
 	TEST_UTILS.expect_equal(world.shape_map.last_position, Vector2(128.0, 256.0), failures, "Biome shape map should receive the exact sampled position")
 	renderer.call("_sample_surface_color", Vector2(128.0, 256.0))
 	var debug: Dictionary = renderer.get_debug_data()
 	var source_counts := Dictionary(debug.get("terrain_surface_sample_source_counts", {}))
-	TEST_UTILS.expect_equal(int(source_counts.get("exact_polygon_record", 0)) >= 1, true, failures, "Terrain surface renderer should track exact biome polygon sample sources")
+	TEST_UTILS.expect_equal(int(source_counts.get("polygon", 0)) >= 1, true, failures, "Terrain surface renderer should track biome shape map sample sources")
 	renderer.free()
 	player.free()
 	world.free()
+	GAME_BALANCE.BIOME_TEXTURES["terrain_surface_use_shape_map_sampling"] = previous_use_shape_map_sampling
 
 
 func _test_terrain_surface_renderer_uses_preview_then_refine_pipeline(failures: Array[String]) -> void:

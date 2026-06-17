@@ -1,7 +1,11 @@
 extends RefCounted
 class_name LandmarkService
 
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+
 var landmarks: Array[Dictionary] = []
+var all_landmarks: Array[Dictionary] = []
+var legacy_topography_landmarks: Array[Dictionary] = []
 var hill_landmarks: Array[Dictionary] = []
 var pond_landmarks: Array[Dictionary] = []
 var pond_water_search_radius := 0.0
@@ -45,19 +49,30 @@ func resolve_restored_layout(
 
 func set_landmarks(landmark_layout: Array, max_pond_search_radius_factor := 1.2) -> void:
 	landmarks.clear()
+	all_landmarks.clear()
+	legacy_topography_landmarks.clear()
 	hill_landmarks.clear()
 	pond_landmarks.clear()
 	pond_water_search_radius = 0.0
 	var max_pond_radius := 0.0
+	var allow_legacy_visible := bool(GAME_BALANCE.LANDMARKS.get("legacy_topography_landmarks_visible", false))
 	for landmark_value in landmark_layout:
 		var landmark := Dictionary(landmark_value).duplicate(true)
-		landmarks.append(landmark)
+		all_landmarks.append(landmark)
 		match str(landmark.get("type", "")):
 			"hill":
+				legacy_topography_landmarks.append(landmark)
 				hill_landmarks.append(landmark)
 			"pond":
+				legacy_topography_landmarks.append(landmark)
 				pond_landmarks.append(landmark)
 				max_pond_radius = max(max_pond_radius, float(landmark.get("radius", 0.0)))
+			"highland":
+				legacy_topography_landmarks.append(landmark)
+			_:
+				landmarks.append(landmark)
+		if allow_legacy_visible and str(landmark.get("type", "")) in ["hill", "pond", "highland"]:
+			landmarks.append(landmark)
 	if not pond_landmarks.is_empty():
 		pond_water_search_radius = max(max_pond_radius * max_pond_search_radius_factor, 1.0)
 
@@ -66,14 +81,19 @@ func sync_runtime_landmarks(landmark_layout: Array, create_landmark_area: Callab
 	set_landmarks(landmark_layout, max_pond_search_radius_factor)
 	if not create_landmark_area.is_valid():
 		return
-	for landmark in hill_landmarks:
-		create_landmark_area.call(landmark, "hill_landmarks")
-	for landmark in pond_landmarks:
-		create_landmark_area.call(landmark, "pond_landmarks")
+	if bool(GAME_BALANCE.LANDMARKS.get("legacy_topography_landmark_areas_enabled", false)):
+		for landmark in hill_landmarks:
+			create_landmark_area.call(landmark, "hill_landmarks")
+		for landmark in pond_landmarks:
+			create_landmark_area.call(landmark, "pond_landmarks")
 
 
 func get_landmarks() -> Array[Dictionary]:
 	return landmarks.duplicate(true)
+
+
+func get_all_landmarks() -> Array[Dictionary]:
+	return all_landmarks.duplicate(true)
 
 
 func deserialize_landmark_save_data(landmark_data: Array) -> Array[Dictionary]:
@@ -90,7 +110,7 @@ func deserialize_landmark_save_data(landmark_data: Array) -> Array[Dictionary]:
 
 func get_landmark_save_data() -> Array[Dictionary]:
 	var landmark_data: Array[Dictionary] = []
-	for landmark_value in landmarks:
+	for landmark_value in all_landmarks:
 		var landmark := Dictionary(landmark_value).duplicate(true)
 		landmark["position"] = _vector_to_data(Vector2(landmark.get("position", Vector2.ZERO)))
 		landmark["radius"] = float(landmark.get("radius", 0.0))
@@ -109,6 +129,13 @@ func get_pond_landmarks() -> Array[Dictionary]:
 func get_landmark_counts() -> Dictionary:
 	return {
 		"generated": landmarks.size(),
+		"hill": 0,
+		"pond": 0
+	}
+
+
+func get_legacy_topography_landmark_counts() -> Dictionary:
+	return {
 		"hill": hill_landmarks.size(),
 		"pond": pond_landmarks.size()
 	}

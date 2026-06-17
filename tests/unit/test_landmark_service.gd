@@ -8,7 +8,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_landmark_service_resolves_initial_layout(failures)
 	_test_landmark_service_resolves_restored_layout(failures)
-	_test_landmark_service_splits_hills_and_ponds(failures)
+	_test_landmark_service_filters_topography_from_active_landmarks(failures)
 	_test_landmark_service_syncs_runtime_landmarks_via_callback(failures)
 	_test_landmark_service_calculates_nearest_landmark(failures)
 	_test_landmark_service_deserializes_save_data(failures)
@@ -89,7 +89,7 @@ func _test_landmark_service_resolves_restored_layout(failures: Array[String]) ->
 	TEST_UTILS.expect_equal(str(Dictionary(Array(restored_layout.get("landmarks", []))[0]).get("id", "")), "restored_pond", failures, "Restored landmark resolution should return restored landmarks when available")
 
 
-func _test_landmark_service_splits_hills_and_ponds(failures: Array[String]) -> void:
+func _test_landmark_service_filters_topography_from_active_landmarks(failures: Array[String]) -> void:
 	var service := LANDMARK_SERVICE.new()
 	service.set_landmarks([
 		{
@@ -109,12 +109,23 @@ func _test_landmark_service_splits_hills_and_ponds(failures: Array[String]) -> v
 			"type": "pond",
 			"position": Vector2(620.0, 120.0),
 			"radius": 90.0
+		},
+		{
+			"id": "campfire_alpha",
+			"type": "campfire",
+			"position": Vector2(20.0, 20.0),
+			"radius": 12.0
 		}
 	])
 	var counts := service.get_landmark_counts()
-	TEST_UTILS.expect_equal(int(counts.get("generated", 0)), 3, failures, "LandmarkService should keep the full generated landmark count")
-	TEST_UTILS.expect_equal(int(counts.get("hill", 0)), 1, failures, "LandmarkService should split hill landmarks into their own list")
-	TEST_UTILS.expect_equal(int(counts.get("pond", 0)), 2, failures, "LandmarkService should split pond landmarks into their own list")
+	TEST_UTILS.expect_equal(int(counts.get("generated", 0)), 1, failures, "LandmarkService should keep only POI landmarks active")
+	TEST_UTILS.expect_equal(int(counts.get("hill", 0)), 0, failures, "Active landmark counts should no longer expose hills")
+	TEST_UTILS.expect_equal(int(counts.get("pond", 0)), 0, failures, "Active landmark counts should no longer expose ponds")
+	var legacy_counts := service.get_legacy_topography_landmark_counts()
+	TEST_UTILS.expect_equal(int(legacy_counts.get("hill", 0)), 1, failures, "LandmarkService should still retain hill landmarks for legacy save data")
+	TEST_UTILS.expect_equal(int(legacy_counts.get("pond", 0)), 2, failures, "LandmarkService should still retain pond landmarks for legacy save data")
+	TEST_UTILS.expect_equal(service.get_landmarks().size(), 1, failures, "LandmarkService should expose only POI landmarks as active runtime landmarks")
+	TEST_UTILS.expect_equal(service.get_all_landmarks().size(), 4, failures, "LandmarkService should keep the full raw landmark layout for save compatibility")
 	TEST_UTILS.expect_close(service.get_pond_water_search_radius(), 168.0, failures, "LandmarkService should derive pond water search radius from the largest pond")
 
 
@@ -139,9 +150,7 @@ func _test_landmark_service_syncs_runtime_landmarks_via_callback(failures: Array
 		func(landmark: Dictionary, group_name: String) -> void:
 			area_calls.append("%s:%s" % [str(landmark.get("id", "")), group_name])
 	)
-	TEST_UTILS.expect_equal(area_calls.size(), 2, failures, "LandmarkService should invoke the callback for each runtime landmark")
-	TEST_UTILS.expect(area_calls.has("hill_alpha:hill_landmarks"), failures, "LandmarkService should route hills to the hill landmark callback group")
-	TEST_UTILS.expect(area_calls.has("pond_alpha:pond_landmarks"), failures, "LandmarkService should route ponds to the pond landmark callback group")
+	TEST_UTILS.expect_equal(area_calls.size(), 0, failures, "LandmarkService should not create legacy topography runtime areas by default")
 	TEST_UTILS.expect_close(service.get_pond_water_search_radius(), 168.0, failures, "Runtime landmark sync should still derive pond search radius")
 
 
@@ -149,10 +158,10 @@ func _test_landmark_service_calculates_nearest_landmark(failures: Array[String])
 	var service := LANDMARK_SERVICE.new()
 	service.set_landmarks([
 		{
-			"id": "hill_alpha",
-			"type": "hill",
+			"id": "campfire_alpha",
+			"type": "campfire",
 			"position": Vector2(-100.0, 0.0),
-			"radius": 150.0
+			"radius": 24.0
 		},
 		{
 			"id": "pond_alpha",
@@ -162,7 +171,7 @@ func _test_landmark_service_calculates_nearest_landmark(failures: Array[String])
 		}
 	])
 	var nearest := service.get_nearest_landmark_data(Vector2(180.0, 10.0))
-	TEST_UTILS.expect_equal(str(nearest.get("id", "")), "pond_alpha", failures, "LandmarkService should return the nearest landmark by distance")
+	TEST_UTILS.expect_equal(str(nearest.get("id", "")), "campfire_alpha", failures, "LandmarkService should return the nearest active landmark by distance")
 	TEST_UTILS.expect(float(nearest.get("distance_to_position", INF)) < 60.0, failures, "LandmarkService should report the computed distance for the nearest landmark")
 
 
@@ -215,8 +224,8 @@ func _test_landmark_service_returns_deep_copies(failures: Array[String]) -> void
 	var service := LANDMARK_SERVICE.new()
 	service.set_landmarks([
 		{
-			"id": "pond_alpha",
-			"type": "pond",
+			"id": "campfire_alpha",
+			"type": "campfire",
 			"position": Vector2.ZERO,
 			"radius": 100.0,
 			"gameplay_tags": ["water_source"]
@@ -226,4 +235,4 @@ func _test_landmark_service_returns_deep_copies(failures: Array[String]) -> void
 	var mutated := Dictionary(landmarks[0])
 	mutated["id"] = "changed"
 	var second_read := service.get_landmarks()
-	TEST_UTILS.expect_equal(str(Dictionary(second_read[0]).get("id", "")), "pond_alpha", failures, "LandmarkService should not leak caller mutations back into its stored layout")
+	TEST_UTILS.expect_equal(str(Dictionary(second_read[0]).get("id", "")), "campfire_alpha", failures, "LandmarkService should not leak caller mutations back into its stored layout")

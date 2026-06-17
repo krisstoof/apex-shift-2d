@@ -46,20 +46,21 @@ func bind_world(
 func get_terrain_speed_multiplier(position: Vector2) -> float:
 	match get_water_zone(position):
 		water_zone_deep:
-			return _get_pond_deep_speed_multiplier()
+			return _get_topography_pond_deep_speed_multiplier()
 		water_zone_shallow:
-			return _get_pond_shallow_speed_multiplier()
+			return _get_topography_pond_shallow_speed_multiplier()
 		water_zone_highland:
 			return _get_highland_speed_multiplier(position)
 		water_zone_shore:
-			return 0.92
+			return _get_topography_pond_shore_speed_multiplier()
 	return 1.0
 
 
 func get_water_zone(position: Vector2) -> String:
-	var landmark_zone := _get_landmark_pond_water_zone(position)
-	if not landmark_zone.is_empty():
-		return landmark_zone
+	if bool(GAME_BALANCE.LANDMARKS.get("legacy_pond_landmark_water_enabled", false)):
+		var landmark_zone := _get_landmark_pond_water_zone(position)
+		if not landmark_zone.is_empty():
+			return landmark_zone
 	var terrain_zone := _get_surface_terrain_zone(position)
 	match terrain_zone:
 		"deep_ocean":
@@ -69,9 +70,11 @@ func get_water_zone(position: Vector2) -> String:
 		"pond":
 			var sample := _get_topography_sample(position)
 			var pond_influence := float(sample.get("best_pond_influence", sample.get("pond_influence", 0.0)))
-			if pond_influence >= 0.68:
+			if pond_influence >= float(GAME_BALANCE.LANDMARKS.get("topography_pond_deep_threshold", 0.70)):
+				return water_zone_deep
+			if pond_influence >= float(GAME_BALANCE.LANDMARKS.get("topography_pond_shallow_threshold", 0.56)):
 				return water_zone_shallow
-			if pond_influence >= 0.46:
+			if pond_influence >= float(GAME_BALANCE.LANDMARKS.get("topography_pond_shore_threshold", 0.46)):
 				return water_zone_shore
 			return water_zone_land
 		"shore":
@@ -146,12 +149,6 @@ func _get_landmark_pond_water_zone(position: Vector2) -> String:
 	return ""
 
 
-func _get_topography_zone(position: Vector2) -> String:
-	if world != null and world.has_method("get_topography_zone_at"):
-		return str(world.get_topography_zone_at(position))
-	return ""
-
-
 func _get_base_terrain_zone(position: Vector2) -> String:
 	if world != null and world.has_method("get_generator_base_terrain_zone_at"):
 		return str(world.get_generator_base_terrain_zone_at(position))
@@ -166,22 +163,6 @@ func _get_surface_terrain_zone(position: Vector2) -> String:
 	if world != null and world.has_method("get_topography_zone_at"):
 		return str(world.get_topography_zone_at(position))
 	return _get_base_terrain_zone(position)
-
-
-func _get_hill_landmarks() -> Array:
-	if world == null:
-		return []
-	return Array(world.get("hill_landmarks"))
-
-
-func _get_pond_water_search_radius() -> float:
-	if world == null:
-		return 0.0
-	return float(world.get("pond_water_search_radius"))
-
-
-func _is_position_in_pond_water(position: Vector2, pond: Dictionary, margin_multiplier: float = 1.0) -> bool:
-	return _get_pond_water_ratio(position, pond) <= margin_multiplier
 
 
 func _get_pond_water_ratio(position: Vector2, pond: Dictionary) -> float:
@@ -244,32 +225,36 @@ func _get_pond_shore_radius_factor() -> float:
 
 
 func _get_pond_deep_speed_multiplier() -> float:
-	return float(GAME_BALANCE.LANDMARKS.get("pond_deep_speed_multiplier", 0.42))
+	return float(GAME_BALANCE.LANDMARKS.get("topography_pond_deep_speed_multiplier", GAME_BALANCE.LANDMARKS.get("pond_deep_speed_multiplier", 0.42)))
 
 
 func _get_pond_shallow_speed_multiplier() -> float:
-	return float(GAME_BALANCE.LANDMARKS.get("pond_shallow_speed_multiplier", 0.68))
+	return float(GAME_BALANCE.LANDMARKS.get("topography_pond_shallow_speed_multiplier", GAME_BALANCE.LANDMARKS.get("pond_shallow_speed_multiplier", 0.68)))
+
+
+func _get_topography_pond_shore_speed_multiplier() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("topography_pond_shore_speed_multiplier", 0.88))
+
+
+func _get_topography_pond_deep_speed_multiplier() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("topography_pond_deep_speed_multiplier", 0.42))
+
+
+func _get_topography_pond_shallow_speed_multiplier() -> float:
+	return float(GAME_BALANCE.LANDMARKS.get("topography_pond_shallow_speed_multiplier", 0.68))
 
 
 func _get_highland_speed_multiplier(position: Vector2) -> float:
 	var sample := _get_topography_sample(position)
-	var terrain_zone := str(sample.get("terrain_zone", "land"))
 	var elevation_band := str(sample.get("elevation_band", "lowland"))
-	var base_multiplier := 0.88
-	match terrain_zone:
-		"ridge":
-			base_multiplier = 0.68
-		"rocky_patch":
-			base_multiplier = 0.78
-		"highland":
-			base_multiplier = 0.86
-		"wetland":
-			base_multiplier = 0.82
-	if elevation_band == "highland_peak":
-		base_multiplier = minf(base_multiplier, 0.70)
-	elif elevation_band == "highland_mid":
-		base_multiplier = minf(base_multiplier, 0.78)
-	return base_multiplier
+	match elevation_band:
+		"highland_peak":
+			return 0.70
+		"highland_mid":
+			return 0.78
+		"highland_low":
+			return 0.86
+	return 0.86
 
 
 func _get_resource_water_margin_multiplier(resource_kind: String) -> float:
