@@ -197,7 +197,7 @@ func process_build_queue(delta: float = 0.0) -> void:
 	for key_value in active_builds.keys():
 		var chunk_key = key_value
 		_process_active_chunk_build(chunk_key, start_ms, allow_refine)
-		if float(Time.get_ticks_msec() - start_ms) >= refined_max_build_ms_per_frame:
+		if float(Time.get_ticks_msec() - start_ms) >= max_build_ms_per_frame:
 			break
 	last_build_ms = float(Time.get_ticks_msec() - start_ms)
 	max_build_ms = maxf(max_build_ms, last_build_ms)

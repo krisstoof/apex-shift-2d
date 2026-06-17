@@ -572,8 +572,8 @@ const RENDER_PERFORMANCE := {
 	"normal": {
 		"decorative_vegetation_max_drawn": 90,
 		"decorative_far_lod_every_nth": 2,
-		"minimap_redraw_interval": 0.15,
-		"minimap_marker_rebuild_interval": 0.25,
+		"minimap_redraw_interval": 0.35,
+		"minimap_marker_rebuild_interval": 0.5,
 		"terrain_refined_chunks_per_frame": 1,
 		"terrain_build_budget_ms": 2.0,
 		"resource_far_update_interval": 0.25
@@ -581,8 +581,8 @@ const RENDER_PERFORMANCE := {
 	"pressure": {
 		"decorative_vegetation_max_drawn": 60,
 		"decorative_far_lod_every_nth": 3,
-		"minimap_redraw_interval": 0.25,
-		"minimap_marker_rebuild_interval": 0.5,
+		"minimap_redraw_interval": 0.75,
+		"minimap_marker_rebuild_interval": 1.0,
 		"terrain_refined_chunks_per_frame": 1,
 		"terrain_build_budget_ms": 1.0,
 		"resource_far_update_interval": 0.5

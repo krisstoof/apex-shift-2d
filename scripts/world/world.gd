@@ -2416,6 +2416,8 @@ func get_terrain_renderer_debug() -> Dictionary:
 
 func get_render_budget_debug() -> Dictionary:
 	var governor_budget := Dictionary(render_performance_governor.get_budget()) if render_performance_governor != null and render_performance_governor.has_method("get_budget") else Dictionary(GAME_BALANCE.RENDER_PERFORMANCE.get("normal", {}))
+	if render_performance_governor != null and render_performance_governor.has_method("get_debug_data"):
+		governor_budget.merge(Dictionary(render_performance_governor.get_debug_data()), true)
 	governor_budget["mode"] = str(governor_budget.get("mode", "normal"))
 	governor_budget["fps_ema"] = render_performance_governor.fps_ema if render_performance_governor != null else 60.0
 	governor_budget["render_governor_mode"] = render_performance_governor.mode if render_performance_governor != null else "normal"
