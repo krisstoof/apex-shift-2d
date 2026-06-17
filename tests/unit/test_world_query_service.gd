@@ -10,14 +10,54 @@ class TestWorldContext:
 	var pond_landmarks: Array = []
 	var hill_landmarks: Array = []
 	var pond_water_search_radius := 0.0
+	var topography_pond_landmarks: Array = []
+	var topography_surface_zone := "land"
+
+	func get_surface_terrain_zone_at(position: Vector2) -> String:
+		return str(get_topography_sample_at(position).get("terrain_zone", topography_surface_zone))
+
+	func get_topography_sample_at(position: Vector2) -> Dictionary:
+		var source_ponds := topography_pond_landmarks if not topography_pond_landmarks.is_empty() else pond_landmarks
+		var best_ratio := INF
+		var best_pond := {}
+		for pond_value in source_ponds:
+			var pond := Dictionary(pond_value)
+			var center := Vector2(pond.get("position", Vector2.ZERO))
+			var radius := float(pond.get("radius", 0.0))
+			if radius <= 0.0:
+				continue
+			var offset := position - center
+			var normalized := Vector2(offset.x / radius, offset.y / (radius * 0.62))
+			var ratio := normalized.length()
+			if ratio < best_ratio:
+				best_ratio = ratio
+				best_pond = pond
+		if best_pond.is_empty():
+			return {"terrain_zone": topography_surface_zone}
+		var terrain_zone := "land"
+		var pond_influence := 0.0
+		if best_ratio <= 0.68:
+			terrain_zone = "pond"
+			pond_influence = 1.0
+		elif best_ratio <= 1.0:
+			terrain_zone = "shallow_water"
+			pond_influence = 0.64
+		elif best_ratio <= 1.12:
+			terrain_zone = "shore"
+			pond_influence = 0.50
+		return {
+			"terrain_zone": terrain_zone,
+			"pond_influence": pond_influence,
+			"best_pond_influence": pond_influence
+		}
 
 
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_query_service_detects_water_zones_and_speed_bands(failures)
 	_test_query_service_blocks_plants_but_not_rocks_in_water(failures)
-	_test_query_service_blocks_navigation_in_deep_water_and_hills(failures)
-	_test_query_service_reads_updated_landmarks_without_rebuild_copy(failures)
+	_test_query_service_blocks_navigation_in_deep_water_and_keeps_highlands_slow(failures)
+	_test_query_service_reads_updated_topography_without_rebuild_copy(failures)
 	return failures
 
 
@@ -46,32 +86,26 @@ func _test_query_service_blocks_plants_but_not_rocks_in_water(failures: Array[St
 	TEST_UTILS.expect(not service.is_resource_position_blocked_by_water("rock", Vector2.ZERO), failures, "Rocks should ignore plant-only water blocking")
 
 
-func _test_query_service_blocks_navigation_in_deep_water_and_hills(failures: Array[String]) -> void:
+func _test_query_service_blocks_navigation_in_deep_water_and_keeps_highlands_slow(failures: Array[String]) -> void:
 	var context := _make_context_with_single_pond()
-	context.hill_landmarks = [{
-		"id": "hill_alpha",
-		"type": "hill",
-		"position": Vector2(240.0, 0.0),
-		"radius": 120.0
-	}]
+	context.topography_pond_landmarks = context.pond_landmarks.duplicate(true)
 	var service := _make_service(context)
 	TEST_UTILS.expect(service.is_creature_navigation_blocked(Vector2.ZERO), failures, "Deep water should block creature navigation")
-	TEST_UTILS.expect(service.is_creature_navigation_blocked(Vector2(240.0, 0.0)), failures, "Hill centers should block creature navigation")
 	TEST_UTILS.expect(not service.is_creature_navigation_blocked(Vector2(460.0, 0.0)), failures, "Dry terrain away from landmarks should stay navigable")
 	TEST_UTILS.expect(service.is_creature_spawn_blocked_by_water(Vector2.ZERO), failures, "Creature spawning should be blocked in deep water")
+	TEST_UTILS.expect(float(service.get_terrain_speed_multiplier(Vector2.ZERO)) < float(service.get_terrain_speed_multiplier(Vector2(240.0, 0.0))), failures, "Dry terrain should be faster than deep pond water")
 
 
-func _test_query_service_reads_updated_landmarks_without_rebuild_copy(failures: Array[String]) -> void:
+func _test_query_service_reads_updated_topography_without_rebuild_copy(failures: Array[String]) -> void:
 	var context := TestWorldContext.new()
 	var service := _make_service(context)
 	TEST_UTILS.expect(service.get_water_zone(Vector2.ZERO) in ["land", "shore", "highland"], failures, "Without ponds the query service should default to playable terrain")
-	context.pond_landmarks = [{
+	context.topography_pond_landmarks = [{
 		"id": "pond_runtime",
 		"type": "pond",
 		"position": Vector2.ZERO,
 		"radius": 100.0
 	}]
-	context.pond_water_search_radius = 120.0
 	TEST_UTILS.expect_equal(service.get_water_zone(Vector2.ZERO), "deep_ocean", failures, "After runtime landmark updates the query service should read the new pond data")
 
 

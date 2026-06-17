@@ -326,19 +326,16 @@ func _fit_world_rect(bounds: Rect2) -> Rect2:
 
 
 func _draw_biomes(map_rect: Rect2) -> void:
-	if biome_shape_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
-		if biome_shape_map.has_method("has_renderable_polygons") and biome_shape_map.has_renderable_polygons():
-			_draw_shape_map(map_rect)
-			return
-	if terrain_cell_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_draw_cell_map_fallback", true)):
-		_draw_cell_map(map_rect)
-		return
-	if biome_zones.is_empty():
-		return
 	if not _is_drawing_biomes:
 		return
 	if biome_blend_texture:
 		draw_texture_rect(biome_blend_texture, map_rect, false)
+		return
+	if terrain_cell_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_draw_cell_map_fallback", true)):
+		_draw_cell_map(map_rect)
+		return
+	if biome_shape_map != null and biome_shape_map.has_method("get_sample_grid_size") and bool(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_draw_sample_grid_underlay", false)):
+		_draw_shape_map_sample_grid(map_rect)
 
 
 func _draw_shoreline_overlay(map_rect: Rect2) -> void:
@@ -626,21 +623,16 @@ func _sync_biome_texture() -> void:
 	var active_world := _get_world()
 	biome_shape_map = active_world.get_biome_shape_map() if active_world != null and active_world.has_method("get_biome_shape_map") else null
 	terrain_cell_map = active_world.get_terrain_cell_map() if active_world != null and active_world.has_method("get_terrain_cell_map") else null
-	var has_shape_polygons := false
-	if biome_shape_map != null and biome_shape_map.has_method("has_renderable_polygons"):
-		has_shape_polygons = biome_shape_map.has_renderable_polygons()
-	if has_shape_polygons and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
-		biome_blend_texture = null
-		biome_blend_colors_key = "shape_map"
-		return
-	if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
-		biome_blend_texture = null
-		biome_blend_colors_key = "cell_map"
-		return
-	if biome_zones.is_empty():
+	if active_world == null or biome_zones.is_empty():
 		biome_blend_texture = null
 		biome_blend_colors_key = ""
 		return
+	if active_world.has_method("get_surface_texture") and active_world.has_method("get_surface_texture_key"):
+		var shared_texture: ImageTexture = active_world.get_surface_texture()
+		if shared_texture != null:
+			biome_blend_texture = shared_texture
+			biome_blend_colors_key = str(active_world.get_surface_texture_key())
+			return
 	_ensure_biome_texture()
 
 
@@ -1390,6 +1382,8 @@ func _build_landmarks_signature() -> String:
 func _build_shoreline_segments(active_world: Node) -> Array[Dictionary]:
 	var segments: Array[Dictionary] = []
 	if active_world == null:
+		return segments
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)):
 		return segments
 	var source_ponds: Array[Dictionary] = []
 	if active_world.has_method("get"):

@@ -381,6 +381,26 @@ func _ready() -> void:
 	queue_redraw()
 
 
+func _exit_tree() -> void:
+	if is_instance_valid(biome_blend_background):
+		biome_blend_background.texture = null
+	if is_instance_valid(night_overlay_polygon):
+		night_overlay_polygon.texture = null
+	if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("clear_runtime_state"):
+		terrain_surface_chunk_renderer.clear_runtime_state("world_exit_tree")
+	if render_controller != null and render_controller.has_method("invalidate_biome_blend_texture"):
+		render_controller.invalidate_biome_blend_texture()
+	world_surface_texture = null
+	world_surface_texture_key = ""
+	biome_shape_map = null
+	terrain_cell_map = null
+	world_topography = null
+	world_generator = null
+	biome_sample_images.clear()
+	biome_terrain_accent_cache.clear()
+	render_controller = null
+
+
 func _process(delta: float) -> void:
 	_log_hitch(delta, "World", {
 		"biome_textures_enabled": biome_textures_enabled,
@@ -495,7 +515,18 @@ func _update_decorative_vegetation_visible_rect() -> void:
 			focus_position = visible_rect.get_center()
 		vegetation_visual_layer.set_camera_focus_position(focus_position)
 	if vegetation_visual_layer.has_method("set_max_drawn_instances"):
-		vegetation_visual_layer.set_max_drawn_instances(mini(DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES, 240))
+		var budget := mini(DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES, 240)
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("decorative_vegetation_dynamic_budget_enabled", true)):
+			var fps := Engine.get_frames_per_second()
+			if fps > 0 and fps < int(GAME_BALANCE.BIOME_TEXTURES.get("decorative_vegetation_budget_when_fps_low", 90)):
+				budget = mini(budget, int(GAME_BALANCE.BIOME_TEXTURES.get("decorative_vegetation_budget_when_fps_low", 90)))
+			var surface_building := false
+			if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("get_debug_data"):
+				var surface_debug := Dictionary(terrain_surface_chunk_renderer.get_debug_data())
+				surface_building = int(surface_debug.get("terrain_surface_active_build_count", 0)) > 0 or int(surface_debug.get("terrain_surface_chunks_built_last_frame", 0)) > 0
+			if surface_building:
+				budget = mini(budget, int(GAME_BALANCE.BIOME_TEXTURES.get("decorative_vegetation_budget_when_surface_building", 120)))
+		vegetation_visual_layer.set_max_drawn_instances(budget)
 
 
 func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2, margin := VISIBILITY_CULL_MARGIN) -> Rect2:
@@ -564,7 +595,90 @@ func _get_safe_player_start_position() -> Vector2:
 	var safe_landmarks: Array[Dictionary] = []
 	safe_landmarks.append_array(get_topography_features_by_type("pond"))
 	safe_landmarks.append_array(get_topography_features_by_type("highland"))
-	return WORLD_CONFIG.get_safe_player_start_position(safe_landmarks)
+	var preferred_spawn := _find_safe_hearth_meadow_spawn(safe_landmarks)
+	if preferred_spawn != Vector2.INF:
+		return preferred_spawn
+	var fallback_spawn := WORLD_CONFIG.get_safe_player_start_position(safe_landmarks)
+	if _is_valid_hearth_meadow_spawn_position(fallback_spawn, safe_landmarks):
+		return fallback_spawn
+	return WORLD_CONFIG.WORLD_RECT.get_center()
+
+
+func _find_safe_hearth_meadow_spawn(safe_landmarks: Array[Dictionary]) -> Vector2:
+	var preferred_biome_id := "hearth_meadow"
+	var hearth_meadow := _get_biome_for_id(preferred_biome_id)
+	var hearth_bounds := _get_biome_bounds(hearth_meadow)
+	var search_centers: Array[Vector2] = []
+	if hearth_bounds.size.x > 0.0 and hearth_bounds.size.y > 0.0:
+		search_centers.append(hearth_bounds.get_center())
+	search_centers.append(WORLD_CONFIG.PLAYER_START_POSITION)
+	search_centers.append(WORLD_CONFIG.WORLD_RECT.get_center())
+	for center_value in search_centers:
+		var center := Vector2(center_value)
+		var candidate := _find_safe_spawn_near_position(center, safe_landmarks, preferred_biome_id, hearth_bounds)
+		if candidate != Vector2.INF:
+			return candidate
+	if hearth_bounds.size.x > 0.0 and hearth_bounds.size.y > 0.0:
+		var scanned_candidate := _scan_safe_spawn_in_rect(hearth_bounds, safe_landmarks, preferred_biome_id)
+		if scanned_candidate != Vector2.INF:
+			return scanned_candidate
+	return Vector2.INF
+
+
+func _find_safe_spawn_near_position(center: Vector2, safe_landmarks: Array[Dictionary], preferred_biome_id: String, preferred_bounds: Rect2) -> Vector2:
+	var max_radius := 960.0
+	if preferred_bounds.size.x > 0.0 and preferred_bounds.size.y > 0.0:
+		max_radius = maxf(minf(preferred_bounds.size.x, preferred_bounds.size.y) * 0.42, 320.0)
+	var ring_step := 72.0
+	var ring_count := maxi(int(ceil(max_radius / ring_step)), 1)
+	for ring in range(ring_count + 1):
+		var radius := float(ring) * ring_step
+		if ring == 0:
+			if _is_valid_hearth_meadow_spawn_position(center, safe_landmarks):
+				return center
+			continue
+		var sample_count := maxi(12 + ring * 6, 16)
+		for i in range(sample_count):
+			var angle := TAU * float(i) / float(sample_count)
+			var candidate := center + Vector2.RIGHT.rotated(angle) * radius
+			if preferred_bounds.size.x > 0.0 and preferred_bounds.size.y > 0.0 and not preferred_bounds.has_point(candidate):
+				continue
+			if _is_valid_hearth_meadow_spawn_position(candidate, safe_landmarks, preferred_biome_id):
+				return candidate
+	return Vector2.INF
+
+
+func _scan_safe_spawn_in_rect(search_rect: Rect2, safe_landmarks: Array[Dictionary], preferred_biome_id: String) -> Vector2:
+	var clamped_rect := search_rect.intersection(WORLD_CONFIG.WORLD_RECT)
+	if clamped_rect.size.x <= 0.0 or clamped_rect.size.y <= 0.0:
+		return Vector2.INF
+	var step := 64.0
+	var center := clamped_rect.get_center()
+	var best_candidate := Vector2.INF
+	var best_distance := INF
+	var y := clamped_rect.position.y + step * 0.5
+	while y < clamped_rect.end.y:
+		var x := clamped_rect.position.x + step * 0.5
+		while x < clamped_rect.end.x:
+			var candidate := Vector2(x, y)
+			if _is_valid_hearth_meadow_spawn_position(candidate, safe_landmarks, preferred_biome_id):
+				var distance_to_center := candidate.distance_squared_to(center)
+				if distance_to_center < best_distance:
+					best_candidate = candidate
+					best_distance = distance_to_center
+			x += step
+		y += step
+	return best_candidate
+
+
+func _is_valid_hearth_meadow_spawn_position(candidate: Vector2, safe_landmarks: Array[Dictionary], preferred_biome_id: String = "hearth_meadow") -> bool:
+	if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
+		return false
+	if get_visual_biome_id_at(candidate) != preferred_biome_id:
+		return false
+	if get_surface_terrain_zone_at(candidate) != WATER_ZONE_LAND:
+		return false
+	return WORLD_CONFIG.is_safe_player_start_position(candidate, safe_landmarks)
 
 
 func get_world_seed() -> int:
@@ -577,6 +691,7 @@ func get_world_layout() -> Dictionary:
 
 func get_world_generation_debug() -> Dictionary:
 	var debug := Dictionary(world_layout.get("debug", {})).duplicate(true)
+	var landmark_counts := get_landmark_counts()
 	debug["world_generation_version"] = int(world_layout.get("version", 0))
 	debug["generator_rules_version"] = str(world_layout.get("generator_rules_version", "v1"))
 	debug["topography_rules_version"] = str(WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION)
@@ -584,8 +699,9 @@ func get_world_generation_debug() -> Dictionary:
 	debug["cell_terrain_renderer_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
 	debug["biome_shape_renderer_in_world_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_renderer_in_world", false))
 	debug["biome_shape_map_for_maps_enabled"] = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true))
-	debug["landmark_count"] = landmarks.size()
-	debug["poi_landmark_count"] = landmarks.size()
+	debug["landmark_count"] = int(landmark_counts.get("generated", 0))
+	debug["poi_landmark_count"] = int(landmark_counts.get("generated", 0))
+	debug["landmark_debug"] = landmark_counts
 	debug["topography_feature_counts"] = get_topography_debug_summary().get("topography_feature_counts", {})
 	return debug
 
@@ -2252,11 +2368,11 @@ func _sync_biome_blend_background() -> void:
 
 
 func get_surface_texture() -> ImageTexture:
-	return null
+	return _ensure_surface_texture()
 
 
 func get_surface_texture_key() -> String:
-	return get_map_surface_debug_key()
+	return _ensure_surface_texture_key()
 
 
 func get_terrain_cell_map() -> TerrainCellMap:
@@ -2300,7 +2416,7 @@ func _ensure_surface_texture_key() -> String:
 
 
 func _ensure_surface_texture() -> ImageTexture:
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("disable_global_surface_texture_on_boot", true)):
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("disable_global_surface_texture_on_boot", true)) and not boot_ready:
 		return null
 	var current_key := _ensure_surface_texture_key()
 	if world_surface_texture != null and world_surface_texture_key == current_key:
@@ -2778,7 +2894,9 @@ func _spawn_biome_fill_vegetation(used_positions: Array[Vector2], player_positio
 
 
 func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: Vector2) -> void:
-	for pond_value in pond_landmarks:
+	if not bool(GAME_BALANCE.LANDMARKS.get("topography_pond_vegetation_enabled", true)):
+		return
+	for pond_value in get_topography_features_by_type("pond"):
 		var pond := Dictionary(pond_value)
 		var center := Vector2(pond.get("position", Vector2.ZERO))
 		var radius := float(pond.get("radius", 0.0))
@@ -2811,13 +2929,17 @@ func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: 
 
 
 func _spawn_pond_aquatic_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
-	for pond_value in pond_landmarks:
+	if not bool(GAME_BALANCE.LANDMARKS.get("topography_pond_vegetation_enabled", true)):
+		return
+	for pond_value in get_topography_features_by_type("pond"):
 		var pond := Dictionary(pond_value)
 		var center := Vector2(pond.get("position", Vector2.ZERO))
 		var radius := float(pond.get("radius", 0.0))
 		if radius <= 0.0:
 			continue
-		var target_count := clampi(int(GAME_BALANCE.LANDMARKS.get("pond_aquatic_vegetation_count", 12)), 8, 18)
+		var target_min := maxi(int(GAME_BALANCE.LANDMARKS.get("topography_pond_vegetation_per_pond_min", 10)), 1)
+		var target_max := maxi(int(GAME_BALANCE.LANDMARKS.get("topography_pond_vegetation_per_pond_max", 24)), target_min)
+		var target_count := clampi(int(GAME_BALANCE.LANDMARKS.get("pond_aquatic_vegetation_count", 12)), target_min, target_max)
 		var spawned := 0
 		for _i in range(target_count * 8):
 			if spawned >= target_count:
@@ -3192,7 +3314,9 @@ func _spawn_resource_kind_in_biome(
 
 
 func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
-	for pond in pond_landmarks:
+	if not bool(GAME_BALANCE.LANDMARKS.get("topography_pond_vegetation_enabled", true)):
+		return
+	for pond in get_topography_features_by_type("pond"):
 		var biome := _get_biome_for_id(str(pond.get("biome_id", "")))
 		if biome.is_empty():
 			continue
@@ -3229,29 +3353,30 @@ func _spawn_decorative_vegetation_visuals_for_loaded_world() -> void:
 		for _i in range(max(WORLD_CONFIG.get_grass_patch_count(), WORLD_CONFIG.get_dense_grass_count())):
 			if not _try_spawn_decorative_grass_visual(kind, used_positions, player_position):
 				break
-	for pond in pond_landmarks:
-		var biome := _get_biome_for_id(str(pond.get("biome_id", "")))
-		if biome.is_empty():
-			continue
-		var pond_kinds := [
-			"dense_grass",
-			"grass_patch",
-			"dense_grass",
-			"grass_patch",
-			"small_bush",
-			"dense_grass",
-			"grass_patch",
-			"berry_bush",
-			"dense_grass",
-			"grass_patch",
-			"small_bush",
-			"grass_patch"
-		]
-		var vegetation_count := _get_pond_vegetation_count()
-		var angle_phase := resource_rng.randf_range(0.0, TAU)
-		for i in vegetation_count:
-			var kind := str(pond_kinds[i % pond_kinds.size()])
-			_try_spawn_resource_near_pond(kind, pond, biome, used_positions, player_position, i, vegetation_count, angle_phase, true)
+	if bool(GAME_BALANCE.LANDMARKS.get("topography_pond_vegetation_enabled", true)):
+		for pond in get_topography_features_by_type("pond"):
+			var biome := _get_biome_for_id(str(pond.get("biome_id", "")))
+			if biome.is_empty():
+				continue
+			var pond_kinds := [
+				"dense_grass",
+				"grass_patch",
+				"dense_grass",
+				"grass_patch",
+				"small_bush",
+				"dense_grass",
+				"grass_patch",
+				"berry_bush",
+				"dense_grass",
+				"grass_patch",
+				"small_bush",
+				"grass_patch"
+			]
+			var vegetation_count := _get_pond_vegetation_count()
+			var angle_phase := resource_rng.randf_range(0.0, TAU)
+			for i in vegetation_count:
+				var kind := str(pond_kinds[i % pond_kinds.size()])
+				_try_spawn_resource_near_pond(kind, pond, biome, used_positions, player_position, i, vegetation_count, angle_phase, true)
 
 
 func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, slot_index: int, slot_count: int, angle_phase: float, visual_only: bool = false) -> bool:
@@ -6454,7 +6579,7 @@ func _get_biome_texture_position(terrain_pattern: Dictionary, world_position: Ve
 
 
 func _draw_landmarks() -> void:
-	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)):
+	if not bool(GAME_BALANCE.LANDMARKS.get("legacy_topography_landmark_debug_overlay_enabled", false)):
 		return
 	for landmark in landmarks:
 		match str(landmark.get("type", "")):
@@ -6465,7 +6590,7 @@ func _draw_landmarks() -> void:
 
 
 func _draw_landmark_debug_overlay() -> void:
-	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_topography_labels_on_map", false)):
+	if not bool(GAME_BALANCE.LANDMARKS.get("legacy_topography_landmark_debug_overlay_enabled", false)):
 		return
 	var font := ThemeDB.fallback_font
 	for landmark_value in landmarks:

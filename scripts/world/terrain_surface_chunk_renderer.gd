@@ -20,6 +20,10 @@ var refined_chunk_texture_size := 96
 var refined_max_rows_built_per_frame := 8
 var refined_max_build_ms_per_frame := 4.0
 var refine_delay_seconds := 0.15
+var refine_pause_when_fps_below := 45
+var refine_pause_when_camera_moving := true
+var max_refined_chunks_per_second := 3
+var preview_only_during_fast_movement := true
 
 var visible_chunks: Dictionary = {}
 var chunk_textures: Dictionary = {}
@@ -27,6 +31,7 @@ var pending_chunks: Array = []
 var pending_chunk_set: Dictionary = {}
 var active_builds := {}
 var sample_cache := {}
+var biome_blend_cache := {}
 
 var last_visible_signature := ""
 var dirty := true
@@ -48,6 +53,9 @@ var chunk_build_completed_count := 0
 var last_clear_reason := ""
 var max_rows_built_per_frame := 8
 var max_build_ms_per_frame := 4.0
+var last_motion_sample_position := Vector2.INF
+var refined_chunk_window_start_ms := 0
+var refined_chunks_started_in_window := 0
 var pending_focus_chunk := Vector2i.ZERO
 var surface_sample_source_counts := {}
 var exact_surface_sample_count := 0
@@ -76,10 +84,17 @@ func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 	refined_max_rows_built_per_frame = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_max_rows_built_per_frame", 8)), 1)
 	refined_max_build_ms_per_frame = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_max_build_ms_per_frame", 4.0)), 1.0)
 	refine_delay_seconds = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_delay_seconds", 0.15)), 0.0)
+	refine_pause_when_fps_below = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_pause_when_fps_below", 45)), 0)
+	refine_pause_when_camera_moving = bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_pause_when_camera_moving", true))
+	max_refined_chunks_per_second = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_max_refined_chunks_per_second", 3)), 1)
+	preview_only_during_fast_movement = bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_preview_only_during_fast_movement", true))
 	visible_margin_chunks = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_visible_margin_chunks", 1)), 0)
-	max_chunks_built_per_frame = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_preview_max_chunks_built_per_frame", GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_max_chunks_built_per_frame", 1))), 1)
+	max_chunks_built_per_frame = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_max_chunks_built_per_frame", preview_max_chunks_built_per_frame)), 1)
 	max_rows_built_per_frame = refined_max_rows_built_per_frame
 	max_build_ms_per_frame = refined_max_build_ms_per_frame
+	last_motion_sample_position = _get_motion_sample_position()
+	refined_chunk_window_start_ms = Time.get_ticks_msec()
+	refined_chunks_started_in_window = 0
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_texture_filter_nearest", false)):
 		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	else:
@@ -96,6 +111,7 @@ func mark_dirty(reason := "unknown") -> void:
 	pending_chunk_set.clear()
 	active_builds.clear()
 	sample_cache.clear()
+	biome_blend_cache.clear()
 	surface_sample_source_counts.clear()
 	exact_surface_sample_count = 0
 	grid_surface_sample_count = 0
@@ -107,7 +123,39 @@ func mark_dirty(reason := "unknown") -> void:
 	refined_chunk_count = 0
 	preview_chunks_built_last_frame = 0
 	refined_chunks_built_last_frame = 0
+	refined_chunk_window_start_ms = Time.get_ticks_msec()
+	refined_chunks_started_in_window = 0
+	last_motion_sample_position = _get_motion_sample_position()
 	queue_redraw()
+
+
+func clear_runtime_state(reason := "cleanup") -> void:
+	last_clear_reason = reason
+	chunk_textures.clear()
+	visible_chunks.clear()
+	pending_chunks.clear()
+	pending_chunk_set.clear()
+	active_builds.clear()
+	sample_cache.clear()
+	biome_blend_cache.clear()
+	surface_sample_source_counts.clear()
+	world = null
+	player = null
+	camera = null
+	biome_shape_map = null
+	last_visible_signature = ""
+	visible_chunk_count = 0
+	cached_chunk_count = 0
+	preview_chunk_count = 0
+	refined_chunk_count = 0
+	chunks_built_last_frame = 0
+	preview_chunks_built_last_frame = 0
+	refined_chunks_built_last_frame = 0
+	queue_redraw()
+
+
+func _exit_tree() -> void:
+	clear_runtime_state("exit_tree")
 
 func process_visibility(_delta: float) -> void:
 	if world == null:
@@ -131,7 +179,7 @@ func process_visibility(_delta: float) -> void:
 	cached_chunk_count = chunk_textures.size()
 	queue_redraw()
 
-func process_build_queue() -> void:
+func process_build_queue(delta: float = 0.0) -> void:
 	chunks_built_last_frame = 0
 	preview_chunks_built_last_frame = 0
 	refined_chunks_built_last_frame = 0
@@ -142,9 +190,10 @@ func process_build_queue() -> void:
 		if chunk_textures.has(chunk_key) or active_builds.has(chunk_key):
 			continue
 		_start_chunk_build(chunk_key)
+	var allow_refine := _can_process_refine()
 	for key_value in active_builds.keys():
 		var chunk_key = key_value
-		_process_active_chunk_build(chunk_key, start_ms)
+		_process_active_chunk_build(chunk_key, start_ms, allow_refine)
 		if float(Time.get_ticks_msec() - start_ms) >= refined_max_build_ms_per_frame:
 			break
 	last_build_ms = float(Time.get_ticks_msec() - start_ms)
@@ -176,6 +225,10 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_preview_texture_size": preview_chunk_texture_size,
 		"terrain_surface_refined_texture_size": refined_chunk_texture_size,
 		"terrain_surface_refine_delay_seconds": refine_delay_seconds,
+		"terrain_surface_refine_pause_when_fps_below": refine_pause_when_fps_below,
+		"terrain_surface_refine_pause_when_camera_moving": refine_pause_when_camera_moving,
+		"terrain_surface_max_refined_chunks_per_second": max_refined_chunks_per_second,
+		"terrain_surface_preview_only_during_fast_movement": preview_only_during_fast_movement,
 		"terrain_surface_max_rows_built_per_frame": max_rows_built_per_frame,
 		"terrain_surface_max_build_ms_per_frame": max_build_ms_per_frame,
 		"terrain_surface_transition_enabled": bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_transition_enabled", false)),
@@ -184,6 +237,7 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_exact_surface_sample_count": exact_surface_sample_count,
 		"terrain_surface_grid_surface_sample_count": grid_surface_sample_count,
 		"terrain_surface_world_fallback_surface_sample_count": world_fallback_surface_sample_count,
+		"terrain_surface_use_shape_map_sampling": bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_shape_map_sampling", false)),
 		"terrain_surface_use_exact_shape_sampling": bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_exact_shape_sampling", true)),
 		"terrain_surface_chunk_world_size": chunk_world_size,
 		"terrain_surface_chunk_texture_size": chunk_texture_size,
@@ -243,7 +297,7 @@ func _start_chunk_build(chunk_key: Vector2i) -> void:
 	}
 	chunk_build_started_count += 1
 
-func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int) -> void:
+func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int, allow_refine := true) -> void:
 	if not active_builds.has(chunk_key):
 		return
 	var state := Dictionary(active_builds[chunk_key])
@@ -253,13 +307,17 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int) -> vo
 	var stage := str(state.get("stage", "preview"))
 	var texture_size := preview_chunk_texture_size if stage == "preview" else refined_chunk_texture_size
 	var rows_per_frame := preview_max_chunks_built_per_frame if stage == "preview" else refined_max_rows_built_per_frame
-	var build_ms_budget := refined_max_build_ms_per_frame
-	if stage == "preview":
-		build_ms_budget = refined_max_build_ms_per_frame * 0.5
+	var build_ms_budget := max_build_ms_per_frame
 	if stage == "refine_pending":
+		if not allow_refine:
+			active_builds[chunk_key] = state
+			return
 		var ready_at := float(state.get("stage_ready_at", 0.0))
 		var now_ms := float(Time.get_ticks_msec()) / 1000.0
 		if now_ms < ready_at:
+			active_builds[chunk_key] = state
+			return
+		if not _can_start_refine_chunk():
 			active_builds[chunk_key] = state
 			return
 		stage = "refine"
@@ -309,6 +367,46 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_ms: int) -> vo
 		state["next_y"] = next_y
 		active_builds[chunk_key] = state
 
+
+func _can_process_refine() -> bool:
+	if preview_only_during_fast_movement and refine_pause_when_camera_moving and _is_camera_moving_fast():
+		return false
+	if refine_pause_when_fps_below > 0 and Engine.get_frames_per_second() > 0 and Engine.get_frames_per_second() < refine_pause_when_fps_below:
+		return false
+	if max_refined_chunks_per_second <= 0:
+		return true
+	var now_ms := Time.get_ticks_msec()
+	if now_ms - refined_chunk_window_start_ms >= 1000:
+		refined_chunk_window_start_ms = now_ms
+		refined_chunks_started_in_window = 0
+	return refined_chunks_started_in_window < max_refined_chunks_per_second
+
+
+func _can_start_refine_chunk() -> bool:
+	if not _can_process_refine():
+		return false
+	refined_chunks_started_in_window += 1
+	return true
+
+
+func _is_camera_moving_fast() -> bool:
+	var current_position := _get_motion_sample_position()
+	if last_motion_sample_position == Vector2.INF:
+		last_motion_sample_position = current_position
+		return false
+	var move_distance := current_position.distance_to(last_motion_sample_position)
+	last_motion_sample_position = current_position
+	var threshold := maxf(chunk_world_size * 0.25, 96.0)
+	return move_distance >= threshold
+
+
+func _get_motion_sample_position() -> Vector2:
+	if camera != null and is_instance_valid(camera):
+		return camera.global_position
+	if player != null and is_instance_valid(player):
+		return player.global_position
+	return world_rect.get_center()
+
 func _build_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, texture_size: int) -> void:
 	for x in range(texture_size):
 		var uv := Vector2(
@@ -330,6 +428,8 @@ func _build_preview_chunk_texture_row(image: Image, chunk_rect: Rect2, y: int, t
 func _sample_preview_surface_color(world_pos: Vector2) -> Color:
 	var surface := _sample_surface_ids(world_pos)
 	var base := _get_base_surface_color(str(surface.get("biome_id", "hearth_meadow")), str(surface.get("terrain_id", "land")))
+	base = _apply_topography_soft_blend(base, str(surface.get("biome_id", "hearth_meadow")), str(surface.get("terrain_id", "land")), world_pos)
+	base = _apply_biome_influence_soft_blend(base, str(surface.get("biome_id", "hearth_meadow")), str(surface.get("terrain_id", "land")), world_pos)
 	var noise := _value_noise(world_pos * 0.004, 71) * 0.035
 	return base.lightened(noise) if noise >= 0.0 else base.darkened(absf(noise))
 
@@ -348,6 +448,8 @@ func _sample_surface_color(world_pos: Vector2) -> Color:
 		base = mixed / float(sample_points.size())
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_noise_enabled", true)):
 		var surface := _sample_surface_ids(world_pos)
+		base = _apply_topography_soft_blend(base, str(surface.get("biome_id", "hearth_meadow")), str(surface.get("terrain_id", "land")), world_pos)
+		base = _apply_biome_influence_soft_blend(base, str(surface.get("biome_id", "hearth_meadow")), str(surface.get("terrain_id", "land")), world_pos)
 		base = _apply_surface_variation(base, str(surface.get("biome_id", "hearth_meadow")), str(surface.get("terrain_id", "land")), world_pos)
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_transition_enabled", false)):
 		var transition_surface := _sample_surface_ids(world_pos)
@@ -385,7 +487,7 @@ func _sample_surface_color_single(world_pos: Vector2) -> Color:
 	return base
 
 func _sample_surface_ids(world_pos: Vector2) -> Dictionary:
-	if biome_shape_map != null and biome_shape_map.has_method("sample_visual_surface_at"):
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_shape_map_sampling", false)) and biome_shape_map != null and biome_shape_map.has_method("sample_visual_surface_at"):
 		if bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_use_exact_shape_sampling", true)) and biome_shape_map.has_method("sample_visual_surface_exact_at"):
 			var exact_surface := Dictionary(biome_shape_map.sample_visual_surface_exact_at(world_pos))
 			if not exact_surface.is_empty():
@@ -496,6 +598,76 @@ func _apply_surface_variation(color: Color, biome_id: String, terrain_id: String
 	if amount >= 0.0:
 		return color.lightened(amount)
 	return color.darkened(absf(amount))
+
+func _apply_topography_soft_blend(color: Color, biome_id: String, terrain_id: String, world_pos: Vector2) -> Color:
+	if world == null or not world.has_method("get_topography_sample_at"):
+		return color
+	var topo_sample := Dictionary(world.get_topography_sample_at(world_pos))
+	if topo_sample.is_empty():
+		return color
+	var pond_influence := float(topo_sample.get("best_pond_influence", topo_sample.get("pond_influence", 0.0)))
+	var shore_threshold := float(GAME_BALANCE.LANDMARKS.get("topography_pond_shore_threshold", 0.46))
+	var shallow_threshold := float(GAME_BALANCE.LANDMARKS.get("topography_pond_shallow_threshold", 0.56))
+	var deep_threshold := float(GAME_BALANCE.LANDMARKS.get("topography_pond_deep_threshold", 0.70))
+	var edge_start := maxf(shore_threshold - 0.10, 0.0)
+	var edge_end := minf(shallow_threshold + 0.06, 1.0)
+	if pond_influence <= edge_start:
+		return color
+	var edge_mix := clampf(inverse_lerp(edge_start, edge_end, pond_influence), 0.0, 1.0)
+	var pond_color := _get_base_surface_color(biome_id, "pond")
+	if pond_influence >= deep_threshold:
+		pond_color = _get_base_surface_color(biome_id, "deep_ocean")
+	elif pond_influence >= shallow_threshold:
+		pond_color = _get_base_surface_color(biome_id, "shallow_water")
+	return color.lerp(pond_color, edge_mix * 0.78 if terrain_id != "pond" else edge_mix * 0.42)
+
+
+func _apply_biome_influence_soft_blend(color: Color, biome_id: String, terrain_id: String, world_pos: Vector2) -> Color:
+	if terrain_id in ["deep_ocean", "shallow_water", "shore", "pond"]:
+		return color
+	if world == null or not world.has_method("get_visual_biome_influence_scores_at"):
+		return color
+	var cache_step := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_sample_cache_step", 8.0)) * 2.0, 24.0)
+	var cache_key := "%d,%d" % [int(floor(world_pos.x / cache_step)), int(floor(world_pos.y / cache_step))]
+	var cached_blend := Dictionary(biome_blend_cache.get(cache_key, {}))
+	if cached_blend.is_empty():
+		var scores := Dictionary(world.get_visual_biome_influence_scores_at(world_pos))
+		if scores.is_empty():
+			biome_blend_cache[cache_key] = {"blend": 0.0, "secondary_biome_id": biome_id}
+			return color
+		var primary_score := float(scores.get(biome_id, -INF))
+		if primary_score <= -INF:
+			biome_blend_cache[cache_key] = {"blend": 0.0, "secondary_biome_id": biome_id}
+			return color
+		var secondary_score := -INF
+		var secondary_biome_id := biome_id
+		for key_value in scores.keys():
+			var candidate_id := str(key_value)
+			if candidate_id == biome_id:
+				continue
+			var candidate_score := float(scores.get(candidate_id, -INF))
+			if candidate_score > secondary_score:
+				secondary_score = candidate_score
+				secondary_biome_id = candidate_id
+		if secondary_biome_id == biome_id or secondary_score <= -INF:
+			biome_blend_cache[cache_key] = {"blend": 0.0, "secondary_biome_id": biome_id}
+			return color
+		var margin := primary_score - secondary_score
+		var blend_width := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_biome_blend_width", 0.32)), 0.04)
+		var blend_strength := clampf(1.0 - margin / blend_width, 0.0, 1.0)
+		blend_strength = smoothstep(0.0, 1.0, blend_strength)
+		cached_blend = {
+			"blend": blend_strength,
+			"secondary_biome_id": secondary_biome_id
+		}
+		biome_blend_cache[cache_key] = cached_blend
+	var blend := float(cached_blend.get("blend", 0.0))
+	var secondary_biome_id := str(cached_blend.get("secondary_biome_id", biome_id))
+	if blend <= 0.001 or secondary_biome_id.is_empty() or secondary_biome_id == biome_id:
+		return color
+	var secondary_color := _get_base_surface_color(secondary_biome_id, terrain_id)
+	var max_blend := clampf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_biome_blend_strength", 0.34)), 0.0, 0.6)
+	return color.lerp(secondary_color, blend * max_blend)
 
 func _detail_mask(world_pos: Vector2, scale: float, salt: int, threshold: float) -> float:
 	var n := _value_noise(world_pos * scale, salt)

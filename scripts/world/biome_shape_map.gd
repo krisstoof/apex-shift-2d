@@ -341,9 +341,75 @@ func _build_visual_surface_grid_from_polygons() -> void:
 						"layer_id": str(polygon.get("layer_id", layer_id)),
 						"source": "visual_surface_grid_polygon"
 					}
+	_seal_visual_surface_grid_seams()
 	visual_surface_build_count += 1
 	visual_surface_last_build_ms = float(Time.get_ticks_msec() - start_ms)
 	visual_surface_source = "polygons_by_layer"
+
+func _seal_visual_surface_grid_seams() -> void:
+	if visual_surface_grid_size == Vector2i.ZERO or visual_surface_grid.is_empty():
+		return
+	var pass_count := maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("biome_shape_visual_surface_gap_fill_passes", 2)), 0)
+	var neighbor_offsets := [
+		Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1),
+		Vector2i(-1, 0), Vector2i(1, 0),
+		Vector2i(-1, 1), Vector2i(0, 1), Vector2i(1, 1)
+	]
+	for _pass in range(pass_count):
+		var changed := false
+		var next_grid: Array[Array] = []
+		for y in range(visual_surface_grid_size.y):
+			var next_row: Array = []
+			for x in range(visual_surface_grid_size.x):
+				var current := Dictionary(Array(visual_surface_grid[y])[x])
+				var replacement := current
+				if _is_water_gap_surface(current):
+					var land_neighbor_count := 0
+					var biome_counts: Dictionary = {}
+					for offset in neighbor_offsets:
+						var nx: int = x + offset.x
+						var ny: int = y + offset.y
+						if nx < 0 or ny < 0 or nx >= visual_surface_grid_size.x or ny >= visual_surface_grid_size.y:
+							continue
+						var neighbor := Dictionary(Array(visual_surface_grid[ny])[nx])
+						if not _is_landlike_surface(neighbor):
+							continue
+						land_neighbor_count += 1
+						var neighbor_biome_id := str(neighbor.get("biome_id", ""))
+						if neighbor_biome_id.is_empty():
+							continue
+						biome_counts[neighbor_biome_id] = int(biome_counts.get(neighbor_biome_id, 0)) + 1
+					if land_neighbor_count >= 4 and not biome_counts.is_empty():
+						var preferred_biome_id := str(current.get("biome_id", ""))
+						var dominant_biome_id := preferred_biome_id if biome_counts.has(preferred_biome_id) else ""
+						var dominant_count := int(biome_counts.get(dominant_biome_id, 0))
+						for biome_id_value in biome_counts.keys():
+							var biome_id := str(biome_id_value)
+							var count := int(biome_counts.get(biome_id, 0))
+							if dominant_biome_id.is_empty() or count > dominant_count:
+								dominant_biome_id = biome_id
+								dominant_count = count
+						if not dominant_biome_id.is_empty():
+							replacement = {
+								"biome_id": dominant_biome_id,
+								"terrain_id": "land",
+								"layer_id": _get_layer_id(dominant_biome_id, "land"),
+								"source": "visual_surface_grid_gap_fill"
+							}
+							changed = true
+				next_row.append(replacement)
+			next_grid.append(next_row)
+		visual_surface_grid = next_grid
+		if not changed:
+			return
+
+func _is_water_gap_surface(surface: Dictionary) -> bool:
+	var terrain_id := str(surface.get("terrain_id", ""))
+	return terrain_id in ["deep_ocean", "shallow_water", "shore"]
+
+func _is_landlike_surface(surface: Dictionary) -> bool:
+	var terrain_id := str(surface.get("terrain_id", ""))
+	return terrain_id in ["land", "highland", "rocky_patch", "wetland"]
 
 func _get_layer_id_at_cell(x: int, y: int) -> String:
 	var terrain_id := str(Array(terrain_grid[y])[x])

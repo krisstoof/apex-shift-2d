@@ -169,6 +169,73 @@ func get_topography_debug_at(position: Vector2) -> Dictionary:
 	return sample_topography_at(position)
 
 
+func get_resource_distribution_modifiers_at(position: Vector2) -> Dictionary:
+	var sample := sample_topography_at(position)
+	var terrain_zone := str(sample.get("terrain_zone", "land"))
+	var elevation_band := str(sample.get("elevation_band", terrain_zone))
+	var modifiers := {
+		"conifer_tree": 1.0,
+		"leafy_tree": 1.0,
+		"tree": 1.0,
+		"bush": 1.0,
+		"small_bush": 1.0,
+		"berry_bush": 1.0,
+		"grass_patch": 1.0,
+		"dense_grass": 1.0,
+		"rock": 1.0,
+		"pond_grass": 1.0,
+		"reed": 1.0,
+		"cattail": 1.0,
+		"water_lily": 1.0,
+		"wetland_grass": 1.0
+	}
+
+	if terrain_zone == "highland":
+		modifiers["conifer_tree"] = 0.35
+		modifiers["leafy_tree"] = 0.25
+		modifiers["tree"] = 0.30
+		modifiers["bush"] = 0.45
+		modifiers["small_bush"] = 0.50
+		modifiers["berry_bush"] = 0.35
+		modifiers["grass_patch"] = 0.45
+		modifiers["dense_grass"] = 0.30
+		modifiers["rock"] = 1.65
+
+	if elevation_band == "highland_peak":
+		modifiers["conifer_tree"] = 0.10
+		modifiers["leafy_tree"] = 0.05
+		modifiers["tree"] = 0.08
+		modifiers["bush"] = 0.18
+		modifiers["grass_patch"] = 0.20
+		modifiers["dense_grass"] = 0.10
+		modifiers["rock"] = 2.00
+
+	if terrain_zone == "rocky_patch":
+		modifiers["tree"] = 0.20
+		modifiers["bush"] = 0.35
+		modifiers["grass_patch"] = 0.30
+		modifiers["dense_grass"] = 0.18
+		modifiers["rock"] = 2.20
+
+	if terrain_zone == "pond":
+		for key in modifiers.keys():
+			modifiers[key] = 0.0
+		modifiers["pond_grass"] = 1.0
+		modifiers["reed"] = 1.0
+		modifiers["cattail"] = 1.0
+		modifiers["water_lily"] = 1.0
+		modifiers["wetland_grass"] = 1.0
+
+	return modifiers
+
+
+func get_resource_density_at(position: Vector2, resource_kind: String = "") -> float:
+	if resource_kind.is_empty():
+		return 1.0
+	var modifiers := get_resource_distribution_modifiers_at(position)
+	return float(modifiers.get(resource_kind, 1.0))
+
+
 func get_topography_feature_counts_debug() -> Dictionary:
 	return feature_counts_debug.duplicate(true)
 

@@ -41,6 +41,9 @@ var minimap_texture_build_count: int = 0
 var minimap_texture_last_build_ms: float = 0.0
 var _is_drawing_biomes := false
 var minimap_redraw_timer := 0.0
+var minimap_static_redraw_timer := 0.0
+var last_redraw_player_position := Vector2.INF
+var last_redraw_player_biome_id := ""
 var cached_resources: Array[Dictionary] = []
 var cached_campfires: Array[Dictionary] = []
 var cached_varnaks: Array[Dictionary] = []
@@ -95,6 +98,10 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	if _update_marker_cache():
 		minimap_marker_cache_rebuild_count += 1
 	landmarks_signature = _build_landmarks_signature()
+	last_redraw_player_position = Vector2.INF
+	last_redraw_player_biome_id = ""
+	minimap_redraw_timer = 0.0
+	minimap_static_redraw_timer = 0.0
 	queue_redraw()
 
 
@@ -108,10 +115,30 @@ func _process(delta: float) -> void:
 	})
 	_sync_biome_texture()
 	_sync_shoreline_overlay_cache()
-	minimap_redraw_timer += delta
-	if minimap_redraw_timer >= MINIMAP_REDRAW_INTERVAL:
+	var redraw_distance := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("minimap_redraw_on_player_move_distance", 24.0)), 0.0)
+	var static_redraw_interval := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("minimap_redraw_interval_when_static", MINIMAP_REDRAW_INTERVAL)), 0.1)
+	var current_player_position := _get_player_position()
+	var current_biome_id := _get_player_biome_id()
+	var should_redraw := false
+	if last_redraw_player_position == Vector2.INF:
+		should_redraw = true
+	elif current_player_position.distance_to(last_redraw_player_position) >= redraw_distance:
+		should_redraw = true
+	elif current_biome_id != last_redraw_player_biome_id:
+		should_redraw = true
+	if should_redraw:
+		last_redraw_player_position = current_player_position
+		last_redraw_player_biome_id = current_biome_id
+		minimap_static_redraw_timer = 0.0
 		minimap_redraw_timer = 0.0
 		queue_redraw()
+	else:
+		minimap_static_redraw_timer += delta
+		if minimap_static_redraw_timer >= static_redraw_interval:
+			minimap_static_redraw_timer = 0.0
+			minimap_redraw_timer = 0.0
+			queue_redraw()
+	minimap_redraw_timer += delta
 	markers_cache_timer += delta
 	if markers_cache_timer >= MINIMAP_MARKER_CACHE_INTERVAL:
 		markers_cache_timer = 0.0
@@ -155,27 +182,23 @@ func _get_content_rect(map_rect: Rect2) -> Rect2:
 
 
 func _draw_biomes(content_rect: Rect2, view_world_rect: Rect2) -> void:
-	if biome_shape_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
-		if biome_shape_map.has_method("has_renderable_polygons") and biome_shape_map.has_renderable_polygons():
-			_draw_shape_map(content_rect, view_world_rect)
+	if not _is_drawing_biomes:
+		return
+	if biome_blend_texture:
+		var visible_world_rect := world_rect.intersection(view_world_rect)
+		if visible_world_rect.size.x <= 0.0 or visible_world_rect.size.y <= 0.0:
 			return
+		var destination_rect := _world_rect_to_map_rect(visible_world_rect, content_rect, view_world_rect)
+		var source_rect := _world_rect_to_texture_region(visible_world_rect)
+		if destination_rect.size.x <= 0.0 or destination_rect.size.y <= 0.0:
+			return
+		draw_texture_rect_region(biome_blend_texture, destination_rect, source_rect)
+		return
 	if terrain_cell_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_cell_map_fallback", true)):
 		_draw_cell_map(content_rect, view_world_rect)
 		return
-	if biome_zones.is_empty():
-		return
-	if not _is_drawing_biomes:
-		return
-	if not biome_blend_texture:
-		return
-	var visible_world_rect := world_rect.intersection(view_world_rect)
-	if visible_world_rect.size.x <= 0.0 or visible_world_rect.size.y <= 0.0:
-		return
-	var destination_rect := _world_rect_to_map_rect(visible_world_rect, content_rect, view_world_rect)
-	var source_rect := _world_rect_to_texture_region(visible_world_rect)
-	if destination_rect.size.x <= 0.0 or destination_rect.size.y <= 0.0:
-		return
-	draw_texture_rect_region(biome_blend_texture, destination_rect, source_rect)
+	if biome_shape_map != null and biome_shape_map.has_method("get_sample_grid_size") and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_sample_grid_underlay", false)):
+		_draw_shape_map_sample_grid(content_rect, view_world_rect)
 
 
 func _draw_shoreline_overlay(content_rect: Rect2, view_world_rect: Rect2) -> void:
@@ -208,21 +231,16 @@ func _sync_biome_texture() -> void:
 	var active_world := _get_world()
 	biome_shape_map = active_world.get_biome_shape_map() if active_world != null and active_world.has_method("get_biome_shape_map") else null
 	terrain_cell_map = active_world.get_terrain_cell_map() if active_world != null and active_world.has_method("get_terrain_cell_map") else null
-	var has_shape_polygons := false
-	if biome_shape_map != null and biome_shape_map.has_method("has_renderable_polygons"):
-		has_shape_polygons = biome_shape_map.has_renderable_polygons()
-	if has_shape_polygons and bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
-		biome_blend_texture = null
-		biome_blend_colors_key = "shape_map"
-		return
-	if terrain_cell_map != null and terrain_cell_map.get_grid_size() != Vector2i.ZERO:
-		biome_blend_texture = null
-		biome_blend_colors_key = "cell_map"
-		return
-	if biome_zones.is_empty():
+	if active_world == null or biome_zones.is_empty():
 		biome_blend_texture = null
 		biome_blend_colors_key = ""
 		return
+	if active_world.has_method("get_surface_texture") and active_world.has_method("get_surface_texture_key"):
+		var shared_texture: ImageTexture = active_world.get_surface_texture()
+		if shared_texture != null:
+			biome_blend_texture = shared_texture
+			biome_blend_colors_key = str(active_world.get_surface_texture_key())
+			return
 	_ensure_biome_texture()
 
 
@@ -718,6 +736,25 @@ func _refresh_landmarks_from_world() -> bool:
 	return changed
 
 
+func _get_player_position() -> Vector2:
+	if is_instance_valid(player):
+		return player.global_position
+	return world_rect.get_center()
+
+
+func _get_player_biome_id() -> String:
+	if not is_instance_valid(player):
+		return ""
+	var active_world := _get_world()
+	if active_world == null:
+		return ""
+	if active_world.has_method("get_visual_biome_id_at"):
+		return str(active_world.get_visual_biome_id_at(player.global_position))
+	if active_world.has_method("get_biome_id_at"):
+		return str(active_world.get_biome_id_at(player.global_position))
+	return ""
+
+
 func _build_landmarks_signature() -> String:
 	var parts: Array[String] = []
 	for landmark in landmarks:
@@ -734,6 +771,8 @@ func _build_landmarks_signature() -> String:
 func _build_shoreline_segments(active_world: Node) -> Array[Dictionary]:
 	var segments: Array[Dictionary] = []
 	if active_world == null:
+		return segments
+	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)):
 		return segments
 	var source_ponds: Array[Dictionary] = []
 	if active_world.has_method("get"):
