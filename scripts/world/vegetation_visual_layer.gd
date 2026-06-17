@@ -37,7 +37,13 @@ var near_lod_count := 0
 var mid_lod_count := 0
 var far_lod_count := 0
 var max_drawn_instances := MAX_DRAWN_DECORATIVE_GRASS_INSTANCES
+var far_lod_every_nth := GRASS_FAR_DRAW_EVERY_NTH
 var dirty := false
+var _batch_depth := 0
+var _batch_dirty := false
+var _visible_candidate_cache: Array = []
+var _visible_candidate_cache_key := ""
+var _sorted_candidate_cache_key := ""
 
 
 func clear_instances() -> void:
@@ -57,6 +63,7 @@ func clear_instances() -> void:
 	mid_lod_count = 0
 	far_lod_count = 0
 	dirty = true
+	_invalidate_visible_candidate_cache()
 	queue_redraw()
 
 
@@ -83,10 +90,12 @@ func add_instance(kind: String, world_position: Vector2, radius: float = -1.0, b
 	instances_by_chunk[chunk_key] = chunk_items
 	total_chunk_count = instances_by_chunk.size()
 	dirty = true
-	queue_redraw()
+	_invalidate_visible_candidate_cache()
+	_mark_batch_dirty()
 
 
 func add_instances(items: Array) -> void:
+	begin_batch()
 	for item_value in items:
 		var item := Dictionary(item_value)
 		add_instance(
@@ -96,6 +105,7 @@ func add_instances(items: Array) -> void:
 			str(item.get("biome_id", "")),
 			float(item.get("visual_scale", 1.0))
 		)
+	end_batch()
 
 
 func get_instance_count() -> int:
@@ -121,6 +131,7 @@ func set_visible_world_rect(world_rect: Rect2) -> void:
 	last_visible_chunk_signature = signature
 	last_visible_rect_center = center
 	last_visible_rect_size = size
+	_invalidate_visible_candidate_cache()
 	queue_redraw()
 
 
@@ -137,6 +148,18 @@ func set_camera_focus_position(world_position: Vector2) -> void:
 
 func set_max_drawn_instances(value: int) -> void:
 	max_drawn_instances = maxi(value, 0)
+	_invalidate_visible_candidate_cache()
+	queue_redraw()
+
+
+func apply_render_budget(budget: Dictionary) -> void:
+	var next_max := int(budget.get("decorative_vegetation_max_drawn", max_drawn_instances))
+	var next_far_nth := int(budget.get("decorative_far_lod_every_nth", GRASS_FAR_DRAW_EVERY_NTH))
+	if next_max == max_drawn_instances and next_far_nth == far_lod_every_nth:
+		return
+	max_drawn_instances = next_max
+	far_lod_every_nth = max(1, next_far_nth)
+	_invalidate_visible_candidate_cache()
 	queue_redraw()
 
 
@@ -174,12 +197,14 @@ func _draw() -> void:
 	var candidates := _collect_visible_draw_candidates()
 	if candidates.is_empty():
 		return
-	if has_camera_focus_position:
+	var sort_key := _build_sorted_candidate_key(candidates)
+	if has_camera_focus_position and sort_key != _sorted_candidate_cache_key:
 		candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 			var a_pos := Vector2(a.get("position", Vector2.ZERO))
 			var b_pos := Vector2(b.get("position", Vector2.ZERO))
 			return a_pos.distance_squared_to(camera_focus_position) < b_pos.distance_squared_to(camera_focus_position)
 		)
+		_sorted_candidate_cache_key = sort_key
 	total_visible_instance_count = candidates.size()
 	for item in candidates:
 		if drawn_instance_count >= max_drawn_instances:
@@ -216,11 +241,16 @@ func _reset_draw_debug_counters() -> void:
 
 
 func _collect_visible_draw_candidates() -> Array[Dictionary]:
+	var cache_key := _build_visible_candidate_cache_key()
+	if cache_key == _visible_candidate_cache_key and not _visible_candidate_cache.is_empty():
+		return _visible_candidate_cache
 	var result: Array[Dictionary] = []
 	if not has_visible_world_rect:
 		for item_value in instances:
 			result.append(Dictionary(item_value))
 		visible_chunk_count = instances_by_chunk.size()
+		_visible_candidate_cache = result
+		_visible_candidate_cache_key = cache_key
 		return result
 	var visible_keys := _get_visible_chunk_keys(visible_world_rect)
 	visible_chunk_count = visible_keys.size()
@@ -232,6 +262,8 @@ func _collect_visible_draw_candidates() -> Array[Dictionary]:
 			if not visible_world_rect.has_point(position):
 				continue
 			result.append(item)
+	_visible_candidate_cache = result
+	_visible_candidate_cache_key = cache_key
 	return result
 
 
@@ -247,7 +279,7 @@ func _resolve_grass_lod(position: Vector2, seed: int) -> int:
 
 
 func _should_skip_far_grass(seed: int) -> bool:
-	return abs(seed) % GRASS_FAR_DRAW_EVERY_NTH != 0
+	return abs(seed) % far_lod_every_nth != 0
 
 
 func _draw_vegetation_instance_lod(kind: String, position: Vector2, radius: float, seed: int, lod: int) -> void:
@@ -431,3 +463,40 @@ func _make_seed(kind: String, world_position: Vector2) -> int:
 	var hash_value := kind.hash()
 	hash_value = int(hash_value + int(world_position.x * 17.0) + int(world_position.y * 31.0))
 	return hash_value
+
+
+func begin_batch() -> void:
+	_batch_depth += 1
+
+
+func end_batch() -> void:
+	_batch_depth = maxi(_batch_depth - 1, 0)
+	if _batch_depth == 0 and _batch_dirty:
+		_batch_dirty = false
+		queue_redraw()
+
+
+func _mark_batch_dirty() -> void:
+	if _batch_depth > 0:
+		_batch_dirty = true
+		return
+	queue_redraw()
+
+
+func _invalidate_visible_candidate_cache() -> void:
+	_visible_candidate_cache.clear()
+	_visible_candidate_cache_key = ""
+	_sorted_candidate_cache_key = ""
+
+
+func _build_visible_candidate_cache_key() -> String:
+	return "%s|focus:%s|max:%d|far:%d" % [
+		last_visible_chunk_signature,
+		str(camera_focus_position) if has_camera_focus_position else "none",
+		max_drawn_instances,
+		far_lod_every_nth
+	]
+
+
+func _build_sorted_candidate_key(candidates: Array) -> String:
+	return "%d|%s" % [candidates.size(), str(camera_focus_position)]

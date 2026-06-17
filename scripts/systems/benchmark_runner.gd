@@ -237,6 +237,8 @@ func _capture_world_stats() -> Dictionary:
 	stats["landmark_debug"] = _capture_world_landmark_debug_stats()
 	stats["registry"] = _capture_world_registry_stats()
 	stats["render_flags"] = _capture_world_render_flags()
+	stats["render_budget"] = _capture_world_render_budget()
+	stats["render_pressure"] = _capture_world_render_pressure(stats)
 	stats["visibility_culling"] = _capture_world_visibility_culling_stats()
 	stats["creature_counts"] = _capture_group_counts(["small_prey", "grazer", "varnak"])
 	stats["resource_counts"] = _capture_group_counts([
@@ -479,6 +481,36 @@ func _capture_world_registry_stats() -> Dictionary:
 func _capture_world_render_flags() -> Dictionary:
 	if not is_instance_valid(world):
 		return {}
+	return {
+		"low_end_rendering": world.is_low_end_rendering_enabled() if world.has_method("is_low_end_rendering_enabled") else false,
+		"biome_textures_enabled": world.are_biome_textures_enabled() if world.has_method("are_biome_textures_enabled") else true,
+		"landmark_debug_overlay_enabled": world.is_landmark_debug_overlay_enabled() if world.has_method("is_landmark_debug_overlay_enabled") else false,
+		"biome_terrain_accents_enabled": world.are_biome_terrain_accents_enabled() if world.has_method("are_biome_terrain_accents_enabled") else false
+	}
+
+
+func _capture_world_render_budget() -> Dictionary:
+	if not is_instance_valid(world):
+		return {}
+	if world.has_method("get_render_budget_debug"):
+		return Dictionary(world.get_render_budget_debug())
+	return {}
+
+
+func _capture_world_render_pressure(world_stats: Dictionary) -> Dictionary:
+	var result := {}
+	var vegetation := Dictionary(world_stats.get("vegetation", {}))
+	var visibility := Dictionary(world_stats.get("visibility_culling", {}))
+	var minimap := Dictionary(_capture_minimap_stats())
+	result["draw_calls"] = int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+	result["render_primitives"] = int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
+	result["render_objects"] = int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME))
+	result["visible_resources"] = int(visibility.get("visible_resources", 0))
+	result["visible_creatures"] = int(visibility.get("visible_creatures", 0))
+	result["decorative_drawn"] = int(vegetation.get("decorative_vegetation_drawn_instance_count", 0))
+	result["minimap_redraw_count"] = int(minimap.get("redraw_count", 0))
+	result["shoreline_build_count"] = int(minimap.get("shoreline_build_count", 0))
+	return result
 	return {
 		"low_end_rendering": world.is_low_end_rendering_enabled() if world.has_method("is_low_end_rendering_enabled") else false,
 		"biome_textures_enabled": world.are_biome_textures_enabled() if world.has_method("are_biome_textures_enabled") else true,

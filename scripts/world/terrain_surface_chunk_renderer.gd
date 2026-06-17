@@ -102,6 +102,11 @@ func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 	if world_changed:
 		mark_dirty("bind_world_changed")
 
+
+func apply_render_budget(budget: Dictionary) -> void:
+	max_chunks_built_per_frame = maxi(int(budget.get("terrain_refined_chunks_per_frame", max_chunks_built_per_frame)), 1)
+	max_build_ms_per_frame = maxf(float(budget.get("terrain_build_budget_ms", max_build_ms_per_frame)), 0.5)
+
 func mark_dirty(reason := "unknown") -> void:
 	dirty = true
 	last_clear_reason = reason

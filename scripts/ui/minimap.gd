@@ -42,6 +42,10 @@ var minimap_texture_last_build_ms: float = 0.0
 var _is_drawing_biomes := false
 var minimap_redraw_timer := 0.0
 var minimap_static_redraw_timer := 0.0
+var minimap_redraw_interval := 0.15
+var minimap_marker_rebuild_interval := 0.25
+var _marker_rebuild_timer := 0.0
+var _redraw_timer := 0.0
 var last_redraw_player_position := Vector2.INF
 var last_redraw_player_biome_id := ""
 var cached_resources: Array[Dictionary] = []
@@ -116,7 +120,10 @@ func _process(delta: float) -> void:
 	_sync_biome_texture()
 	_sync_shoreline_overlay_cache()
 	var redraw_distance := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("minimap_redraw_on_player_move_distance", 24.0)), 0.0)
-	var static_redraw_interval := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("minimap_redraw_interval_when_static", MINIMAP_REDRAW_INTERVAL)), 0.1)
+	var budget := Dictionary(_get_world_render_budget())
+	minimap_redraw_interval = float(budget.get("minimap_redraw_interval", minimap_redraw_interval))
+	minimap_marker_rebuild_interval = float(budget.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval))
+	var static_redraw_interval := maxf(minimap_redraw_interval, 0.1)
 	var current_player_position := _get_player_position()
 	var current_biome_id := _get_player_biome_id()
 	var should_redraw := false
@@ -139,9 +146,9 @@ func _process(delta: float) -> void:
 			minimap_redraw_timer = 0.0
 			queue_redraw()
 	minimap_redraw_timer += delta
-	markers_cache_timer += delta
-	if markers_cache_timer >= MINIMAP_MARKER_CACHE_INTERVAL:
-		markers_cache_timer = 0.0
+	_marker_rebuild_timer += delta
+	if _marker_rebuild_timer >= minimap_marker_rebuild_interval:
+		_marker_rebuild_timer = 0.0
 		_refresh_static_caches()
 
 
@@ -1207,6 +1214,8 @@ func get_minimap_performance_debug() -> Dictionary:
 		"shoreline_build_count": shoreline_segments_build_count,
 		"shoreline_last_build_ms": shoreline_segments_last_build_ms,
 		"shoreline_segment_count": shoreline_segments.size(),
+		"minimap_redraw_interval": minimap_redraw_interval,
+		"minimap_marker_rebuild_interval": minimap_marker_rebuild_interval,
 		"minimap_shape_polygons_clipped": true
 	}
 
@@ -1370,3 +1379,10 @@ func _to_dictionary_array(values: Array) -> Array[Dictionary]:
 		if typeof(value) == TYPE_DICTIONARY:
 			typed_values.append(Dictionary(value))
 	return typed_values
+
+
+func _get_world_render_budget() -> Dictionary:
+	var active_world := _get_world()
+	if active_world != null and active_world.has_method("get_render_budget_debug"):
+		return Dictionary(active_world.get_render_budget_debug())
+	return Dictionary(GAME_BALANCE.RENDER_PERFORMANCE.get("normal", {}))

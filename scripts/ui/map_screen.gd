@@ -47,6 +47,8 @@ var cached_small_prey: Array[Dictionary] = []
 var cached_grazers: Array[Dictionary] = []
 var resources_cache_timer := 0.0
 var map_state_refresh_timer := 0.0
+var map_redraw_interval := 0.15
+var map_marker_rebuild_interval := 0.25
 var cached_resources_signature := ""
 var cached_campfires_signature := ""
 var cached_varnaks_signature := ""
@@ -122,9 +124,12 @@ func _process(_delta: float) -> void:
 	})
 	_sync_biome_texture()
 	_sync_shoreline_overlay_cache()
+	var budget := Dictionary(_get_world_render_budget())
+	map_redraw_interval = float(budget.get("minimap_redraw_interval", map_redraw_interval))
+	map_marker_rebuild_interval = float(budget.get("minimap_marker_rebuild_interval", map_marker_rebuild_interval))
 	var cache_changed := false
 	resources_cache_timer += _delta
-	if resources_cache_timer >= RESOURCES_CACHE_INTERVAL:
+	if resources_cache_timer >= maxf(map_marker_rebuild_interval, RESOURCES_CACHE_INTERVAL):
 		resources_cache_timer = 0.0
 		if _update_marker_cache():
 			map_screen_cache_rebuild_count += 1
@@ -1432,6 +1437,8 @@ func get_map_screen_performance_debug() -> Dictionary:
 		"shoreline_build_count": shoreline_segments_build_count,
 		"shoreline_last_build_ms": shoreline_segments_last_build_ms,
 		"shoreline_segment_count": shoreline_segments.size(),
+		"map_redraw_interval": map_redraw_interval,
+		"map_marker_rebuild_interval": map_marker_rebuild_interval,
 		"map_screen_shape_polygons_clipped": true
 	}
 
@@ -1507,3 +1514,10 @@ func _build_varnak_markers_from_world() -> Array[Dictionary]:
 
 func _get_registered_varnaks() -> Array:
 	return cached_varnaks
+
+
+func _get_world_render_budget() -> Dictionary:
+	var active_world := _get_world()
+	if active_world != null and active_world.has_method("get_render_budget_debug"):
+		return Dictionary(active_world.get_render_budget_debug())
+	return Dictionary(GAME_BALANCE.RENDER_PERFORMANCE.get("normal", {}))

@@ -564,6 +564,32 @@ const BIOME_TEXTURES := {
 	"max_detail_per_chunk": 80
 }
 
+const RENDER_PERFORMANCE := {
+	"target_fps": 50,
+	"low_fps_threshold": 45,
+	"recover_fps_threshold": 55,
+	"fps_ema_alpha": 0.08,
+	"normal": {
+		"decorative_vegetation_max_drawn": 90,
+		"decorative_far_lod_every_nth": 2,
+		"minimap_redraw_interval": 0.15,
+		"minimap_marker_rebuild_interval": 0.25,
+		"terrain_refined_chunks_per_frame": 1,
+		"terrain_build_budget_ms": 2.0,
+		"resource_far_update_interval": 0.25
+	},
+	"pressure": {
+		"decorative_vegetation_max_drawn": 60,
+		"decorative_far_lod_every_nth": 3,
+		"minimap_redraw_interval": 0.25,
+		"minimap_marker_rebuild_interval": 0.5,
+		"terrain_refined_chunks_per_frame": 1,
+		"terrain_build_budget_ms": 1.0,
+		"resource_far_update_interval": 0.5
+	},
+	"recovery_seconds": 3.0
+}
+
 const POPULATION_RECOVERY := {
 	"small_prey_min_population": 12.0,
 	"small_prey_target_population": 25.0,

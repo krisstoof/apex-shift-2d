@@ -22,6 +22,7 @@ const POOL_MANAGER_SCRIPT := preload("res://scripts/systems/pool_manager.gd")
 const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 const WORLD_VISIBILITY_CONTROLLER_SCRIPT := preload("res://scripts/world/world_visibility_controller.gd")
+const RENDER_PERFORMANCE_GOVERNOR_SCRIPT := preload("res://scripts/world/render_performance_governor.gd")
 const TERRAIN_CELL_MAP_SCRIPT := preload("res://scripts/world/terrain_cell_map.gd")
 const TERRAIN_CHUNK_RENDERER_SCRIPT := preload("res://scripts/world/terrain_chunk_renderer.gd")
 const TERRAIN_SURFACE_CHUNK_RENDERER_SCRIPT := preload("res://scripts/world/terrain_surface_chunk_renderer.gd")
@@ -256,6 +257,7 @@ var spatial_index_debug_timer := 0.0
 var spatial_index_debug_cache: Dictionary = {}
 var spatial_index_debug_last_refresh_ms := 0.0
 var visibility_controller
+var render_performance_governor
 var decorative_vegetation_visibility_timer := 0.0
 var is_restoring_save: bool = false
 var island_world_validation_last_report: Dictionary = {}
@@ -324,6 +326,7 @@ func _ready() -> void:
 	if event_bus and event_bus.has_signal("game_event"):
 		event_bus.game_event.connect(_on_game_event)
 	_ensure_render_controller()
+	_ensure_render_performance_governor()
 	_ensure_terrain_cell_map()
 	_ensure_terrain_chunk_renderer()
 	_ensure_terrain_surface_chunk_renderer()
@@ -415,6 +418,12 @@ func _process(delta: float) -> void:
 	})
 	if is_restoring_save:
 		return
+	var current_fps := float(Engine.get_frames_per_second())
+	if render_performance_governor != null and render_performance_governor.has_method("update"):
+		render_performance_governor.update(delta, current_fps)
+		var governor_budget: Dictionary = Dictionary(render_performance_governor.get_budget())
+		if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("apply_render_budget"):
+			terrain_surface_chunk_renderer.apply_render_budget(governor_budget)
 	terrain_surface_renderer_update_timer -= delta
 	if terrain_surface_renderer_update_timer <= 0.0:
 		terrain_surface_renderer_update_timer = TERRAIN_SURFACE_RENDERER_UPDATE_INTERVAL
@@ -515,18 +524,10 @@ func _update_decorative_vegetation_visible_rect() -> void:
 			focus_position = visible_rect.get_center()
 		vegetation_visual_layer.set_camera_focus_position(focus_position)
 	if vegetation_visual_layer.has_method("set_max_drawn_instances"):
-		var budget := mini(DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES, 240)
-		if bool(GAME_BALANCE.BIOME_TEXTURES.get("decorative_vegetation_dynamic_budget_enabled", true)):
-			var fps := Engine.get_frames_per_second()
-			if fps > 0 and fps < int(GAME_BALANCE.BIOME_TEXTURES.get("decorative_vegetation_budget_when_fps_low", 90)):
-				budget = mini(budget, int(GAME_BALANCE.BIOME_TEXTURES.get("decorative_vegetation_budget_when_fps_low", 90)))
-			var surface_building := false
-			if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("get_debug_data"):
-				var surface_debug := Dictionary(terrain_surface_chunk_renderer.get_debug_data())
-				surface_building = int(surface_debug.get("terrain_surface_active_build_count", 0)) > 0 or int(surface_debug.get("terrain_surface_chunks_built_last_frame", 0)) > 0
-			if surface_building:
-				budget = mini(budget, int(GAME_BALANCE.BIOME_TEXTURES.get("decorative_vegetation_budget_when_surface_building", 120)))
-		vegetation_visual_layer.set_max_drawn_instances(budget)
+		var budget: Dictionary = Dictionary(render_performance_governor.get_budget()) if render_performance_governor != null and render_performance_governor.has_method("get_budget") else Dictionary(GAME_BALANCE.RENDER_PERFORMANCE.get("normal", {}))
+		if budget.is_empty():
+			budget = Dictionary(GAME_BALANCE.RENDER_PERFORMANCE.get("normal", {}))
+		vegetation_visual_layer.apply_render_budget(budget)
 
 
 func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2, margin := VISIBILITY_CULL_MARGIN) -> Rect2:
@@ -2045,6 +2046,12 @@ func _ensure_render_controller():
 	return render_controller
 
 
+func _ensure_render_performance_governor():
+	if render_performance_governor == null:
+		render_performance_governor = RENDER_PERFORMANCE_GOVERNOR_SCRIPT.new()
+	return render_performance_governor
+
+
 func _initialize_visibility_controller() -> void:
 	if visibility_controller != null:
 		return
@@ -2405,6 +2412,14 @@ func get_terrain_renderer_debug() -> Dictionary:
 	debug["terrain_global_surface_texture_build_ms"] = world_surface_texture_last_build_ms
 	debug["terrain_surface_renderer_update_timer"] = terrain_surface_renderer_update_timer
 	return debug
+
+
+func get_render_budget_debug() -> Dictionary:
+	var governor_budget := Dictionary(render_performance_governor.get_budget()) if render_performance_governor != null and render_performance_governor.has_method("get_budget") else Dictionary(GAME_BALANCE.RENDER_PERFORMANCE.get("normal", {}))
+	governor_budget["mode"] = str(governor_budget.get("mode", "normal"))
+	governor_budget["fps_ema"] = render_performance_governor.fps_ema if render_performance_governor != null else 60.0
+	governor_budget["render_governor_mode"] = render_performance_governor.mode if render_performance_governor != null else "normal"
+	return governor_budget
 
 
 func _ensure_surface_texture_key() -> String:
