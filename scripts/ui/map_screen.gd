@@ -40,6 +40,14 @@ var map_screen_skipped_update_hidden_count: int = 0
 var map_screen_texture_build_count: int = 0
 var map_screen_texture_last_build_ms: float = 0.0
 var _map_screen_texture_build_queued := false
+var map_screen_marker_cache_check_count := 0
+var map_screen_marker_cache_rebuild_count := 0
+var map_screen_marker_cache_skipped_unchanged_count := 0
+var map_screen_shoreline_check_count := 0
+var map_screen_shoreline_build_count := 0
+var map_screen_shoreline_skipped_unchanged_count := 0
+var map_screen_marker_cache_dirty := true
+var map_screen_shoreline_cache_dirty := true
 var _is_drawing_biomes := false
 var cached_resources: Array[Dictionary] = []
 var cached_campfires: Array[Dictionary] = []
@@ -106,13 +114,17 @@ func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node
 	landmarks = p_landmarks
 	biome_shape_map = world.get_biome_shape_map() if world != null and world.has_method("get_biome_shape_map") else null
 	terrain_cell_map = world.get_terrain_cell_map() if world != null and world.has_method("get_terrain_cell_map") else null
-	biome_shape_map = world.get_biome_shape_map() if world != null and world.has_method("get_biome_shape_map") else null
-	terrain_cell_map = world.get_terrain_cell_map() if world != null and world.has_method("get_terrain_cell_map") else null
 	_sync_biome_texture()
 	_sync_shoreline_overlay_cache()
+	map_screen_marker_cache_check_count += 1
 	if _update_marker_cache():
-		map_screen_cache_rebuild_count += 1
+		map_screen_marker_cache_rebuild_count += 1
+		map_screen_marker_cache_dirty = true
+	else:
+		map_screen_marker_cache_skipped_unchanged_count += 1
+		map_screen_marker_cache_dirty = false
 	_update_landmarks_signature()
+	map_screen_shoreline_cache_dirty = true
 	mark_map_cache_dirty()
 
 
@@ -125,8 +137,10 @@ func _process(_delta: float) -> void:
 		"build_count": map_screen_texture_build_count,
 		"last_build_ms": snappedf(map_screen_texture_last_build_ms, 0.01)
 	})
-	_sync_biome_texture()
-	_sync_shoreline_overlay_cache()
+	if biome_blend_texture == null or _map_screen_texture_build_queued:
+		_sync_biome_texture()
+	if map_screen_shoreline_cache_dirty or shoreline_segments_key.is_empty():
+		_sync_shoreline_overlay_cache()
 	var budget := Dictionary(_get_world_render_budget())
 	map_redraw_interval = float(budget.get("minimap_redraw_interval", map_redraw_interval))
 	map_marker_rebuild_interval = float(budget.get("minimap_marker_rebuild_interval", map_marker_rebuild_interval))
@@ -134,11 +148,17 @@ func _process(_delta: float) -> void:
 	resources_cache_timer += _delta
 	if resources_cache_timer >= maxf(map_marker_rebuild_interval, RESOURCES_CACHE_INTERVAL):
 		resources_cache_timer = 0.0
+		map_screen_marker_cache_check_count += 1
 		if _update_marker_cache():
-			map_screen_cache_rebuild_count += 1
+			map_screen_marker_cache_rebuild_count += 1
+			map_screen_marker_cache_dirty = true
 			cache_changed = true
+		else:
+			map_screen_marker_cache_skipped_unchanged_count += 1
+			map_screen_marker_cache_dirty = false
 		if _refresh_landmarks_from_world():
 			map_screen_cache_rebuild_count += 1
+			map_screen_shoreline_cache_dirty = true
 			cache_changed = true
 		if cache_changed:
 			mark_map_cache_dirty()
@@ -636,10 +656,13 @@ func _sync_biome_texture() -> void:
 		biome_blend_colors_key = ""
 		return
 	if active_world.has_method("get_surface_texture") and active_world.has_method("get_surface_texture_key"):
+		var current_key := str(active_world.get_surface_texture_key())
+		if biome_blend_texture != null and biome_blend_colors_key == current_key:
+			return
 		var shared_texture: ImageTexture = active_world.get_surface_texture()
 		if shared_texture != null:
 			biome_blend_texture = shared_texture
-			biome_blend_colors_key = str(active_world.get_surface_texture_key())
+			biome_blend_colors_key = current_key
 			_map_screen_texture_build_queued = false
 			return
 	if not _map_screen_texture_build_queued and is_visible_in_tree():
@@ -655,18 +678,24 @@ func _ensure_biome_texture_deferred() -> void:
 
 
 func _sync_shoreline_overlay_cache() -> void:
+	map_screen_shoreline_check_count += 1
 	var active_world := _get_world()
 	if active_world == null:
 		shoreline_segments.clear()
 		shoreline_segments_key = ""
+		map_screen_shoreline_cache_dirty = true
 		return
-	var current_key := _get_biome_texture_key()
+	var current_key := _get_shoreline_cache_key()
 	if shoreline_segments_key == current_key and not shoreline_segments.is_empty():
+		map_screen_shoreline_skipped_unchanged_count += 1
+		map_screen_shoreline_cache_dirty = false
 		return
 	var start_ms := Time.get_ticks_msec()
 	shoreline_segments = _build_shoreline_segments(active_world)
 	shoreline_segments_key = current_key
+	map_screen_shoreline_cache_dirty = false
 	shoreline_segments_build_count += 1
+	map_screen_shoreline_build_count += 1
 	shoreline_segments_last_build_ms = float(Time.get_ticks_msec() - start_ms)
 
 
@@ -752,6 +781,14 @@ func _get_biome_texture_key() -> String:
 		if active_world.has_method("get_map_surface_debug_key"):
 			parts.append(str(active_world.get_map_surface_debug_key()))
 	return "|".join(parts)
+
+
+func _get_shoreline_cache_key() -> String:
+	var active_world := _get_world()
+	var topography_key := ""
+	if active_world != null and active_world.has_method("get_topography_debug_summary"):
+		topography_key = str(Dictionary(active_world.get_topography_debug_summary()).get("topography_feature_counts", {}))
+	return "%s|landmarks=%s|topography=%s" % [_get_biome_texture_key(), _build_landmarks_signature(), topography_key]
 
 
 func _get_biome_base_color(biome: Dictionary) -> Color:
@@ -1449,7 +1486,13 @@ func get_map_screen_performance_debug() -> Dictionary:
 		"texture_last_build_ms": map_screen_texture_last_build_ms,
 		"shoreline_build_count": shoreline_segments_build_count,
 		"shoreline_last_build_ms": shoreline_segments_last_build_ms,
-		"shoreline_segment_count": shoreline_segments.size()
+		"shoreline_segment_count": shoreline_segments.size(),
+		"map_screen_marker_cache_check_count": map_screen_marker_cache_check_count,
+		"map_screen_marker_cache_rebuild_count": map_screen_marker_cache_rebuild_count,
+		"map_screen_marker_cache_skipped_unchanged_count": map_screen_marker_cache_skipped_unchanged_count,
+		"map_screen_shoreline_check_count": map_screen_shoreline_check_count,
+		"map_screen_shoreline_build_count": map_screen_shoreline_build_count,
+		"map_screen_shoreline_skipped_unchanged_count": map_screen_shoreline_skipped_unchanged_count
 	}
 
 

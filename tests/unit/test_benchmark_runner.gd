@@ -166,7 +166,23 @@ class FakeMinimap extends Node:
 			"marker_cache_rebuild_count": 5,
 			"landmark_cache_rebuild_count": 6,
 			"texture_build_count": 7,
-			"texture_last_build_ms": 3.5
+			"texture_last_build_ms": 3.5,
+			"minimap_static_map_dirty": false,
+			"minimap_marker_cache_dirty": false,
+			"minimap_shoreline_cache_dirty": false,
+			"minimap_player_layer_dirty": false,
+			"minimap_view_dirty": false,
+			"minimap_marker_cache_check_count": 4,
+			"minimap_marker_cache_skipped_unchanged_count": 3,
+			"minimap_shoreline_check_count": 2,
+			"minimap_shoreline_skipped_unchanged_count": 1,
+			"minimap_queue_static_redraw_count": 1,
+			"minimap_queue_marker_redraw_count": 3,
+			"minimap_queue_player_redraw_count": 3,
+			"minimap_biome_texture_sync_check_count": 5,
+			"minimap_biome_texture_sync_skipped_count": 4,
+			"minimap_biome_texture_dirty_count": 1,
+			"minimap_player_marker_redraw_count": 3
 		}
 
 
@@ -177,7 +193,13 @@ class FakeMapScreen extends Node:
 			"cache_rebuild_count": 9,
 			"skipped_update_hidden_count": 2,
 			"texture_build_count": 10,
-			"texture_last_build_ms": 4.5
+			"texture_last_build_ms": 4.5,
+			"map_screen_marker_cache_check_count": 6,
+			"map_screen_marker_cache_rebuild_count": 2,
+			"map_screen_marker_cache_skipped_unchanged_count": 4,
+			"map_screen_shoreline_check_count": 5,
+			"map_screen_shoreline_build_count": 1,
+			"map_screen_shoreline_skipped_unchanged_count": 4
 		}
 
 
@@ -279,6 +301,11 @@ func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) 
 	TEST_UTILS.expect_equal(int(resource_render_mode.get("active_resource_collisions", 0)), 1, failures, "Benchmark runner should capture active resource collision counts")
 	TEST_UTILS.expect_equal(int(minimap_stats.get("texture_build_count", 0)), 7, failures, "Benchmark runner should capture minimap texture build counts")
 	TEST_UTILS.expect_equal(int(map_screen_stats.get("texture_build_count", 0)), 10, failures, "Benchmark runner should capture map screen texture build counts")
+	TEST_UTILS.expect_equal(int(minimap_stats.get("minimap_marker_cache_check_count", 0)), 4, failures, "Benchmark runner should capture minimap marker cache checks")
+	TEST_UTILS.expect_equal(int(minimap_stats.get("minimap_shoreline_check_count", 0)), 2, failures, "Benchmark runner should capture minimap shoreline checks")
+	TEST_UTILS.expect_equal(int(minimap_stats.get("minimap_queue_player_redraw_count", 0)), 3, failures, "Benchmark runner should capture minimap player redraw queue counts")
+	TEST_UTILS.expect_equal(int(map_screen_stats.get("map_screen_marker_cache_check_count", 0)), 6, failures, "Benchmark runner should capture map screen marker cache checks")
+	TEST_UTILS.expect_equal(int(map_screen_stats.get("map_screen_shoreline_build_count", 0)), 1, failures, "Benchmark runner should capture map screen shoreline builds")
 	TEST_UTILS.expect_equal(int(Dictionary(ai_stats.get("small_prey", {})).get("total_decisions", 0)), 12, failures, "Benchmark runner should capture small prey AI decision counts")
 	TEST_UTILS.expect_equal(int(Dictionary(ai_stats.get("grazer", {})).get("total_decisions", 0)), 6, failures, "Benchmark runner should capture grazer AI decision counts")
 	TEST_UTILS.expect_equal(int(Dictionary(ai_stats.get("varnak", {})).get("total_decisions", 0)), 9, failures, "Benchmark runner should capture Varnak AI decision counts")
@@ -408,7 +435,9 @@ func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[St
 	TEST_UTILS.expect(line.contains("registry resources=3 buildings=1"), failures, "Benchmark runner diagnostics should include registry totals")
 	TEST_UTILS.expect(line.contains("terrain surface_visible=9 surface_cached=12 surface_pending=2 surface_built=1 cell_visible=4 cell_drawn=128 shape_polygons=5 shape_details=17"), failures, "Benchmark runner diagnostics should include terrain renderer attribution")
 	TEST_UTILS.expect(line.contains("minimap redraw=4 static=1 dynamic=3 player=3 static_cache=8 marker_cache=5 landmark_cache=6 texture_builds=7 last_build_ms=3.50"), failures, "Benchmark runner diagnostics should include minimap metrics")
+	TEST_UTILS.expect(line.contains("checks=4/3 shoreline=2/1 queue=1/3/3 dirty=false/false/false/false/false"), failures, "Benchmark runner diagnostics should include minimap cache counters")
 	TEST_UTILS.expect(line.contains("map_screen redraw=8 cache=9 skipped_hidden=2 texture_builds=10 last_build_ms=4.50"), failures, "Benchmark runner diagnostics should include map screen metrics")
+	TEST_UTILS.expect(line.contains("checks=6/4 shoreline=5/4"), failures, "Benchmark runner diagnostics should include map screen cache counters")
 	TEST_UTILS.expect(line.contains("ai small_prey=2/12 avg=6.0 grazer=1/6 avg=6.0 varnak=1/9 avg=9.0"), failures, "Benchmark runner diagnostics should include AI decision counts")
 	TEST_UTILS.expect(line.contains("world biome=Westwood rect=Rect2(0, 0, 100, 100) total_resources=10 total_creatures=3 oob=0"), failures, "Benchmark runner diagnostics should include world summary metrics")
 	TEST_UTILS.expect(sample_line.contains("focused=true"), failures, "Benchmark runner sample lines should report whether the game window had focus")

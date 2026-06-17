@@ -81,6 +81,22 @@ var cached_minimap_view_world_rect := Rect2()
 var cached_minimap_view_valid := false
 var cached_minimap_view_center := Vector2.INF
 var _minimap_texture_build_queued := false
+var minimap_static_map_dirty := true
+var minimap_marker_cache_dirty := true
+var minimap_shoreline_cache_dirty := true
+var minimap_player_layer_dirty := true
+var minimap_view_dirty := true
+var minimap_biome_texture_sync_check_count := 0
+var minimap_biome_texture_sync_skipped_count := 0
+var minimap_biome_texture_dirty_count := 0
+var minimap_marker_cache_check_count := 0
+var minimap_marker_cache_skipped_unchanged_count := 0
+var minimap_shoreline_check_count := 0
+var minimap_shoreline_skipped_unchanged_count := 0
+var minimap_queue_static_redraw_count := 0
+var minimap_queue_marker_redraw_count := 0
+var minimap_queue_player_redraw_count := 0
+var minimap_player_redraw_distance_threshold := 8.0
 
 
 func _ready() -> void:
@@ -117,6 +133,9 @@ func invalidate_map_surface_cache() -> void:
 	shoreline_segments_key = ""
 	shoreline_segments_cache_valid = false
 	landmarks_signature = ""
+	minimap_static_map_dirty = true
+	minimap_shoreline_cache_dirty = true
+	minimap_view_dirty = true
 	_mark_static_layer_dirty()
 
 
@@ -136,6 +155,11 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	landmarks_signature = _build_landmarks_signature()
 	shoreline_segments_cache_valid = false
 	_needs_redraw_due_to_data_change = true
+	minimap_static_map_dirty = true
+	minimap_marker_cache_dirty = true
+	minimap_shoreline_cache_dirty = true
+	minimap_player_layer_dirty = true
+	minimap_view_dirty = true
 	_last_marker_view_player_position = Vector2.INF
 	_last_player_marker_position = Vector2.INF
 	_last_player_marker_biome_id = ""
@@ -159,8 +183,10 @@ func _process(delta: float) -> void:
 		"build_count": minimap_texture_build_count,
 		"last_build_ms": snappedf(minimap_texture_last_build_ms, 0.01)
 	})
-	_sync_biome_texture()
-	_sync_shoreline_overlay_cache()
+	if minimap_static_map_dirty or biome_blend_texture == null or _minimap_texture_build_queued:
+		_sync_biome_texture()
+	if minimap_shoreline_cache_dirty or not shoreline_segments_cache_valid:
+		_sync_shoreline_overlay_cache()
 	var budget := Dictionary(_get_world_render_budget())
 	minimap_redraw_interval = float(budget.get("minimap_redraw_interval", minimap_redraw_interval))
 	minimap_marker_rebuild_interval = float(budget.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval))
@@ -181,13 +207,14 @@ func _process(delta: float) -> void:
 		_marker_view_redraw_timer = 0.0
 		_last_marker_view_player_position = current_player_position
 		_force_minimap_view_recenter(content_rect)
+		minimap_view_dirty = true
 		_mark_static_layer_dirty()
 		_request_marker_redraw()
 		_request_player_redraw()
 	var should_redraw_player := false
 	if _last_player_marker_position == Vector2.INF:
 		should_redraw_player = true
-	elif _player_redraw_timer >= maxf(minimap_player_redraw_interval, 0.03):
+	elif _player_redraw_timer >= maxf(minimap_player_redraw_interval, 0.03) and _last_player_marker_position.distance_to(current_player_position) >= minimap_player_redraw_distance_threshold:
 		should_redraw_player = true
 	elif current_biome_id != _last_player_marker_biome_id:
 		should_redraw_player = true
@@ -203,6 +230,7 @@ func _process(delta: float) -> void:
 			minimap_redraw_timer = 0.0
 			_needs_redraw_due_to_data_change = false
 			_force_minimap_view_recenter(content_rect)
+			minimap_view_dirty = true
 			_mark_static_layer_dirty()
 			_request_marker_redraw()
 			_request_player_redraw()
@@ -298,25 +326,43 @@ func _draw_shoreline_overlay(target: CanvasItem, content_rect: Rect2, view_world
 
 
 func _refresh_static_caches() -> void:
+	minimap_marker_cache_check_count += 1
+	var previous_signature := landmarks_signature
 	var landmarks_changed := _refresh_landmarks_from_world()
 	var marker_cache_changed := _update_marker_cache()
 	var shoreline_changed := false
-	var current_shoreline_key := _get_biome_texture_key()
-	if not shoreline_segments_cache_valid or shoreline_segments_key != current_shoreline_key:
+	var current_shoreline_key := _get_shoreline_cache_key()
+	minimap_shoreline_check_count += 1
+	if not shoreline_segments_cache_valid or shoreline_segments_key != current_shoreline_key or previous_signature != landmarks_signature:
 		shoreline_changed = true
 	if landmarks_changed:
 		minimap_landmark_cache_rebuild_count += 1
 	if marker_cache_changed:
 		minimap_marker_cache_rebuild_count += 1
+	else:
+		minimap_marker_cache_skipped_unchanged_count += 1
+	if shoreline_changed:
+		shoreline_segments = _build_shoreline_segments(_get_world())
+		shoreline_segments_key = current_shoreline_key
+		shoreline_segments_cache_valid = true
+		minimap_shoreline_cache_dirty = false
+		shoreline_segments_build_count += 1
+		shoreline_segments_last_build_ms = shoreline_segments_last_build_ms
 	if landmarks_changed or shoreline_changed:
 		static_cache_rebuild_count += 1
 		_needs_redraw_due_to_data_change = true
+		minimap_static_map_dirty = true
 		_mark_static_layer_dirty()
 	if marker_cache_changed:
+		minimap_marker_cache_dirty = true
 		_request_dynamic_redraw()
+	elif not marker_cache_changed:
+		minimap_marker_cache_skipped_unchanged_count += 1
+		minimap_marker_cache_dirty = false
 
 
 func _sync_biome_texture() -> void:
+	minimap_biome_texture_sync_check_count += 1
 	var active_world := _get_world()
 	biome_shape_map = active_world.get_biome_shape_map() if active_world != null and active_world.has_method("get_biome_shape_map") else null
 	terrain_cell_map = active_world.get_terrain_cell_map() if active_world != null and active_world.has_method("get_terrain_cell_map") else null
@@ -325,15 +371,24 @@ func _sync_biome_texture() -> void:
 		biome_blend_colors_key = ""
 		return
 	if active_world.has_method("get_surface_texture") and active_world.has_method("get_surface_texture_key"):
+		var current_surface_key := str(active_world.get_surface_texture_key())
+		if biome_blend_texture != null and biome_blend_colors_key == current_surface_key:
+			minimap_biome_texture_sync_skipped_count += 1
+			minimap_static_map_dirty = false
+			return
 		var shared_texture: ImageTexture = active_world.get_surface_texture()
 		if shared_texture != null:
 			biome_blend_texture = shared_texture
-			biome_blend_colors_key = str(active_world.get_surface_texture_key())
+			biome_blend_colors_key = current_surface_key
 			_minimap_texture_build_queued = false
+			minimap_static_map_dirty = false
 			return
 	if not _minimap_texture_build_queued and is_visible_in_tree():
 		_minimap_texture_build_queued = true
+		minimap_biome_texture_dirty_count += 1
 		call_deferred("_ensure_biome_texture_deferred")
+	else:
+		minimap_biome_texture_sync_skipped_count += 1
 
 
 func _ensure_biome_texture_deferred() -> void:
@@ -344,20 +399,25 @@ func _ensure_biome_texture_deferred() -> void:
 
 
 func _sync_shoreline_overlay_cache() -> void:
+	minimap_shoreline_check_count += 1
 	var active_world := _get_world()
 	if active_world == null:
 		shoreline_segments.clear()
 		shoreline_segments_key = ""
 		shoreline_segments_cache_valid = false
 		_needs_redraw_due_to_data_change = true
+		minimap_shoreline_cache_dirty = true
 		return
-	var current_key := _get_biome_texture_key()
+	var current_key := _get_shoreline_cache_key()
 	if shoreline_segments_cache_valid and shoreline_segments_key == current_key:
+		minimap_shoreline_skipped_unchanged_count += 1
+		minimap_shoreline_cache_dirty = false
 		return
 	var start_ms := Time.get_ticks_msec()
 	shoreline_segments = _build_shoreline_segments(active_world)
 	shoreline_segments_key = current_key
 	shoreline_segments_cache_valid = true
+	minimap_shoreline_cache_dirty = false
 	_needs_redraw_due_to_data_change = true
 	shoreline_segments_build_count += 1
 	shoreline_segments_last_build_ms = float(Time.get_ticks_msec() - start_ms)
@@ -387,6 +447,14 @@ func _ensure_biome_texture() -> void:
 	minimap_texture_build_count += 1
 	minimap_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 	print("[MINIMAP] surface texture build count=%d last_build_ms=%.2f key=%s" % [minimap_texture_build_count, minimap_texture_last_build_ms, current_key])
+
+
+func _get_shoreline_cache_key() -> String:
+	var active_world := _get_world()
+	var topography_key := ""
+	if active_world != null and active_world.has_method("get_topography_debug_summary"):
+		topography_key = str(Dictionary(active_world.get_topography_debug_summary()).get("topography_feature_counts", {}))
+	return "%s|landmarks=%s|topography=%s" % [_get_biome_texture_key(), _build_landmarks_signature(), topography_key]
 
 
 func _get_world_surface_color_at(world_position: Vector2) -> Color:
@@ -1343,6 +1411,9 @@ func _ensure_minimap_layers() -> void:
 
 func _mark_static_layer_dirty() -> void:
 	static_layer_dirty = true
+	minimap_static_map_dirty = true
+	minimap_view_dirty = true
+	minimap_queue_static_redraw_count += 1
 	if is_instance_valid(static_layer_control):
 		static_layer_control.queue_redraw()
 
@@ -1353,11 +1424,14 @@ func _request_dynamic_redraw() -> void:
 
 
 func _request_marker_redraw() -> void:
+	minimap_queue_marker_redraw_count += 1
 	if is_instance_valid(dynamic_layer_control):
 		dynamic_layer_control.queue_redraw()
 
 
 func _request_player_redraw() -> void:
+	minimap_queue_player_redraw_count += 1
+	minimap_player_layer_dirty = true
 	if is_instance_valid(player_layer_control):
 		player_layer_control.queue_redraw()
 
@@ -1448,7 +1522,23 @@ func get_minimap_performance_debug() -> Dictionary:
 		"shoreline_segment_count": shoreline_segments.size(),
 		"minimap_redraw_interval": minimap_redraw_interval,
 		"minimap_marker_rebuild_interval": minimap_marker_rebuild_interval,
-		"minimap_shape_polygons_clipped": true
+		"minimap_shape_polygons_clipped": true,
+		"minimap_static_map_dirty": minimap_static_map_dirty,
+		"minimap_marker_cache_dirty": minimap_marker_cache_dirty,
+		"minimap_shoreline_cache_dirty": minimap_shoreline_cache_dirty,
+		"minimap_player_layer_dirty": minimap_player_layer_dirty,
+		"minimap_view_dirty": minimap_view_dirty,
+		"minimap_marker_cache_check_count": minimap_marker_cache_check_count,
+		"minimap_marker_cache_skipped_unchanged_count": minimap_marker_cache_skipped_unchanged_count,
+		"minimap_shoreline_check_count": minimap_shoreline_check_count,
+		"minimap_shoreline_skipped_unchanged_count": minimap_shoreline_skipped_unchanged_count,
+		"minimap_queue_static_redraw_count": minimap_queue_static_redraw_count,
+		"minimap_queue_marker_redraw_count": minimap_queue_marker_redraw_count,
+		"minimap_queue_player_redraw_count": minimap_queue_player_redraw_count,
+		"minimap_biome_texture_sync_check_count": minimap_biome_texture_sync_check_count,
+		"minimap_biome_texture_sync_skipped_count": minimap_biome_texture_sync_skipped_count,
+		"minimap_biome_texture_dirty_count": minimap_biome_texture_dirty_count,
+		"minimap_player_marker_redraw_count": player_marker_redraw_count
 	}
 
 

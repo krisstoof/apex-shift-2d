@@ -32,6 +32,25 @@ class MarkerChangedMinimap:
 		dynamic_redraw_calls += 1
 
 
+class StableCacheMinimap:
+	extends MINIMAP_SCRIPT
+
+	var static_dirty_calls := 0
+	var dynamic_redraw_calls := 0
+
+	func _refresh_landmarks_from_world() -> bool:
+		return false
+
+	func _update_marker_cache() -> bool:
+		return false
+
+	func _mark_static_layer_dirty() -> void:
+		static_dirty_calls += 1
+
+	func _request_dynamic_redraw() -> void:
+		dynamic_redraw_calls += 1
+
+
 class MockResource:
 	extends Node2D
 	var resource_kind := "berry_bush"
@@ -125,6 +144,7 @@ func run() -> Array[String]:
 	_test_minimap_content_rect_reserves_footer_space(failures)
 	_test_minimap_performance_debug_reports_layer_redraws(failures)
 	_test_minimap_marker_cache_only_redraws_dynamic_layer(failures)
+	_test_minimap_static_cache_stays_quiet_when_signatures_do_not_change(failures)
 	_test_minimap_cached_view_rect_stays_stable_until_recentering(failures)
 	return failures
 
@@ -333,6 +353,19 @@ func _test_minimap_marker_cache_only_redraws_dynamic_layer(failures: Array[Strin
 	TEST_UTILS.expect_equal(minimap.static_dirty_calls, 0, failures, "Marker cache changes should not dirty the static minimap layer")
 	TEST_UTILS.expect_equal(minimap.dynamic_redraw_calls, 1, failures, "Marker cache changes should request a dynamic minimap redraw")
 	TEST_UTILS.expect_equal(int(minimap.get("minimap_marker_cache_rebuild_count")), 1, failures, "Marker cache changes should still increment marker rebuild diagnostics")
+	minimap.free()
+
+
+func _test_minimap_static_cache_stays_quiet_when_signatures_do_not_change(failures: Array[String]) -> void:
+	var minimap := StableCacheMinimap.new()
+	minimap.set("shoreline_segments_cache_valid", true)
+	minimap.set("shoreline_segments_key", str(minimap.call("_get_shoreline_cache_key")))
+	minimap.set("landmarks_signature", minimap.call("_build_landmarks_signature"))
+	minimap.call("_refresh_static_caches")
+	TEST_UTILS.expect_equal(minimap.static_dirty_calls, 0, failures, "Unchanged minimap cache signatures should not dirty the static layer")
+	TEST_UTILS.expect_equal(minimap.dynamic_redraw_calls, 0, failures, "Unchanged minimap cache signatures should not request a dynamic redraw")
+	TEST_UTILS.expect_equal(int(minimap.get("minimap_marker_cache_skipped_unchanged_count")), 1, failures, "Unchanged marker signatures should increment the skipped counter")
+	TEST_UTILS.expect_equal(int(minimap.get("minimap_shoreline_skipped_unchanged_count")), 1, failures, "Unchanged shoreline signatures should increment the skipped counter")
 	minimap.free()
 
 

@@ -1328,7 +1328,7 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			int(terrain_stats.get("biome_shape_renderer_drawn_detail_count", 0))
 		])
 	if not minimap_stats.is_empty():
-		diagnostics.append("minimap redraw=%d static=%d dynamic=%d player=%d static_cache=%d marker_cache=%d landmark_cache=%d texture_builds=%d last_build_ms=%.2f" % [
+		diagnostics.append("minimap redraw=%d static=%d dynamic=%d player=%d static_cache=%d marker_cache=%d landmark_cache=%d texture_builds=%d last_build_ms=%.2f checks=%d/%d shoreline=%d/%d queue=%d/%d/%d dirty=%s/%s/%s/%s/%s" % [
 			int(minimap_stats.get("redraw_count", 0)),
 			int(minimap_stats.get("static_redraw_count", 0)),
 			int(minimap_stats.get("dynamic_redraw_count", 0)),
@@ -1337,15 +1337,31 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 			int(minimap_stats.get("marker_cache_rebuild_count", 0)),
 			int(minimap_stats.get("landmark_cache_rebuild_count", 0)),
 			int(minimap_stats.get("texture_build_count", 0)),
-			float(minimap_stats.get("texture_last_build_ms", 0.0))
+			float(minimap_stats.get("texture_last_build_ms", 0.0)),
+			int(minimap_stats.get("minimap_marker_cache_check_count", 0)),
+			int(minimap_stats.get("minimap_marker_cache_skipped_unchanged_count", 0)),
+			int(minimap_stats.get("minimap_shoreline_check_count", 0)),
+			int(minimap_stats.get("minimap_shoreline_skipped_unchanged_count", 0)),
+			int(minimap_stats.get("minimap_queue_static_redraw_count", 0)),
+			int(minimap_stats.get("minimap_queue_marker_redraw_count", 0)),
+			int(minimap_stats.get("minimap_queue_player_redraw_count", 0)),
+			str(minimap_stats.get("minimap_static_map_dirty", false)),
+			str(minimap_stats.get("minimap_marker_cache_dirty", false)),
+			str(minimap_stats.get("minimap_shoreline_cache_dirty", false)),
+			str(minimap_stats.get("minimap_player_layer_dirty", false)),
+			str(minimap_stats.get("minimap_view_dirty", false))
 		])
 	if not map_screen_stats.is_empty():
-		diagnostics.append("map_screen redraw=%d cache=%d skipped_hidden=%d texture_builds=%d last_build_ms=%.2f" % [
+		diagnostics.append("map_screen redraw=%d cache=%d skipped_hidden=%d texture_builds=%d last_build_ms=%.2f checks=%d/%d shoreline=%d/%d" % [
 			int(map_screen_stats.get("redraw_count", 0)),
 			int(map_screen_stats.get("cache_rebuild_count", 0)),
 			int(map_screen_stats.get("skipped_update_hidden_count", 0)),
 			int(map_screen_stats.get("texture_build_count", 0)),
-			float(map_screen_stats.get("texture_last_build_ms", 0.0))
+			float(map_screen_stats.get("texture_last_build_ms", 0.0)),
+			int(map_screen_stats.get("map_screen_marker_cache_check_count", 0)),
+			int(map_screen_stats.get("map_screen_marker_cache_skipped_unchanged_count", 0)),
+			int(map_screen_stats.get("map_screen_shoreline_check_count", 0)),
+			int(map_screen_stats.get("map_screen_shoreline_skipped_unchanged_count", 0))
 		])
 	if not ai_decisions.is_empty():
 		diagnostics.append("ai small_prey=%d/%d avg=%.1f grazer=%d/%d avg=%.1f varnak=%d/%d avg=%.1f" % [

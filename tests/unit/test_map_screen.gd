@@ -13,6 +13,27 @@ class CountingMapScreen:
 		ensure_calls += 1
 
 
+class StableCacheMapScreen:
+	extends MAP_SCREEN_SCRIPT
+
+	var static_dirty_calls := 0
+	var dynamic_redraw_calls := 0
+
+	func _refresh_landmarks_from_world() -> bool:
+		return false
+
+	func _update_marker_cache() -> bool:
+		return false
+
+	func mark_map_cache_dirty() -> void:
+		pass
+
+	func _request_map_redraw(force := false) -> bool:
+		if force:
+			return true
+		return false
+
+
 class MockStats:
 	extends RefCounted
 	var health := 86
@@ -164,6 +185,7 @@ func run() -> Array[String]:
 	_test_landmark_signature_changes_only_when_landmarks_change(failures)
 	_test_map_redraw_state_reacts_to_resource_signature_changes(failures)
 	_test_map_screen_skips_updates_while_hidden(failures)
+	_test_map_screen_static_cache_stays_quiet_when_signatures_do_not_change(failures)
 	_test_map_screen_reads_registry_resources_and_varnaks(failures)
 	_test_map_screen_builds_texture_outside_draw_path(failures)
 	_test_map_screen_shape_map_skips_sample_grid_underlay_when_polygons_exist(failures)
@@ -262,6 +284,21 @@ func _test_map_screen_skips_updates_while_hidden(failures: Array[String]) -> voi
 	TEST_UTILS.expect_equal(int(map_screen.get("map_screen_redraw_count")), 0, failures, "Hidden map screen should not redraw")
 	var player: Node2D = map_screen.get("player")
 	player.free()
+	map_screen.free()
+
+
+func _test_map_screen_static_cache_stays_quiet_when_signatures_do_not_change(failures: Array[String]) -> void:
+	var map_screen := StableCacheMapScreen.new()
+	map_screen.set("landmarks", [])
+	map_screen.set("biome_zones", [])
+	map_screen.set("cached_resources_signature", "")
+	map_screen.set("cached_campfires_signature", "")
+	map_screen.set("cached_varnaks_signature", "")
+	map_screen.set("cached_small_prey_signature", "")
+	map_screen.set("cached_grazers_signature", "")
+	TEST_UTILS.expect_equal(bool(map_screen.call("_update_landmarks_signature")), false, failures, "An unchanged landmark set should not report a landmark signature change")
+	TEST_UTILS.expect_equal(bool(map_screen.call("_update_marker_cache")), false, failures, "An unchanged marker set should not report a marker cache rebuild")
+	TEST_UTILS.expect_equal(int(map_screen.get("map_screen_marker_cache_rebuild_count")), 0, failures, "Unchanged markers should not increment the map screen rebuild counter")
 	map_screen.free()
 
 
