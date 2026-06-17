@@ -548,6 +548,15 @@ func _capture_world_render_pressure(world_stats: Dictionary) -> Dictionary:
 	result["terrain_surface_cached_chunks"] = int(terrain.get("terrain_surface_chunk_cached_count", 0))
 	result["terrain_surface_pending_chunks"] = int(terrain.get("terrain_surface_chunk_pending_count", 0))
 	result["terrain_surface_chunks_built_last_frame"] = int(terrain.get("terrain_surface_chunks_built_last_frame", 0))
+	# World surface texture metrics (separate category)
+	result["world_surface_texture_chunks_built"] = int(terrain.get("terrain_surface_chunks_built_last_frame", 0))
+	result["world_surface_texture_max_build_ms_per_frame"] = float(terrain.get("terrain_surface_max_build_ms_per_frame", 0))
+	result["world_surface_texture_pending_chunks"] = int(terrain.get("terrain_surface_chunk_pending_count", 0))
+	result["world_surface_texture_total_build_count"] = int(terrain.get("terrain_surface_chunk_total_build_count", 0))
+	result["world_surface_texture_active_builds"] = int(terrain.get("terrain_surface_active_build_count", 0))
+	result["world_surface_texture_preview_enabled"] = bool(terrain.get("terrain_surface_preview_enabled", true))
+	result["world_surface_texture_refined_chunks"] = int(terrain.get("terrain_surface_refined_chunks_built_last_frame", 0))
+	result["world_surface_texture_hard_budget_exceeded"] = int(terrain.get("terrain_surface_build_hard_budget_exceeded_count", 0))
 	result["terrain_cell_visible_chunks"] = int(terrain.get("terrain_chunk_count_visible", 0))
 	result["terrain_cell_drawn_cells"] = int(terrain.get("terrain_chunk_drawn_cell_count", 0))
 	result["biome_shape_drawn_polygons"] = int(terrain.get("biome_shape_renderer_drawn_polygon_count", 0))
@@ -1077,6 +1086,9 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 		"minimap_texture_build_count": 0,
 		"map_screen_texture_build_count": 0,
 		"world_biome_texture_build_count": 0,
+		"world_surface_texture_chunks_built": 0,
+		"world_surface_texture_max_build_ms_per_frame": 0.0,
+		"world_surface_texture_pending_chunks": 0,
 		"active_resource_collisions": 0,
 		"node_count": 0
 	}
@@ -1087,6 +1099,9 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 			"minimap_texture_build_count",
 			"map_screen_texture_build_count",
 			"world_biome_texture_build_count",
+			"world_surface_texture_chunks_built",
+			"world_surface_texture_max_build_ms_per_frame",
+			"world_surface_texture_pending_chunks",
 			"active_resource_collisions",
 			"node_count"
 		]
@@ -1119,6 +1134,19 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 			metrics["world_biome_texture_build_count"] = maxi(int(metrics["world_biome_texture_build_count"]), int(biome_cache.get("world_biome_texture_build_count", 0)))
 		else:
 			missing_metric_set["world_biome_texture_build_count"] = true
+		# World surface texture metrics
+		if performance.has("world_surface_texture_chunks_built"):
+			metrics["world_surface_texture_chunks_built"] = maxi(int(metrics["world_surface_texture_chunks_built"]), int(performance.get("world_surface_texture_chunks_built", 0)))
+		else:
+			missing_metric_set["world_surface_texture_chunks_built"] = true
+		if performance.has("world_surface_texture_max_build_ms_per_frame"):
+			metrics["world_surface_texture_max_build_ms_per_frame"] = max(float(metrics["world_surface_texture_max_build_ms_per_frame"]), float(performance.get("world_surface_texture_max_build_ms_per_frame", 0.0)))
+		else:
+			missing_metric_set["world_surface_texture_max_build_ms_per_frame"] = true
+		if performance.has("world_surface_texture_pending_chunks"):
+			metrics["world_surface_texture_pending_chunks"] = maxi(int(metrics["world_surface_texture_pending_chunks"]), int(performance.get("world_surface_texture_pending_chunks", 0)))
+		else:
+			missing_metric_set["world_surface_texture_pending_chunks"] = true
 	var missing_metrics: Array[String] = []
 	for metric_name in missing_metric_set.keys():
 		missing_metrics.append(str(metric_name))
@@ -1155,6 +1183,10 @@ func _validate_benchmark_thresholds(report: Dictionary) -> Dictionary:
 	_check_threshold_max(metrics, thresholds, violations, warnings, "minimap_texture_build_count", "minimap_texture_build_count_max", "<=", "minimap_texture_build_count %s exceeds maximum %s")
 	_check_threshold_max(metrics, thresholds, violations, warnings, "map_screen_texture_build_count", "map_screen_texture_build_count_max", "<=", "map_screen_texture_build_count %s exceeds maximum %s")
 	_check_threshold_max(metrics, thresholds, violations, warnings, "world_biome_texture_build_count", "world_biome_texture_build_count_max", "<=", "world_biome_texture_build_count %s exceeds maximum %s")
+	# World surface texture thresholds
+	_check_threshold_max(metrics, thresholds, violations, warnings, "world_surface_texture_chunks_built", "world_surface_texture_chunks_built_max", "<=", "world_surface_texture_chunks_built %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, "world_surface_texture_max_build_ms_per_frame", "world_surface_texture_max_build_ms_per_frame_max", "<=", "world_surface_texture_max_build_ms_per_frame %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, "world_surface_texture_pending_chunks", "world_surface_texture_pending_chunks_max", "<=", "world_surface_texture_pending_chunks %s exceeds maximum %s")
 	_check_threshold_max(metrics, thresholds, violations, warnings, "active_resource_collisions", "active_resource_collisions_max", "<=", "active_resource_collisions %s exceeds maximum %s")
 	_check_threshold_max(metrics, thresholds, violations, warnings, "node_count", "node_count_max", "<=", "node_count %s exceeds maximum %s")
 	var status := "passed"

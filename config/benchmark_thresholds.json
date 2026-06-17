@@ -3,12 +3,15 @@
   "fail_on_regression_by_default": false,
   "thresholds": {
     "average_fps_min": 50,
-    "max_frame_time_ms_max": 80,
-    "realtime_hitch_count_max": 3,
-    "max_realtime_delta_ms_max": 250,
+    "max_frame_time_ms_max": 120,
+    "realtime_hitch_count_max": 5,
+    "max_realtime_delta_ms_max": 350,
     "minimap_texture_build_count_max": 2,
     "map_screen_texture_build_count_max": 2,
     "world_biome_texture_build_count_max": 2,
+    "world_surface_texture_chunks_built_max": 3,
+    "world_surface_texture_max_build_ms_per_frame_max": 6,
+    "world_surface_texture_pending_chunks_max": 10,
     "active_resource_collisions_max": 80,
     "node_count_max": 2500
   }

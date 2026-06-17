@@ -310,6 +310,7 @@ func _create_future_tool_buttons() -> void:
 	landmark_overlay_button = _add_tool_button("Landmark overlay: OFF", _on_toggle_landmark_overlay_pressed, "World")
 	rebuild_biome_cache_button = _add_tool_button("Rebuild biome texture cache", _on_rebuild_biome_texture_cache_pressed, "World")
 	biome_texture_toggle_button = _add_tool_button("Biome textures: ON", _on_toggle_biome_textures_pressed, "World")
+	_add_tool_button("Force rebuild surface textures", _on_force_rebuild_surface_textures_pressed, "World")
 	god_mode_button = _add_tool_button("God Mode: OFF", _on_toggle_god_mode_pressed, "Tools")
 	benchmark_button = _add_tool_button("Run 60s benchmark", _on_run_benchmark_pressed, "Tools")
 
@@ -1732,6 +1733,17 @@ func _on_toggle_biome_textures_pressed() -> void:
 		return
 	var enabled: bool = world.debug_toggle_biome_textures()
 	_post_debug_message("Biome textures %s" % ("enabled" if enabled else "disabled"))
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
+func _on_force_rebuild_surface_textures_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_force_rebuild_surface_textures"):
+		_post_debug_message("Surface texture rebuild debug is not available yet")
+		return
+	world.debug_force_rebuild_surface_textures()
+	_post_debug_message("Forcing surface texture rebuild... (async)")
 	_refresh_world_debug_buttons()
 	_set_state_text(_build_state_text(), true)
 

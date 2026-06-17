@@ -2765,6 +2765,13 @@ func debug_rebuild_biome_texture_cache() -> void:
 	queue_redraw()
 
 
+func debug_force_rebuild_surface_textures() -> void:
+	if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("clear_runtime_state"):
+		terrain_surface_chunk_renderer.clear_runtime_state("debug_force_rebuild")
+	if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("mark_dirty"):
+		terrain_surface_chunk_renderer.mark_dirty("debug_force_rebuild")
+
+
 func debug_regenerate_landmarks() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
