@@ -9,7 +9,6 @@ extends RefCounted
 ##
 ## These tests run pure data generation — no scene tree required.
 
-const WORLD_GENERATOR := preload("res://scripts/world/world_generator.gd")
 const WORLD_GENERATION_RESULT := preload("res://scripts/world/world_generation_result.gd")
 const WORLD_GENERATION_VALIDATOR := preload("res://scripts/world/world_generation_validator.gd")
 
@@ -47,11 +46,11 @@ func run() -> Array[String]:
 func _test_deterministic_hash() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
-		var gen_a := WORLD_GENERATOR.new()
+		var gen_a := WorldGenerator.new()
 		var layout_a := gen_a.generate_world(test_seed)
 		var hash_a := WORLD_GENERATION_RESULT.compute_hash_from_layout(layout_a)
 
-		var gen_b := WORLD_GENERATOR.new()
+		var gen_b := WorldGenerator.new()
 		var layout_b := gen_b.generate_world(test_seed)
 		var hash_b := WORLD_GENERATION_RESULT.compute_hash_from_layout(layout_b)
 
@@ -69,7 +68,7 @@ func _test_hash_sensitivity() -> Array[String]:
 	var failures: Array[String] = []
 	var seen_hashes: Dictionary = {}
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen := WorldGenerator.new()
 		var layout := gen.generate_world(test_seed)
 		var h := WORLD_GENERATION_RESULT.compute_hash_from_layout(layout)
 		if seen_hashes.has(h):
@@ -90,7 +89,7 @@ func _test_no_water_spawns() -> Array[String]:
 	var failures: Array[String] = []
 	var validator := WORLD_GENERATION_VALIDATOR.new()
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen := WorldGenerator.new()
 		var layout := gen.generate_world(test_seed)
 		var result := WORLD_GENERATION_RESULT.from_layout(layout)
 		var report := validator.validate(result, gen)
@@ -105,7 +104,7 @@ func _test_no_water_spawns() -> Array[String]:
 func _test_points_in_bounds() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen := WorldGenerator.new()
 		var layout := gen.generate_world(test_seed)
 		var world_rect := Rect2(layout.get("world_rect", Rect2()))
 		var padded := world_rect.grow(32.0)
@@ -127,7 +126,7 @@ func _test_points_in_bounds() -> Array[String]:
 func _test_biome_coverage() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen := WorldGenerator.new()
 		var layout := gen.generate_world(test_seed)
 		var biomes := Array(layout.get("biomes", []))
 		if biomes.is_empty():
@@ -153,7 +152,7 @@ func _test_biome_coverage() -> Array[String]:
 func _test_terrain_coverage() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen := WorldGenerator.new()
 		var layout := gen.generate_world(test_seed)
 		var debug := Dictionary(layout.get("debug", {}))
 		var terrain_counts := Dictionary(debug.get("terrain_counts", {}))
@@ -184,7 +183,7 @@ func _test_terrain_coverage() -> Array[String]:
 func _test_world_contains_land() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen := WorldGenerator.new()
 		var layout := gen.generate_world(test_seed)
 		var debug := Dictionary(layout.get("debug", {}))
 		var terrain_counts := Dictionary(debug.get("terrain_counts", {}))
@@ -200,7 +199,7 @@ func _test_world_contains_land() -> Array[String]:
 func _test_world_contains_water() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen := WorldGenerator.new()
 		var layout := gen.generate_world(test_seed)
 		var debug := Dictionary(layout.get("debug", {}))
 		var terrain_counts := Dictionary(debug.get("terrain_counts", {}))
@@ -216,7 +215,7 @@ func _test_world_contains_water() -> Array[String]:
 func _test_player_spawn_on_land() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen := WorldGenerator.new()
 		var layout := gen.generate_world(test_seed)
 		var result := WORLD_GENERATION_RESULT.from_layout(layout)
 		var spawn_pos := result.player_spawn_position
@@ -241,7 +240,7 @@ func _test_player_spawn_on_land() -> Array[String]:
 func _test_creatures_spawn_on_valid_terrain() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen := WorldGenerator.new()
 		var layout := gen.generate_world(test_seed)
 		var result := WORLD_GENERATION_RESULT.from_layout(layout)
 		var world_rect := result.world_rect

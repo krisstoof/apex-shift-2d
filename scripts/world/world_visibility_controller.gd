@@ -95,7 +95,7 @@ func _update_visibility() -> void:
 	if show_rect == Rect2():
 		return
 	# hide_rect has additional hysteresis margin to prevent flickering
-	hide_rect = show_rect.grow(show_rect.get_longest_axis_size() * hysteresis_margin)
+	hide_rect = show_rect.grow(maxf(show_rect.size.x, show_rect.size.y) * hysteresis_margin)
 	
 	var current_visible_nodes: Dictionary = {}
 	visible_resource_count = 0

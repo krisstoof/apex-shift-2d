@@ -6,7 +6,7 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_GENERATION_RESULT := preload("res://scripts/world/world_generation_result.gd")
 const WORLD_GENERATION_VALIDATOR := preload("res://scripts/world/world_generation_validator.gd")
-const GENERATOR_RULES_VERSION := "v4"
+const GENERATOR_RULES_VERSION := "v5"
 
 var seed: int = 0
 var rng := RandomNumberGenerator.new()
@@ -20,6 +20,8 @@ var biome_warp_x := FastNoiseLite.new()
 var biome_warp_y := FastNoiseLite.new()
 var biome_macro_noise := FastNoiseLite.new()
 var biome_detail_noise := FastNoiseLite.new()
+var vegetation_noise := FastNoiseLite.new()
+var danger_detail_noise := FastNoiseLite.new()
 
 const BIOME_IDS := ["westwood", "stoneback_ridge", "hearth_meadow", "south_thicket", "redfang_wilds"]
 const BIOME_OWNERSHIP_MAP_WIDTH := 256
@@ -157,6 +159,51 @@ func get_moisture_at(position: Vector2) -> float:
 	return moisture_noise.get_noise_2d(position.x, position.y)
 
 
+func get_vegetation_density_at(position: Vector2) -> float:
+	var moisture := get_moisture_at(position)
+	var height := get_height_at(position)
+	var terrain_noise := vegetation_noise.get_noise_2d(position.x, position.y) * 0.5 + 0.5
+	var shelter := clampf(1.0 - absf(height - 0.22) * 1.55, 0.0, 1.0)
+	return clampf(moisture * 0.56 + terrain_noise * 0.29 + shelter * 0.15, 0.0, 1.0)
+
+
+func get_danger_at(position: Vector2) -> float:
+	var moisture := get_moisture_at(position) * 0.5 + 0.5
+	var height := clampf(get_height_at(position), 0.0, 1.5) / 1.5
+	var ridge := ridge_noise.get_noise_2d(position.x, position.y) * 0.5 + 0.5
+	var detail := danger_detail_noise.get_noise_2d(position.x, position.y) * 0.5 + 0.5
+	return clampf(detail * 0.34 + ridge * 0.30 + height * 0.22 + (1.0 - moisture) * 0.14, 0.0, 1.0)
+
+
+func get_distance_to_shore_at(position: Vector2) -> float:
+	if get_base_terrain_zone(position) in ["deep_ocean", "shallow_water", "shore"]:
+		return 0.0
+	var rect := GEN_CONFIG.WORLD_RECT
+	var max_distance := maxf(minf(rect.size.x, rect.size.y) * 0.15, 1.0)
+	var step := maxf(max_distance / 10.0, 48.0)
+	for radius in range(1, 11):
+		var distance := float(radius) * step
+		for offset in [
+			Vector2(distance, 0.0),
+			Vector2(-distance, 0.0),
+			Vector2(0.0, distance),
+			Vector2(0.0, -distance)
+		]:
+			if get_base_terrain_zone(position + offset) in ["deep_ocean", "shallow_water", "shore"]:
+				return clampf(distance / max_distance, 0.0, 1.0)
+	return 1.0
+
+
+func get_terrain_condition_at(position: Vector2) -> Dictionary:
+	return {
+		"height": get_height_at(position),
+		"moisture": get_moisture_at(position),
+		"vegetation_density": get_vegetation_density_at(position),
+		"danger": get_danger_at(position),
+		"distance_to_shore": get_distance_to_shore_at(position)
+	}
+
+
 func get_biome_id_at(position: Vector2) -> String:
 	var base_terrain := get_base_terrain_zone(position)
 	if base_terrain == "deep_ocean" or base_terrain == "shallow_water":
@@ -286,15 +333,6 @@ func get_biome_color(biome_id: String) -> Color:
 			return Color(0.78, 0.72, 0.44)
 		_:
 			return Color(0.32, 0.52, 0.28)
-
-
-func get_danger_at(position: Vector2) -> float:
-	var center := GEN_CONFIG.WORLD_RECT.get_center()
-	var distance_factor := position.distance_to(center) / maxf(GEN_CONFIG.WORLD_RECT.size.x, GEN_CONFIG.WORLD_RECT.size.y)
-	var noise_value := danger_noise.get_noise_2d(position.x, position.y)
-	return clampf(distance_factor * 0.65 + noise_value * 0.35, 0.0, 1.0)
-
-
 func debug_validate_same_seed(test_seed: int) -> Dictionary:
 	var generator_a: WorldGenerator = get_script().new()
 	var layout_a: Dictionary = generator_a.generate_world(test_seed)
@@ -334,6 +372,10 @@ func _configure_rng_and_noise(p_seed: int) -> void:
 	biome_macro_noise.frequency = 0.00065
 	biome_detail_noise.seed = p_seed + 1001
 	biome_detail_noise.frequency = 0.0014
+	vegetation_noise.seed = p_seed + 1102
+	vegetation_noise.frequency = 0.0022
+	danger_detail_noise.seed = p_seed + 1203
+	danger_detail_noise.frequency = 0.0019
 
 
 func _generate_sample_maps() -> Dictionary:
@@ -525,6 +567,9 @@ func _build_generation_debug(layout: Dictionary) -> Dictionary:
 	var total: int = maxi(width * height, 1)
 	var biome_map: Array = Array(maps.get("biome_map", []))
 	var topography_map: Array = Array(maps.get("topography_map", []))
+	var height_map: Array = Array(maps.get("height_map", []))
+	var moisture_map: Array = Array(maps.get("moisture_map", []))
+	var danger_map: Array = Array(maps.get("danger_map", []))
 	var terrain_counts: Dictionary = {
 		"deep_ocean": 0,
 		"shallow_water": 0,
@@ -536,27 +581,65 @@ func _build_generation_debug(layout: Dictionary) -> Dictionary:
 	var biome_counts: Dictionary = {}
 	var moisture_total := 0.0
 	var danger_total := 0.0
+	var height_min := INF
+	var height_max := -INF
+	var moisture_min := INF
+	var moisture_max := -INF
+	var danger_min := INF
+	var danger_max := -INF
 	for y in range(min(height, biome_map.size())):
 		var biome_row: Array = Array(biome_map[y])
+		var height_row: Array = Array(height_map[y]) if y < height_map.size() else []
+		var moisture_row: Array = Array(moisture_map[y]) if y < moisture_map.size() else []
+		var danger_row: Array = Array(danger_map[y]) if y < danger_map.size() else []
 		for x in range(min(width, biome_row.size())):
 			var biome_id := str(biome_row[x])
 			var world_pos := _sample_to_world_position(x, y)
 			var terrain_zone := get_terrain_zone(world_pos)
 			terrain_counts[terrain_zone] = int(terrain_counts.get(terrain_zone, 0)) + 1
 			biome_counts[biome_id] = int(biome_counts.get(biome_id, 0)) + 1
-			moisture_total += get_moisture_at(world_pos)
-			danger_total += get_danger_at(world_pos)
+			var sample_height := float(height_row[x]) if x < height_row.size() else get_height_at(world_pos)
+			var sample_moisture := float(moisture_row[x]) if x < moisture_row.size() else get_moisture_at(world_pos)
+			var sample_danger := float(danger_row[x]) if x < danger_row.size() else get_danger_at(world_pos)
+			height_min = minf(height_min, sample_height)
+			height_max = maxf(height_max, sample_height)
+			moisture_min = minf(moisture_min, sample_moisture)
+			moisture_max = maxf(moisture_max, sample_moisture)
+			danger_min = minf(danger_min, sample_danger)
+			danger_max = maxf(danger_max, sample_danger)
+			moisture_total += sample_moisture
+			danger_total += sample_danger
 	var topography_counts := get_topography_feature_counts_debug()
+	var biome_region_count := Array(layout.get("biomes", [])).size()
+	var small_biome_region_count := 0
+	for biome_value in Array(layout.get("biomes", [])):
+		if int(Dictionary(biome_value).get("sample_count", 0)) < 320:
+			small_biome_region_count += 1
+	var dominant_biome := ""
+	var dominant_count := -1
+	for biome_id in biome_counts.keys():
+		var count := int(biome_counts[biome_id])
+		if count > dominant_count:
+			dominant_count = count
+			dominant_biome = str(biome_id)
 	return {
 		"seed": seed,
+		"world_seed": seed,
 		"version": int(layout.get("version", 0)),
 		"biomes": Array(layout.get("biomes", [])).size(),
+		"biome_region_count": biome_region_count,
+		"small_biome_region_count": small_biome_region_count,
+		"dominant_biome": dominant_biome,
 		"landmarks": Array(layout.get("landmarks", [])).size(),
 		"resource_zones": Array(layout.get("resource_zones", [])).size(),
 		"creature_spawn_zones": Array(layout.get("creature_spawn_zones", [])).size(),
 		"terrain_counts": terrain_counts,
 		"biome_counts": biome_counts,
+		"biome_count_by_type": biome_counts.duplicate(true),
 		"biome_coverage": get_biome_coverage_debug(),
+		"height_range": Vector2(height_min, height_max),
+		"moisture_range": Vector2(moisture_min, moisture_max),
+		"danger_range": Vector2(danger_min, danger_max),
 		"topography_feature_counts": topography_counts,
 		"topography_features": topography_features.size(),
 		"biome_cleanup": biome_cleanup_debug.duplicate(true),
@@ -568,6 +651,20 @@ func _build_generation_debug(layout: Dictionary) -> Dictionary:
 		},
 		"moisture_average": moisture_total / float(total),
 		"danger_average": danger_total / float(total)
+	}
+
+
+func get_biome_lookup_debug(position: Vector2) -> Dictionary:
+	var conditions := get_terrain_condition_at(position)
+	var biome_id := get_biome_id_at(position)
+	var terrain_zone := get_terrain_zone(position)
+	return {
+		"seed": seed,
+		"position": position,
+		"biome_id": biome_id,
+		"terrain_zone": terrain_zone,
+		"conditions": conditions.duplicate(true),
+		"world_rect_has_point": GEN_CONFIG.WORLD_RECT.has_point(position)
 	}
 
 
@@ -808,6 +905,12 @@ func _get_macro_biome_score(position: Vector2, biome_id: String) -> float:
 
 func _get_biome_scores(position: Vector2) -> Dictionary:
 	var warped := _get_warped_biome_position(position)
+	var conditions := get_terrain_condition_at(position)
+	var height := float(conditions.get("height", 0.0))
+	var moisture := float(conditions.get("moisture", 0.0))
+	var vegetation := float(conditions.get("vegetation_density", 0.0))
+	var danger := float(conditions.get("danger", 0.0))
+	var distance_to_shore := float(conditions.get("distance_to_shore", 1.0))
 	var rect := GEN_CONFIG.WORLD_RECT
 	var center := rect.get_center()
 	var local := warped - center
@@ -816,11 +919,11 @@ func _get_biome_scores(position: Vector2) -> Dictionary:
 	var ny := clampf(local.y / maxf(rect.size.y * 0.5, 1.0), -1.0, 1.0)
 
 	return {
-		"westwood": _get_macro_biome_score(warped, "westwood") * 5.0 - nx * 0.02,
-		"stoneback_ridge": _get_macro_biome_score(warped, "stoneback_ridge") * 5.0 - ny * 0.02,
-		"hearth_meadow": _get_macro_biome_score(warped, "hearth_meadow") * 5.2,
-		"south_thicket": _get_macro_biome_score(warped, "south_thicket") * 5.0 + ny * 0.02,
-		"redfang_wilds": _get_macro_biome_score(warped, "redfang_wilds") * 5.0 + nx * 0.02
+		"westwood": _get_macro_biome_score(warped, "westwood") * 4.4 + moisture * 1.6 + vegetation * 1.0 - danger * 0.35 - absf(height - 0.32) * 0.4 - nx * 0.02,
+		"stoneback_ridge": _get_macro_biome_score(warped, "stoneback_ridge") * 4.8 + height * 2.1 - vegetation * 1.15 - moisture * 0.35 + ny * 0.02,
+		"hearth_meadow": _get_macro_biome_score(warped, "hearth_meadow") * 5.0 + (1.0 - absf(moisture - 0.5) * 2.0) + (1.0 - vegetation) * 0.8 + (1.0 - danger) * 0.55 - absf(height - 0.22) * 0.4,
+		"south_thicket": _get_macro_biome_score(warped, "south_thicket") * 4.9 + moisture * 1.8 + vegetation * 1.7 + (1.0 - distance_to_shore) * 1.1 + ny * 0.02,
+		"redfang_wilds": _get_macro_biome_score(warped, "redfang_wilds") * 4.7 + danger * 2.0 + (1.0 - moisture) * 1.1 + distance_to_shore * 0.9 + nx * 0.02
 	}
 
 

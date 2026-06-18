@@ -3,7 +3,7 @@ extends RefCounted
 const WORLD_SCRIPT := preload("res://scripts/world/world.gd")
 const WORLD_QUERY_SERVICE := preload("res://scripts/world/world_query_service.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
-const WORLD_GENERATOR := preload("res://scripts/world/world_generator.gd")
+const WORLD_GENERATOR_PATH := "res://scripts/world/world_generator.gd"
 const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
 const TERRAIN_CELL_MAP := preload("res://scripts/world/terrain_cell_map.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
@@ -790,7 +790,7 @@ func _test_biome_surface_color_uses_the_containing_biome_without_blending(failur
 
 
 func _test_biome_color_palette_keeps_westwood_and_south_thicket_distinct(failures: Array[String]) -> void:
-	var generator := WORLD_GENERATOR.new()
+	var generator := load(WORLD_GENERATOR_PATH).new()
 	TEST_UTILS.expect(generator.get_biome_color("westwood").g < generator.get_biome_color("south_thicket").g, failures, "Westwood should stay darker than South Thicket")
 	TEST_UTILS.expect(generator.get_biome_color("westwood").r <= generator.get_biome_color("south_thicket").r, failures, "Westwood should remain the denser forest tone")
 	generator.free()
@@ -1024,7 +1024,7 @@ func _test_visual_biome_query_uses_generator_source(failures: Array[String]) -> 
 
 
 func _test_visual_biome_influence_scores_vary_across_space(failures: Array[String]) -> void:
-	var generator := WORLD_GENERATOR.new()
+	var generator := load(WORLD_GENERATOR_PATH).new()
 	generator.generate_world(12345)
 	var center_scores: Dictionary = generator.get_visual_biome_influence_scores(Vector2.ZERO)
 	var offset_scores: Dictionary = generator.get_visual_biome_influence_scores(Vector2(980.0, -420.0))
@@ -1040,7 +1040,7 @@ func _test_visual_biome_influence_scores_vary_across_space(failures: Array[Strin
 
 
 func _test_terrain_cell_map_builds_and_looks_up_cells(failures: Array[String]) -> void:
-	var generator := WORLD_GENERATOR.new()
+	var generator := load(WORLD_GENERATOR_PATH).new()
 	var topo := WORLD_TOPOGRAPHY.new()
 	generator.generate_world(13579)
 	topo.setup(13579)
@@ -1055,7 +1055,7 @@ func _test_terrain_cell_map_builds_and_looks_up_cells(failures: Array[String]) -
 	var repeat_map := TERRAIN_CELL_MAP.new()
 	repeat_map.build(WORLD_CONFIG.WORLD_RECT, 96.0, generator, topo, 13579)
 	TEST_UTILS.expect_equal(cell_map.get_cell(2, 2).get("biome_id", ""), repeat_map.get_cell(2, 2).get("biome_id", ""), failures, "Same seed should produce the same terrain cell map")
-	var other_generator := WORLD_GENERATOR.new()
+	var other_generator := load(WORLD_GENERATOR_PATH).new()
 	var other_topo := WORLD_TOPOGRAPHY.new()
 	other_generator.generate_world(24680)
 	other_topo.setup(24680)
@@ -1102,7 +1102,7 @@ func _test_biome_shape_map_builds_connected_regions(failures: Array[String]) -> 
 
 func _test_world_marks_terrain_surface_chunks_dirty_after_biome_shape_rebuild(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
-	world.world_generator = WORLD_GENERATOR.new()
+	world.world_generator = load(WORLD_GENERATOR_PATH).new()
 	world.world_topography = WORLD_TOPOGRAPHY.new()
 	world.world_generator.generate_world(13579)
 	world.world_topography.setup(13579)
@@ -1187,7 +1187,7 @@ func _test_world_process_only_syncs_biome_background_when_redraw_is_requested(fa
 
 func _test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures: Array[String]) -> void:
 	var world := WORLD_SCRIPT.new()
-	world.world_generator = WORLD_GENERATOR.new()
+	world.world_generator = load(WORLD_GENERATOR_PATH).new()
 	world.world_topography = WORLD_TOPOGRAPHY.new()
 	world.world_generator.generate_world(13579)
 	world.world_topography.setup(13579)

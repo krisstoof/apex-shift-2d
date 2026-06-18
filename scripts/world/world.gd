@@ -6,7 +6,7 @@ const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
-const WORLD_GENERATOR := preload("res://scripts/world/world_generator.gd")
+const WORLD_GENERATOR_PATH := "res://scripts/world/world_generator.gd"
 const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
@@ -764,7 +764,7 @@ func get_world_generation_summary() -> String:
 
 
 func _set_world_generator_seed(seed: int) -> void:
-	world_generator = WORLD_GENERATOR.new()
+	world_generator = load(WORLD_GENERATOR_PATH).new()
 	world_layout = Dictionary(world_generator.generate_world(seed if seed != 0 else world_seed)).duplicate(true)
 	world_seed = int(world_layout.get("seed", seed))
 	procedural_world_restore_mode = "full_layout"
@@ -783,7 +783,7 @@ func _apply_world_layout(layout: Dictionary) -> void:
 		world_seed = int(world_layout.get("seed", world_seed))
 	procedural_world_restore_mode = "full_layout"
 	if world_generator == null:
-		world_generator = WORLD_GENERATOR.new()
+		world_generator = load(WORLD_GENERATOR_PATH).new()
 	world_generator.generate_world(world_seed if world_seed != 0 else int(world_layout.get("seed", 1)))
 	_setup_topography()
 	biome_shape_map_dirty = true

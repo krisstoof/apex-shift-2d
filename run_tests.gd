@@ -1,20 +1,22 @@
 extends Node
 
+
 func _ready() -> void:
 	call_deferred("_run_test")
 
+
 func _run_test() -> void:
-	var test_suite = preload("res://tests/unit/test_world_generation_stability.gd").new()
-	var failures = test_suite.run()
-	
+	var failures: Array[String] = []
+	failures.append_array(preload("res://tests/unit/test_world_generation_stability.gd").new().run())
+	failures.append_array(preload("res://tests/unit/test_biome_generation_rules.gd").new().run())
+
 	if failures.is_empty():
-		print("\n✓ All world generation tests PASSED!")
-		print("  - 13 test methods")
-		print("  - 14 test seeds each")
-		print("  - 182 total test cases")
+		print("\nAll world generation tests PASSED!")
+		print("  - stability tests")
+		print("  - biome rule tests")
 		get_tree().quit(0)
 	else:
-		print("\n✗ FAILURES DETECTED:")
+		print("\nFAILURES DETECTED:")
 		for failure in failures:
 			print("  - " + failure)
 		print("\nTotal failures: %d" % failures.size())

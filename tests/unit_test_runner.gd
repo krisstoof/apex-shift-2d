@@ -33,6 +33,7 @@ const VARNAK_TESTS := preload("res://tests/unit/test_varnak.gd")
 const SAVE_SYSTEM_TESTS := preload("res://tests/unit/test_save_system.gd")
 const PLAYER_STATS_TESTS := preload("res://tests/unit/test_player_stats.gd")
 const WORLD_GENERATION_STABILITY_TESTS := preload("res://tests/unit/test_world_generation_stability.gd")
+const BIOME_GENERATION_RULES_TESTS := preload("res://tests/unit/test_biome_generation_rules.gd")
 const BUILDING_QUERY_TESTS := preload("res://tests/unit/test_building_query.gd")
 const ERROR_DRAIN_MAX_FRAMES := 8
 const ERROR_DRAIN_STABLE_FRAMES := 2
@@ -151,6 +152,7 @@ func _run_tests() -> void:
 	await _run_suite("SaveSystem", SAVE_SYSTEM_TESTS.new(), failures)
 	await _run_suite("PlayerStats", PLAYER_STATS_TESTS.new(), failures)
 	await _run_suite("WorldGenerationStability", WORLD_GENERATION_STABILITY_TESTS.new(), failures)
+	await _run_suite("BiomeGenerationRules", BIOME_GENERATION_RULES_TESTS.new(), failures)
 	await _run_suite("BuildingQuery", BUILDING_QUERY_TESTS.new(), failures)
 	await _drain_runtime_errors()
 	_append_logged_errors(failures, "", _unit_test_error_cursor)
