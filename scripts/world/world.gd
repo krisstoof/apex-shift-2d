@@ -185,6 +185,9 @@ var creature_spawn_rejection_debug := {
 	"grazer": {},
 	"varnak": {}
 }
+var resource_spawn_rejection_debug := {
+	"resource": {}
+}
 var world_seed := 0
 var world_layout: Dictionary = {}
 var world_generator: RefCounted
@@ -278,6 +281,7 @@ var inactive_resource_collisions := 0
 var edible_vegetation_node_count := 0
 var biome_biomass_food_count := 0
 var resource_activation_scan_index := 0
+var resource_activation_active_ids: Dictionary = {}
 var is_restoring_save: bool = false
 var island_world_validation_last_report: Dictionary = {}
 var world_debug_overlay_mode := "off"
@@ -1674,12 +1678,13 @@ func get_pool_debug_text() -> String:
 func get_resource_activation_debug() -> Dictionary:
 	return {
 		"total_resource_node_count": get_cached_group_nodes("resources").size(),
-		"interactive_resource_node_count": interactive_resource_node_count,
-		"render_only_resource_count": render_only_resource_count,
-		"active_resource_collisions": active_resource_collisions,
-		"inactive_resource_collisions": inactive_resource_collisions,
-		"resources_with_process_enabled": resources_with_process_enabled,
-		"resources_with_physics_process_enabled": resources_with_physics_process_enabled,
+		"interaction_active_resource_count": interactive_resource_node_count,
+		"render_only_visual_resource_count": render_only_resource_count,
+		"collision_active_resource_count": active_resource_collisions,
+		"collision_inactive_resource_count": inactive_resource_collisions,
+		"actual_process_enabled_resource_count": resources_with_process_enabled,
+		"actual_physics_process_enabled_resource_count": resources_with_physics_process_enabled,
+		"should_process_resource_count": resources_with_process_enabled,
 		"edible_vegetation_node_count": edible_vegetation_node_count,
 		"biome_biomass_food_count": biome_biomass_food_count,
 		"resource_activation_checked_count": resource_activation_checked_count,
@@ -1868,7 +1873,13 @@ func _update_resource_interactions() -> void:
 	var player_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("player_interaction_radius", 420.0))
 	var ai_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("ai_food_activation_radius", 1200.0))
 	var change_budget := maxi(int(GAME_BALANCE.RESOURCE_ACTIVATION.get("activation_changes_per_frame", 28)), 1)
-	var resources := get_cached_group_nodes("resources")
+	var world_registry = _ensure_registry()
+	var near_scan_radius := maxf(ai_radius, activation_radius)
+	var resources: Array = []
+	if world_registry != null and world_registry.has_method("get_resources_near"):
+		resources = Array(world_registry.get_resources_near(player_position, near_scan_radius))
+	else:
+		resources = get_cached_group_nodes("resources")
 	if resources.is_empty():
 		return
 	resource_activation_checked_count += resources.size()
@@ -1883,11 +1894,13 @@ func _update_resource_interactions() -> void:
 	var changes := 0
 	var scan_count := resources.size()
 	var start_index := resource_activation_scan_index % scan_count
+	var nearby_active_ids: Dictionary = {}
 	for offset in range(scan_count):
 		var index := (start_index + offset) % scan_count
 		var resource := resources[index] as Node
 		if resource == null or not is_instance_valid(resource):
 			continue
+		nearby_active_ids[resource.get_instance_id()] = true
 		var should_be_active := _should_resource_interaction_be_active(resource, player_position, activation_radius, player_radius, ai_radius)
 		var is_render_only := resource.has_method("is_render_only_resource") and bool(resource.call("is_render_only_resource"))
 		if is_render_only:
@@ -1914,6 +1927,27 @@ func _update_resource_interactions() -> void:
 					resource_activation_skipped_count += 1
 		if should_be_active and resource.has_method("get") and resource.get("food_value") != null and float(resource.get("food_value")) > 0.0:
 			biome_biomass_food_count += 1
+	for active_id in resource_activation_active_ids.keys():
+		if nearby_active_ids.has(active_id):
+			continue
+		var stale_resource := instance_from_id(int(active_id)) as Node
+		if stale_resource == null or not is_instance_valid(stale_resource):
+			resource_activation_active_ids.erase(active_id)
+			continue
+		if stale_resource.has_method("set_interaction_active"):
+			var stale_current := bool(stale_resource.call("is_interaction_active")) if stale_resource.has_method("is_interaction_active") else false
+			if stale_current:
+				if changes < change_budget:
+					stale_resource.call("set_interaction_active", false)
+					changes += 1
+					resource_activation_changed_count += 1
+				else:
+					resource_activation_skipped_count += 1
+			resource_activation_active_ids.erase(active_id)
+		else:
+			resource_activation_active_ids.erase(active_id)
+	for active_id in nearby_active_ids.keys():
+		resource_activation_active_ids[active_id] = true
 	resource_activation_scan_index = (start_index + scan_count) % scan_count
 
 
@@ -3227,7 +3261,7 @@ func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Arr
 	var spawned_since_yield := 0
 	for _i in count:
 		if not _try_spawn_resource(resource_kind, used_positions, player_position):
-			push_warning("Could not find a valid spawn position for %s" % resource_kind)
+			_count_resource_spawn_rejection(resource_kind, "no_valid_position")
 		spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
@@ -3245,10 +3279,10 @@ func _spawn_grass_kind_mixed(resource_kind: String, count: int, used_positions: 
 				spawned_edible_nodes += 1
 				edible_grass_node_spawn_count += 1
 			else:
-				push_warning("Could not find a valid edible grass node position for %s" % resource_kind)
+				_count_resource_spawn_rejection(resource_kind, "no_valid_edible_position")
 		else:
 			if not _try_spawn_decorative_grass_visual(resource_kind, used_positions, player_position):
-				push_warning("Could not find a valid decorative vegetation position for %s" % resource_kind)
+				_count_resource_spawn_rejection(resource_kind, "no_valid_decorative_position")
 		spawned_since_yield += 1
 		if spawned_since_yield >= 4:
 			spawned_since_yield = 0
@@ -3736,7 +3770,7 @@ func _spawn_resource_kind_in_biome(
 			spawned_since_yield = 0
 			await get_tree().process_frame
 	if failed > 0:
-		print("[SPAWN] %s in %s failed=%d requested=%d" % [resource_kind, biome_id, failed, count])
+		_count_resource_spawn_rejection(resource_kind, "biome_failed_%s" % biome_id)
 
 
 func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -3816,14 +3850,19 @@ func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biom
 		var distance_factor := resource_rng.randf_range(min_ring_factor, max_ring_factor)
 		var candidate := _get_pond_shape_position(pond, angle, distance_factor)
 		if not _is_valid_resource_terrain(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "invalid_terrain")
 			continue
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_water")
 			continue
 		if not _is_point_in_biome(candidate, biome):
+			_count_resource_spawn_rejection(resource_kind, "outside_biome_shape")
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_hill")
 			continue
 		if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, _get_pond_vegetation_min_distance(), _get_pond_vegetation_player_safe_distance()):
+			_count_resource_spawn_rejection(resource_kind, "too_close_to_existing_resource")
 			continue
 		used_positions.append(candidate)
 		if resource_kind in ["grass_patch", "dense_grass"] and (visual_only or not _should_keep_edible_pond_grass_node(resource_kind)):
@@ -3842,6 +3881,22 @@ func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biom
 			)
 		return true
 	return false
+
+
+func _reset_resource_spawn_rejection_debug() -> void:
+	resource_spawn_rejection_debug = {"resource": {}}
+
+
+func _count_resource_spawn_rejection(resource_kind: String, reason: String) -> void:
+	if not resource_spawn_rejection_debug.has(resource_kind):
+		resource_spawn_rejection_debug[resource_kind] = {}
+	var data := Dictionary(resource_spawn_rejection_debug[resource_kind])
+	data[reason] = int(data.get(reason, 0)) + 1
+	resource_spawn_rejection_debug[resource_kind] = data
+
+
+func get_resource_spawn_rejection_debug() -> Dictionary:
+	return resource_spawn_rejection_debug.duplicate(true)
 
 
 func _get_pond_vegetation_count() -> int:
@@ -4204,28 +4259,37 @@ func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], 
 	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var biome := _pick_resource_biome(resource_kind)
 		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+		if spawn_area.size.x <= 0.0 or spawn_area.size.y <= 0.0:
+			_count_resource_spawn_rejection(resource_kind, "invalid_biome_bounds")
+			continue
 		var candidate := Vector2(
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
 		if not _is_valid_resource_terrain(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "invalid_terrain")
 			continue
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_water")
 			if world_topography != null and world_topography.has_method("sample_topography_at"):
 				var topo_sample := Dictionary(world_topography.sample_topography_at(candidate))
 				if str(topo_sample.get("terrain_zone", "")) == "pond":
 					topography_resource_distribution_debug["resources_blocked_by_pond"] = int(topography_resource_distribution_debug.get("resources_blocked_by_pond", 0)) + 1
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_hill")
 			continue
 		var allowance := _get_topography_resource_allowance(resource_kind, candidate)
 		if allowance <= 0.0:
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_topography")
 			continue
 		if resource_rng.randf() > clampf(get_resource_density_at(candidate, resource_kind) * allowance, 0.0, 2.5) / 2.5:
+			_count_resource_spawn_rejection(resource_kind, "density_rejected")
 			continue
 		if allowance < 1.0 and _is_plant_resource_kind(resource_kind):
 			topography_resource_distribution_debug["plants_reduced_on_highland"] = int(topography_resource_distribution_debug.get("plants_reduced_on_highland", 0)) + 1
 		if get_biome_id_at(candidate) != _get_biome_id(biome):
+			_count_resource_spawn_rejection(resource_kind, "outside_biome")
 			continue
 		if _is_point_in_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
 			used_positions.append(candidate)
@@ -5016,23 +5080,33 @@ func _try_spawn_resource_in_biome(
 ) -> bool:
 	for _attempt in spawn_attempts:
 		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+		if spawn_area.size.x <= 0.0 or spawn_area.size.y <= 0.0:
+			_count_resource_spawn_rejection(resource_kind, "invalid_biome_bounds")
+			continue
 		var candidate := Vector2(
 			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
 			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
 		)
 		if not _is_valid_resource_terrain(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "invalid_terrain")
 			continue
 		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_water")
 			continue
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_hill")
 			continue
 		if resource_rng.randf() > clampf(get_resource_density_at(candidate, resource_kind), 0.0, 2.5) / 2.5:
+			_count_resource_spawn_rejection(resource_kind, "density_rejected")
 			continue
 		if get_biome_id_at(candidate) != _get_biome_id(biome):
+			_count_resource_spawn_rejection(resource_kind, "outside_biome")
 			continue
 		if not _is_point_in_biome(candidate, biome):
+			_count_resource_spawn_rejection(resource_kind, "outside_biome_shape")
 			continue
 		if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, min_distance):
+			_count_resource_spawn_rejection(resource_kind, "too_close_to_existing_resource")
 			continue
 
 		used_positions.append(candidate)

@@ -611,7 +611,7 @@ const RENDER_PERFORMANCE := {
 		"terrain_refined_chunks_per_frame": 1,
 		"terrain_build_budget_ms": 0.75,
 		"terrain_refined_texture_size": 96,
-		"terrain_refine_pause_when_fps_below": 50,
+		"terrain_refine_pause_when_fps_below": 25,
 		"terrain_max_refined_chunks_per_second": 2,
 		"resource_far_update_interval": 0.75
 	},

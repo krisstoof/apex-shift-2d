@@ -47,6 +47,11 @@ var active_preset_name := "normal"
 
 # HITCH LOGGER COUNTERS
 var benchmark_sample_build_ms: float = 0.0
+var benchmark_sample_collection_ms: float = 0.0
+var benchmark_world_debug_collection_ms: float = 0.0
+var benchmark_hitch_capture_ms: float = 0.0
+var benchmark_report_build_ms: float = 0.0
+var deep_debug := false
 var benchmark_file_write_ms: float = 0.0
 var last_reported_second := -1
 
@@ -54,6 +59,7 @@ var scene: Node
 var world: Node
 var minimap: Node
 var map_screen: Node
+var hud: Node
 var player: Node2D
 var evolution_director: Node
 var day_night_system: Node
@@ -73,9 +79,12 @@ func start(preset_name: String = "normal") -> bool:
 		queue_free()
 		return false
 	_apply_biome_textures_preset(preset_name)
+	if preset_name == "map_open":
+		_open_map_screen_for_benchmark()
 	running = true
 	elapsed_seconds = 0.0
 	sample_timer = 0.0
+	deep_debug = preset_name == "deep_debug"
 	RUNTIME_PROFILER.reset()
 	start_ticks_usec = Time.get_ticks_usec()
 	start_unix_time = Time.get_unix_time_from_system()
@@ -85,6 +94,11 @@ func start(preset_name: String = "normal") -> bool:
 	realtime_hitch_count = 0
 	max_realtime_delta_ms = 0
 	realtime_hitches.clear()
+	benchmark_sample_build_ms = 0.0
+	benchmark_sample_collection_ms = 0.0
+	benchmark_world_debug_collection_ms = 0.0
+	benchmark_hitch_capture_ms = 0.0
+	benchmark_report_build_ms = 0.0
 	last_reported_second = -1
 	benchmark_progress.emit(0.0, BENCHMARK_DURATION_SECONDS)
 	return true
@@ -112,6 +126,7 @@ func _process(delta: float) -> void:
 
 
 func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
+	var hitch_start := Time.get_ticks_usec()
 	if last_process_ticks_msec > 0:
 		var realtime_delta_ms: int = now_ticks - last_process_ticks_msec
 		if realtime_delta_ms > 250:
@@ -122,17 +137,19 @@ func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
 				"realtime_delta_ms": realtime_delta_ms,
 				"engine_delta_ms": delta * 1000.0,
 				"sample_count": samples.size(),
-				"sample_timer": sample_timer,
-				"world_debug": _capture_lightweight_world_debug()
+				"sample_timer": sample_timer
 			}
+			if deep_debug:
+				hitch["world_debug"] = _capture_lightweight_world_debug()
 			realtime_hitches.append(hitch)
-			if realtime_hitches.size() > 20:
+			if realtime_hitches.size() > (40 if deep_debug else 12):
 				realtime_hitches.pop_front()
 			push_warning("[REALTIME_HITCH] %d ms engine_delta=%.1f sample_count=%d" % [
 				realtime_delta_ms,
 				delta * 1000.0,
 				samples.size()
 			])
+	benchmark_hitch_capture_ms = float(Time.get_ticks_usec() - hitch_start) / 1000.0
 	last_process_ticks_msec = now_ticks
 
 
@@ -146,6 +163,7 @@ func _capture_context() -> bool:
 	if not is_instance_valid(scene):
 		return false
 	world = scene.get_node_or_null("World")
+	hud = scene.get_node_or_null("HUD")
 	minimap = scene.get_node_or_null("HUD/Minimap")
 	map_screen = scene.get_node_or_null("HUD/MapScreen")
 	player = scene.get_node_or_null("Player") as Node2D
@@ -153,6 +171,13 @@ func _capture_context() -> bool:
 	day_night_system = scene.get_node_or_null("DayNightSystem")
 	ecosystem_director = scene.get_node_or_null("EcosystemDirector")
 	return is_instance_valid(world) and is_instance_valid(player) and is_instance_valid(evolution_director) and is_instance_valid(day_night_system) and is_instance_valid(ecosystem_director)
+
+
+func _open_map_screen_for_benchmark() -> bool:
+	if not is_instance_valid(hud) or not hud.has_method("_set_map_screen_open"):
+		return false
+	hud.call("_set_map_screen_open", true)
+	return true
 
 
 func _find_active_scene(root: Node) -> Node:
@@ -197,6 +222,9 @@ func _record_sample() -> void:
 	var sample: Dictionary = _capture_sample()
 	benchmark_sample_build_ms = float(Time.get_ticks_msec() - sample_start_ms)
 	sample["benchmark_sample_build_ms"] = benchmark_sample_build_ms
+	sample["benchmark_sample_collection_ms"] = benchmark_sample_collection_ms
+	sample["benchmark_world_debug_collection_ms"] = benchmark_world_debug_collection_ms
+	sample["benchmark_hitch_capture_ms"] = benchmark_hitch_capture_ms
 	samples.append(sample)
 
 
@@ -222,13 +250,22 @@ func _capture_sample() -> Dictionary:
 	sample["minimap"] = _capture_minimap_stats()
 	sample["map_screen"] = _capture_map_screen_stats()
 	sample["player"] = _capture_player_stats()
-	sample["ecosystem"] = _capture_ecosystem_stats()
-	sample["ai_decisions"] = _capture_ai_decision_stats()
+	if deep_debug:
+		var world_debug_start := Time.get_ticks_usec()
+		sample["world_deep_debug"] = _capture_world_stats_deep()
+		sample["ecosystem"] = _capture_ecosystem_stats()
+		sample["ai_decisions"] = _capture_ai_decision_stats()
+		benchmark_world_debug_collection_ms = float(Time.get_ticks_usec() - world_debug_start) / 1000.0
+	else:
+		benchmark_world_debug_collection_ms = 0.0
 	sample["driver_scores"] = _calculate_driver_scores(sample)
 	sample["likely_driver"] = _pick_likely_driver(Dictionary(sample.get("driver_scores", {})))
 	sample["load_score"] = _calculate_load_score(sample)
 	var render_attribution := RUNTIME_PROFILER.get_rolling_summary()
-	render_attribution["benchmark_sample_collection_ms"] = float(Time.get_ticks_usec() - sample_collection_start) / 1000.0
+	benchmark_sample_collection_ms = float(Time.get_ticks_usec() - sample_collection_start) / 1000.0
+	render_attribution["benchmark_sample_collection_ms"] = benchmark_sample_collection_ms
+	render_attribution["benchmark_world_debug_collection_ms"] = benchmark_world_debug_collection_ms
+	render_attribution["benchmark_hitch_capture_ms"] = benchmark_hitch_capture_ms
 	sample["render_attribution"] = render_attribution
 	var likely_render_subsystem := _pick_likely_render_subsystem(render_attribution)
 	if not likely_render_subsystem.is_empty():
@@ -240,6 +277,20 @@ func _capture_sample() -> Dictionary:
 		sample["likely_render_subsystem"] = likely_render_subsystem
 		sample["likely_render_subsystem_reason"] = "highest avg/max render attribution in sample window"
 	return sample
+
+
+func _capture_world_stats_deep() -> Dictionary:
+	var stats: Dictionary = {}
+	if not is_instance_valid(world):
+		return stats
+	stats["world_generation_debug"] = Dictionary(world.get_world_generation_debug()) if world.has_method("get_world_generation_debug") else {}
+	stats["resource_activation_debug"] = Dictionary(world.get_resource_activation_debug()) if world.has_method("get_resource_activation_debug") else {}
+	stats["landmark_debug"] = _capture_world_landmark_debug_stats()
+	stats["registry"] = _capture_world_registry_stats()
+	stats["terrain_renderer"] = _capture_world_terrain_renderer_stats()
+	stats["resource_spawn_rejection_debug"] = _capture_world_resource_spawn_rejection_debug()
+	stats["ecosystem_state_source"] = _capture_world_ecosystem_state_source()
+	return stats
 
 
 func _capture_performance_stats() -> Dictionary:
@@ -513,10 +564,14 @@ func _capture_world_landmark_debug_stats() -> Dictionary:
 	if not is_instance_valid(world) or not world.has_method("get_landmark_counts"):
 		return {}
 	var landmark_counts := Dictionary(world.get_landmark_counts())
+	var topography_counts := Dictionary(world.get_topography_feature_counts()) if world.has_method("get_topography_feature_counts") else {}
 	return {
 		"generated": int(landmark_counts.get("generated", 0)),
 		"pond": int(landmark_counts.get("pond", 0)),
-		"hill": int(landmark_counts.get("hill", 0))
+		"hill": int(landmark_counts.get("hill", 0)),
+		"topography_pond": int(topography_counts.get("pond", 0)),
+		"topography_hill": int(topography_counts.get("highland", 0)),
+		"topography_rocky_patch": int(topography_counts.get("rocky_patch", 0))
 	}
 
 
@@ -529,6 +584,18 @@ func _capture_world_registry_stats() -> Dictionary:
 		"registered_resources": resource_total,
 		"registered_buildings": building_total
 	}
+
+
+func _capture_world_ecosystem_state_source() -> String:
+	if not is_instance_valid(world) or not world.has_method("get_ecosystem_state_source"):
+		return ""
+	return str(world.get_ecosystem_state_source())
+
+
+func _capture_world_resource_spawn_rejection_debug() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_resource_spawn_rejection_debug"):
+		return {}
+	return Dictionary(world.get_resource_spawn_rejection_debug())
 
 
 func _capture_world_render_flags() -> Dictionary:
@@ -907,6 +974,7 @@ func _write_logs() -> Dictionary:
 
 
 func _build_report() -> Dictionary:
+	var report_start_ms := Time.get_ticks_msec()
 	var top_samples := _get_top_samples(5)
 	var heaviest_sample := Dictionary(top_samples[0]) if not top_samples.is_empty() else {}
 	var total_samples := samples.size()
@@ -947,6 +1015,8 @@ func _build_report() -> Dictionary:
 		"samples": samples,
 		"render_attribution_summary": _build_render_attribution_summary()
 	}
+	benchmark_report_build_ms = float(Time.get_ticks_msec() - report_start_ms)
+	report["benchmark_report_build_ms"] = benchmark_report_build_ms
 	report["threshold_validation"] = _validate_benchmark_thresholds(report)
 	return report
 

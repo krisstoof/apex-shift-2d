@@ -119,6 +119,7 @@ var smoke_test_warning_emitted := false
 var refine_idle_grace_period_ms := 5000
 var refine_idle_min_interval_ms := 2500
 var last_refine_idle_allow_ms := 0
+var preview_build_watchdog_start_ms: Dictionary = {}
 
 func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 	var previous_world := world
@@ -143,7 +144,7 @@ func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 	refined_max_rows_built_per_frame = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_max_rows_built_per_frame", 8)), 1)
 	refined_max_build_ms_per_frame = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_max_build_ms_per_frame", 4.0)), 1.0)
 	refine_delay_seconds = maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_delay_seconds", 0.05)), 0.0)
-	refine_pause_when_fps_below = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_pause_when_fps_below", 45)), 0)
+	refine_pause_when_fps_below = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_pause_when_fps_below", 25)), 0)
 	refine_pause_when_camera_moving = bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_refine_pause_when_camera_moving", true))
 	max_refined_chunks_per_second = maxi(int(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_max_refined_chunks_per_second", 8)), 1)
 	hard_budget_enabled = bool(GAME_BALANCE.BIOME_TEXTURES.get("terrain_surface_hard_budget_enabled", true))
@@ -208,6 +209,7 @@ func mark_dirty(reason := "unknown") -> void:
 	smoke_test_idle_duration_ms = 0
 	smoke_test_warning_emitted = false
 	last_refine_idle_allow_ms = 0
+	preview_build_watchdog_start_ms.clear()
 	chunk_states.clear()
 	queue_redraw()
 
@@ -241,6 +243,7 @@ func clear_runtime_state(reason := "cleanup") -> void:
 	refine_jobs_stale = 0
 	smoke_test_warning_emitted = false
 	last_refine_idle_allow_ms = 0
+	preview_build_watchdog_start_ms.clear()
 	queue_redraw()
 
 
@@ -317,6 +320,7 @@ func process_build_queue(delta: float = 0.0) -> void:
 		active_builds.erase(chunk_key)
 		refine_jobs_stale += 1
 		chunk_states[chunk_key] = ChunkState.STALE
+		preview_build_watchdog_start_ms.erase(chunk_key)
 	
 	var active_work_limit := preview_active_build_limit + max_chunks_built_per_frame
 	while _count_active_work_stages() < active_work_limit and not pending_chunks.is_empty():
@@ -584,7 +588,21 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 	var next_y := int(state.get("next_y", 0))
 	var next_x := int(state.get("next_x", 0))
 	var stage := str(state.get("stage", "preview"))
-	
+	if stage == "preview":
+		if not preview_build_watchdog_start_ms.has(chunk_key):
+			preview_build_watchdog_start_ms[chunk_key] = Time.get_ticks_msec()
+		elif Time.get_ticks_msec() - int(preview_build_watchdog_start_ms[chunk_key]) >= 10000:
+			state["stage"] = "refine_pending"
+			state["stage_ready_at"] = float(Time.get_ticks_msec()) / 1000.0
+			state["image"] = null
+			state["next_y"] = 0
+			state["next_x"] = 0
+			active_builds[chunk_key] = state
+			chunk_states[chunk_key] = ChunkState.PREVIEW_READY
+			refine_jobs_stale += 1
+			preview_build_watchdog_start_ms.erase(chunk_key)
+			return
+
 	# Handle refine_pending stage transition to refine FIRST (before null check)
 	if stage == "refine_pending":
 		if allow_refine:
@@ -691,6 +709,7 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 			state["next_x"] = 0
 			active_builds[chunk_key] = state
 			chunk_states[chunk_key] = ChunkState.PREVIEW_READY
+			preview_build_watchdog_start_ms.erase(chunk_key)
 			preview_chunks_built_last_frame += 1
 			preview_build_count += 1
 			preview_chunk_count = chunk_textures.size()

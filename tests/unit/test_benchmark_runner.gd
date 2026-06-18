@@ -106,6 +106,9 @@ class FakeWorld extends Node:
 	func get_landmark_counts() -> Dictionary:
 		return {"generated": 3, "pond": 1, "hill": 2}
 
+	func get_topography_feature_counts() -> Dictionary:
+		return {"pond": 2, "highland": 1, "rocky_patch": 1}
+
 	func get_registered_resources() -> Array:
 		return [Node.new(), Node.new(), Node.new()]
 
@@ -123,6 +126,12 @@ class FakeWorld extends Node:
 
 	func is_low_end_rendering_enabled() -> bool:
 		return true
+
+	func get_ecosystem_state_source() -> String:
+		return "generated"
+
+	func get_resource_spawn_rejection_debug() -> Dictionary:
+		return {"tree": {"blocked_by_water": 3, "outside_biome": 2}}
 
 	func get_cached_group_nodes(group_name: String) -> Array:
 		match group_name:
@@ -204,6 +213,15 @@ class FakeMapScreen extends Node:
 		}
 
 
+class FakeHud extends Node:
+	var map_open_requests := 0
+	var last_map_open_state := false
+
+	func _set_map_screen_open(open: bool) -> void:
+		map_open_requests += 1
+		last_map_open_state = open
+
+
 class FakeCreature extends Node:
 	var ai_decision_count := 0
 
@@ -227,6 +245,8 @@ func run() -> Array[String]:
 	_test_benchmark_runner_records_at_most_one_sample_per_frame(failures)
 	_test_benchmark_runner_captures_realtime_hitch_summary(failures)
 	_test_benchmark_runner_defaults_realtime_hitch_count_to_zero(failures)
+	_test_benchmark_runner_opens_map_screen_for_map_open_preset(failures)
+	_test_benchmark_runner_captures_ecosystem_and_spawn_debug(failures)
 	return failures
 
 
@@ -583,3 +603,55 @@ func _test_benchmark_runner_defaults_realtime_hitch_count_to_zero(failures: Arra
 	var runner := BENCHMARK_RUNNER.new()
 	var report: Dictionary = runner.call("_build_report")
 	TEST_UTILS.expect_equal(int(report.get("realtime_hitch_count", -1)), 0, failures, "Benchmark report should default realtime hitch count to zero")
+
+
+func _test_benchmark_runner_opens_map_screen_for_map_open_preset(failures: Array[String]) -> void:
+	var runner := BENCHMARK_RUNNER.new()
+	var fake_world := FakeWorld.new()
+	var fake_hud := FakeHud.new()
+	var fake_minimap := FakeMinimap.new()
+	var fake_map_screen := FakeMapScreen.new()
+	var scene := Node.new()
+	scene.name = "BenchmarkScene"
+	scene.add_child(fake_world)
+	fake_world.name = "World"
+	scene.add_child(fake_hud)
+	fake_hud.name = "HUD"
+	fake_hud.add_child(fake_minimap)
+	fake_minimap.name = "Minimap"
+	fake_hud.add_child(fake_map_screen)
+	fake_map_screen.name = "MapScreen"
+	var player := Node2D.new()
+	player.name = "Player"
+	scene.add_child(player)
+	var evo := Node.new()
+	evo.name = "EvolutionDirector"
+	scene.add_child(evo)
+	var day_night := Node.new()
+	day_night.name = "DayNightSystem"
+	scene.add_child(day_night)
+	var ecosystem := Node.new()
+	ecosystem.name = "EcosystemDirector"
+	scene.add_child(ecosystem)
+	runner.scene = scene
+	runner.world = fake_world
+	runner.hud = fake_hud
+	runner.minimap = fake_minimap
+	runner.map_screen = fake_map_screen
+	runner.player = player
+	runner.evolution_director = evo
+	runner.day_night_system = day_night
+	runner.ecosystem_director = ecosystem
+	TEST_UTILS.expect_equal(bool(runner.call("_open_map_screen_for_benchmark")), true, failures, "Benchmark runner should support the map-open benchmark scenario")
+	TEST_UTILS.expect_equal(fake_hud.map_open_requests, 1, failures, "Map-open benchmark preset should request the HUD to open the map")
+	TEST_UTILS.expect_equal(fake_hud.last_map_open_state, true, failures, "Map-open benchmark preset should open the map")
+
+
+func _test_benchmark_runner_captures_ecosystem_and_spawn_debug(failures: Array[String]) -> void:
+	var runner := BENCHMARK_RUNNER.new()
+	var fake_world := FakeWorld.new()
+	runner.world = fake_world
+	var stats: Dictionary = runner.call("_capture_world_stats_deep")
+	TEST_UTILS.expect_equal(str(stats.get("ecosystem_state_source", "")), "generated", failures, "Benchmark runner should capture ecosystem state source")
+	var spawn_debug: Dictionary = Dictionary(stats.get("resource_spawn_rejection_debug", {}))
+	TEST_UTILS.expect_equal(int(Dictionary(spawn_debug.get("tree", {})).get("blocked_by_water", 0)), 3, failures, "Benchmark runner should capture resource spawn rejection debug")

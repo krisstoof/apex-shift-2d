@@ -9,6 +9,7 @@ var biome_states: Dictionary = {}
 var tick_timer := 0.0
 var initialized := false
 var pending_tick_biome_ids: Array[String] = []
+var ecosystem_state_source := "generated"
 
 
 func _ecosystem_value(key: String) -> float:
@@ -65,13 +66,21 @@ func get_biome_states() -> Dictionary:
 
 
 func get_biome_state(biome_id: String) -> Dictionary:
-	return Dictionary(biome_states.get(biome_id, {})).duplicate(true)
+	var state := Dictionary(biome_states.get(biome_id, {})).duplicate(true)
+	if not state.is_empty():
+		state["ecosystem_state_source"] = ecosystem_state_source
+	return state
+
+
+func get_ecosystem_state_source() -> String:
+	return ecosystem_state_source
 
 
 func get_save_data() -> Dictionary:
 	return {
 		"biome_states": biome_states.duplicate(true),
-		"tick_timer": tick_timer
+		"tick_timer": tick_timer,
+		"ecosystem_state_source": ecosystem_state_source
 	}
 
 
@@ -82,6 +91,7 @@ func load_save_data(data: Dictionary) -> void:
 	var saved_states = data.get("biome_states", {})
 	if typeof(saved_states) == TYPE_DICTIONARY:
 		_restore_biome_states(Dictionary(saved_states))
+	ecosystem_state_source = str(data.get("ecosystem_state_source", ecosystem_state_source))
 	tick_timer = clamp(float(data.get("tick_timer", tick_timer)), 0.0, _ecosystem_value("simulation_tick_seconds"))
 	initialized = true
 
@@ -198,6 +208,7 @@ func debug_advance_ecosystem_tick() -> void:
 func _initialize_biomes() -> void:
 	biome_states.clear()
 	pending_tick_biome_ids.clear()
+	ecosystem_state_source = "generated"
 	var default_plant_biomass := _ecosystem_value("default_plant_biomass")
 	var max_plant_biomass := _ecosystem_value("max_plant_biomass")
 	for biome in WORLD_CONFIG.get_biome_zones():
