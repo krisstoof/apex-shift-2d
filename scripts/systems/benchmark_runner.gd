@@ -64,16 +64,21 @@ var player: Node2D
 var evolution_director: Node
 var day_night_system: Node
 var ecosystem_director: Node
+var benchmark_active := false
+var verbose_hitch_logging := false
+var last_hitch_summary_ms := 0
 
 
 func _ready() -> void:
-	process_mode = Node.PROCESS_MODE_ALWAYS
+	process_mode = Node.PROCESS_MODE_DISABLED
 
 
 func start(preset_name: String = "normal") -> bool:
 	if running:
 		return false
 	active_preset_name = preset_name
+	benchmark_active = true
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	if not _capture_context():
 		_post_message("Benchmark could not start: missing game state")
 		queue_free()
@@ -144,11 +149,15 @@ func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
 			realtime_hitches.append(hitch)
 			if realtime_hitches.size() > (40 if deep_debug else 12):
 				realtime_hitches.pop_front()
-			push_warning("[REALTIME_HITCH] %d ms engine_delta=%.1f sample_count=%d" % [
-				realtime_delta_ms,
-				delta * 1000.0,
-				samples.size()
-			])
+			if verbose_hitch_logging:
+				print_debug("[REALTIME_HITCH] %d ms engine_delta=%.1f sample_count=%d" % [
+					realtime_delta_ms,
+					delta * 1000.0,
+					samples.size()
+				])
+			if last_hitch_summary_ms == 0 or now_ticks - last_hitch_summary_ms >= 15000:
+				last_hitch_summary_ms = now_ticks
+				print_debug("[REALTIME_HITCH_SUMMARY] count=%d max_delta=%d" % [realtime_hitch_count, max_realtime_delta_ms])
 	benchmark_hitch_capture_ms = float(Time.get_ticks_usec() - hitch_start) / 1000.0
 	last_process_ticks_msec = now_ticks
 
@@ -246,13 +255,14 @@ func _capture_sample() -> Dictionary:
 	sample["elapsed_seconds"] = elapsed_seconds
 	sample["time_label"] = _format_time(elapsed_seconds)
 	sample["performance"] = _capture_performance_stats()
-	sample["world"] = _capture_world_stats(deep_debug)
-	sample["minimap"] = _capture_minimap_stats()
-	sample["map_screen"] = _capture_map_screen_stats()
-	sample["player"] = _capture_player_stats()
+	sample["world_summary"] = _capture_world_summary()
 	if deep_debug:
 		var world_debug_start := Time.get_ticks_usec()
+		sample["world"] = _capture_world_stats(true)
 		sample["world_deep_debug"] = _capture_world_stats_deep()
+		sample["minimap"] = _capture_minimap_stats()
+		sample["map_screen"] = _capture_map_screen_stats()
+		sample["player"] = _capture_player_stats()
 		sample["ecosystem"] = _capture_ecosystem_stats()
 		sample["ai_decisions"] = _capture_ai_decision_stats()
 		benchmark_world_debug_collection_ms = float(Time.get_ticks_usec() - world_debug_start) / 1000.0
@@ -261,21 +271,8 @@ func _capture_sample() -> Dictionary:
 	sample["driver_scores"] = _calculate_driver_scores(sample)
 	sample["likely_driver"] = _pick_likely_driver(Dictionary(sample.get("driver_scores", {})))
 	sample["load_score"] = _calculate_load_score(sample)
-	var render_attribution := RUNTIME_PROFILER.get_rolling_summary()
 	benchmark_sample_collection_ms = float(Time.get_ticks_usec() - sample_collection_start) / 1000.0
-	render_attribution["benchmark_sample_collection_ms"] = benchmark_sample_collection_ms
-	render_attribution["benchmark_world_debug_collection_ms"] = benchmark_world_debug_collection_ms
-	render_attribution["benchmark_hitch_capture_ms"] = benchmark_hitch_capture_ms
-	sample["render_attribution"] = render_attribution
-	var likely_render_subsystem := _pick_likely_render_subsystem(render_attribution)
-	if not likely_render_subsystem.is_empty():
-		sample["likely_render_subsystem"] = likely_render_subsystem
-		var parent_scope := _pick_likely_render_parent_scope(render_attribution, likely_render_subsystem)
-		if not parent_scope.is_empty():
-			sample["likely_render_parent_scope"] = parent_scope
-	if str(sample.get("likely_driver", "")) == "render" and not likely_render_subsystem.is_empty():
-		sample["likely_render_subsystem"] = likely_render_subsystem
-		sample["likely_render_subsystem_reason"] = "highest avg/max render attribution in sample window"
+	sample["render_attribution"] = _get_lightweight_render_attribution_summary()
 	return sample
 
 
@@ -363,6 +360,33 @@ func _capture_world_stats(include_deep_details: bool = false) -> Dictionary:
 		stats["creature_simulation"] = _capture_creature_simulation_stats()
 		stats["biome_query"] = _capture_world_biome_query_stats()
 	return stats
+
+
+func _capture_world_summary() -> Dictionary:
+	if not is_instance_valid(world):
+		return {}
+	var terrain := _capture_world_terrain_renderer_stats()
+	var visibility := _capture_world_visibility_culling_stats()
+	var activation := _capture_world_resource_render_mode_stats()
+	var biome_cache := _capture_world_biome_texture_cache_stats()
+	return {
+		"visible_resources": int(visibility.get("visible_resources", 0)),
+		"visible_creatures": int(visibility.get("visible_creatures", 0)),
+		"active_resource_collisions": int(activation.get("active_resource_collisions", 0)),
+		"world_surface_texture_chunks_built": int(terrain.get("terrain_surface_chunks_built_last_frame", 0)),
+		"world_surface_texture_max_build_ms_per_frame": float(terrain.get("terrain_surface_max_build_ms_per_frame", 0.0)),
+		"world_surface_texture_pending_chunks": int(terrain.get("terrain_surface_chunk_pending_count", 0)),
+		"world_biome_texture_build_count": int(biome_cache.get("world_biome_texture_build_count", 0))
+	}
+
+
+func _get_lightweight_render_attribution_summary() -> Dictionary:
+	var summary := Dictionary(RUNTIME_PROFILER.get_rolling_summary())
+	return {
+		"enabled": bool(summary.get("enabled", false)),
+		"top_subsystem": _pick_likely_render_subsystem(summary),
+		"samples_with_render_attribution": int(summary.get("samples_with_render_attribution", 0))
+	}
 
 
 func _capture_minimap_stats() -> Dictionary:
@@ -455,7 +479,12 @@ func _capture_world_boot_stats() -> Dictionary:
 
 func _capture_world_biome_texture_cache_stats() -> Dictionary:
 	if not is_instance_valid(world) or not world.has_method("get_biome_texture_cache_status"):
-		return {}
+		return {
+			"world_biome_texture_build_count": 0,
+			"world_biome_texture_last_build_ms": 0.0,
+			"textures_enabled": false,
+			"not_applicable": true
+		}
 	var cache_status := Dictionary(world.get_biome_texture_cache_status())
 	var world_build_count := int(cache_status.get("world_biome_texture_build_count", cache_status.get("rebuild_count", 0)))
 	var world_last_build_ms := float(cache_status.get("world_biome_texture_last_build_ms", cache_status.get("last_build_ms", 0.0)))
@@ -629,7 +658,12 @@ func _capture_world_terrain_renderer_stats() -> Dictionary:
 		return {}
 	if world.has_method("get_terrain_renderer_debug"):
 		return Dictionary(world.get_terrain_renderer_debug())
-	return {}
+	return {
+		"terrain_surface_chunks_built_last_frame": 0,
+		"terrain_surface_max_build_ms_per_frame": 0.0,
+		"terrain_surface_chunk_pending_count": 0,
+		"not_applicable": true
+	}
 
 
 func _capture_world_render_pressure(world_stats: Dictionary) -> Dictionary:
@@ -871,12 +905,13 @@ func _capture_ecosystem_stats() -> Dictionary:
 func _calculate_driver_scores(sample: Dictionary) -> Dictionary:
 	var performance: Dictionary = Dictionary(sample.get("performance", {}))
 	var world_stats: Dictionary = Dictionary(sample.get("world", {}))
+	var world_summary: Dictionary = Dictionary(sample.get("world_summary", {}))
 	var ecosystem_stats: Dictionary = Dictionary(sample.get("ecosystem", {}))
 	var creature_counts: Dictionary = Dictionary(world_stats.get("creature_counts", {}))
 	var resource_counts: Dictionary = Dictionary(world_stats.get("resource_counts", {}))
 	var special_resource_counts: Dictionary = Dictionary(world_stats.get("special_resource_counts", {}))
-	var total_creatures := float(world_stats.get("total_creatures", 0.0))
-	var total_resources := float(world_stats.get("total_resources", 0.0))
+	var total_creatures := float(world_stats.get("total_creatures", world_summary.get("visible_creatures", 0.0)))
+	var total_resources := float(world_stats.get("total_resources", world_summary.get("visible_resources", 0.0)))
 	var vegetation_stats: Dictionary = Dictionary(world_stats.get("vegetation", {}))
 	var draw_calls := float(performance.get("draw_calls", 0))
 	var render_primitives := float(performance.get("render_primitives", 0))
@@ -921,14 +956,15 @@ func _pick_likely_driver(driver_scores: Dictionary) -> String:
 func _calculate_load_score(sample: Dictionary) -> float:
 	var performance: Dictionary = Dictionary(sample.get("performance", {}))
 	var world_stats: Dictionary = Dictionary(sample.get("world", {}))
+	var world_summary: Dictionary = Dictionary(sample.get("world_summary", {}))
 	var ecosystem_stats: Dictionary = Dictionary(sample.get("ecosystem", {}))
 	var draw_calls := float(performance.get("draw_calls", 0))
 	var render_primitives := float(performance.get("render_primitives", 0))
 	var frame_time_ms := float(performance.get("frame_time_s", 0.0)) * 1000.0
 	var physics_time_ms := float(performance.get("physics_time_s", 0.0)) * 1000.0
 	var node_count := float(performance.get("node_count", 0))
-	var total_creatures := float(world_stats.get("total_creatures", 0))
-	var total_resources := float(world_stats.get("total_resources", 0))
+	var total_creatures := float(world_stats.get("total_creatures", world_summary.get("visible_creatures", 0)))
+	var total_resources := float(world_stats.get("total_resources", world_summary.get("visible_resources", 0)))
 	var vegetation_stats: Dictionary = Dictionary(world_stats.get("vegetation", {}))
 	var out_of_bounds := float(world_stats.get("creatures_out_of_bounds_count", 0))
 	var biome_count := float(ecosystem_stats.get("biome_count", 0))
@@ -940,6 +976,8 @@ func _calculate_load_score(sample: Dictionary) -> float:
 
 func _finish() -> void:
 	running = false
+	benchmark_active = false
+	process_mode = Node.PROCESS_MODE_DISABLED
 	benchmark_progress.emit(BENCHMARK_DURATION_SECONDS, 0.0)
 	var output_paths := _write_logs()
 	if output_paths.is_empty():
@@ -1024,6 +1062,10 @@ func _build_report() -> Dictionary:
 	}
 	benchmark_report_build_ms = float(Time.get_ticks_msec() - report_start_ms)
 	report["benchmark_report_build_ms"] = benchmark_report_build_ms
+	report["runtime_hitch_summary"] = {
+		"count": realtime_hitch_count,
+		"max_realtime_delta_ms": max_realtime_delta_ms
+	}
 	report["threshold_validation"] = _validate_benchmark_thresholds(report)
 	return report
 

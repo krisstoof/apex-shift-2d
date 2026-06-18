@@ -4660,7 +4660,7 @@ func _sync_visible_small_prey() -> void:
 	small_prey_spawn_sync_last_failed = failed_count
 	small_prey_spawn_sync_last_success = spawned
 	if not small_prey_failed_spawn_warning_printed:
-		push_warning("Failed to spawn %d out of %d SmallPrey. Rejections: %s. Retrying in %.1f seconds." % [
+		print_debug("Failed to spawn %d out of %d SmallPrey. Rejections: %s. Retrying in %.1f seconds." % [
 			failed_count,
 			requested_count,
 			str(creature_spawn_rejection_debug.get("small_prey", {})),
@@ -5396,7 +5396,7 @@ func _sync_visible_grazers() -> void:
 		if event_bus:
 			event_bus.post_message("%d Grazer%s entered the ecosystem" % [spawned, "" if spawned == 1 else "s"])
 	elif spawned < spawn_budget:
-		push_warning("Failed to spawn %d out of %d Grazers. Rejections: %s" % [
+		print_debug("Failed to spawn %d out of %d Grazers. Rejections: %s" % [
 			spawn_budget - spawned,
 			spawn_budget,
 			str(creature_spawn_rejection_debug.get("grazer", {}))
@@ -5796,7 +5796,7 @@ func _sync_visible_varnaks(force_spawn_check := false) -> void:
 	varnak_spawn_sync_last_failed = failed_count
 	varnak_spawn_sync_last_success = spawned
 	if not varnak_failed_spawn_warning_printed:
-		push_warning("Failed to spawn %d out of %d Varnaks. Retrying in %.1f seconds." % [
+		print_debug("Failed to spawn %d out of %d Varnaks. Retrying in %.1f seconds." % [
 			failed_count,
 			spawn_budget,
 			VARNAK_FAILED_SPAWN_RETRY_SECONDS

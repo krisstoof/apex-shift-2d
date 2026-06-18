@@ -116,6 +116,8 @@ var last_camera_idle_time_ms := 0
 var smoke_test_refine_build_count_at_idle := 0
 var smoke_test_idle_duration_ms := 0
 var smoke_test_warning_emitted := false
+var smoke_test_warning_cooldown_ms := 30000
+var last_smoke_test_warning_ms := 0
 var refine_idle_grace_period_ms := 5000
 var refine_idle_min_interval_ms := 2500
 var last_refine_idle_allow_ms := 0
@@ -296,12 +298,13 @@ func process_build_queue(delta: float = 0.0) -> void:
 		smoke_test_idle_duration_ms = int(Time.get_ticks_msec() - last_camera_idle_time_ms)
 		if smoke_test_idle_duration_ms >= 30000:  # 30 seconds
 			smoke_test_refine_build_count_at_idle = refined_build_count
-			if refined_build_count <= 1 and not smoke_test_warning_emitted:
+			if refined_build_count <= 1 and (not smoke_test_warning_emitted or Time.get_ticks_msec() - last_smoke_test_warning_ms >= smoke_test_warning_cooldown_ms):
 				smoke_test_warning_emitted = true
+				last_smoke_test_warning_ms = Time.get_ticks_msec()
 				push_warning("TERRAIN_SURFACE_SMOKE_TEST: Refined build count stuck at 1 after 30s idle. Check refine pipeline.")
-	else:
-		last_camera_idle_time_ms = 0
-		smoke_test_idle_duration_ms = 0
+		else:
+			last_camera_idle_time_ms = 0
+			smoke_test_idle_duration_ms = 0
 		smoke_test_warning_emitted = false
 	
 	# Remove invisible chunks from active builds
