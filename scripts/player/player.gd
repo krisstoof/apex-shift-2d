@@ -2,6 +2,7 @@ extends CharacterBody2D
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
 const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 

@@ -176,11 +176,11 @@ func _process(_delta: float) -> void:
 			map_screen_marker_cache_dirty = false
 		if _refresh_landmarks_from_world():
 			map_screen_cache_rebuild_count += 1
-	RUNTIME_PROFILER.end_scope("map_screen_total_ms")
 			map_screen_shoreline_cache_dirty = true
 			cache_changed = true
 		if cache_changed:
 			mark_map_cache_dirty()
+	RUNTIME_PROFILER.end_scope("map_screen_total_ms")
 	var current_player_position := _get_current_player_map_position()
 	var current_map_zoom := _get_current_map_zoom()
 	if _should_redraw_map(current_player_position, current_map_zoom):
