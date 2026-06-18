@@ -73,7 +73,7 @@ func _test_hash_sensitivity() -> Array[String]:
 	var seen_hashes: Dictionary = {}
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var h := WORLD_GENERATION_RESULT.compute_hash_from_layout(layout)
 		if seen_hashes.has(h):
 			failures.append(
@@ -94,7 +94,7 @@ func _test_no_water_spawns() -> Array[String]:
 	var validator := WORLD_GENERATION_VALIDATOR.new()
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var result := WORLD_GENERATION_RESULT.from_layout(layout)
 		var report := validator.validate(result, gen)
 		for error in Array(report.get("errors", [])):
@@ -344,7 +344,7 @@ func _test_world_generation_hash_stability() -> Array[String]:
 		var hashes: Array[String] = []
 		for i in range(3):
 			var gen = _make_generator()
-			var layout := gen.generate_world(test_seed)
+			var layout: Dictionary = gen.generate_world(test_seed)
 			var h := WORLD_GENERATION_RESULT.compute_hash_from_layout(layout)
 			hashes.append(h)
 		

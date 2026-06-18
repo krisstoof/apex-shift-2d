@@ -38,6 +38,7 @@ var biome_shape_visual_surface_build_blocked_ms := 0.0
 var biome_shape_visual_surface_last_build_reason := ""
 var _last_build_key := ""
 var _last_visual_surface_key := ""
+static var _build_cache: Dictionary = {}
 
 func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topography: RefCounted, assigned_seed: int, build_visual_surface_now := true) -> void:
 	var start_ms := Time.get_ticks_msec()
@@ -60,6 +61,17 @@ func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topogr
 	visual_surface_source = "none"
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.begin_scope("biome_shape_map_build_ms")
+	if _apply_cached_build(build_key, build_visual_surface_now):
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.end_scope("biome_shape_map_build_ms")
+		build_count += 1
+		last_build_ms = float(Time.get_ticks_msec() - start_ms)
+		last_polygon_count = _count_polygons()
+		last_detail_count = details.size()
+		last_key = build_key
+		_last_build_key = build_key
+		biome_shape_map_last_build_reason = "cache_hit"
+		return
 	_build_sample_grids(world_generator, world_topography)
 	_build_connected_region_polygons()
 	_build_polygon_records()
@@ -80,6 +92,7 @@ func build(assigned_world_rect: Rect2, world_generator: RefCounted, world_topogr
 	last_key = build_key
 	_last_build_key = build_key
 	biome_shape_map_last_build_reason = "initial_or_dirty_build"
+	_store_cache_entry(build_key)
 
 func get_polygons_by_layer() -> Dictionary:
 	return polygons_by_layer
@@ -402,6 +415,7 @@ func _build_visual_surface_grid_from_polygons() -> void:
 	biome_shape_visual_surface_last_build_reason = "built_from_polygons"
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.end_scope("biome_shape_visual_surface_build_ms")
+	_store_cache_entry(last_key)
 
 
 func build_visual_surface_if_needed() -> void:
@@ -409,6 +423,9 @@ func build_visual_surface_if_needed() -> void:
 	if visual_surface_build_count > 0 and visual_key == _last_visual_surface_key:
 		biome_shape_visual_surface_build_skipped_same_key_count += 1
 		biome_shape_visual_surface_last_build_reason = "same_key_skip"
+		return
+	if _apply_cached_visual_surface(visual_key):
+		biome_shape_visual_surface_last_build_reason = "cache_hit"
 		return
 	_build_visual_surface_grid_from_polygons()
 
@@ -833,3 +850,69 @@ func _get_largest_polygon_area_ratio_by_layer() -> Dictionary:
 			largest_ratio = maxf(largest_ratio, (bounds.size.x * bounds.size.y) / world_area)
 		result[layer_id] = largest_ratio
 	return result
+
+func _apply_cached_build(build_key: String, build_visual_surface_now: bool) -> bool:
+	if not _build_cache.has(build_key):
+		return false
+	var cached := Dictionary(_build_cache.get(build_key, {}))
+	world_rect = cached.get("world_rect", Rect2())
+	seed = int(cached.get("seed", 0))
+	sample_size = float(cached.get("sample_size", sample_size))
+	grid_size = cached.get("grid_size", Vector2i.ZERO)
+	biome_grid = Array(cached.get("biome_grid", [])).duplicate(true)
+	terrain_grid = Array(cached.get("terrain_grid", [])).duplicate(true)
+	polygons_by_layer = Dictionary(cached.get("polygons_by_layer", {})).duplicate(true)
+	details = Array(cached.get("details", [])).duplicate(true)
+	polygon_records = Array(cached.get("polygon_records", [])).duplicate(true)
+	visual_surface_sample_size = float(cached.get("visual_surface_sample_size", visual_surface_sample_size))
+	visual_surface_grid_size = cached.get("visual_surface_grid_size", Vector2i.ZERO)
+	if build_visual_surface_now:
+		visual_surface_grid = Array(cached.get("visual_surface_grid", [])).duplicate(true)
+		visual_surface_source = str(cached.get("visual_surface_source", "polygons_by_layer"))
+	else:
+		visual_surface_grid.clear()
+		visual_surface_grid_size = Vector2i.ZERO
+		visual_surface_source = "deferred"
+		biome_shape_visual_surface_last_build_reason = "deferred"
+	_last_visual_surface_key = str(cached.get("last_visual_surface_key", ""))
+	return true
+
+func _apply_cached_visual_surface(visual_key: String) -> bool:
+	if not _build_cache.has(last_key):
+		return false
+	var cached := Dictionary(_build_cache.get(last_key, {}))
+	if str(cached.get("last_visual_surface_key", "")) != visual_key:
+		return false
+	var cached_grid := Array(cached.get("visual_surface_grid", []))
+	if cached_grid.is_empty():
+		return false
+	visual_surface_grid = cached_grid.duplicate(true)
+	visual_surface_grid_size = cached.get("visual_surface_grid_size", Vector2i.ZERO)
+	visual_surface_sample_size = float(cached.get("visual_surface_sample_size", visual_surface_sample_size))
+	visual_surface_source = str(cached.get("visual_surface_source", "polygons_by_layer"))
+	_last_visual_surface_key = visual_key
+	visual_surface_build_count = max(visual_surface_build_count, int(cached.get("visual_surface_build_count", 0)))
+	visual_surface_last_build_ms = float(cached.get("visual_surface_last_build_ms", visual_surface_last_build_ms))
+	return true
+
+func _store_cache_entry(build_key: String) -> void:
+	if build_key.is_empty():
+		return
+	_build_cache[build_key] = {
+		"world_rect": world_rect,
+		"seed": seed,
+		"sample_size": sample_size,
+		"grid_size": grid_size,
+		"biome_grid": biome_grid.duplicate(true),
+		"terrain_grid": terrain_grid.duplicate(true),
+		"polygons_by_layer": polygons_by_layer.duplicate(true),
+		"details": details.duplicate(true),
+		"polygon_records": polygon_records.duplicate(true),
+		"visual_surface_grid": visual_surface_grid.duplicate(true),
+		"visual_surface_grid_size": visual_surface_grid_size,
+		"visual_surface_sample_size": visual_surface_sample_size,
+		"visual_surface_source": visual_surface_source,
+		"visual_surface_build_count": visual_surface_build_count,
+		"visual_surface_last_build_ms": visual_surface_last_build_ms,
+		"last_visual_surface_key": _last_visual_surface_key
+	}

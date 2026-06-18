@@ -246,7 +246,7 @@ func _capture_sample() -> Dictionary:
 	sample["elapsed_seconds"] = elapsed_seconds
 	sample["time_label"] = _format_time(elapsed_seconds)
 	sample["performance"] = _capture_performance_stats()
-	sample["world"] = _capture_world_stats()
+	sample["world"] = _capture_world_stats(deep_debug)
 	sample["minimap"] = _capture_minimap_stats()
 	sample["map_screen"] = _capture_map_screen_stats()
 	sample["player"] = _capture_player_stats()
@@ -309,7 +309,7 @@ func _capture_performance_stats() -> Dictionary:
 	return stats
 
 
-func _capture_world_stats() -> Dictionary:
+func _capture_world_stats(include_deep_details: bool = false) -> Dictionary:
 	var stats: Dictionary = {}
 	if not is_instance_valid(world):
 		return stats
@@ -317,22 +317,8 @@ func _capture_world_stats() -> Dictionary:
 	stats["world_rect"] = str(world.get_world_rect()) if world.has_method("get_world_rect") else str(WORLD_CONFIG.WORLD_RECT)
 	stats["creatures_out_of_bounds_count"] = int(world.get_creatures_out_of_bounds_count()) if world.has_method("get_creatures_out_of_bounds_count") else 0
 	stats["biome_count"] = world.get_biome_zones().size() if world.has_method("get_biome_zones") else 0
-	var landmarks: Array[Dictionary] = world.get_landmarks() if world.has_method("get_landmarks") else []
-	stats["landmark_count"] = landmarks.size()
-	stats["pond_count"] = _count_landmarks_by_type(landmarks, "pond")
-	stats["hill_count"] = _count_landmarks_by_type(landmarks, "hill")
+	stats["landmark_count"] = int(world.get_landmark_counts().get("generated", 0)) if world.has_method("get_landmark_counts") else 0
 	stats["boot"] = _capture_world_boot_stats()
-	stats["biome_texture_cache"] = _capture_world_biome_texture_cache_stats()
-	stats["small_prey_spawn_sync"] = _capture_world_small_prey_spawn_sync_stats()
-	stats["varnak_spawn_sync"] = _capture_world_varnak_spawn_sync_stats()
-	stats["creature_spawn_rejection_debug"] = _capture_world_creature_spawn_rejection_debug()
-	stats["spatial_index"] = _capture_world_spatial_index_stats()
-	stats["landmark_debug"] = _capture_world_landmark_debug_stats()
-	stats["registry"] = _capture_world_registry_stats()
-	stats["render_flags"] = _capture_world_render_flags()
-	stats["render_budget"] = _capture_world_render_budget()
-	stats["terrain_renderer"] = _capture_world_terrain_renderer_stats()
-	stats["visibility_culling"] = _capture_world_visibility_culling_stats()
 	stats["creature_counts"] = _capture_group_counts(["small_prey", "grazer", "varnak"])
 	stats["resource_counts"] = _capture_group_counts([
 		"trees",
@@ -351,9 +337,6 @@ func _capture_world_stats() -> Dictionary:
 		"edible_vegetation"
 	])
 	stats["vegetation"] = _capture_world_vegetation_stats()
-	stats["resource_render_mode"] = _capture_world_resource_render_mode_stats()
-	stats["creature_simulation"] = _capture_creature_simulation_stats()
-	stats["biome_query"] = _capture_world_biome_query_stats()
 	stats["total_creatures"] = _sum_group_counts(stats["creature_counts"])
 	stats["total_resources"] = _sum_group_counts(stats["resource_counts"])
 	stats["render_pressure"] = _capture_world_render_pressure(stats)
@@ -361,6 +344,23 @@ func _capture_world_stats() -> Dictionary:
 	stats["world_generation_total_ms"] = float(world_debug.get("world_generation_total_ms", 0.0))
 	stats["world_ready_ms"] = float(world_debug.get("world_ready_ms", 0.0))
 	stats["terrain_surface_initial_queue_size"] = int(world_debug.get("terrain_surface_initial_queue_size", 0))
+	if include_deep_details:
+		stats["pond_count"] = _count_landmarks_by_type(world.get_landmarks(), "pond") if world.has_method("get_landmarks") else 0
+		stats["hill_count"] = _count_landmarks_by_type(world.get_landmarks(), "hill") if world.has_method("get_landmarks") else 0
+		stats["biome_texture_cache"] = _capture_world_biome_texture_cache_stats()
+		stats["small_prey_spawn_sync"] = _capture_world_small_prey_spawn_sync_stats()
+		stats["varnak_spawn_sync"] = _capture_world_varnak_spawn_sync_stats()
+		stats["creature_spawn_rejection_debug"] = _capture_world_creature_spawn_rejection_debug()
+		stats["spatial_index"] = _capture_world_spatial_index_stats()
+		stats["landmark_debug"] = _capture_world_landmark_debug_stats()
+		stats["registry"] = _capture_world_registry_stats()
+		stats["render_flags"] = _capture_world_render_flags()
+		stats["render_budget"] = _capture_world_render_budget()
+		stats["terrain_renderer"] = _capture_world_terrain_renderer_stats()
+		stats["visibility_culling"] = _capture_world_visibility_culling_stats()
+		stats["resource_render_mode"] = _capture_world_resource_render_mode_stats()
+		stats["creature_simulation"] = _capture_creature_simulation_stats()
+		stats["biome_query"] = _capture_world_biome_query_stats()
 	return stats
 
 

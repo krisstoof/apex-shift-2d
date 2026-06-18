@@ -4258,46 +4258,16 @@ func _is_valid_drop_position(drop_position: Vector2, radius: float = 18.0, resou
 func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
 	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var biome := _pick_resource_biome(resource_kind)
-		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
-		if spawn_area.size.x <= 0.0 or spawn_area.size.y <= 0.0:
-			_count_resource_spawn_rejection(resource_kind, "invalid_biome_bounds")
-			continue
-		var candidate := Vector2(
-			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
-			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
-		)
-		if not _is_valid_resource_terrain(resource_kind, candidate):
-			_count_resource_spawn_rejection(resource_kind, "invalid_terrain")
-			continue
-		if is_resource_position_blocked_by_water(resource_kind, candidate):
-			_count_resource_spawn_rejection(resource_kind, "blocked_by_water")
-			if world_topography != null and world_topography.has_method("sample_topography_at"):
-				var topo_sample := Dictionary(world_topography.sample_topography_at(candidate))
-				if str(topo_sample.get("terrain_zone", "")) == "pond":
-					topography_resource_distribution_debug["resources_blocked_by_pond"] = int(topography_resource_distribution_debug.get("resources_blocked_by_pond", 0)) + 1
-			continue
-		if _is_resource_blocked_by_hill(resource_kind, candidate):
-			_count_resource_spawn_rejection(resource_kind, "blocked_by_hill")
-			continue
-		var allowance := _get_topography_resource_allowance(resource_kind, candidate)
-		if allowance <= 0.0:
-			_count_resource_spawn_rejection(resource_kind, "blocked_by_topography")
-			continue
-		if resource_rng.randf() > clampf(get_resource_density_at(candidate, resource_kind) * allowance, 0.0, 2.5) / 2.5:
-			_count_resource_spawn_rejection(resource_kind, "density_rejected")
-			continue
-		if allowance < 1.0 and _is_plant_resource_kind(resource_kind):
-			topography_resource_distribution_debug["plants_reduced_on_highland"] = int(topography_resource_distribution_debug.get("plants_reduced_on_highland", 0)) + 1
-		if get_biome_id_at(candidate) != _get_biome_id(biome):
-			_count_resource_spawn_rejection(resource_kind, "outside_biome")
-			continue
-		if _is_point_in_biome(candidate, biome) and _is_valid_resource_position(candidate, used_positions, player_position):
+		var candidate := _find_resource_spawn_candidate(resource_kind, biome)
+		if candidate != Vector2.INF and _is_valid_resource_position(candidate, used_positions, player_position):
 			used_positions.append(candidate)
 			if VegetationCatalog.is_decorative_kind(resource_kind):
 				_spawn_decorative_vegetation_visual(resource_kind, candidate, _get_biome_id_for_position(candidate), 1.0)
 				return true
 			_spawn_resource_at(resource_kind, candidate)
 			return true
+	if _try_spawn_resource_near_biome_edge(resource_kind, used_positions, player_position):
+		return true
 	return false
 
 
@@ -5079,31 +5049,8 @@ func _try_spawn_resource_in_biome(
 	spawn_attempts: int = WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS
 ) -> bool:
 	for _attempt in spawn_attempts:
-		var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
-		if spawn_area.size.x <= 0.0 or spawn_area.size.y <= 0.0:
-			_count_resource_spawn_rejection(resource_kind, "invalid_biome_bounds")
-			continue
-		var candidate := Vector2(
-			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
-			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
-		)
-		if not _is_valid_resource_terrain(resource_kind, candidate):
-			_count_resource_spawn_rejection(resource_kind, "invalid_terrain")
-			continue
-		if is_resource_position_blocked_by_water(resource_kind, candidate):
-			_count_resource_spawn_rejection(resource_kind, "blocked_by_water")
-			continue
-		if _is_resource_blocked_by_hill(resource_kind, candidate):
-			_count_resource_spawn_rejection(resource_kind, "blocked_by_hill")
-			continue
-		if resource_rng.randf() > clampf(get_resource_density_at(candidate, resource_kind), 0.0, 2.5) / 2.5:
-			_count_resource_spawn_rejection(resource_kind, "density_rejected")
-			continue
-		if get_biome_id_at(candidate) != _get_biome_id(biome):
-			_count_resource_spawn_rejection(resource_kind, "outside_biome")
-			continue
-		if not _is_point_in_biome(candidate, biome):
-			_count_resource_spawn_rejection(resource_kind, "outside_biome_shape")
+		var candidate := _find_resource_spawn_candidate(resource_kind, biome)
+		if candidate == Vector2.INF:
 			continue
 		if not _is_valid_resource_position_with_min_distance(candidate, used_positions, player_position, min_distance):
 			_count_resource_spawn_rejection(resource_kind, "too_close_to_existing_resource")
@@ -5116,6 +5063,83 @@ func _try_spawn_resource_in_biome(
 		_spawn_resource_at(resource_kind, candidate)
 		return true
 
+	return false
+
+
+func _find_resource_spawn_candidate(resource_kind: String, biome: Dictionary) -> Vector2:
+	var spawn_area := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+	if spawn_area.size.x <= 0.0 or spawn_area.size.y <= 0.0:
+		_count_resource_spawn_rejection(resource_kind, "invalid_biome_bounds")
+		return Vector2.INF
+	for _attempt in range(6):
+		var candidate := Vector2(
+			resource_rng.randf_range(spawn_area.position.x, spawn_area.end.x),
+			resource_rng.randf_range(spawn_area.position.y, spawn_area.end.y)
+		)
+		if not _is_valid_resource_terrain(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "invalid_terrain")
+			continue
+		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_water")
+			if world_topography != null and world_topography.has_method("sample_topography_at"):
+				var topo_sample := Dictionary(world_topography.sample_topography_at(candidate))
+				if str(topo_sample.get("terrain_zone", "")) == "pond":
+					topography_resource_distribution_debug["resources_blocked_by_pond"] = int(topography_resource_distribution_debug.get("resources_blocked_by_pond", 0)) + 1
+			continue
+		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_hill")
+			continue
+		var allowance := _get_topography_resource_allowance(resource_kind, candidate)
+		if allowance <= 0.0:
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_topography")
+			continue
+		if resource_rng.randf() > clampf(get_resource_density_at(candidate, resource_kind) * allowance, 0.0, 2.5) / 2.5:
+			_count_resource_spawn_rejection(resource_kind, "density_rejected")
+			continue
+		if allowance < 1.0 and _is_plant_resource_kind(resource_kind):
+			topography_resource_distribution_debug["plants_reduced_on_highland"] = int(topography_resource_distribution_debug.get("plants_reduced_on_highland", 0)) + 1
+		if get_biome_id_at(candidate) != _get_biome_id(biome):
+			_count_resource_spawn_rejection(resource_kind, "outside_biome")
+			continue
+		if not _is_point_in_biome(candidate, biome):
+			_count_resource_spawn_rejection(resource_kind, "outside_biome_shape")
+			continue
+		return candidate
+	return Vector2.INF
+
+
+func _try_spawn_resource_near_biome_edge(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
+	var biome := _pick_resource_biome(resource_kind)
+	if biome.is_empty():
+		return false
+	var bounds := _get_biome_bounds(biome)
+	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		return false
+	var expanded := bounds.grow(WORLD_CONFIG.RESOURCE_SPAWN_MARGIN * 0.75)
+	var center := expanded.get_center()
+	for ring in range(3):
+		var radius: float = minf(expanded.size.x, expanded.size.y) * (0.18 + float(ring) * 0.18)
+		for step in range(18):
+			var angle := float(step) * TAU / 18.0
+			var candidate := _clamp_position_to_world(center + Vector2(cos(angle), sin(angle)) * radius)
+			if not _is_valid_resource_terrain(resource_kind, candidate):
+				continue
+			if is_resource_position_blocked_by_water(resource_kind, candidate):
+				continue
+			if _is_resource_blocked_by_hill(resource_kind, candidate):
+				continue
+			if get_biome_id_at(candidate) != _get_biome_id(biome):
+				continue
+			if not _is_point_in_biome(candidate, biome):
+				continue
+			if not _is_valid_resource_position(candidate, used_positions, player_position):
+				continue
+			used_positions.append(candidate)
+			if VegetationCatalog.is_decorative_kind(resource_kind):
+				_spawn_decorative_vegetation_visual(resource_kind, candidate, _get_biome_id_for_position(candidate), 1.0)
+				return true
+			_spawn_resource_at(resource_kind, candidate)
+			return true
 	return false
 
 
