@@ -598,7 +598,7 @@ const RENDER_PERFORMANCE := {
 	"recover_fps_threshold": 55,
 	"fps_ema_alpha": 0.08,
 	"normal": {
-		"decorative_vegetation_max_drawn": 90,
+		"decorative_vegetation_max_drawn": 280,
 		"decorative_far_lod_every_nth": 2,
 		"minimap_redraw_interval": 0.50,
 		"minimap_marker_rebuild_interval": 1.0,
@@ -613,7 +613,7 @@ const RENDER_PERFORMANCE := {
 		"resource_far_update_interval": 0.25
 	},
 	"pressure": {
-		"decorative_vegetation_max_drawn": 45,
+		"decorative_vegetation_max_drawn": 160,
 		"decorative_far_lod_every_nth": 4,
 		"minimap_redraw_interval": 0.90,
 		"minimap_marker_rebuild_interval": 1.25,
@@ -653,6 +653,7 @@ const BIOME_TEXTURES_PRESETS := {
 		"use_terrain_surface_chunk_renderer": false,
 		"disable_global_biome_blend_texture": true,
 		"disable_global_surface_texture_on_boot": true,
+		"decorative_vegetation_max_drawn": 160,
 		"terrain_surface_chunk_texture_size": 64,
 		"terrain_surface_refined_texture_size": 96,
 		"terrain_surface_max_chunks_built_per_frame": 2,

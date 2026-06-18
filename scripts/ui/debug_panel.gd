@@ -1082,11 +1082,14 @@ func _get_decorative_vegetation_text() -> String:
 	var decorative_debug: Dictionary = world.get_decorative_vegetation_debug()
 	var visual_debug: Dictionary = Dictionary(decorative_debug.get("visual_layer", {}))
 	var count_by_kind: Dictionary = Dictionary(visual_debug.get("count_by_kind", {}))
-	return "visuals %d | grass_patch nodes %d | dense_grass nodes %d | edible nodes %d" % [
+	return "visuals %d | grass_patch nodes %d | dense_grass nodes %d | edible nodes %d | sort %.2f ms | draw %.2f ms | %s" % [
 		int(decorative_debug.get("visual_instance_count", 0)),
 		int(count_by_kind.get("grass_patch", 0)),
 		int(count_by_kind.get("dense_grass", 0)),
-		int(decorative_debug.get("edible_grass_node_spawn_count", 0))
+		int(decorative_debug.get("edible_grass_node_spawn_count", 0)),
+		float(visual_debug.get("candidate_sort_ms", 0.0)),
+		float(visual_debug.get("draw_ms", 0.0)),
+		str(visual_debug.get("redraw_reason", "unknown"))
 	]
 
 

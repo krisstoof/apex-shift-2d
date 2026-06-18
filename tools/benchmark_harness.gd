@@ -3,6 +3,7 @@ extends Node
 
 const MAIN_SCENE := preload("res://scenes/main.tscn")
 const BENCHMARK_RUNNER := preload("res://scripts/systems/benchmark_runner.gd")
+const SUMMARY_OUTPUT_PATH := "res://tmp/benchmark_summary.txt"
 
 var _main_scene: Node
 var _benchmark_runner: Node
@@ -90,8 +91,13 @@ func _on_benchmark_finished(log_path: String, json_path: String) -> void:
 func _write_summary(report: Dictionary, log_path: String, json_path: String) -> String:
 	var threshold_validation := Dictionary(report.get("threshold_validation", {}))
 	var runtime_hitch_summary := Dictionary(report.get("runtime_hitch_summary", {}))
-	var benchmark_dir := ProjectSettings.globalize_path("user://benchmark_logs")
-	var summary_path := "%s/%s.summary.txt" % [benchmark_dir, str(report.get("benchmark_name", "benchmark"))]
+	var summary_path := ProjectSettings.globalize_path(SUMMARY_OUTPUT_PATH)
+	var summary_dir := summary_path.get_base_dir()
+	if not DirAccess.dir_exists_absolute(summary_dir):
+		var dir_error := DirAccess.make_dir_recursive_absolute(summary_dir)
+		if dir_error != OK:
+			push_error("[BenchmarkHarness] Could not create summary directory: %s (error %d)" % [summary_dir, dir_error])
+			return ""
 	var summary_lines: Array[String] = []
 	summary_lines.append("benchmark_name=%s" % str(report.get("benchmark_name", "unknown")))
 	summary_lines.append("benchmark_preset=%s" % str(report.get("benchmark_preset", "unknown")))

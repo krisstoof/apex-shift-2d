@@ -3819,6 +3819,9 @@ func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vec
 
 
 func _spawn_decorative_vegetation_visuals_for_loaded_world() -> void:
+	var layer := _ensure_vegetation_visual_layer()
+	if layer.has_method("begin_bulk_add"):
+		layer.begin_bulk_add()
 	var used_positions: Array[Vector2] = []
 	var player_position := _get_player_position()
 	for kind in ["grass_patch", "dense_grass"]:
@@ -3849,6 +3852,8 @@ func _spawn_decorative_vegetation_visuals_for_loaded_world() -> void:
 			for i in vegetation_count:
 				var kind := str(pond_kinds[i % pond_kinds.size()])
 				_try_spawn_resource_near_pond(kind, pond, biome, used_positions, player_position, i, vegetation_count, angle_phase, true)
+	if layer.has_method("end_bulk_add_queue_redraw_once"):
+		layer.end_bulk_add_queue_redraw_once()
 
 
 func _try_spawn_resource_near_pond(resource_kind: String, pond: Dictionary, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, slot_index: int, slot_count: int, angle_phase: float, visual_only: bool = false) -> bool:
