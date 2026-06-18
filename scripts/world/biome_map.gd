@@ -59,17 +59,43 @@ func get_regions() -> Array[Dictionary]:
 
 func get_debug_data() -> Dictionary:
 	var counts: Dictionary = {}
+	var land_counts: Dictionary = {}
+	var moisture_raw_min := INF
+	var moisture_raw_max := -INF
+	var moisture_norm_min := INF
+	var moisture_norm_max := -INF
 	for row in biome_id_by_cell:
 		for biome_id in row:
 			counts[str(biome_id)] = int(counts.get(str(biome_id), 0)) + 1
+	for y in range(terrain_condition_map.grid_size.y):
+		for x in range(terrain_condition_map.grid_size.x):
+			var cell := Dictionary(terrain_condition_map.get_cell(x, y))
+			var moisture_raw := float(cell.get("moisture_raw", 0.0))
+			var moisture_norm := float(cell.get("moisture", 0.0))
+			moisture_raw_min = minf(moisture_raw_min, moisture_raw)
+			moisture_raw_max = maxf(moisture_raw_max, moisture_raw)
+			moisture_norm_min = minf(moisture_norm_min, moisture_norm)
+			moisture_norm_max = maxf(moisture_norm_max, moisture_norm)
+			var biome_id := str(Array(biome_id_by_cell[y])[x]) if y < biome_id_by_cell.size() and x < Array(biome_id_by_cell[y]).size() else ""
+			if not biome_id.is_empty() and biome_id not in ["deep_ocean", "shallow_water", "shore"]:
+				land_counts[biome_id] = int(land_counts.get(biome_id, 0)) + 1
+	var dominant_biome := _get_dominant_biome(land_counts if not land_counts.is_empty() else counts)
+	var dominant_count := int((land_counts if not land_counts.is_empty() else counts).get(dominant_biome, 0))
+	var total_count := 0
+	for key in (land_counts if not land_counts.is_empty() else counts).keys():
+		total_count += int((land_counts if not land_counts.is_empty() else counts).get(key, 0))
 	return {
 		"seed": seed,
 		"biome_count_by_type": counts,
+		"land_biome_count": land_counts,
 		"biome_region_count": biome_regions.size(),
 		"small_biome_region_count": _count_small_regions(),
 		"shoreline_cell_count": _count_shoreline_cells(),
 		"transition_zone_count": _count_transition_cells(),
-		"dominant_biome": _get_dominant_biome(counts),
+		"dominant_biome": dominant_biome,
+		"dominant_biome_ratio": float(dominant_count) / float(maxi(total_count, 1)),
+		"moisture_raw_range": Vector2(moisture_raw_min, moisture_raw_max),
+		"moisture_normalized_range": Vector2(moisture_norm_min, moisture_norm_max),
 	}
 
 

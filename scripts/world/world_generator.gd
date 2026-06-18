@@ -164,8 +164,12 @@ func get_moisture_at(position: Vector2) -> float:
 	return moisture_noise.get_noise_2d(position.x, position.y)
 
 
+func get_moisture01_at(position: Vector2) -> float:
+	return clampf(get_moisture_at(position) * 0.5 + 0.5, 0.0, 1.0)
+
+
 func get_vegetation_density_at(position: Vector2) -> float:
-	var moisture := get_moisture_at(position)
+	var moisture := get_moisture01_at(position)
 	var height := get_height_at(position)
 	var terrain_noise := vegetation_noise.get_noise_2d(position.x, position.y) * 0.5 + 0.5
 	var shelter := clampf(1.0 - absf(height - 0.22) * 1.55, 0.0, 1.0)
@@ -173,7 +177,7 @@ func get_vegetation_density_at(position: Vector2) -> float:
 
 
 func get_danger_at(position: Vector2) -> float:
-	var moisture := get_moisture_at(position) * 0.5 + 0.5
+	var moisture := get_moisture01_at(position)
 	var height := clampf(get_height_at(position), 0.0, 1.5) / 1.5
 	var ridge := ridge_noise.get_noise_2d(position.x, position.y) * 0.5 + 0.5
 	var detail := danger_detail_noise.get_noise_2d(position.x, position.y) * 0.5 + 0.5
@@ -202,7 +206,7 @@ func get_distance_to_shore_at(position: Vector2) -> float:
 func get_terrain_condition_at(position: Vector2) -> Dictionary:
 	return {
 		"height": get_height_at(position),
-		"moisture": get_moisture_at(position),
+		"moisture": get_moisture01_at(position),
 		"vegetation_density": get_vegetation_density_at(position),
 		"danger": get_danger_at(position),
 		"distance_to_shore": get_distance_to_shore_at(position)

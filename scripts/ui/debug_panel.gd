@@ -494,6 +494,24 @@ func _build_world_text() -> String:
 			int(generation_debug.get("resource_count", 0))
 		])
 		lines.append("Spawn validity: %s" % _format_spawn_validity_text(Dictionary(generation_debug.get("creature_spawn_validity", {}))))
+		var terrain_surface_debug := Dictionary(world_snapshot.get("terrain_surface_debug", {}))
+		if terrain_surface_debug.is_empty():
+			var world := _get_world_node()
+			if world and world.has_method("get_terrain_surface_debug"):
+				terrain_surface_debug = Dictionary(world.get_terrain_surface_debug())
+		if not terrain_surface_debug.is_empty():
+			lines.append("Terrain surface: shape_sampling=%s exact=%s world_fallback=%s" % [
+				"on" if bool(terrain_surface_debug.get("terrain_surface_use_shape_map_sampling", false)) else "off",
+				"on" if bool(terrain_surface_debug.get("terrain_surface_use_exact_shape_sampling", false)) else "off",
+				_format_sample_source_counts(Dictionary(terrain_surface_debug.get("terrain_surface_sample_source_counts", {})))
+			])
+			lines.append("Terrain refine: refined=%d started=%d completed=%d skipped_fps=%d skipped_camera=%d" % [
+				int(terrain_surface_debug.get("terrain_surface_refined_build_count", 0)),
+				int(terrain_surface_debug.get("terrain_surface_refine_jobs_started", 0)),
+				int(terrain_surface_debug.get("terrain_surface_refine_jobs_completed", 0)),
+				int(terrain_surface_debug.get("terrain_surface_refine_skipped_due_to_fps_count", 0)),
+				int(terrain_surface_debug.get("terrain_surface_refine_skipped_due_to_camera_movement_count", 0))
+			])
 	lines.append("Player position: %s" % _get_position_text(Vector2(Dictionary(snapshot.get("player", {})).get("position", player.global_position if player else Vector2.ZERO))))
 	lines.append("World bounds: %s" % str(WORLD_CONFIG.WORLD_RECT))
 	lines.append("creatures_out_of_bounds_count = %d" % int(world_snapshot.get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))
@@ -988,6 +1006,15 @@ func _format_spawn_validity_text(values: Dictionary) -> String:
 			int(report.get("total", 0))
 		])
 	return " | ".join(parts)
+
+
+func _format_sample_source_counts(values: Dictionary) -> String:
+	if values.is_empty():
+		return "none"
+	var parts: Array[String] = []
+	for key in values.keys():
+		parts.append("%s:%d" % [str(key), int(values[key])])
+	return ", ".join(parts)
 
 
 func _get_biome_texture_state_text() -> String:

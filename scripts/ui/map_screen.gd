@@ -388,6 +388,11 @@ func _draw_biomes(map_rect: Rect2) -> void:
 		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 			RUNTIME_PROFILER.end_scope("map_screen_biomes_draw_ms")
 		return
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)) and _has_renderable_biome_shape_map():
+		_draw_shape_map(map_rect)
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.end_scope("map_screen_biomes_draw_ms")
+		return
 	if biome_blend_texture:
 		draw_texture_rect(biome_blend_texture, map_rect, false)
 		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
@@ -400,6 +405,9 @@ func _draw_biomes(map_rect: Rect2) -> void:
 		return
 	if biome_shape_map != null and biome_shape_map.has_method("get_sample_grid_size") and bool(GAME_BALANCE.BIOME_TEXTURES.get("map_screen_draw_sample_grid_underlay", false)):
 		_draw_shape_map_sample_grid(map_rect)
+		return
+	if biome_shape_map != null:
+		_draw_shape_map(map_rect)
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.end_scope("map_screen_biomes_draw_ms")
 
@@ -811,6 +819,10 @@ func _get_world_surface_color_at(world_position: Vector2) -> Color:
 	return Color.MAGENTA
 
 
+func _has_renderable_biome_shape_map() -> bool:
+	return biome_shape_map != null and biome_shape_map.has_method("has_renderable_polygons") and biome_shape_map.has_renderable_polygons()
+
+
 func _get_biome_zone_points(zone: Dictionary) -> PackedVector2Array:
 	if zone.has("points"):
 		return PackedVector2Array(zone.get("points", []))
@@ -867,7 +879,10 @@ func _get_shoreline_cache_key() -> String:
 	var topography_key := ""
 	if active_world != null and active_world.has_method("get_topography_debug_summary"):
 		topography_key = str(Dictionary(active_world.get_topography_debug_summary()).get("topography_feature_counts", {}))
-	return "%s|landmarks=%s|topography=%s" % [_get_biome_texture_key(), _build_landmarks_signature(), topography_key]
+	var shape_key := ""
+	if active_world != null and active_world.has_method("get_biome_shape_debug"):
+		shape_key = str(Dictionary(active_world.get_biome_shape_debug()).get("biome_shape_map_key", ""))
+	return "%s|landmarks=%s|topography=%s|shape=%s" % [_get_biome_texture_key(), _build_landmarks_signature(), topography_key, shape_key]
 
 
 func _get_biome_base_color(biome: Dictionary) -> Color:
@@ -934,11 +949,6 @@ func _draw_shape_map(map_rect: Rect2) -> void:
 			var mapped := PackedVector2Array()
 			var clipped := _clip_polygon_to_rect(points, world_rect)
 			if clipped.size() < 3:
-				continue
-			var bounds := _get_polygon_bounds(clipped)
-			var world_area := maxf(world_rect.size.x * world_rect.size.y, 1.0)
-			var bounds_area := bounds.size.x * bounds.size.y
-			if str(polygon.get("terrain_id", "land")) not in ["deep_ocean", "shallow_water"] and bounds_area / world_area > 0.85:
 				continue
 			for p in clipped:
 				mapped.append(_world_to_map(p, map_rect))
@@ -1517,10 +1527,8 @@ func _build_shoreline_segments(active_world: Node) -> Array[Dictionary]:
 	var segments: Array[Dictionary] = []
 	if active_world == null:
 		return segments
-	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)):
-		return segments
 	var source_ponds: Array[Dictionary] = []
-	if active_world.has_method("get"):
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("draw_pond_hill_landmarks", false)) and active_world.has_method("get"):
 		source_ponds = _to_dictionary_array(Array(active_world.get("pond_landmarks")))
 	if source_ponds.is_empty() and active_world.has_method("get_pond_landmarks"):
 		source_ponds = _to_dictionary_array(Array(active_world.get_pond_landmarks()))
@@ -1545,6 +1553,23 @@ func _build_shoreline_segments(active_world: Node) -> Array[Dictionary]:
 					"to": point
 				})
 			last_point = point
+	if active_world.has_method("get_biome_shape_map"):
+		var shape_map: Object = active_world.get_biome_shape_map()
+		if shape_map != null and shape_map.has_method("get_polygons_by_layer"):
+			var polygons_by_layer: Dictionary = shape_map.get_polygons_by_layer()
+			for layer_id in polygons_by_layer.keys():
+				for polygon_value in Array(polygons_by_layer.get(layer_id, [])):
+					var polygon := Dictionary(polygon_value)
+					var terrain_id := str(polygon.get("terrain_id", "land"))
+					if terrain_id not in ["shore", "land", "highland"]:
+						continue
+					var points := PackedVector2Array(polygon.get("points", PackedVector2Array()))
+					if points.size() < 3:
+						continue
+					var previous := points[points.size() - 1]
+					for point in points:
+						segments.append({"from": previous, "to": point})
+						previous = point
 	return segments
 
 

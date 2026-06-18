@@ -115,6 +115,10 @@ var refine_pending_count_debug := 0
 var last_camera_idle_time_ms := 0
 var smoke_test_refine_build_count_at_idle := 0
 var smoke_test_idle_duration_ms := 0
+var smoke_test_warning_emitted := false
+var refine_idle_grace_period_ms := 5000
+var refine_idle_min_interval_ms := 2500
+var last_refine_idle_allow_ms := 0
 
 func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 	var previous_world := world
@@ -202,6 +206,8 @@ func mark_dirty(reason := "unknown") -> void:
 	refine_jobs_stale = 0
 	smoke_test_refine_build_count_at_idle = 0
 	smoke_test_idle_duration_ms = 0
+	smoke_test_warning_emitted = false
+	last_refine_idle_allow_ms = 0
 	chunk_states.clear()
 	queue_redraw()
 
@@ -233,6 +239,8 @@ func clear_runtime_state(reason := "cleanup") -> void:
 	refine_jobs_completed = 0
 	refine_jobs_cancelled = 0
 	refine_jobs_stale = 0
+	smoke_test_warning_emitted = false
+	last_refine_idle_allow_ms = 0
 	queue_redraw()
 
 
@@ -285,11 +293,13 @@ func process_build_queue(delta: float = 0.0) -> void:
 		smoke_test_idle_duration_ms = int(Time.get_ticks_msec() - last_camera_idle_time_ms)
 		if smoke_test_idle_duration_ms >= 30000:  # 30 seconds
 			smoke_test_refine_build_count_at_idle = refined_build_count
-			if refined_build_count <= 1:
+			if refined_build_count <= 1 and not smoke_test_warning_emitted:
+				smoke_test_warning_emitted = true
 				push_warning("TERRAIN_SURFACE_SMOKE_TEST: Refined build count stuck at 1 after 30s idle. Check refine pipeline.")
 	else:
 		last_camera_idle_time_ms = 0
 		smoke_test_idle_duration_ms = 0
+		smoke_test_warning_emitted = false
 	
 	# Remove invisible chunks from active builds
 	var chunks_to_remove: Array = []
@@ -711,10 +721,17 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 
 
 func _can_process_refine() -> bool:
-	if preview_only_during_fast_movement and refine_pause_when_camera_moving and _is_camera_moving_fast():
+	var camera_moving_fast := _is_camera_moving_fast()
+	if preview_only_during_fast_movement and refine_pause_when_camera_moving and camera_moving_fast:
 		terrain_surface_refine_skipped_due_to_camera_movement_count += 1
 		return false
-	if refine_pause_when_fps_below > 0 and Engine.get_frames_per_second() > 0 and Engine.get_frames_per_second() < refine_pause_when_fps_below:
+	var fps := Engine.get_frames_per_second()
+	if refine_pause_when_fps_below > 0 and fps > 0 and fps < refine_pause_when_fps_below:
+		if smoke_test_idle_duration_ms >= refine_idle_grace_period_ms:
+			var now_ms := Time.get_ticks_msec()
+			if last_refine_idle_allow_ms == 0 or now_ms - last_refine_idle_allow_ms >= refine_idle_min_interval_ms:
+				last_refine_idle_allow_ms = now_ms
+				return true
 		terrain_surface_refine_skipped_due_to_fps_count += 1
 		return false
 	if max_refined_chunks_per_second <= 0:
