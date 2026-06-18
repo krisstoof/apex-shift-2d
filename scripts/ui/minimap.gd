@@ -966,6 +966,8 @@ func _get_player_biome_id() -> String:
 	var active_world := _get_world()
 	if active_world == null:
 		return ""
+	if active_world.has_method("get_display_biome_name_at"):
+		return str(active_world.get_display_biome_name_at(player.global_position))
 	if active_world.has_method("get_visual_biome_id_at"):
 		return str(active_world.get_visual_biome_id_at(player.global_position))
 	if active_world.has_method("get_biome_id_at"):

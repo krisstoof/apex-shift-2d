@@ -233,9 +233,17 @@ func get_biome_id_at(position: Vector2) -> String:
 func get_visual_biome_id_at(position: Vector2) -> String:
 	if get_base_terrain_zone(position) in ["deep_ocean", "shallow_water", "shore"]:
 		return get_biome_id_at(position)
-	if biome_map != null and biome_map.has_method("get_visual_biome_id_at_world_position"):
-		return str(biome_map.get_visual_biome_id_at_world_position(position))
-	return _get_dominant_visual_biome_id(get_visual_biome_influence_scores(position))
+	var scores := get_visual_biome_influence_scores(position)
+	if scores.is_empty():
+		return get_biome_id_at(position)
+	var best_id := ""
+	var best_score := -INF
+	for biome_id in scores.keys():
+		var score := float(scores[biome_id])
+		if score > best_score:
+			best_score = score
+			best_id = str(biome_id)
+	return best_id if not best_id.is_empty() else get_biome_id_at(position)
 
 
 func get_visual_biome_scores_at(position: Vector2) -> Dictionary:

@@ -993,8 +993,14 @@ func get_visual_biome_id_at(position: Vector2) -> String:
 		return get_biome_id_at(position)
 	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("visual_biome_shapes_enabled", true)):
 		return get_biome_id_at(position)
+	if world_generator != null and world_generator.has_method("get_visual_biome_influence_scores"):
+		var scores := Dictionary(world_generator.get_visual_biome_influence_scores(position))
+		if not scores.is_empty() and world_generator.has_method("get_dominant_visual_biome_id"):
+			return str(world_generator.get_dominant_visual_biome_id(scores))
 	if world_generator != null and world_generator.has_method("get_visual_biome_id_at"):
-		return str(world_generator.get_visual_biome_id_at(position))
+		var generator_visual := str(world_generator.get_visual_biome_id_at(position))
+		if not generator_visual.is_empty():
+			return generator_visual
 	if world_generator and world_generator.has_method("get_biome_id_at"):
 		return str(world_generator.get_biome_id_at(position))
 	return get_biome_id_at(position)
@@ -1346,13 +1352,19 @@ func _get_biome_display_name(biome_id: String) -> String:
 
 
 func get_biome_lookup_debug(position: Vector2) -> Dictionary:
+	var gameplay_biome_id := get_biome_id_at(position)
+	var visual_biome_id := get_visual_biome_id_at(position)
 	return {
 		"position": position,
 		"world_rect_has_point": WORLD_CONFIG.WORLD_RECT.has_point(position),
-		"biome_id": get_biome_id_at(position),
+		"biome_id": gameplay_biome_id,
+		"gameplay_biome_id": gameplay_biome_id,
 		"generator_biome_id": str(world_generator.get_biome_id_at(position)) if world_generator != null and world_generator.has_method("get_biome_id_at") else "",
 		"query_service_biome_id": str(biome_query_service.get_biome_id_for_position(position)) if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position") else "",
-		"visual_biome_id": get_visual_biome_id_at(position),
+		"visual_biome_id": visual_biome_id,
+		"surface_color_biome_id": visual_biome_id,
+		"biome_map_biome_id": str(world_generator.get_biome_id_at(position)) if world_generator != null and world_generator.has_method("get_biome_id_at") else "",
+		"ownership_biome_id": str(world_generator.get_biome_id_at(position)) if world_generator != null and world_generator.has_method("get_biome_id_at") else "",
 		"terrain_zone": get_base_terrain_zone_at(position),
 		"topography_zone": get_topography_zone_at(position),
 		"surface_terrain": get_surface_terrain_zone_at(position)

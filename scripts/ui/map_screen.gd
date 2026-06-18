@@ -260,7 +260,13 @@ func _build_info_lines() -> Array[String]:
 		biome_lookup_debug = Dictionary(active_world.get_biome_lookup_debug(player.global_position))
 		if active_world.has_method("get_topography_zone_at"):
 			topography_zone = str(active_world.get_topography_zone_at(player.global_position))
-		var world_biome_name := str(active_world.get_biome_name_at(player.global_position)) if active_world.has_method("get_biome_name_at") else ""
+		var world_biome_name := ""
+		if active_world.has_method("get_display_biome_name_at"):
+			world_biome_name = str(active_world.get_display_biome_name_at(player.global_position))
+		elif active_world.has_method("get_visual_biome_name_at"):
+			world_biome_name = str(active_world.get_visual_biome_name_at(player.global_position))
+		elif active_world.has_method("get_biome_name_at"):
+			world_biome_name = str(active_world.get_biome_name_at(player.global_position))
 		if not world_biome_name.is_empty():
 			zone_name = world_biome_name
 		elif bool(biome_lookup_debug.get("world_rect_has_point", false)) == true:
