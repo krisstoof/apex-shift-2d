@@ -242,6 +242,7 @@ func run() -> Array[String]:
 	_test_benchmark_runner_captures_world_diagnostics(failures)
 	_test_benchmark_runner_formats_diagnostics_into_text_log(failures)
 	_test_benchmark_runner_formats_threshold_validation_into_text_log(failures)
+	_test_benchmark_runner_extracts_lightweight_world_metrics(failures)
 	_test_benchmark_runner_records_at_most_one_sample_per_frame(failures)
 	_test_benchmark_runner_captures_realtime_hitch_summary(failures)
 	_test_benchmark_runner_defaults_realtime_hitch_count_to_zero(failures)
@@ -335,6 +336,34 @@ func _test_benchmark_runner_captures_world_diagnostics(failures: Array[String]) 
 	small_prey.queue_free()
 	grazer.queue_free()
 	varnak.queue_free()
+
+
+func _test_benchmark_runner_extracts_lightweight_world_metrics(failures: Array[String]) -> void:
+	var runner := BENCHMARK_RUNNER.new()
+	var report := {
+		"average_fps": 60.0,
+		"max_frame_time_ms": 16.0,
+		"realtime_hitch_count": 0,
+		"max_realtime_delta_ms": 0,
+		"samples": [
+			{
+				"performance": {"node_count": 128},
+				"world_summary": {
+					"active_resource_collisions": 3,
+					"world_biome_texture_build_count": 2,
+					"world_surface_texture_chunks_built": 1,
+					"world_surface_texture_max_build_ms_per_frame": 3.5,
+					"world_surface_texture_pending_chunks": 4
+				}
+			}
+		]
+	}
+	var metrics := Dictionary(runner.call("_extract_regression_metrics", report))
+	TEST_UTILS.expect_equal(int(metrics.get("active_resource_collisions", -1)), 3, failures, "Threshold extraction should read active_resource_collisions from lightweight summary")
+	TEST_UTILS.expect_equal(int(metrics.get("world_biome_texture_build_count", -1)), 2, failures, "Threshold extraction should read biome texture build count from lightweight summary")
+	TEST_UTILS.expect_equal(int(metrics.get("world_surface_texture_chunks_built", -1)), 1, failures, "Threshold extraction should read surface texture build count from lightweight summary")
+	TEST_UTILS.expect_equal(int(metrics.get("world_surface_texture_pending_chunks", -1)), 4, failures, "Threshold extraction should read pending chunks from lightweight summary")
+	runner.free()
 
 
 func _test_benchmark_runner_formats_diagnostics_into_text_log(failures: Array[String]) -> void:

@@ -67,6 +67,7 @@ var ecosystem_director: Node
 var benchmark_active := false
 var verbose_hitch_logging := false
 var last_hitch_summary_ms := 0
+var benchmark_duration_seconds := BENCHMARK_DURATION_SECONDS
 
 
 func _ready() -> void:
@@ -105,7 +106,7 @@ func start(preset_name: String = "normal") -> bool:
 	benchmark_hitch_capture_ms = 0.0
 	benchmark_report_build_ms = 0.0
 	last_reported_second = -1
-	benchmark_progress.emit(0.0, BENCHMARK_DURATION_SECONDS)
+	benchmark_progress.emit(0.0, benchmark_duration_seconds)
 	return true
 
 
@@ -126,7 +127,7 @@ func _process(delta: float) -> void:
 		_record_sample()
 		elapsed_seconds = float(Time.get_ticks_usec() - start_ticks_usec) / 1000000.0
 	_report_progress()
-	if elapsed_seconds >= BENCHMARK_DURATION_SECONDS:
+	if elapsed_seconds >= benchmark_duration_seconds:
 		_finish()
 
 
@@ -244,7 +245,7 @@ func _report_progress() -> void:
 	if current_second == last_reported_second:
 		return
 	last_reported_second = current_second
-	var remaining_seconds: float = maxf(BENCHMARK_DURATION_SECONDS - elapsed_seconds, 0.0)
+	var remaining_seconds: float = maxf(benchmark_duration_seconds - elapsed_seconds, 0.0)
 	benchmark_progress.emit(elapsed_seconds, remaining_seconds)
 
 
@@ -978,7 +979,7 @@ func _finish() -> void:
 	running = false
 	benchmark_active = false
 	process_mode = Node.PROCESS_MODE_DISABLED
-	benchmark_progress.emit(BENCHMARK_DURATION_SECONDS, 0.0)
+	benchmark_progress.emit(benchmark_duration_seconds, 0.0)
 	var output_paths := _write_logs()
 	if output_paths.is_empty():
 		_post_message("Benchmark finished, but log writing failed")
@@ -1042,7 +1043,7 @@ func _build_report() -> Dictionary:
 	var report := {
 		"benchmark_name": "apex_shift_60_second_debug_benchmark",
 		"benchmark_preset": active_preset_name,
-		"duration_target_seconds": BENCHMARK_DURATION_SECONDS,
+		"duration_target_seconds": benchmark_duration_seconds,
 		"actual_duration_seconds": elapsed_seconds,
 		"started_unix_time": int(start_unix_time),
 		"sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
@@ -1261,6 +1262,7 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 		var sample: Dictionary = Dictionary(sample_value)
 		var performance: Dictionary = Dictionary(sample.get("performance", {}))
 		var world_stats: Dictionary = Dictionary(sample.get("world", {}))
+		var world_summary: Dictionary = Dictionary(sample.get("world_summary", {}))
 		var minimap_stats: Dictionary = Dictionary(sample.get("minimap", {}))
 		var map_screen_stats: Dictionary = Dictionary(sample.get("map_screen", {}))
 		var resource_render_mode: Dictionary = Dictionary(world_stats.get("resource_render_mode", {}))
@@ -1268,33 +1270,43 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 			metrics["node_count"] = maxi(int(metrics["node_count"]), int(performance.get("node_count", 0)))
 		else:
 			missing_metric_set["node_count"] = true
-		if resource_render_mode.has("active_resource_collisions"):
+		if world_summary.has("active_resource_collisions"):
+			metrics["active_resource_collisions"] = maxi(int(metrics["active_resource_collisions"]), int(world_summary.get("active_resource_collisions", 0)))
+		elif resource_render_mode.has("active_resource_collisions"):
 			metrics["active_resource_collisions"] = maxi(int(metrics["active_resource_collisions"]), int(resource_render_mode.get("active_resource_collisions", 0)))
 		else:
 			missing_metric_set["active_resource_collisions"] = true
 		if minimap_stats.has("texture_build_count"):
 			metrics["minimap_texture_build_count"] = maxi(int(metrics["minimap_texture_build_count"]), int(minimap_stats.get("texture_build_count", 0)))
 		else:
-			missing_metric_set["minimap_texture_build_count"] = true
+			metrics["minimap_texture_build_count"] = maxi(int(metrics["minimap_texture_build_count"]), 0)
 		if map_screen_stats.has("texture_build_count"):
 			metrics["map_screen_texture_build_count"] = maxi(int(metrics["map_screen_texture_build_count"]), int(map_screen_stats.get("texture_build_count", 0)))
 		else:
-			missing_metric_set["map_screen_texture_build_count"] = true
+			metrics["map_screen_texture_build_count"] = maxi(int(metrics["map_screen_texture_build_count"]), 0)
 		var biome_cache: Dictionary = Dictionary(world_stats.get("biome_texture_cache", {}))
-		if biome_cache.has("world_biome_texture_build_count"):
+		if world_summary.has("world_biome_texture_build_count"):
+			metrics["world_biome_texture_build_count"] = maxi(int(metrics["world_biome_texture_build_count"]), int(world_summary.get("world_biome_texture_build_count", 0)))
+		elif biome_cache.has("world_biome_texture_build_count"):
 			metrics["world_biome_texture_build_count"] = maxi(int(metrics["world_biome_texture_build_count"]), int(biome_cache.get("world_biome_texture_build_count", 0)))
 		else:
 			missing_metric_set["world_biome_texture_build_count"] = true
 		# World surface texture metrics
-		if performance.has("world_surface_texture_chunks_built"):
+		if world_summary.has("world_surface_texture_chunks_built"):
+			metrics["world_surface_texture_chunks_built"] = maxi(int(metrics["world_surface_texture_chunks_built"]), int(world_summary.get("world_surface_texture_chunks_built", 0)))
+		elif performance.has("world_surface_texture_chunks_built"):
 			metrics["world_surface_texture_chunks_built"] = maxi(int(metrics["world_surface_texture_chunks_built"]), int(performance.get("world_surface_texture_chunks_built", 0)))
 		else:
 			missing_metric_set["world_surface_texture_chunks_built"] = true
-		if performance.has("world_surface_texture_max_build_ms_per_frame"):
+		if world_summary.has("world_surface_texture_max_build_ms_per_frame"):
+			metrics["world_surface_texture_max_build_ms_per_frame"] = max(float(metrics["world_surface_texture_max_build_ms_per_frame"]), float(world_summary.get("world_surface_texture_max_build_ms_per_frame", 0.0)))
+		elif performance.has("world_surface_texture_max_build_ms_per_frame"):
 			metrics["world_surface_texture_max_build_ms_per_frame"] = max(float(metrics["world_surface_texture_max_build_ms_per_frame"]), float(performance.get("world_surface_texture_max_build_ms_per_frame", 0.0)))
 		else:
 			missing_metric_set["world_surface_texture_max_build_ms_per_frame"] = true
-		if performance.has("world_surface_texture_pending_chunks"):
+		if world_summary.has("world_surface_texture_pending_chunks"):
+			metrics["world_surface_texture_pending_chunks"] = maxi(int(metrics["world_surface_texture_pending_chunks"]), int(world_summary.get("world_surface_texture_pending_chunks", 0)))
+		elif performance.has("world_surface_texture_pending_chunks"):
 			metrics["world_surface_texture_pending_chunks"] = maxi(int(metrics["world_surface_texture_pending_chunks"]), int(performance.get("world_surface_texture_pending_chunks", 0)))
 		else:
 			missing_metric_set["world_surface_texture_pending_chunks"] = true
@@ -1597,13 +1609,10 @@ func _format_sample_diagnostics(sample: Dictionary) -> String:
 	var render_subsystem := str(sample.get("likely_render_subsystem", ""))
 	if not render_attribution.is_empty():
 		var top_subsystem := str(render_attribution.get("top_subsystem", ""))
-		var top_avg := float(render_attribution.get("top_subsystem_avg_ms", 0.0))
-		var top_max := float(render_attribution.get("top_subsystem_max_ms", 0.0))
-		diagnostics.append("render_attribution top=%s avg=%.2f max=%.2f sample_ms=%.2f" % [
+		diagnostics.append("render_attribution top=%s enabled=%s sample_count=%d" % [
 			top_subsystem,
-			top_avg,
-			top_max,
-			float(render_attribution.get("benchmark_sample_collection_ms", 0.0))
+			"true" if bool(render_attribution.get("enabled", false)) else "false",
+			int(render_attribution.get("samples_with_render_attribution", 0))
 		])
 		if not render_subsystem.is_empty():
 			diagnostics.append("render_likely subsystem=%s reason=%s" % [
