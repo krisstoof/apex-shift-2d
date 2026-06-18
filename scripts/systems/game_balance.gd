@@ -721,7 +721,9 @@ const DEBUG_PLAYER_HUNGER_ENERGY_AMOUNT := 25.0
 
 static func get_biome_textures_with_preset(preset_name: String = "normal") -> Dictionary:
 	"""Apply a BIOME_TEXTURES preset by name, returning merged BIOME_TEXTURES dict."""
-	var result := Dictionary(BIOME_TEXTURES)
+	var result: Dictionary = {}
+	for key in BIOME_TEXTURES.keys():
+		result[key] = BIOME_TEXTURES[key]
 	if not BIOME_TEXTURES_PRESETS.has(preset_name):
 		push_warning("Unknown biome_textures preset: %s, using normal" % preset_name)
 		preset_name = "normal"

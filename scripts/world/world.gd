@@ -267,6 +267,8 @@ var render_performance_governor
 var decorative_vegetation_visibility_timer := 0.0
 var is_restoring_save: bool = false
 var island_world_validation_last_report: Dictionary = {}
+var world_debug_overlay_mode := "off"
+var world_debug_overlay_biome_map: BiomeMap
 var topography_resource_distribution_debug: Dictionary = {
 	"pond_edge_greenery_spawned": 0,
 	"pond_aquatic_vegetation_spawned": 0,
@@ -743,6 +745,7 @@ func get_world_layout() -> Dictionary:
 func get_world_generation_debug() -> Dictionary:
 	var debug := Dictionary(world_layout.get("debug", {})).duplicate(true)
 	var landmark_counts := get_landmark_counts()
+	var biome_map: BiomeMap = get_biome_map()
 	debug["world_generation_version"] = int(world_layout.get("version", 0))
 	debug["generator_rules_version"] = str(world_layout.get("generator_rules_version", "v1"))
 	debug["topography_rules_version"] = str(WORLD_TOPOGRAPHY.TOPOGRAPHY_RULES_VERSION)
@@ -757,6 +760,18 @@ func get_world_generation_debug() -> Dictionary:
 	debug["world_generation_total_ms"] = world_generation_total_ms
 	debug["world_ready_ms"] = world_ready_ms
 	debug["terrain_surface_initial_queue_size"] = terrain_surface_initial_queue_size
+	debug["world_seed"] = world_seed
+	debug["island_size"] = float(world_layout.get("island_size", WORLD_CONFIG.WORLD_RECT.size.x))
+	debug["land_distribution"] = get_world_land_distribution_debug()
+	debug["biome_distribution"] = get_biome_distribution_debug()
+	debug["shoreline_cell_count"] = get_world_shoreline_cell_count()
+	debug["transition_zone_count"] = get_world_transition_zone_count()
+	debug["landmark_count"] = int(landmark_counts.get("generated", 0))
+	debug["resource_count"] = get_world_resource_count()
+	debug["creature_spawn_validity"] = get_creature_spawn_validity_debug()
+	debug["biome_overlay_mode"] = world_debug_overlay_mode
+	if is_instance_valid(biome_map) and biome_map.has_method("get_debug_data"):
+		debug["biome_map_debug"] = Dictionary(biome_map.get_debug_data())
 	return debug
 
 
@@ -778,6 +793,7 @@ func _set_world_generator_seed(seed: int) -> void:
 	world_layout = Dictionary(world_generator.generate_world(seed if seed != 0 else world_seed)).duplicate(true)
 	world_seed = int(world_layout.get("seed", seed))
 	procedural_world_restore_mode = "full_layout"
+	_refresh_world_debug_overlay_biome_map()
 	_setup_topography()
 	biome_shape_map_dirty = true
 	biome_shape_renderer_bound = false
@@ -795,6 +811,7 @@ func _apply_world_layout(layout: Dictionary) -> void:
 	if world_generator == null:
 		world_generator = load(WORLD_GENERATOR_PATH).new()
 	world_generator.generate_world(world_seed if world_seed != 0 else int(world_layout.get("seed", 1)))
+	_refresh_world_debug_overlay_biome_map()
 	_setup_topography()
 	biome_shape_map_dirty = true
 	biome_shape_renderer_bound = false
@@ -1623,6 +1640,74 @@ func get_pool_debug_text() -> String:
 	if not is_instance_valid(pool_manager):
 		return "pool unavailable"
 	return pool_manager.get_debug_text()
+
+
+func get_world_land_distribution_debug() -> Dictionary:
+	var result := {
+		"land": 0,
+		"water": 0
+	}
+	var biome_map: BiomeMap = get_biome_map()
+	if is_instance_valid(biome_map) and biome_map.has_method("get_debug_data"):
+		var biome_debug := Dictionary(biome_map.get_debug_data())
+		result["biomes"] = Dictionary(biome_debug.get("biome_count_by_type", {}))
+	return result
+
+
+func get_biome_distribution_debug() -> Dictionary:
+	var biome_map: BiomeMap = get_biome_map()
+	if is_instance_valid(biome_map) and biome_map.has_method("get_debug_data"):
+		return Dictionary(Dictionary(biome_map.get_debug_data()).get("biome_count_by_type", {}))
+	return {}
+
+
+func get_world_shoreline_cell_count() -> int:
+	var biome_map: BiomeMap = get_biome_map()
+	if is_instance_valid(biome_map) and biome_map.has_method("get_debug_data"):
+		var debug := Dictionary(biome_map.get_debug_data())
+		return int(debug.get("shoreline_cell_count", 0))
+	return 0
+
+
+func get_world_transition_zone_count() -> int:
+	var biome_map: BiomeMap = get_biome_map()
+	if is_instance_valid(biome_map) and biome_map.has_method("get_debug_data"):
+		var debug := Dictionary(biome_map.get_debug_data())
+		return int(debug.get("small_biome_region_count", 0))
+	return 0
+
+
+func get_world_resource_count() -> int:
+	return get_cached_group_nodes("resources").size()
+
+
+func get_creature_spawn_validity_debug() -> Dictionary:
+	return {
+		"small_prey": get_spawn_validation_summary("small_prey"),
+		"grazer": get_spawn_validation_summary("grazer"),
+		"varnak": get_spawn_validation_summary("varnak")
+	}
+
+
+func get_spawn_validation_summary(creature_type: String) -> Dictionary:
+	var total := 0
+	var valid := 0
+	var invalid := 0
+	for creature in get_registered_creatures_by_type(creature_type):
+		if not is_instance_valid(creature):
+			continue
+		total += 1
+		if creature.has_method("is_spawn_valid") and creature.is_spawn_valid():
+			valid += 1
+		else:
+			invalid += 1
+	return {"total": total, "valid": valid, "invalid": invalid}
+
+
+func _refresh_world_debug_overlay_biome_map() -> void:
+	var map: BiomeMap = get_biome_map()
+	if is_instance_valid(map):
+		world_debug_overlay_biome_map = map
 
 
 func get_vegetation_visual_debug() -> Dictionary:
@@ -2745,6 +2830,16 @@ func debug_toggle_landmark_overlay() -> bool:
 	return debug_landmark_overlay_enabled
 
 
+func debug_set_world_overlay_mode(mode: String) -> String:
+	world_debug_overlay_mode = mode if not mode.is_empty() else "off"
+	queue_redraw()
+	return world_debug_overlay_mode
+
+
+func debug_get_world_overlay_mode() -> String:
+	return world_debug_overlay_mode
+
+
 func debug_toggle_biome_textures() -> bool:
 	biome_textures_enabled = not biome_textures_enabled
 	if is_instance_valid(biome_blend_background):
@@ -2781,6 +2876,42 @@ func debug_force_rebuild_surface_textures() -> void:
 		terrain_surface_chunk_renderer.clear_runtime_state("debug_force_rebuild")
 	if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("mark_dirty"):
 		terrain_surface_chunk_renderer.mark_dirty("debug_force_rebuild")
+
+
+func debug_regenerate_world(p_seed: int = 0) -> void:
+	_set_world_generator_seed(p_seed if p_seed != 0 else world_seed)
+	_update_world_object_visibility()
+	queue_redraw()
+
+
+func debug_generate_random_world() -> int:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var new_seed := rng.randi()
+	debug_regenerate_world(new_seed)
+	return new_seed
+
+
+func debug_regenerate_world_same_seed() -> void:
+	debug_regenerate_world(world_seed)
+
+
+func get_height_at(position: Vector2) -> float:
+	if world_generator != null and world_generator.has_method("get_height_at"):
+		return float(world_generator.get_height_at(position))
+	return 0.0
+
+
+func get_moisture_at(position: Vector2) -> float:
+	if world_generator != null and world_generator.has_method("get_moisture_at"):
+		return float(world_generator.get_moisture_at(position))
+	return 0.0
+
+
+func get_distance_to_shore_at(position: Vector2) -> float:
+	if world_generator != null and world_generator.has_method("get_distance_to_shore_at"):
+		return float(world_generator.get_distance_to_shore_at(position))
+	return 1.0
 
 
 func debug_regenerate_landmarks() -> void:
@@ -5736,6 +5867,7 @@ func _draw() -> void:
 		draw_rect(WORLD_CONFIG.WORLD_RECT, WORLD_CONFIG.OCEAN_COLOR, true)
 	_draw_biomes()
 	_draw_biome_detail_overlay()
+	_draw_world_debug_overlay()
 	_draw_landmarks()
 	if debug_landmark_overlay_enabled:
 		_draw_landmark_debug_overlay()
@@ -6765,6 +6897,54 @@ func _draw_landmark_debug_overlay() -> void:
 		draw_circle(center, 4.0, Color(1.0, 0.95, 0.82, 0.90))
 		if font:
 			draw_string(font, center + Vector2(-radius * 0.35, -radius - 10.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color(0.98, 0.98, 0.88, 0.92))
+
+
+func _draw_world_debug_overlay() -> void:
+	if world_debug_overlay_mode == "off":
+		return
+	var cell_size := 96.0
+	var world_rect := WORLD_CONFIG.WORLD_RECT
+	var y := world_rect.position.y
+	while y < world_rect.end.y:
+		var x := world_rect.position.x
+		while x < world_rect.end.x:
+			var cell_rect := Rect2(Vector2(x, y), Vector2(cell_size, cell_size))
+			var color := _get_world_debug_overlay_color(cell_rect.get_center())
+			if color.a > 0.0:
+				draw_rect(cell_rect, color, true)
+			x += cell_size
+		y += cell_size
+
+
+func _get_world_debug_overlay_color(position: Vector2) -> Color:
+	match world_debug_overlay_mode:
+		"biome":
+			return _get_biome_overlay_color(get_visual_biome_id_at(position))
+		"height":
+			return Color(0.25, 0.75, 1.0, clampf(get_height_at(position), 0.0, 1.0) * 0.35)
+		"moisture":
+			return Color(0.2, 0.9, 0.6, clampf(get_moisture_at(position), 0.0, 1.0) * 0.35)
+		"island_mask":
+			return Color(1.0, 0.9, 0.2, (1.0 if get_surface_terrain_zone_at(position) == WATER_ZONE_LAND else 0.0) * 0.22)
+		"transition":
+			var distance := clampf(get_distance_to_shore_at(position), 0.0, 1.0)
+			return Color(1.0, 0.35, 0.25, (1.0 - distance) * 0.35)
+		_:
+			return Color(0.0, 0.0, 0.0, 0.0)
+
+
+func _get_biome_overlay_color(biome_id: String) -> Color:
+	match biome_id:
+		"stoneback_ridge":
+			return Color(0.72, 0.66, 0.58, 0.28)
+		"south_thicket":
+			return Color(0.18, 0.58, 0.28, 0.28)
+		"redfang_wilds":
+			return Color(0.72, 0.22, 0.18, 0.28)
+		"shore":
+			return Color(0.84, 0.82, 0.56, 0.28)
+		_:
+			return Color(0.34, 0.64, 0.34, 0.28)
 
 
 func _draw_debug_ellipse_outline(center: Vector2, radius_x: float, radius_y: float, outline_color: Color, line_width: float) -> void:

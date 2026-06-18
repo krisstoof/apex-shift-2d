@@ -17,7 +17,7 @@ func build(p_seed: int, p_world_rect: Rect2, generator: Object, p_cell_size: flo
 	cell_size = p_cell_size
 	terrain_condition_map = TerrainConditionMap.new()
 	terrain_condition_map.build(seed, world_rect, generator, 64.0)
-	var grid_size = terrain_condition_map.grid_size
+	var grid_size: Vector2i = terrain_condition_map.grid_size
 	biome_id_by_cell = []
 	var region_counts: Dictionary = {}
 	var region_bounds: Dictionary = {}
@@ -28,7 +28,7 @@ func build(p_seed: int, p_world_rect: Rect2, generator: Object, p_cell_size: flo
 			var biome_id := str(BIOME_RULES.pick_biome_id(BIOME_RULES.score_biomes(conditions)))
 			row.append(biome_id)
 			region_counts[biome_id] = int(region_counts.get(biome_id, 0)) + 1
-			var world_pos := terrain_condition_map.get_cell_world_position(x, y)
+			var world_pos: Vector2 = terrain_condition_map.get_cell_world_position(x, y)
 			if not region_bounds.has(biome_id):
 				region_bounds[biome_id] = Rect2(world_pos, Vector2.ZERO)
 			else:
@@ -67,6 +67,8 @@ func get_debug_data() -> Dictionary:
 		"biome_count_by_type": counts,
 		"biome_region_count": biome_regions.size(),
 		"small_biome_region_count": _count_small_regions(),
+		"shoreline_cell_count": _count_shoreline_cells(),
+		"transition_zone_count": _count_transition_cells(),
 		"dominant_biome": _get_dominant_biome(counts),
 	}
 
@@ -103,7 +105,7 @@ func _remove_tiny_regions(min_cells: int) -> void:
 			var stack: Array[Vector2i] = [start]
 			var component: Array[Vector2i] = []
 			while not stack.is_empty():
-				var cell := stack.pop_back()
+				var cell: Vector2i = stack.pop_back()
 				if visited.has(cell):
 					continue
 				visited[cell] = true
@@ -111,8 +113,8 @@ func _remove_tiny_regions(min_cells: int) -> void:
 					continue
 				component.append(cell)
 				for offset in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
-					var nx := cell.x + offset.x
-					var ny := cell.y + offset.y
+					var nx: int = cell.x + offset.x
+					var ny: int = cell.y + offset.y
 					if ny < 0 or ny >= biome_id_by_cell.size():
 						continue
 					var row: Array = Array(biome_id_by_cell[ny])
@@ -123,7 +125,7 @@ func _remove_tiny_regions(min_cells: int) -> void:
 						stack.append(neighbor)
 			if component.size() >= min_cells:
 				continue
-			var replacement := _get_dominant_neighbor_biome(component)
+			var replacement: String = _get_dominant_neighbor_biome(component)
 			for cell in component:
 				if replacement.is_empty():
 					break
@@ -137,7 +139,7 @@ func _rebuild_regions() -> void:
 		for x in range(Array(biome_id_by_cell[y]).size()):
 			var biome_id := str(Array(biome_id_by_cell[y])[x])
 			counts[biome_id] = int(counts.get(biome_id, 0)) + 1
-			var world_pos := terrain_condition_map.get_cell_world_position(x, y)
+			var world_pos: Vector2 = terrain_condition_map.get_cell_world_position(x, y)
 			if not bounds.has(biome_id):
 				bounds[biome_id] = Rect2(world_pos, Vector2.ZERO)
 			else:
@@ -162,8 +164,8 @@ func _get_dominant_neighbor_biome(component: Array[Vector2i]) -> String:
 	var neighbor_counts: Dictionary = {}
 	for cell in component:
 		for offset in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
-			var nx := cell.x + offset.x
-			var ny := cell.y + offset.y
+			var nx: int = cell.x + offset.x
+			var ny: int = cell.y + offset.y
 			if ny < 0 or ny >= biome_id_by_cell.size():
 				continue
 			var row: Array = Array(biome_id_by_cell[ny])
@@ -179,6 +181,40 @@ func _count_small_regions() -> int:
 	for region in biome_regions:
 		if int(Dictionary(region).get("sample_count", 0)) < 18:
 			count += 1
+	return count
+
+
+func _count_shoreline_cells() -> int:
+	if terrain_condition_map == null:
+		return 0
+	var count := 0
+	for y in range(terrain_condition_map.grid_size.y):
+		for x in range(terrain_condition_map.grid_size.x):
+			if float(Dictionary(terrain_condition_map.get_cell(x, y)).get("distance_to_shore", 1.0)) <= 0.18:
+				count += 1
+	return count
+
+
+func _count_transition_cells() -> int:
+	if biome_id_by_cell.is_empty():
+		return 0
+	var count := 0
+	for y in range(biome_id_by_cell.size()):
+		for x in range(Array(biome_id_by_cell[y]).size()):
+			var biome_id := str(Array(biome_id_by_cell[y])[x])
+			var neighbor_match := 0
+			for offset in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+				var nx: int = x + offset.x
+				var ny: int = y + offset.y
+				if ny < 0 or ny >= biome_id_by_cell.size():
+					continue
+				var row: Array = Array(biome_id_by_cell[ny])
+				if nx < 0 or nx >= row.size():
+					continue
+				if str(row[nx]) == biome_id:
+					neighbor_match += 1
+			if neighbor_match < 4:
+				count += 1
 	return count
 
 

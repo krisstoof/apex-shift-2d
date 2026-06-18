@@ -506,8 +506,17 @@ static func scale_world_point(point: Vector2) -> Vector2:
 
 static func get_biome_points(biome: Dictionary) -> Array[Vector2]:
 	var scaled_points: Array[Vector2] = []
-	for point_value in biome["points"]:
-		scaled_points.append(Vector2(point_value) * WORLD_SCALE)
+	if biome.has("points"):
+		for point_value in biome["points"]:
+			scaled_points.append(Vector2(point_value) * WORLD_SCALE)
+		return scaled_points
+	if biome.has("bounds"):
+		var bounds := Rect2(biome.get("bounds", Rect2()))
+		if bounds.size.x > 0.0 and bounds.size.y > 0.0:
+			scaled_points.append(bounds.position * WORLD_SCALE)
+			scaled_points.append(Vector2(bounds.end.x, bounds.position.y) * WORLD_SCALE)
+			scaled_points.append(bounds.end * WORLD_SCALE)
+			scaled_points.append(Vector2(bounds.position.x, bounds.end.y) * WORLD_SCALE)
 	return scaled_points
 
 

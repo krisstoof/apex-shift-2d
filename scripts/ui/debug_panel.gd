@@ -42,6 +42,15 @@ var benchmark_button: Button
 var god_mode_button: Button
 var regenerate_landmarks_button: Button
 var island_world_validation_button: Button
+var regenerate_world_button: Button
+var regenerate_same_seed_button: Button
+var random_seed_button: Button
+var biome_overlay_button: Button
+var height_overlay_button: Button
+var moisture_overlay_button: Button
+var island_mask_overlay_button: Button
+var transition_overlay_button: Button
+var validate_spawns_button: Button
 var pool_test_button: Button
 var landmark_overlay_button: Button
 var rebuild_biome_cache_button: Button
@@ -306,6 +315,15 @@ func _create_future_tool_buttons() -> void:
 	_add_tool_button("Teleport OOB creatures", _on_teleport_out_of_bounds_pressed, "Creatures")
 	regenerate_landmarks_button = _add_tool_button("Regenerate landmarks", _on_regenerate_landmarks_pressed, "World")
 	island_world_validation_button = _add_tool_button("Validate island world", _on_validate_island_world_pressed, "World")
+	regenerate_world_button = _add_tool_button("Regenerate world", _on_regenerate_world_pressed, "World")
+	regenerate_same_seed_button = _add_tool_button("Regenerate same seed", _on_regenerate_same_seed_pressed, "World")
+	random_seed_button = _add_tool_button("Generate random seed", _on_generate_random_seed_pressed, "World")
+	biome_overlay_button = _add_tool_button("Biome overlay: OFF", _on_toggle_biome_overlay_pressed, "World")
+	height_overlay_button = _add_tool_button("Height overlay: OFF", _on_toggle_height_overlay_pressed, "World")
+	moisture_overlay_button = _add_tool_button("Moisture overlay: OFF", _on_toggle_moisture_overlay_pressed, "World")
+	island_mask_overlay_button = _add_tool_button("Island mask overlay: OFF", _on_toggle_island_mask_overlay_pressed, "World")
+	transition_overlay_button = _add_tool_button("Transition overlay: OFF", _on_toggle_transition_overlay_pressed, "World")
+	validate_spawns_button = _add_tool_button("Validate spawns", _on_validate_spawns_pressed, "World")
 	pool_test_button = _add_tool_button("Test object pool", _on_test_object_pool_pressed, "Tools")
 	landmark_overlay_button = _add_tool_button("Landmark overlay: OFF", _on_toggle_landmark_overlay_pressed, "World")
 	rebuild_biome_cache_button = _add_tool_button("Rebuild biome texture cache", _on_rebuild_biome_texture_cache_pressed, "World")
@@ -443,11 +461,13 @@ func _build_world_text() -> String:
 		str(world_snapshot.get("world_seed", _get_world_seed_text())),
 		str(world_snapshot.get("current_biome_texture_id", _get_current_biome_texture_id_text()))
 	])
+	lines.append("Overlay mode: %s" % str(world_snapshot.get("biome_overlay_mode", _get_world_overlay_mode_text())))
 	lines.append("Generation: %s" % _get_world_generation_summary_text())
 	var generation_debug := Dictionary(world_snapshot.get("world_generation_debug", {}))
 	if not generation_debug.is_empty():
 		var terrain := Dictionary(generation_debug.get("terrain", {}))
 		var coverage := Dictionary(generation_debug.get("terrain_coverage", {}))
+		var biome_distribution := Dictionary(generation_debug.get("biome_distribution", {}))
 		lines.append("Terrain: ocean %.2f | land %.2f | pond %.2f | highland %.2f | moisture %.2f | danger %.2f" % [
 			float(coverage.get("ocean", 0.0)),
 			float(coverage.get("land", 0.0)),
@@ -463,6 +483,17 @@ func _build_world_text() -> String:
 			int(terrain.get("highland", 0)),
 			int(terrain.get("land", 0))
 		])
+		lines.append("Biomes: %s" % _format_count_map(biome_distribution))
+		lines.append("Island: size %.0f | shoreline %d | transition %d" % [
+			float(generation_debug.get("island_size", 0.0)),
+			int(generation_debug.get("shoreline_cell_count", 0)),
+			int(generation_debug.get("transition_zone_count", 0))
+		])
+		lines.append("Landmarks %d | Resources %d" % [
+			int(generation_debug.get("landmark_count", 0)),
+			int(generation_debug.get("resource_count", 0))
+		])
+		lines.append("Spawn validity: %s" % _format_spawn_validity_text(Dictionary(generation_debug.get("creature_spawn_validity", {}))))
 	lines.append("Player position: %s" % _get_position_text(Vector2(Dictionary(snapshot.get("player", {})).get("position", player.global_position if player else Vector2.ZERO))))
 	lines.append("World bounds: %s" % str(WORLD_CONFIG.WORLD_RECT))
 	lines.append("creatures_out_of_bounds_count = %d" % int(world_snapshot.get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))
@@ -923,6 +954,40 @@ func _get_landmark_overlay_state_text() -> String:
 	if world and world.has_method("is_landmark_debug_overlay_enabled"):
 		return "ON" if world.is_landmark_debug_overlay_enabled() else "OFF"
 	return "unknown"
+
+
+func _get_world_overlay_mode_text() -> String:
+	var snapshot := _get_snapshot()
+	var world_snapshot := Dictionary(snapshot.get("world", {}))
+	if world_snapshot.has("biome_overlay_mode"):
+		return str(world_snapshot.get("biome_overlay_mode", "off"))
+	var world := _get_world_node()
+	if world and world.has_method("debug_get_world_overlay_mode"):
+		return str(world.debug_get_world_overlay_mode())
+	return "off"
+
+
+func _format_count_map(values: Dictionary) -> String:
+	if values.is_empty():
+		return "none"
+	var parts: Array[String] = []
+	for key in values.keys():
+		parts.append("%s:%d" % [str(key), int(values[key])])
+	return ", ".join(parts)
+
+
+func _format_spawn_validity_text(values: Dictionary) -> String:
+	if values.is_empty():
+		return "unavailable"
+	var parts: Array[String] = []
+	for creature_type in values.keys():
+		var report: Dictionary = Dictionary(values.get(creature_type, {}))
+		parts.append("%s %d/%d valid" % [
+			str(creature_type),
+			int(report.get("valid", 0)),
+			int(report.get("total", 0))
+		])
+	return " | ".join(parts)
 
 
 func _get_biome_texture_state_text() -> String:
@@ -1654,8 +1719,32 @@ func _refresh_world_debug_buttons() -> void:
 	var can_toggle_overlay: bool = world != null and world.has_method("debug_toggle_landmark_overlay")
 	var can_rebuild_cache: bool = world != null and world.has_method("debug_rebuild_biome_texture_cache")
 	var can_toggle_textures: bool = world != null and world.has_method("debug_toggle_biome_textures")
+	var can_regenerate_world: bool = world != null and world.has_method("debug_regenerate_world")
+	var can_regenerate_same_seed: bool = world != null and world.has_method("debug_regenerate_world_same_seed")
+	var can_generate_random_seed: bool = world != null and world.has_method("debug_generate_random_world")
+	var can_set_overlay_mode: bool = world != null and world.has_method("debug_set_world_overlay_mode")
+	var can_validate_spawns: bool = world != null and world.has_method("get_creature_spawn_validity_debug")
 	if regenerate_landmarks_button:
 		regenerate_landmarks_button.disabled = not can_regenerate
+	if regenerate_world_button:
+		regenerate_world_button.disabled = not can_regenerate_world
+	if regenerate_same_seed_button:
+		regenerate_same_seed_button.disabled = not can_regenerate_same_seed
+	if random_seed_button:
+		random_seed_button.disabled = not can_generate_random_seed
+	if biome_overlay_button:
+		biome_overlay_button.text = "Biome overlay: %s" % _get_world_overlay_mode_text()
+		biome_overlay_button.disabled = not can_set_overlay_mode
+	if height_overlay_button:
+		height_overlay_button.disabled = not can_set_overlay_mode
+	if moisture_overlay_button:
+		moisture_overlay_button.disabled = not can_set_overlay_mode
+	if island_mask_overlay_button:
+		island_mask_overlay_button.disabled = not can_set_overlay_mode
+	if transition_overlay_button:
+		transition_overlay_button.disabled = not can_set_overlay_mode
+	if validate_spawns_button:
+		validate_spawns_button.disabled = not can_validate_spawns
 	if landmark_overlay_button:
 		landmark_overlay_button.text = "Landmark overlay: %s" % _get_landmark_overlay_state_text()
 		landmark_overlay_button.disabled = not can_toggle_overlay
@@ -1706,6 +1795,70 @@ func _on_validate_island_world_pressed() -> void:
 	_set_state_text(_build_state_text(), true)
 
 
+func _on_regenerate_world_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_regenerate_world"):
+		_post_debug_message("World regeneration is not available yet")
+		return
+	_post_debug_message("Regenerating world...")
+	world.debug_regenerate_world()
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
+func _on_regenerate_same_seed_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_regenerate_world_same_seed"):
+		_post_debug_message("Same-seed regeneration is not available yet")
+		return
+	_post_debug_message("Regenerating world with the same seed...")
+	world.debug_regenerate_world_same_seed()
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
+func _on_generate_random_seed_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_generate_random_world"):
+		_post_debug_message("Random world generation is not available yet")
+		return
+	var new_seed: int = int(world.debug_generate_random_world())
+	_post_debug_message("Generated random seed %d" % new_seed)
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
+func _on_toggle_biome_overlay_pressed() -> void:
+	_call_world_overlay_mode("biome")
+
+
+func _on_toggle_height_overlay_pressed() -> void:
+	_call_world_overlay_mode("height")
+
+
+func _on_toggle_moisture_overlay_pressed() -> void:
+	_call_world_overlay_mode("moisture")
+
+
+func _on_toggle_island_mask_overlay_pressed() -> void:
+	_call_world_overlay_mode("island_mask")
+
+
+func _on_toggle_transition_overlay_pressed() -> void:
+	_call_world_overlay_mode("transition")
+
+
+func _on_validate_spawns_pressed() -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("get_creature_spawn_validity_debug"):
+		_post_debug_message("Spawn validation is not available yet")
+		return
+	var report: Dictionary = world.get_creature_spawn_validity_debug()
+	_post_debug_message(_format_spawn_validity_text(report))
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
 func _on_toggle_landmark_overlay_pressed() -> void:
 	var world := _get_world_node()
 	if not world or not world.has_method("debug_toggle_landmark_overlay"):
@@ -1713,6 +1866,17 @@ func _on_toggle_landmark_overlay_pressed() -> void:
 		return
 	var enabled: bool = world.debug_toggle_landmark_overlay()
 	_post_debug_message("Landmark overlay %s" % ("enabled" if enabled else "disabled"))
+	_refresh_world_debug_buttons()
+	_set_state_text(_build_state_text(), true)
+
+
+func _call_world_overlay_mode(mode: String) -> void:
+	var world := _get_world_node()
+	if not world or not world.has_method("debug_set_world_overlay_mode"):
+		_post_debug_message("World overlay mode switching is not available yet")
+		return
+	var active_mode: String = str(world.debug_set_world_overlay_mode(mode))
+	_post_debug_message("World overlay mode set to %s" % active_mode)
 	_refresh_world_debug_buttons()
 	_set_state_text(_build_state_text(), true)
 
