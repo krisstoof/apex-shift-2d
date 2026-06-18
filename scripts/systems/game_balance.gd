@@ -416,6 +416,16 @@ const RESOURCE_REGROWTH := {
 	"growth_tick_seconds": 5.0
 }
 
+const RESOURCE_ACTIVATION := {
+	"player_interaction_radius": 420.0,
+	"resource_collision_activation_radius": 900.0,
+	"ai_food_activation_radius": 1200.0,
+	"activation_update_interval": 0.45,
+	"activation_changes_per_frame": 28,
+	"interactive_grass_node_limit": 64,
+	"interactive_edible_vegetation_node_limit": 96
+}
+
 const BIOME_VISUALS := {
 	"biome_blend_radius": 300.0,
 	"biomass_depleted_tint": Color(0.34, 0.31, 0.22),

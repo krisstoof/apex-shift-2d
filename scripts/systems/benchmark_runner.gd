@@ -631,6 +631,9 @@ func _capture_world_resource_render_mode_stats() -> Dictionary:
 	var render_only_resources := 0
 	var render_only_grass := 0
 	var active_resource_collisions := 0
+	var resource_activation_debug := {}
+	if world.has_method("get_resource_activation_debug"):
+		resource_activation_debug = Dictionary(world.call("get_resource_activation_debug"))
 	for resource_value in resources:
 		var resource := resource_value as Node
 		if resource == null:
@@ -651,7 +654,8 @@ func _capture_world_resource_render_mode_stats() -> Dictionary:
 	return {
 		"render_only_resources": render_only_resources,
 		"render_only_grass": render_only_grass,
-		"active_resource_collisions": active_resource_collisions
+		"active_resource_collisions": active_resource_collisions,
+		"resource_activation_debug": resource_activation_debug
 	}
 
 

@@ -512,6 +512,27 @@ func _build_world_text() -> String:
 				int(terrain_surface_debug.get("terrain_surface_refine_skipped_due_to_fps_count", 0)),
 				int(terrain_surface_debug.get("terrain_surface_refine_skipped_due_to_camera_movement_count", 0))
 			])
+		var resource_activation_debug := Dictionary(world_snapshot.get("resource_activation_debug", {}))
+		if resource_activation_debug.is_empty():
+			var world := _get_world_node()
+			if world and world.has_method("get_resource_activation_debug"):
+				resource_activation_debug = Dictionary(world.get_resource_activation_debug())
+		if not resource_activation_debug.is_empty():
+			lines.append("Resources: active_collisions=%d inactive_collisions=%d process=%d physics=%d" % [
+				int(resource_activation_debug.get("active_resource_collisions", 0)),
+				int(resource_activation_debug.get("inactive_resource_collisions", 0)),
+				int(resource_activation_debug.get("resources_with_process_enabled", 0)),
+				int(resource_activation_debug.get("resources_with_physics_process_enabled", 0))
+			])
+			lines.append("Resource activation: checked=%d changed=%d skipped=%d interactive=%d render_only=%d edible=%d biomass=%d" % [
+				int(resource_activation_debug.get("resource_activation_checked_count", 0)),
+				int(resource_activation_debug.get("resource_activation_changed_count", 0)),
+				int(resource_activation_debug.get("resource_activation_skipped_count", 0)),
+				int(resource_activation_debug.get("interactive_resource_node_count", 0)),
+				int(resource_activation_debug.get("render_only_resource_count", 0)),
+				int(resource_activation_debug.get("edible_vegetation_node_count", 0)),
+				int(resource_activation_debug.get("biome_biomass_food_count", 0))
+			])
 	lines.append("Player position: %s" % _get_position_text(Vector2(Dictionary(snapshot.get("player", {})).get("position", player.global_position if player else Vector2.ZERO))))
 	lines.append("World bounds: %s" % str(WORLD_CONFIG.WORLD_RECT))
 	lines.append("creatures_out_of_bounds_count = %d" % int(world_snapshot.get("out_of_bounds_count", _get_creatures_out_of_bounds_count())))

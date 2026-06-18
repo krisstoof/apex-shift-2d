@@ -265,6 +265,19 @@ var spatial_index_debug_last_refresh_ms := 0.0
 var visibility_controller
 var render_performance_governor
 var decorative_vegetation_visibility_timer := 0.0
+var resource_activation_timer := 0.0
+var resource_activation_checked_count := 0
+var resource_activation_changed_count := 0
+var resource_activation_skipped_count := 0
+var interactive_resource_node_count := 0
+var render_only_resource_count := 0
+var resources_with_process_enabled := 0
+var resources_with_physics_process_enabled := 0
+var active_resource_collisions := 0
+var inactive_resource_collisions := 0
+var edible_vegetation_node_count := 0
+var biome_biomass_food_count := 0
+var resource_activation_scan_index := 0
 var is_restoring_save: bool = false
 var island_world_validation_last_report: Dictionary = {}
 var world_debug_overlay_mode := "off"
@@ -507,6 +520,10 @@ func _process(delta: float) -> void:
 	if decorative_vegetation_visibility_timer <= 0.0:
 		decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
 		_update_decorative_vegetation_visible_rect()
+	resource_activation_timer -= delta
+	if resource_activation_timer <= 0.0:
+		resource_activation_timer = float(GAME_BALANCE.RESOURCE_ACTIVATION.get("activation_update_interval", 0.45))
+		_update_resource_interactions()
 	var use_surface_renderer := bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
 	var allow_legacy_overlay := bool(GAME_BALANCE.BIOME_TEXTURES.get("legacy_biome_detail_overlay_enabled_with_surface_renderer", false))
 	if not use_surface_renderer or allow_legacy_overlay:
@@ -1654,6 +1671,23 @@ func get_pool_debug_text() -> String:
 	return pool_manager.get_debug_text()
 
 
+func get_resource_activation_debug() -> Dictionary:
+	return {
+		"total_resource_node_count": get_cached_group_nodes("resources").size(),
+		"interactive_resource_node_count": interactive_resource_node_count,
+		"render_only_resource_count": render_only_resource_count,
+		"active_resource_collisions": active_resource_collisions,
+		"inactive_resource_collisions": inactive_resource_collisions,
+		"resources_with_process_enabled": resources_with_process_enabled,
+		"resources_with_physics_process_enabled": resources_with_physics_process_enabled,
+		"edible_vegetation_node_count": edible_vegetation_node_count,
+		"biome_biomass_food_count": biome_biomass_food_count,
+		"resource_activation_checked_count": resource_activation_checked_count,
+		"resource_activation_changed_count": resource_activation_changed_count,
+		"resource_activation_skipped_count": resource_activation_skipped_count
+	}
+
+
 func get_world_land_distribution_debug() -> Dictionary:
 	var result := {
 		"land": 0,
@@ -1822,6 +1856,106 @@ func get_decorative_vegetation_debug() -> Dictionary:
 		"edible_grass_node_spawn_count": edible_grass_node_spawn_count,
 		"decorative_grass_visual_spawn_count": decorative_grass_visual_spawn_count
 	}
+
+
+func _update_resource_interactions() -> void:
+	var player_node := _get_player_node()
+	if player_node == null:
+		resource_activation_skipped_count += 1
+		return
+	var player_position := player_node.global_position if player_node is Node2D else _get_player_position()
+	var activation_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("resource_collision_activation_radius", 900.0))
+	var player_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("player_interaction_radius", 420.0))
+	var ai_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("ai_food_activation_radius", 1200.0))
+	var change_budget := maxi(int(GAME_BALANCE.RESOURCE_ACTIVATION.get("activation_changes_per_frame", 28)), 1)
+	var resources := get_cached_group_nodes("resources")
+	if resources.is_empty():
+		return
+	resource_activation_checked_count += resources.size()
+	interactive_resource_node_count = 0
+	render_only_resource_count = 0
+	resources_with_process_enabled = 0
+	resources_with_physics_process_enabled = 0
+	active_resource_collisions = 0
+	inactive_resource_collisions = 0
+	edible_vegetation_node_count = 0
+	biome_biomass_food_count = 0
+	var changes := 0
+	var scan_count := resources.size()
+	var start_index := resource_activation_scan_index % scan_count
+	for offset in range(scan_count):
+		var index := (start_index + offset) % scan_count
+		var resource := resources[index] as Node
+		if resource == null or not is_instance_valid(resource):
+			continue
+		var should_be_active := _should_resource_interaction_be_active(resource, player_position, activation_radius, player_radius, ai_radius)
+		var is_render_only := resource.has_method("is_render_only_resource") and bool(resource.call("is_render_only_resource"))
+		if is_render_only:
+			render_only_resource_count += 1
+		else:
+			interactive_resource_node_count += 1
+		if resource.is_in_group("edible_vegetation"):
+			edible_vegetation_node_count += 1
+		if _is_resource_collision_enabled(resource):
+			active_resource_collisions += 1
+		else:
+			inactive_resource_collisions += 1
+		if should_be_active:
+			resources_with_process_enabled += 1
+			resources_with_physics_process_enabled += 1
+		if resource.has_method("set_interaction_active"):
+			var currently_active := bool(resource.call("is_interaction_active")) if resource.has_method("is_interaction_active") else false
+			if currently_active != should_be_active:
+				if changes < change_budget:
+					resource.call("set_interaction_active", should_be_active)
+					changes += 1
+					resource_activation_changed_count += 1
+				else:
+					resource_activation_skipped_count += 1
+		if should_be_active and resource.has_method("get") and resource.get("food_value") != null and float(resource.get("food_value")) > 0.0:
+			biome_biomass_food_count += 1
+	resource_activation_scan_index = (start_index + scan_count) % scan_count
+
+
+func _should_resource_interaction_be_active(resource: Node, player_position: Vector2, activation_radius: float, player_radius: float, ai_radius: float) -> bool:
+	if not is_instance_valid(resource):
+		return false
+	var distance := player_position.distance_to(resource.global_position)
+	if distance <= player_radius:
+		return true
+	if distance <= activation_radius and not _is_resource_visual_only(resource):
+		return true
+	if distance <= ai_radius and _is_resource_ai_food(resource):
+		return true
+	return false
+
+
+func _is_resource_visual_only(resource: Node) -> bool:
+	if resource.has_method("is_render_only_resource"):
+		return bool(resource.call("is_render_only_resource"))
+	return bool(resource.get("render_only")) if resource.has_method("get") else false
+
+
+func _is_resource_ai_food(resource: Node) -> bool:
+	if resource.is_in_group("edible_vegetation"):
+		return true
+	if resource.has_method("get"):
+		return float(resource.get("food_value")) > 0.0
+	return false
+
+
+func _is_resource_collision_enabled(resource: Node) -> bool:
+	if resource == null or not is_instance_valid(resource):
+		return false
+	var collision_shape := resource.get_node_or_null("CollisionShape2D") as CollisionShape2D
+	return collision_shape != null and collision_shape.disabled == false
+
+
+func _get_player_node() -> Node2D:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.get_first_node_in_group("player") as Node2D
 
 
 func get_chunk_debug_data() -> Dictionary:

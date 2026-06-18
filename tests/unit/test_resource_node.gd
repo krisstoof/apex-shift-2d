@@ -31,6 +31,7 @@ func run() -> Array[String]:
 	_test_resource_node_setup_exposes_herbivore_food(failures)
 	_test_resource_node_marks_grass_as_render_only_and_edible(failures)
 	_test_resource_node_visibility_culling_toggles_active_state(failures)
+	_test_resource_node_interaction_activity_toggles_collision_independently_of_visibility(failures)
 	_test_resource_node_restore_recreates_edible_food_value(failures)
 	_test_resource_node_restore_defaults_render_only_for_legacy_saves(failures)
 	_test_resource_node_syncs_collision_radius_with_growth(failures)
@@ -127,6 +128,26 @@ func _test_resource_node_visibility_culling_toggles_active_state(failures: Array
 	TEST_UTILS.expect_equal(bool(resource.get("is_visibility_culled")), false, failures, "Visible resources should clear the sleeping flag")
 	if collision_shape != null:
 		TEST_UTILS.expect_equal(collision_shape.disabled, false, failures, "Reactivated resources should restore collision")
+	resource.queue_free()
+
+
+func _test_resource_node_interaction_activity_toggles_collision_independently_of_visibility(failures: Array[String]) -> void:
+	var resource := RESOURCE_NODE_SCENE.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.current_scene.add_child(resource)
+	resource.call("setup", "bush")
+	var collision_shape := resource.get_node("CollisionShape2D") as CollisionShape2D
+	TEST_UTILS.expect(resource.has_method("set_interaction_active"), failures, "Resource nodes should expose interaction activation")
+	resource.call("set_visibility_culled", true)
+	resource.call("set_interaction_active", false)
+	if collision_shape != null:
+		TEST_UTILS.expect_equal(collision_shape.disabled, true, failures, "Inactive resources should disable collision")
+	resource.call("set_interaction_active", true)
+	if collision_shape != null:
+		TEST_UTILS.expect_equal(collision_shape.disabled, false, failures, "Active resources should enable collision even while visible")
+	resource.call("set_visibility_culled", false)
+	if collision_shape != null:
+		TEST_UTILS.expect_equal(collision_shape.disabled, true, failures, "Visibility culling should still win over interaction state")
 	resource.queue_free()
 
 

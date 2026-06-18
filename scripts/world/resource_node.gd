@@ -42,6 +42,7 @@ var player_harvestable := true
 var is_edible_by_herbivores := false
 var food_value := 0.0
 var render_only := false
+var interaction_active := false
 var is_pond_vegetation := false
 var pond_id := ""
 var food_bonus_multiplier := 1.0
@@ -82,6 +83,7 @@ func _ready() -> void:
 	if biome_id.is_empty():
 		biome_id = _get_biome_id_for_position(global_position)
 	is_visibility_culled = true
+	interaction_active = false
 	_apply_growth_stage()
 	_sync_resource_groups()
 	_sync_visual_sprite()
@@ -818,15 +820,21 @@ func set_visibility_culled(should_be_visible: bool) -> void:
 	is_visibility_culled = culled_state
 	visible = should_be_visible
 	_sync_collision_state()
-	
-	# Only update process states if they need to change
-	var needs_process := should_be_visible
-	if is_processing() != needs_process:
-		set_process(needs_process)
-	if is_physics_processing() != needs_process:
-		set_physics_process(needs_process)
+	_sync_runtime_process_state()
 	
 	queue_redraw()
+
+
+func set_interaction_active(active: bool) -> void:
+	if interaction_active == active:
+		return
+	interaction_active = active
+	_sync_collision_state()
+	_sync_runtime_process_state()
+
+
+func is_interaction_active() -> bool:
+	return interaction_active
 
 
 func _is_render_only_kind() -> bool:
@@ -961,7 +969,15 @@ func _get_collision_shape() -> CollisionShape2D:
 
 
 func _sync_collision_state() -> void:
-	_set_collision_state_safe(not is_visibility_culled)
+	_set_collision_state_safe(interaction_active and not is_visibility_culled)
+
+
+func _sync_runtime_process_state() -> void:
+	var should_process := interaction_active and visible and not render_only and player_harvestable and can_be_harvested
+	if is_processing() != should_process:
+		set_process(should_process)
+	if is_physics_processing() != should_process:
+		set_physics_process(should_process)
 
 
 func _set_collision_state_safe(should_be_enabled: bool) -> void:
