@@ -6,6 +6,7 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_GENERATION_RESULT := preload("res://scripts/world/world_generation_result.gd")
 const WORLD_GENERATION_VALIDATOR := preload("res://scripts/world/world_generation_validator.gd")
+const BIOME_GENERATOR := preload("res://scripts/world/biome_generator.gd")
 const GENERATOR_RULES_VERSION := "v5"
 
 var seed: int = 0
@@ -39,6 +40,7 @@ var biome_cleanup_debug: Dictionary = {
 	"largest_component_per_biome": {},
 	"cells_changed": 0
 }
+var biome_map = null
 
 
 func generate_world(p_seed: int = 0) -> Dictionary:
@@ -48,6 +50,7 @@ func generate_world(p_seed: int = 0) -> Dictionary:
 	_build_biome_region_anchors()
 	_build_visual_biome_features()
 	_build_biome_ownership_map()
+	_build_biome_map()
 	var layout := {
 		"version": 1,
 		"generator_rules_version": GENERATOR_RULES_VERSION,
@@ -61,6 +64,8 @@ func generate_world(p_seed: int = 0) -> Dictionary:
 		"debug": {}
 	}
 	layout["biomes"] = _generate_biome_regions(Dictionary(layout["maps"]))
+	if biome_map != null and biome_map.has_method("get_regions"):
+		layout["biomes"] = Array(biome_map.get_regions())
 	layout["landmarks"] = _generate_landmarks(layout)
 	layout["resource_zones"] = _generate_resource_zones(layout)
 	layout["creature_spawn_zones"] = _generate_creature_spawn_zones(layout)
@@ -204,12 +209,18 @@ func get_terrain_condition_at(position: Vector2) -> Dictionary:
 	}
 
 
+func get_biome_map():
+	return biome_map
+
+
 func get_biome_id_at(position: Vector2) -> String:
 	var base_terrain := get_base_terrain_zone(position)
 	if base_terrain == "deep_ocean" or base_terrain == "shallow_water":
 		return base_terrain
 	if base_terrain == "shore":
 		return "shore"
+	if biome_map != null and biome_map.has_method("get_biome_id_at_world_position"):
+		return str(biome_map.get_biome_id_at_world_position(position))
 	if biome_ownership_map.is_empty():
 		return _get_raw_biome_id_at(position)
 	return _sample_biome_ownership_map(position)
@@ -218,6 +229,8 @@ func get_biome_id_at(position: Vector2) -> String:
 func get_visual_biome_id_at(position: Vector2) -> String:
 	if get_base_terrain_zone(position) in ["deep_ocean", "shallow_water", "shore"]:
 		return get_biome_id_at(position)
+	if biome_map != null and biome_map.has_method("get_visual_biome_id_at_world_position"):
+		return str(biome_map.get_visual_biome_id_at_world_position(position))
 	return _get_dominant_visual_biome_id(get_visual_biome_influence_scores(position))
 
 
@@ -376,6 +389,11 @@ func _configure_rng_and_noise(p_seed: int) -> void:
 	vegetation_noise.frequency = 0.0022
 	danger_detail_noise.seed = p_seed + 1203
 	danger_detail_noise.frequency = 0.0019
+
+
+func _build_biome_map() -> void:
+	var generator := BIOME_GENERATOR.new()
+	biome_map = generator.build_biome_map(seed, GEN_CONFIG.WORLD_RECT, self)
 
 
 func _generate_sample_maps() -> Dictionary:

@@ -601,9 +601,19 @@ func _hide_nodes_that_left_visibility_rect(current_visible_nodes: Dictionary) ->
 
 
 func get_biome_zones() -> Array[Dictionary]:
+	if world_generator != null and world_generator.has_method("get_biome_map"):
+		var biome_map = world_generator.get_biome_map()
+		if biome_map != null and biome_map.has_method("get_regions"):
+			return Array(biome_map.get_regions())
 	if not world_layout.is_empty() and world_layout.has("biomes"):
 		return Array(world_layout.get("biomes", [])).duplicate(true)
 	return WORLD_CONFIG.get_biome_zones()
+
+
+func get_biome_map():
+	if world_generator != null and world_generator.has_method("get_biome_map"):
+		return world_generator.get_biome_map()
+	return null
 
 
 func get_landmarks() -> Array[Dictionary]:

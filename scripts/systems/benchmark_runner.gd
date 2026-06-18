@@ -9,6 +9,7 @@ const SAMPLE_INTERVAL_SECONDS := 1.0
 const LOG_DIRECTORY := "user://benchmark_logs"
 const BENCHMARK_THRESHOLDS_PATH := "res://config/benchmark_thresholds.json"
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 
 const PERFORMANCE_MONITORS := {
@@ -172,12 +173,12 @@ func _apply_biome_textures_preset(preset_name: String) -> void:
 		return
 	
 	# Get preset configuration
-	var preset_config := GAME_BALANCE.get_biome_textures_with_preset(preset_name)
+	var preset_config: Dictionary = Dictionary(GAME_BALANCE.get_biome_textures_with_preset(preset_name))
 	
 	# Apply key preset values to world
 	if "biome_textures_enabled" in preset_config:
 		if world.has_method("debug_toggle_biome_textures"):
-			var current_state := world.are_biome_textures_enabled() if world.has_method("are_biome_textures_enabled") else true
+			var current_state: bool = world.are_biome_textures_enabled() if world.has_method("are_biome_textures_enabled") else true
 			var target_state := bool(preset_config["biome_textures_enabled"])
 			if current_state != target_state:
 				world.debug_toggle_biome_textures()

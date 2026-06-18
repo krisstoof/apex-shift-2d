@@ -21,12 +21,16 @@ func run() -> Array[String]:
 
 
 func _make_layout(seed: int) -> Dictionary:
-	var generator := load("res://scripts/world/world_generator.gd").new()
+	var generator := _make_generator()
 	return generator.generate_world(seed)
 
 
+func _make_generator() -> Object:
+	return load("res://scripts/world/world_generator.gd").new()
+
+
 func _sample_points(layout: Dictionary, predicate: Callable, limit: int = 48) -> Array[Vector2]:
-	var generator := load("res://scripts/world/world_generator.gd").new()
+	var generator := _make_generator()
 	generator.generate_world(int(layout.get("seed", 0)))
 	var world_rect: Rect2 = Rect2(layout.get("world_rect", Rect2()))
 	var points: Array[Vector2] = []
@@ -50,8 +54,8 @@ func _sample_points(layout: Dictionary, predicate: Callable, limit: int = 48) ->
 func _test_determinism() -> Array[String]:
 	var failures: Array[String] = []
 	for seed in SEEDS:
-		var a := load("res://scripts/world/world_generator.gd").new().generate_world(seed)
-		var b := load("res://scripts/world/world_generator.gd").new().generate_world(seed)
+		var a := _make_generator().generate_world(seed)
+		var b := _make_generator().generate_world(seed)
 		var hash_a := WORLD_GENERATION_RESULT.compute_hash_from_layout(a)
 		var hash_b := WORLD_GENERATION_RESULT.compute_hash_from_layout(b)
 		TEST_UTILS.expect_equal(hash_a, hash_b, failures, "Same seed should produce identical generation hash for seed %d" % seed)
@@ -62,7 +66,7 @@ func _test_seed_variation() -> Array[String]:
 	var failures: Array[String] = []
 	var hashes: Dictionary = {}
 	for seed in SEEDS:
-		var layout := load("res://scripts/world/world_generator.gd").new().generate_world(seed)
+		var layout := _make_generator().generate_world(seed)
 		var hash := WORLD_GENERATION_RESULT.compute_hash_from_layout(layout)
 		if hashes.has(hash):
 			failures.append("Different seeds produced the same hash: %d and %d" % [seed, int(hashes[hash])])
@@ -73,7 +77,7 @@ func _test_seed_variation() -> Array[String]:
 
 func _test_debug_metrics_present() -> Array[String]:
 	var failures: Array[String] = []
-	var layout := WORLD_GENERATOR.new().generate_world(SEEDS[0])
+	var layout := _make_generator().generate_world(SEEDS[0])
 	var debug := Dictionary(layout.get("debug", {}))
 	for key in ["world_seed", "biome_count_by_type", "dominant_biome", "height_range", "moisture_range", "danger_range", "biome_region_count", "small_biome_region_count"]:
 		TEST_UTILS.expect(debug.has(key), failures, "Debug data should include %s" % key)
@@ -84,7 +88,7 @@ func _test_debug_metrics_present() -> Array[String]:
 func _test_shore_rules() -> Array[String]:
 	var failures: Array[String] = []
 	for seed in SEEDS:
-		var generator := load("res://scripts/world/world_generator.gd").new()
+		var generator := _make_generator()
 		var layout := generator.generate_world(seed)
 		var shore_points := _sample_points(layout, func(gen: Object, pos: Vector2) -> bool:
 			return float(gen.get_distance_to_shore_at(pos)) <= 0.12
@@ -103,7 +107,7 @@ func _test_shore_rules() -> Array[String]:
 func _test_stoneback_ridge_rules() -> Array[String]:
 	var failures: Array[String] = []
 	for seed in SEEDS:
-		var generator := load("res://scripts/world/world_generator.gd").new()
+		var generator := _make_generator()
 		var layout := generator.generate_world(seed)
 		var high_points := _sample_points(layout, func(gen: Object, pos: Vector2) -> bool:
 			var c := Dictionary(gen.get_terrain_condition_at(pos))
@@ -123,7 +127,7 @@ func _test_stoneback_ridge_rules() -> Array[String]:
 func _test_south_thicket_rules() -> Array[String]:
 	var failures: Array[String] = []
 	for seed in SEEDS:
-		var generator := load("res://scripts/world/world_generator.gd").new()
+		var generator := _make_generator()
 		var layout := generator.generate_world(seed)
 		var wet_points := _sample_points(layout, func(gen: Object, pos: Vector2) -> bool:
 			var c := Dictionary(gen.get_terrain_condition_at(pos))
@@ -143,7 +147,7 @@ func _test_south_thicket_rules() -> Array[String]:
 func _test_hearth_meadow_rules() -> Array[String]:
 	var failures: Array[String] = []
 	for seed in SEEDS:
-		var generator := load("res://scripts/world/world_generator.gd").new()
+		var generator := _make_generator()
 		var layout := generator.generate_world(seed)
 		var meadow_points := _sample_points(layout, func(gen: Object, pos: Vector2) -> bool:
 			var c := Dictionary(gen.get_terrain_condition_at(pos))
@@ -163,7 +167,7 @@ func _test_hearth_meadow_rules() -> Array[String]:
 func _test_redfang_rules() -> Array[String]:
 	var failures: Array[String] = []
 	for seed in SEEDS:
-		var generator := load("res://scripts/world/world_generator.gd").new()
+		var generator := _make_generator()
 		var layout := generator.generate_world(seed)
 		var wild_points := _sample_points(layout, func(gen: Object, pos: Vector2) -> bool:
 			var c := Dictionary(gen.get_terrain_condition_at(pos))
@@ -183,7 +187,7 @@ func _test_redfang_rules() -> Array[String]:
 func _test_world_minimap_map_source_alignment() -> Array[String]:
 	var failures: Array[String] = []
 	for seed in SEEDS:
-		var generator := WORLD_GENERATOR.new()
+		var generator := _make_generator()
 		var layout := generator.generate_world(seed)
 		var sample_points := [
 			Vector2(0.0, 0.0),

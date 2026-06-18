@@ -21,6 +21,10 @@ const TEST_SEEDS: Array[int] = [
 ]
 
 
+func _make_generator() -> Object:
+	return load("res://scripts/world/world_generator.gd").new()
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	failures.append_array(_test_deterministic_hash())
@@ -275,7 +279,7 @@ func _test_creatures_spawn_on_valid_terrain() -> Array[String]:
 func _test_biomes_exist_on_land() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen = _make_generator()
 		var layout := gen.generate_world(test_seed)
 		var result := WORLD_GENERATION_RESULT.from_layout(layout)
 		
@@ -306,7 +310,7 @@ func _test_different_seeds_create_different_worlds() -> Array[String]:
 	var seed_count := 0
 	
 	for test_seed in TEST_SEEDS:
-		var gen := WORLD_GENERATOR.new()
+		var gen = _make_generator()
 		var layout := gen.generate_world(test_seed)
 		var h := WORLD_GENERATION_RESULT.compute_hash_from_layout(layout)
 		hashes[test_seed] = h
@@ -339,7 +343,7 @@ func _test_world_generation_hash_stability() -> Array[String]:
 		# Generate same seed three times
 		var hashes: Array[String] = []
 		for i in range(3):
-			var gen := WORLD_GENERATOR.new()
+			var gen = _make_generator()
 			var layout := gen.generate_world(test_seed)
 			var h := WORLD_GENERATION_RESULT.compute_hash_from_layout(layout)
 			hashes.append(h)
