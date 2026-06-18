@@ -540,6 +540,18 @@ func _build_world_text() -> String:
 			resource_spawn_debug = Dictionary(world.get_resource_spawn_rejection_debug())
 	if not resource_spawn_debug.is_empty():
 		lines.append("Resource spawn rejections: %s" % str(resource_spawn_debug))
+	var resource_spawn_summary := Dictionary(world_snapshot.get("resource_spawn", {}))
+	if resource_spawn_summary.is_empty():
+		var world := _get_world_node()
+		if world and world.has_method("_build_resource_spawn_debug_summary"):
+			resource_spawn_summary = Dictionary(world.call("_build_resource_spawn_debug_summary"))
+	if not resource_spawn_summary.is_empty():
+		lines.append("Resource spawn summary: failed=%d entries=%d top=%s reason=%s" % [
+			int(resource_spawn_summary.get("total_failed", 0)),
+			int(resource_spawn_summary.get("summary_count", 0)),
+			str(resource_spawn_summary.get("top_failure_key", "")),
+			str(resource_spawn_summary.get("top_rejection_reason", ""))
+		])
 	var ecosystem_state_source := str(world_snapshot.get("ecosystem_state_source", ""))
 	if ecosystem_state_source.is_empty():
 		var world := _get_world_node()

@@ -416,6 +416,18 @@ const RESOURCE_REGROWTH := {
 	"growth_tick_seconds": 5.0
 }
 
+const RESOURCE_SPAWN_OPTIMIZATION := {
+	"decorative_visual_spawn_attempts": 18,
+	"decorative_visual_spawn_attempts_low_end": 10,
+	"resource_spawn_failure_warning_ratio": 0.50,
+	"max_spawn_failure_log_entries": 24,
+	"spawn_failure_log_enabled": true,
+	"spawn_failure_rejection_summary_enabled": true,
+	"deterministic_slot_fallback_enabled": true,
+	"precomputed_biome_spawn_points_enabled": true,
+	"precomputed_biome_spawn_points_per_biome": 96
+}
+
 const RESOURCE_ACTIVATION := {
 	"player_interaction_radius": 420.0,
 	"resource_collision_activation_radius": 900.0,

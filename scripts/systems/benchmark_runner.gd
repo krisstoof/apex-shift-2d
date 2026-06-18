@@ -359,6 +359,7 @@ func _capture_world_stats(include_deep_details: bool = false) -> Dictionary:
 		stats["terrain_renderer"] = _capture_world_terrain_renderer_stats()
 		stats["visibility_culling"] = _capture_world_visibility_culling_stats()
 		stats["resource_render_mode"] = _capture_world_resource_render_mode_stats()
+		stats["resource_spawn"] = _capture_world_resource_spawn_summary()
 		stats["creature_simulation"] = _capture_creature_simulation_stats()
 		stats["biome_query"] = _capture_world_biome_query_stats()
 	return stats
@@ -596,6 +597,12 @@ func _capture_world_resource_spawn_rejection_debug() -> Dictionary:
 	if not is_instance_valid(world) or not world.has_method("get_resource_spawn_rejection_debug"):
 		return {}
 	return Dictionary(world.get_resource_spawn_rejection_debug())
+
+
+func _capture_world_resource_spawn_summary() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("_build_resource_spawn_debug_summary"):
+		return {}
+	return Dictionary(world.call("_build_resource_spawn_debug_summary"))
 
 
 func _capture_world_render_flags() -> Dictionary:
