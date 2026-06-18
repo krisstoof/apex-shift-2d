@@ -116,6 +116,7 @@ var last_camera_idle_time_ms := 0
 var smoke_test_refine_build_count_at_idle := 0
 var smoke_test_idle_duration_ms := 0
 var smoke_test_warning_emitted := false
+var smoke_test_warning_count := 0
 var smoke_test_warning_cooldown_ms := 30000
 var last_smoke_test_warning_ms := 0
 var refine_idle_grace_period_ms := 5000
@@ -210,6 +211,7 @@ func mark_dirty(reason := "unknown") -> void:
 	smoke_test_refine_build_count_at_idle = 0
 	smoke_test_idle_duration_ms = 0
 	smoke_test_warning_emitted = false
+	smoke_test_warning_count = 0
 	last_refine_idle_allow_ms = 0
 	preview_build_watchdog_start_ms.clear()
 	chunk_states.clear()
@@ -244,6 +246,7 @@ func clear_runtime_state(reason := "cleanup") -> void:
 	refine_jobs_cancelled = 0
 	refine_jobs_stale = 0
 	smoke_test_warning_emitted = false
+	smoke_test_warning_count = 0
 	last_refine_idle_allow_ms = 0
 	preview_build_watchdog_start_ms.clear()
 	queue_redraw()
@@ -298,13 +301,14 @@ func process_build_queue(delta: float = 0.0) -> void:
 		smoke_test_idle_duration_ms = int(Time.get_ticks_msec() - last_camera_idle_time_ms)
 		if smoke_test_idle_duration_ms >= 30000:  # 30 seconds
 			smoke_test_refine_build_count_at_idle = refined_build_count
-			if refined_build_count <= 1 and (not smoke_test_warning_emitted or Time.get_ticks_msec() - last_smoke_test_warning_ms >= smoke_test_warning_cooldown_ms):
+			if refined_build_count <= 1 and Time.get_ticks_msec() - last_smoke_test_warning_ms >= smoke_test_warning_cooldown_ms:
 				smoke_test_warning_emitted = true
+				smoke_test_warning_count += 1
 				last_smoke_test_warning_ms = Time.get_ticks_msec()
 				push_warning("TERRAIN_SURFACE_SMOKE_TEST: Refined build count stuck at 1 after 30s idle. Check refine pipeline.")
-		else:
-			last_camera_idle_time_ms = 0
-			smoke_test_idle_duration_ms = 0
+	else:
+		last_camera_idle_time_ms = 0
+		smoke_test_idle_duration_ms = 0
 		smoke_test_warning_emitted = false
 	
 	# Remove invisible chunks from active builds
@@ -431,7 +435,10 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_active_refine_count": _count_active_stage("refine"),
 		"terrain_surface_refine_pending_count": _count_active_stage("refine_pending"),
 		"terrain_surface_smoke_test_idle_duration_ms": smoke_test_idle_duration_ms,
-		"terrain_surface_smoke_test_refine_count_at_idle": smoke_test_refine_build_count_at_idle
+		"terrain_surface_smoke_test_refine_count_at_idle": smoke_test_refine_build_count_at_idle,
+		"terrain_surface_smoke_test_stuck": smoke_test_idle_duration_ms >= 30000 and smoke_test_refine_build_count_at_idle <= 1,
+		"terrain_surface_smoke_test_warning_count": smoke_test_warning_count,
+		"terrain_surface_smoke_test_last_warning_ms": last_smoke_test_warning_ms
 	}
 
 func _draw() -> void:

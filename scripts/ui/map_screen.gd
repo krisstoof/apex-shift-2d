@@ -140,8 +140,10 @@ func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node
 
 
 func _process(_delta: float) -> void:
+	RUNTIME_PROFILER.begin_scope("map_screen_total_ms")
 	if not is_visible_in_tree():
 		map_screen_skipped_update_hidden_count += 1
+		RUNTIME_PROFILER.end_scope("map_screen_total_ms")
 		return
 	_log_hitch(_delta, "MapScreen", {
 		"texture_cached": biome_blend_texture != null,
@@ -174,6 +176,7 @@ func _process(_delta: float) -> void:
 			map_screen_marker_cache_dirty = false
 		if _refresh_landmarks_from_world():
 			map_screen_cache_rebuild_count += 1
+	RUNTIME_PROFILER.end_scope("map_screen_total_ms")
 			map_screen_shoreline_cache_dirty = true
 			cache_changed = true
 		if cache_changed:
@@ -1176,7 +1179,8 @@ func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> vo
 		if not flag_text.is_empty():
 			flag_text += " "
 		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
-	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
+	if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING):
+		print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _world_to_map(world_position: Vector2, map_rect: Rect2) -> Vector2:

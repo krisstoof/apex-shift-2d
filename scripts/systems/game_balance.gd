@@ -630,6 +630,8 @@ const RENDER_PERFORMANCE := {
 	"recovery_seconds": 3.0
 }
 
+const DEBUG_HITCH_VERBOSE_LOGGING := false
+
 const BIOME_TEXTURES_PRESETS := {
 	"normal": {
 		"blend_cache_scale": 0.65,

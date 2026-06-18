@@ -153,10 +153,14 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 
 
 func _process(delta: float) -> void:
+	RUNTIME_PROFILER.begin_scope("hud_total_ms")
 	if not player or not evolution_director or not day_night_system:
+		RUNTIME_PROFILER.end_scope("hud_total_ms")
 		return
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.begin_scope("hud_process_ms")
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+		RUNTIME_PROFILER.begin_scope("hud_process_logic_ms")
 	_update_critical_health_warning(delta)
 	_update_low_stat_warning(delta)
 	_update_survival_warning_messages(delta)
@@ -174,11 +178,15 @@ func _process(delta: float) -> void:
 	if hud_refresh_timer < HUD_REFRESH_INTERVAL:
 		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 			RUNTIME_PROFILER.end_scope("hud_process_ms")
+			RUNTIME_PROFILER.end_scope("hud_process_logic_ms")
+		RUNTIME_PROFILER.end_scope("hud_total_ms")
 		return
 	hud_refresh_timer = 0.0
 	_refresh_hud_text()
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.end_scope("hud_process_ms")
+		RUNTIME_PROFILER.end_scope("hud_process_logic_ms")
+	RUNTIME_PROFILER.end_scope("hud_total_ms")
 
 
 func _refresh_hud_text() -> void:
@@ -885,7 +893,8 @@ func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> vo
 		if not flag_text.is_empty():
 			flag_text += " "
 		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
-	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
+	if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING):
+		print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _fix_low_resolution_layout() -> void:

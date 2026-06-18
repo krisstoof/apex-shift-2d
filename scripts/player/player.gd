@@ -94,7 +94,9 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	RUNTIME_PROFILER.begin_scope("player_process_ms")
 	if is_dead:
+		RUNTIME_PROFILER.end_scope("player_process_ms")
 		return
 	_tick_torch(delta)
 	_update_torch_light(delta)
@@ -108,11 +110,14 @@ func _process(delta: float) -> void:
 		queue_redraw()
 	if is_torch_active():
 		queue_redraw()
+	RUNTIME_PROFILER.end_scope("player_process_ms")
 
 
 func _physics_process(delta: float) -> void:
+	RUNTIME_PROFILER.begin_scope("player_physics_process_ms")
 	if is_dead:
 		velocity = Vector2.ZERO
+		RUNTIME_PROFILER.end_scope("player_physics_process_ms")
 		return
 	if not checked_start_safe_spawn:
 		checked_start_safe_spawn = true
@@ -145,6 +150,7 @@ func _physics_process(delta: float) -> void:
 		stats.health = previous_health
 	if not is_dead and stats.health <= 0.0:
 		_die("hunger")
+	RUNTIME_PROFILER.end_scope("player_physics_process_ms")
 
 
 func _unhandled_input(event: InputEvent) -> void:

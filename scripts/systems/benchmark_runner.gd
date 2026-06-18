@@ -44,6 +44,9 @@ var realtime_hitch_count := 0
 var max_realtime_delta_ms := 0
 var realtime_hitches: Array = []
 var active_preset_name := "normal"
+var hitch_count_by_scope: Dictionary = {}
+var max_delta_by_scope: Dictionary = {}
+var last_hitch_delta_by_scope: Dictionary = {}
 
 # HITCH LOGGER COUNTERS
 var benchmark_sample_build_ms: float = 0.0
@@ -113,6 +116,8 @@ func start(preset_name: String = "normal") -> bool:
 func _process(delta: float) -> void:
 	if not running:
 		return
+	if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING):
+		RUNTIME_PROFILER.begin_scope("benchmark_runner_process_ms")
 	var now_ticks := Time.get_ticks_msec()
 	_capture_realtime_hitch(now_ticks, delta)
 	_log_hitch(delta, "BenchmarkRunner", {
@@ -129,6 +134,8 @@ func _process(delta: float) -> void:
 	_report_progress()
 	if elapsed_seconds >= benchmark_duration_seconds:
 		_finish()
+	if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING):
+		RUNTIME_PROFILER.end_scope("benchmark_runner_process_ms")
 
 
 func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
@@ -138,6 +145,9 @@ func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
 		if realtime_delta_ms > 250:
 			realtime_hitch_count += 1
 			max_realtime_delta_ms = maxi(max_realtime_delta_ms, realtime_delta_ms)
+			hitch_count_by_scope["BenchmarkRunner"] = int(hitch_count_by_scope.get("BenchmarkRunner", 0)) + 1
+			max_delta_by_scope["BenchmarkRunner"] = maxi(int(max_delta_by_scope.get("BenchmarkRunner", 0)), realtime_delta_ms)
+			last_hitch_delta_by_scope["BenchmarkRunner"] = realtime_delta_ms
 			var hitch := {
 				"elapsed_seconds": elapsed_seconds,
 				"realtime_delta_ms": realtime_delta_ms,
@@ -1065,7 +1075,10 @@ func _build_report() -> Dictionary:
 	report["benchmark_report_build_ms"] = benchmark_report_build_ms
 	report["runtime_hitch_summary"] = {
 		"count": realtime_hitch_count,
-		"max_realtime_delta_ms": max_realtime_delta_ms
+		"max_realtime_delta_ms": max_realtime_delta_ms,
+		"hitch_count_by_scope": hitch_count_by_scope.duplicate(true),
+		"max_delta_by_scope": max_delta_by_scope.duplicate(true),
+		"last_hitch_delta_by_scope": last_hitch_delta_by_scope.duplicate(true)
 	}
 	report["threshold_validation"] = _validate_benchmark_thresholds(report)
 	return report
@@ -1156,6 +1169,7 @@ func _format_report_text(report: Dictionary) -> String:
 	lines.append("Max physics time: %.2f ms" % float(report.get("max_physics_time_ms", 0.0)))
 	lines.append("Realtime hitch count: %d" % int(report.get("realtime_hitch_count", 0)))
 	lines.append("Max realtime delta: %d ms" % int(report.get("max_realtime_delta_ms", 0)))
+	lines.append(_format_hitch_summary_text(report))
 	lines.append("")
 	lines.append(_format_threshold_validation_text(report))
 	var heaviest_sample: Dictionary = Dictionary(report.get("heaviest_sample", {}))
@@ -1446,6 +1460,25 @@ func _format_threshold_validation_text(report: Dictionary) -> String:
 			lines.append("- %s: %s" % [str(warning.get("metric", "metric")), str(warning.get("message", "warning"))])
 	lines.append("Fail on regression: %s" % ("true" if fail_on_regression else "false"))
 	return "\n".join(lines)
+
+
+func _format_hitch_summary_text(report: Dictionary) -> String:
+	var summary := Dictionary(report.get("runtime_hitch_summary", {}))
+	var by_scope: Dictionary = Dictionary(summary.get("hitch_count_by_scope", {}))
+	if by_scope.is_empty():
+		return "Hitch summary: none"
+	var max_by_scope: Dictionary = Dictionary(summary.get("max_delta_by_scope", {}))
+	var last_by_scope: Dictionary = Dictionary(summary.get("last_hitch_delta_by_scope", {}))
+	var entries: Array[String] = []
+	for scope_name in by_scope.keys():
+		entries.append("%s count=%d max=%d last=%d" % [
+			str(scope_name),
+			int(by_scope.get(scope_name, 0)),
+			int(max_by_scope.get(scope_name, 0)),
+			int(last_by_scope.get(scope_name, 0))
+		])
+	entries.sort()
+	return "Hitch summary: %s" % ", ".join(entries)
 
 
 func _append_threshold_metric_line(lines: Array[String], metrics: Dictionary, thresholds: Dictionary, metric_name: String, threshold_name: String, operator_text: String) -> void:
@@ -1759,6 +1792,12 @@ func _sum_group_counts(counts: Dictionary) -> int:
 
 func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> void:
 	if delta <= 0.1:
+		return
+	var hitch_delta_ms := int(round(delta * 1000.0))
+	hitch_count_by_scope[system_name] = int(hitch_count_by_scope.get(system_name, 0)) + 1
+	max_delta_by_scope[system_name] = maxi(int(max_delta_by_scope.get(system_name, 0)), hitch_delta_ms)
+	last_hitch_delta_by_scope[system_name] = hitch_delta_ms
+	if not bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING) and not verbose_hitch_logging:
 		return
 	var flag_text := ""
 	for key in flags.keys():

@@ -1,5 +1,7 @@
 extends Node
 
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
+
 signal day_changed(day: int)
 
 @export var day_length_seconds := 180.0
@@ -41,11 +43,13 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	RuntimeProfiler.begin_scope("day_night_system_process_ms")
 	time_of_day += delta
 	if time_of_day >= day_length_seconds:
 		time_of_day -= day_length_seconds
 		_start_new_day("night_passed")
 	night_amount = _calculate_night_amount()
+	RuntimeProfiler.end_scope("day_night_system_process_ms")
 
 
 func sleep_until_morning() -> bool:

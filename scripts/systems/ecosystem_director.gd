@@ -4,6 +4,7 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const ECOSYSTEM_COMMAND := preload("res://scripts/systems/ecosystem_command.gd")
 const ECOSYSTEM_DELTA := preload("res://scripts/systems/ecosystem_delta.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 
 var biome_states: Dictionary = {}
 var tick_timer := 0.0
@@ -48,17 +49,21 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	RUNTIME_PROFILER.begin_scope("ecosystem_director_process_ms")
 	if not initialized:
+		RUNTIME_PROFILER.end_scope("ecosystem_director_process_ms")
 		return
 	tick_timer += delta
 	if not pending_tick_biome_ids.is_empty():
 		_process_next_runtime_biome()
 		return
 	if tick_timer < _ecosystem_value("simulation_tick_seconds"):
+		RUNTIME_PROFILER.end_scope("ecosystem_director_process_ms")
 		return
 	tick_timer = 0.0
 	_begin_runtime_ecosystem_tick()
 	_process_next_runtime_biome()
+	RUNTIME_PROFILER.end_scope("ecosystem_director_process_ms")
 
 
 func get_biome_states() -> Dictionary:

@@ -3,6 +3,7 @@ class_name ChunkManager
 
 const WORLD_CHUNK_SCRIPT := preload("res://scripts/world/world_chunk.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 
 var world: Node
 var player: Node2D
@@ -34,13 +35,17 @@ func bind(p_world: Node, p_player: Node2D, p_world_rect: Rect2) -> void:
 
 
 func _process(delta: float) -> void:
+	RUNTIME_PROFILER.begin_scope("chunk_manager_process_ms")
 	if world == null or player == null or not is_instance_valid(player):
+		RUNTIME_PROFILER.end_scope("chunk_manager_process_ms")
 		return
 	update_timer += delta
 	if update_timer < update_interval_seconds:
+		RUNTIME_PROFILER.end_scope("chunk_manager_process_ms")
 		return
 	update_timer = 0.0
 	update_player_chunk()
+	RUNTIME_PROFILER.end_scope("chunk_manager_process_ms")
 
 
 func _load_config() -> void:

@@ -183,7 +183,9 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 
 
 func _process(delta: float) -> void:
+	RUNTIME_PROFILER.begin_scope("minimap_total_ms")
 	if not is_visible_in_tree():
+		RUNTIME_PROFILER.end_scope("minimap_total_ms")
 		return
 	_log_hitch(delta, "Minimap", {
 		"texture_cached": biome_blend_texture != null,
@@ -247,6 +249,7 @@ func _process(delta: float) -> void:
 	if _marker_rebuild_timer >= minimap_marker_rebuild_interval:
 		_marker_rebuild_timer = 0.0
 		_refresh_static_caches()
+	RUNTIME_PROFILER.end_scope("minimap_total_ms")
 
 
 func _draw() -> void:
@@ -886,7 +889,8 @@ func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> vo
 		if not flag_text.is_empty():
 			flag_text += " "
 		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
-	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
+	if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING):
+		print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _draw_grid(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:

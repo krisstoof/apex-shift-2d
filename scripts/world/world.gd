@@ -443,6 +443,7 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
+	RUNTIME_PROFILER.begin_scope("world_process_total_ms")
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.set_enabled(true)
 		var frame_snapshot := RUNTIME_PROFILER.get_and_reset_frame_snapshot()
@@ -461,6 +462,7 @@ func _process(delta: float) -> void:
 		"hidden_creatures": get_visibility_culling_debug().get("hidden_creatures", 0)
 	})
 	if is_restoring_save:
+		RUNTIME_PROFILER.end_scope("world_process_total_ms")
 		return
 	var current_fps := float(Engine.get_frames_per_second())
 	if render_performance_governor != null and render_performance_governor.has_method("update"):
@@ -537,6 +539,7 @@ func _process(delta: float) -> void:
 		_update_biome_detail_overlay(delta)
 		_build_pending_biome_detail_overlay_chunks()
 	_update_night_overlay(current_night_amount)
+	RUNTIME_PROFILER.end_scope("world_process_total_ms")
 
 
 func _apply_graphics_settings_defaults() -> void:
@@ -1867,9 +1870,11 @@ func get_decorative_vegetation_debug() -> Dictionary:
 
 
 func _update_resource_interactions() -> void:
+	RUNTIME_PROFILER.begin_scope("resource_activation_update_ms")
 	var player_node := _get_player_node()
 	if player_node == null:
 		resource_activation_skipped_count += 1
+		RUNTIME_PROFILER.end_scope("resource_activation_update_ms")
 		return
 	var player_position := player_node.global_position if player_node is Node2D else _get_player_position()
 	var activation_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("resource_collision_activation_radius", 900.0))
@@ -1884,6 +1889,7 @@ func _update_resource_interactions() -> void:
 	else:
 		resources = get_cached_group_nodes("resources")
 	if resources.is_empty():
+		RUNTIME_PROFILER.end_scope("resource_activation_update_ms")
 		return
 	resource_activation_checked_count += resources.size()
 	interactive_resource_node_count = 0
@@ -1952,6 +1958,7 @@ func _update_resource_interactions() -> void:
 	for active_id in nearby_active_ids.keys():
 		resource_activation_active_ids[active_id] = true
 	resource_activation_scan_index = (start_index + scan_count) % scan_count
+	RUNTIME_PROFILER.end_scope("resource_activation_update_ms")
 
 
 func _should_resource_interaction_be_active(resource: Node, player_position: Vector2, activation_radius: float, player_radius: float, ai_radius: float) -> bool:
@@ -4092,13 +4099,17 @@ func _get_hill_peak_elevation_factor() -> float:
 
 
 func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
+	RUNTIME_PROFILER.begin_scope("resource_spawn_ms")
 	if _is_poolable_resource_kind(resource_kind):
-		return _spawn_pooled_resource_at(resource_kind, pos)
+		var pooled := _spawn_pooled_resource_at(resource_kind, pos)
+		RUNTIME_PROFILER.end_scope("resource_spawn_ms")
+		return pooled
 	var node := RESOURCE_SCENE.instantiate()
 	node.position = pos
 	node.setup(resource_kind)
 	add_child(node)
 	call_deferred("_finalize_spawned_resource_node", node)
+	RUNTIME_PROFILER.end_scope("resource_spawn_ms")
 	return node
 
 
@@ -4616,10 +4627,13 @@ func _get_nearest_pond_landmark(search_position: Vector2) -> Dictionary:
 
 
 func _sync_visible_small_prey() -> void:
+	RUNTIME_PROFILER.begin_scope("small_prey_sync_ms")
 	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
+		RUNTIME_PROFILER.end_scope("small_prey_sync_ms")
 		return
 	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
 		small_prey_spawn_sync_skipped_by_cooldown_count += 1
+		RUNTIME_PROFILER.end_scope("small_prey_sync_ms")
 		return
 	_reset_creature_spawn_rejection_debug("small_prey")
 	small_prey_spawn_sync_attempt_count += 1
@@ -4667,6 +4681,7 @@ func _sync_visible_small_prey() -> void:
 			SMALL_PREY_FAILED_SPAWN_RETRY_SECONDS
 		])
 		small_prey_failed_spawn_warning_printed = true
+	RUNTIME_PROFILER.end_scope("small_prey_sync_ms")
 
 
 func _get_desired_small_prey_count(biome: Dictionary, biome_state: Dictionary) -> int:
@@ -5340,6 +5355,7 @@ func _is_point_in_scaled_biome(point: Vector2, biome: Dictionary) -> bool:
 
 
 func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
+	RUNTIME_PROFILER.begin_scope("small_prey_spawn_ms")
 	var small_prey := SMALL_PREY_SCENE.instantiate()
 	small_prey.global_position = pos
 	_bind_creature_context(small_prey)
@@ -5347,6 +5363,7 @@ func _spawn_small_prey_at(pos: Vector2, biome_id: String) -> Node:
 		small_prey.setup(biome_id)
 	add_child(small_prey)
 	register_creature_node(small_prey, "small_prey")
+	RUNTIME_PROFILER.end_scope("small_prey_spawn_ms")
 	return small_prey
 
 
@@ -5752,6 +5769,7 @@ func _try_spawn_varnak_in_weighted_biome(player_position: Vector2, used_position
 
 
 func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
+	RUNTIME_PROFILER.begin_scope("grazer_spawn_ms")
 	var grazer := GRAZER_SCENE.instantiate()
 	grazer.global_position = pos
 	_bind_creature_context(grazer)
@@ -5759,12 +5777,15 @@ func _spawn_grazer_at(pos: Vector2, biome_id: String) -> Node:
 		grazer.setup(biome_id)
 	add_child(grazer)
 	register_creature_node(grazer, "grazer")
+	RUNTIME_PROFILER.end_scope("grazer_spawn_ms")
 	return grazer
 
 
 func _sync_visible_varnaks(force_spawn_check := false) -> void:
+	RUNTIME_PROFILER.begin_scope("varnak_sync_ms")
 	if varnak_failed_spawn_retry_timer > 0.0 and not force_spawn_check and not integration_test_mode:
 		varnak_spawn_sync_skipped_by_cooldown_count += 1
+		RUNTIME_PROFILER.end_scope("varnak_sync_ms")
 		return
 	varnak_spawn_sync_attempt_count += 1
 	var player_position := _get_player_position()
@@ -5772,8 +5793,10 @@ func _sync_visible_varnaks(force_spawn_check := false) -> void:
 	var spawn_budget := _get_varnak_spawn_budget(global_count, _get_current_day())
 	varnak_spawn_sync_last_requested = spawn_budget
 	if spawn_budget <= 0:
+		RUNTIME_PROFILER.end_scope("varnak_sync_ms")
 		return
 	if not force_spawn_check and varnak_rng.randf() > _get_varnak_spawn_chance(_get_current_day()):
+		RUNTIME_PROFILER.end_scope("varnak_sync_ms")
 		return
 	var spawned := 0
 	var used_positions := _get_existing_varnak_positions()
@@ -5802,6 +5825,7 @@ func _sync_visible_varnaks(force_spawn_check := false) -> void:
 			VARNAK_FAILED_SPAWN_RETRY_SECONDS
 		])
 		varnak_failed_spawn_warning_printed = true
+	RUNTIME_PROFILER.end_scope("varnak_sync_ms")
 
 
 func respawn_missing_varnaks() -> void:
@@ -6952,7 +6976,8 @@ func _log_hitch(delta: float, system_name: String, flags: Dictionary = {}) -> vo
 		if not flag_text.is_empty():
 			flag_text += " "
 		flag_text += "%s=%s" % [str(key), str(flags.get(key))]
-	print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
+	if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING):
+		print("[HITCH] %s delta=%.3f %s" % [system_name, delta, flag_text])
 
 
 func _get_biome_surface_color_at(surface_position: Vector2, biome_zones: Array) -> Color:

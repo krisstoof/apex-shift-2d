@@ -81,13 +81,53 @@ func _on_benchmark_finished(log_path: String, json_path: String) -> void:
 		var parsed := JSON.parse_string(json_text)
 		if parsed is Dictionary:
 			var report := Dictionary(parsed)
-			print("[BenchmarkHarness] sample_collection_ms=%.2f" % float(report.get("benchmark_sample_collection_ms", 0.0)))
-			print("[BenchmarkHarness] sample_build_ms=%.2f" % float(report.get("benchmark_sample_build_ms", 0.0)))
-			print("[BenchmarkHarness] realtime_hitch_count=%d" % int(report.get("realtime_hitch_count", 0)))
-			print("[BenchmarkHarness] max_realtime_delta_ms=%d" % int(report.get("max_realtime_delta_ms", 0)))
-			var threshold_validation := Dictionary(report.get("threshold_validation", {}))
-			print("[BenchmarkHarness] threshold_status=%s" % str(threshold_validation.get("status", "unknown")))
+			var summary_path := _write_summary(report, log_path, json_path)
+			if not summary_path.is_empty():
+				print("[BenchmarkHarness] summary=%s" % summary_path)
 	get_tree().quit(0)
+
+
+func _write_summary(report: Dictionary, log_path: String, json_path: String) -> String:
+	var threshold_validation := Dictionary(report.get("threshold_validation", {}))
+	var runtime_hitch_summary := Dictionary(report.get("runtime_hitch_summary", {}))
+	var benchmark_dir := ProjectSettings.globalize_path("user://benchmark_logs")
+	var summary_path := "%s/%s.summary.txt" % [benchmark_dir, str(report.get("benchmark_name", "benchmark"))]
+	var summary_lines: Array[String] = []
+	summary_lines.append("benchmark_name=%s" % str(report.get("benchmark_name", "unknown")))
+	summary_lines.append("benchmark_preset=%s" % str(report.get("benchmark_preset", "unknown")))
+	summary_lines.append("threshold_status=%s" % str(threshold_validation.get("status", "unknown")))
+	summary_lines.append("sample_collection_ms=%.2f" % float(report.get("benchmark_sample_collection_ms", 0.0)))
+	summary_lines.append("sample_build_ms=%.2f" % float(report.get("benchmark_sample_build_ms", 0.0)))
+	summary_lines.append("realtime_hitch_count=%d" % int(report.get("realtime_hitch_count", 0)))
+	summary_lines.append("max_realtime_delta_ms=%d" % int(report.get("max_realtime_delta_ms", 0)))
+	summary_lines.append("hitch_summary=%s" % _format_hitch_summary(runtime_hitch_summary))
+	summary_lines.append("log_path=%s" % log_path)
+	summary_lines.append("json_path=%s" % json_path)
+	var file := FileAccess.open(summary_path, FileAccess.WRITE)
+	if file == null:
+		push_error("[BenchmarkHarness] Could not write summary file: %s" % summary_path)
+		return ""
+	file.store_string("\n".join(summary_lines))
+	file.flush()
+	return summary_path
+
+
+func _format_hitch_summary(runtime_hitch_summary: Dictionary) -> String:
+	var by_scope: Dictionary = Dictionary(runtime_hitch_summary.get("hitch_count_by_scope", {}))
+	if by_scope.is_empty():
+		return "none"
+	var max_by_scope: Dictionary = Dictionary(runtime_hitch_summary.get("max_delta_by_scope", {}))
+	var last_by_scope: Dictionary = Dictionary(runtime_hitch_summary.get("last_hitch_delta_by_scope", {}))
+	var parts: Array[String] = []
+	for scope_name in by_scope.keys():
+		parts.append("%s:%d/%d/%d" % [
+			str(scope_name),
+			int(by_scope.get(scope_name, 0)),
+			int(max_by_scope.get(scope_name, 0)),
+			int(last_by_scope.get(scope_name, 0))
+		])
+	parts.sort()
+	return ", ".join(parts)
 
 
 func _parse_cli_args() -> void:
