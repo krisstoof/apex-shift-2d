@@ -29,7 +29,7 @@ func _run() -> void:
 		_benchmark_runner.finished.connect(_on_benchmark_finished)
 	if _benchmark_runner.has_signal("benchmark_progress"):
 		_benchmark_runner.benchmark_progress.connect(_on_benchmark_progress)
-	var started := _benchmark_runner.call("start", _preset_name) == true
+	var started: bool = _benchmark_runner.call("start", _preset_name) == true
 	if not started:
 		push_error("[BenchmarkHarness] Benchmark failed to start")
 		get_tree().quit(1)
@@ -79,7 +79,7 @@ func _on_benchmark_finished(log_path: String, json_path: String) -> void:
 	print("[BenchmarkHarness] json=%s" % json_path)
 	var json_text := FileAccess.get_file_as_string(json_path)
 	if not json_text.is_empty():
-		var parsed := JSON.parse_string(json_text)
+		var parsed: Variant = JSON.parse_string(json_text)
 		if parsed is Dictionary:
 			var report := Dictionary(parsed)
 			var summary_path := _write_summary(report, log_path, json_path)

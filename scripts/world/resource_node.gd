@@ -123,6 +123,7 @@ func setup(kind: String) -> void:
 			mature_radius = 15.0
 		"meat_drop":
 			item_name = "meat"
+			item_id = "meat"
 			mature_amount = 1
 			mature_color = Color(0.72, 0.12, 0.10)
 			mature_radius = 10.0
@@ -130,6 +131,7 @@ func setup(kind: String) -> void:
 			z_index = 20
 		"bone_drop":
 			item_name = "bone"
+			item_id = "bone"
 			mature_amount = 1
 			mature_color = Color(0.82, 0.78, 0.70)
 			mature_radius = 9.0
@@ -255,6 +257,17 @@ func is_player_interactable() -> bool:
 	if not visible:
 		return false
 	return true
+
+
+func get_pickup_priority() -> int:
+	match resource_kind:
+		"meat_drop":
+			return 100
+		"bone_drop":
+			return 90
+		"item_drop":
+			return 80
+	return 10
 
 
 func get_save_data() -> Dictionary:
@@ -717,10 +730,13 @@ func _interact_full_stack_drop(player: Node) -> void:
 	var player_inventory: Variant = player.get("inventory")
 	if player_inventory == null or not player_inventory.has_method("add_item_full_stack"):
 		return
+	print("[PICKUP] attempt item_id=%s amount=%d kind=%s" % [drop_item_id, amount, resource_kind])
 	if player_inventory.call("add_item_full_stack", drop_item_id, amount) != true:
 		_post_event_message("Inventory full")
+		print("[PICKUP] success=false item_id=%s amount=%d reason=inventory_full" % [drop_item_id, amount])
 		return
 	_post_event_message("Collected %s x%d" % [_get_drop_item_label(), amount])
+	print("[PICKUP] success=true item_id=%s amount=%d" % [drop_item_id, amount])
 	queue_free()
 
 

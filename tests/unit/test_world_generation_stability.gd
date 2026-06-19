@@ -109,7 +109,7 @@ func _test_points_in_bounds() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var world_rect := Rect2(layout.get("world_rect", Rect2()))
 		var padded := world_rect.grow(32.0)
 		for zone_value in Array(layout.get("creature_spawn_zones", [])):
@@ -131,7 +131,7 @@ func _test_biome_coverage() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var biomes := Array(layout.get("biomes", []))
 		if biomes.is_empty():
 			failures.append("BIOMES seed=%d: no biome regions generated" % test_seed)
@@ -157,7 +157,7 @@ func _test_terrain_coverage() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var debug := Dictionary(layout.get("debug", {}))
 		var terrain_counts := Dictionary(debug.get("terrain_counts", {}))
 		if terrain_counts.is_empty():
@@ -188,7 +188,7 @@ func _test_world_contains_land() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var debug := Dictionary(layout.get("debug", {}))
 		var terrain_counts := Dictionary(debug.get("terrain_counts", {}))
 		var land_count := int(terrain_counts.get("land", 0)) + int(terrain_counts.get("highland", 0))
@@ -204,7 +204,7 @@ func _test_world_contains_water() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var debug := Dictionary(layout.get("debug", {}))
 		var terrain_counts := Dictionary(debug.get("terrain_counts", {}))
 		var water_count := int(terrain_counts.get("ocean", 0)) + int(terrain_counts.get("pond", 0))
@@ -220,7 +220,7 @@ func _test_player_spawn_on_land() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var result := WORLD_GENERATION_RESULT.from_layout(layout)
 		var spawn_pos := result.player_spawn_position
 		
@@ -245,7 +245,7 @@ func _test_creatures_spawn_on_valid_terrain() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var result := WORLD_GENERATION_RESULT.from_layout(layout)
 		var world_rect := result.world_rect
 		
@@ -280,7 +280,7 @@ func _test_biomes_exist_on_land() -> Array[String]:
 	var failures: Array[String] = []
 	for test_seed in TEST_SEEDS:
 		var gen = _make_generator()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var result := WORLD_GENERATION_RESULT.from_layout(layout)
 		
 		if result.biome_regions.is_empty():
@@ -311,7 +311,7 @@ func _test_different_seeds_create_different_worlds() -> Array[String]:
 	
 	for test_seed in TEST_SEEDS:
 		var gen = _make_generator()
-		var layout := gen.generate_world(test_seed)
+		var layout: Dictionary = gen.generate_world(test_seed)
 		var h := WORLD_GENERATION_RESULT.compute_hash_from_layout(layout)
 		hashes[test_seed] = h
 		seed_count += 1

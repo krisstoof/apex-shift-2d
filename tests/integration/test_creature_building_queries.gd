@@ -2,6 +2,7 @@ extends RefCounted
 class_name TestCreatureBuildingQueries
 
 const INTEGRATION_TEST_UTILS := preload("res://tests/integration/integration_test_utils.gd")
+const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 var expect: Callable
 var expect_equal: Callable
@@ -9,9 +10,9 @@ var expect_close: Callable
 
 
 func _init() -> void:
-	expect = INTEGRATION_TEST_UTILS.expect
-	expect_equal = INTEGRATION_TEST_UTILS.expect_equal
-	expect_close = INTEGRATION_TEST_UTILS.expect_close
+	expect = TEST_UTILS.expect
+	expect_equal = TEST_UTILS.expect_equal
+	expect_close = TEST_UTILS.expect_close
 
 
 func run() -> Array:
@@ -45,11 +46,12 @@ func run() -> Array:
 
 
 func _test_small_prey_uses_wall_avoidance_with_building_query() -> bool:
-	var boot_result = INTEGRATION_TEST_UTILS.boot_main()
-	if not boot_result.success:
+	var boot_result = await INTEGRATION_TEST_UTILS.boot_main()
+	if not bool(boot_result.get("ok", false)):
 		return true
 	
-	var world = boot_result.world
+	var main = boot_result.get("main") as Node
+	var world = main.get_node_or_null("World") if main != null else null
 	var registry = world.get_registry()
 	
 	# Spawn SmallPrey
@@ -62,22 +64,23 @@ func _test_small_prey_uses_wall_avoidance_with_building_query() -> bool:
 	
 	# Check that wall is in registry
 	var nearby_walls = registry.get_buildings_near(prey.global_position, 100.0, "wall")
-	expect_equal(nearby_walls.size(), 1, "Wall should be nearby prey")
+	expect_equal.call(nearby_walls.size(), 1, "Wall should be nearby prey")
 	
 	# Test _get_wall_avoidance_vector - this is the AI method that now uses building queries
 	var avoidance = prey._get_wall_avoidance_vector()
-	expect(avoidance.length_squared() > 0.0, "Wall avoidance should be non-zero when wall is nearby")
+	expect.call(avoidance.length_squared() > 0.0, "Wall avoidance should be non-zero when wall is nearby")
 	
-	INTEGRATION_TEST_UTILS.shutdown()
+	await INTEGRATION_TEST_UTILS.shutdown_main(boot_result)
 	return false
 
 
 func _test_grazer_uses_wall_avoidance_with_building_query() -> bool:
-	var boot_result = INTEGRATION_TEST_UTILS.boot_main()
-	if not boot_result.success:
+	var boot_result = await INTEGRATION_TEST_UTILS.boot_main()
+	if not bool(boot_result.get("ok", false)):
 		return true
 	
-	var world = boot_result.world
+	var main = boot_result.get("main") as Node
+	var world = main.get_node_or_null("World") if main != null else null
 	var registry = world.get_registry()
 	
 	# Spawn Grazer
@@ -90,22 +93,23 @@ func _test_grazer_uses_wall_avoidance_with_building_query() -> bool:
 	
 	# Check that wall is in registry
 	var nearby_walls = registry.get_buildings_near(grazer.global_position, 100.0, "wall")
-	expect_equal(nearby_walls.size(), 1, "Wall should be nearby grazer")
+	expect_equal.call(nearby_walls.size(), 1, "Wall should be nearby grazer")
 	
 	# Test _get_wall_avoidance_vector - this is the AI method that now uses building queries
 	var avoidance = grazer._get_wall_avoidance_vector()
-	expect(avoidance.length_squared() > 0.0, "Wall avoidance should be non-zero when wall is nearby")
+	expect.call(avoidance.length_squared() > 0.0, "Wall avoidance should be non-zero when wall is nearby")
 	
-	INTEGRATION_TEST_UTILS.shutdown()
+	await INTEGRATION_TEST_UTILS.shutdown_main(boot_result)
 	return false
 
 
 func _test_varnak_uses_trap_avoidance_with_building_query() -> bool:
-	var boot_result = INTEGRATION_TEST_UTILS.boot_main()
-	if not boot_result.success:
+	var boot_result = await INTEGRATION_TEST_UTILS.boot_main()
+	if not bool(boot_result.get("ok", false)):
 		return true
 	
-	var world = boot_result.world
+	var main = boot_result.get("main") as Node
+	var world = main.get_node_or_null("World") if main != null else null
 	var registry = world.get_registry()
 	
 	# Spawn Varnak with trap_awareness
@@ -119,23 +123,24 @@ func _test_varnak_uses_trap_avoidance_with_building_query() -> bool:
 	
 	# Check that trap is in registry
 	var nearby_traps = registry.get_buildings_near(varnak.global_position, 100.0, "trap")
-	expect_equal(nearby_traps.size(), 1, "Trap should be nearby varnak")
+	expect_equal.call(nearby_traps.size(), 1, "Trap should be nearby varnak")
 	
 	# Test _avoid_trap_target - this is the AI method that now uses building queries
 	var original_target = Vector2(350.0, 300.0)
 	var avoided_target = varnak._avoid_trap_target(original_target)
-	expect(avoided_target != original_target, "Trap avoidance should modify target")
+	expect.call(avoided_target != original_target, "Trap avoidance should modify target")
 	
-	INTEGRATION_TEST_UTILS.shutdown()
+	await INTEGRATION_TEST_UTILS.shutdown_main(boot_result)
 	return false
 
 
 func _test_varnak_uses_campfire_fear_with_building_query() -> bool:
-	var boot_result = INTEGRATION_TEST_UTILS.boot_main()
-	if not boot_result.success:
+	var boot_result = await INTEGRATION_TEST_UTILS.boot_main()
+	if not bool(boot_result.get("ok", false)):
 		return true
 	
-	var world = boot_result.world
+	var main = boot_result.get("main") as Node
+	var world = main.get_node_or_null("World") if main != null else null
 	var registry = world.get_registry()
 	
 	# Spawn Varnak
@@ -150,22 +155,23 @@ func _test_varnak_uses_campfire_fear_with_building_query() -> bool:
 	
 	# Check that campfire is in registry
 	var nearby_campfires = registry.get_buildings_near(varnak.global_position, 350.0, "campfire")
-	expect_equal(nearby_campfires.size(), 1, "Campfire should be nearby varnak")
+	expect_equal.call(nearby_campfires.size(), 1, "Campfire should be nearby varnak")
 	
 	# Test _nearest_active_campfire - this is the AI method that now uses building queries
 	var nearest_fire = varnak._nearest_active_campfire()
-	expect_equal(is_instance_valid(nearest_fire) and nearest_fire == campfire, true, "Should find nearest active campfire")
+	expect_equal.call(is_instance_valid(nearest_fire) and nearest_fire == campfire, true, "Should find nearest active campfire")
 	
-	INTEGRATION_TEST_UTILS.shutdown()
+	await INTEGRATION_TEST_UTILS.shutdown_main(boot_result)
 	return false
 
 
 func _test_creature_building_query_finds_nearby_only() -> bool:
-	var boot_result = INTEGRATION_TEST_UTILS.boot_main()
-	if not boot_result.success:
+	var boot_result = await INTEGRATION_TEST_UTILS.boot_main()
+	if not bool(boot_result.get("ok", false)):
 		return true
 	
-	var world = boot_result.world
+	var main = boot_result.get("main") as Node
+	var world = main.get_node_or_null("World") if main != null else null
 	var registry = world.get_registry()
 	
 	var prey = INTEGRATION_TEST_UTILS.spawn_creature(world, "small_prey", Vector2(500.0, 500.0))
@@ -178,19 +184,20 @@ func _test_creature_building_query_finds_nearby_only() -> bool:
 	
 	# Query nearby walls with 50px radius
 	var nearby_walls = registry.get_buildings_near(prey.global_position, 50.0, "wall")
-	expect_equal(nearby_walls.size(), 1, "Should find only close wall")
-	expect(nearby_walls.has(close_wall), "Should include close wall")
+	expect_equal.call(nearby_walls.size(), 1, "Should find only close wall")
+	expect.call(nearby_walls.has(close_wall), "Should include close wall")
 	
-	INTEGRATION_TEST_UTILS.shutdown()
+	await INTEGRATION_TEST_UTILS.shutdown_main(boot_result)
 	return false
 
 
 func _test_building_queries_filter_by_type() -> bool:
-	var boot_result = INTEGRATION_TEST_UTILS.boot_main()
-	if not boot_result.success:
+	var boot_result = await INTEGRATION_TEST_UTILS.boot_main()
+	if not bool(boot_result.get("ok", false)):
 		return true
 	
-	var world = boot_result.world
+	var main = boot_result.get("main") as Node
+	var world = main.get_node_or_null("World") if main != null else null
 	var registry = world.get_registry()
 	
 	var prey = INTEGRATION_TEST_UTILS.spawn_creature(world, "small_prey", Vector2(600.0, 600.0))
@@ -204,27 +211,28 @@ func _test_building_queries_filter_by_type() -> bool:
 	
 	# Test type filtering
 	var only_walls = registry.get_buildings_near(prey.global_position, 50.0, "wall")
-	expect_equal(only_walls.size(), 1, "Should find only walls")
-	expect(only_walls.has(wall), "Should include wall")
+	expect_equal.call(only_walls.size(), 1, "Should find only walls")
+	expect.call(only_walls.has(wall), "Should include wall")
 	
 	var only_traps = registry.get_buildings_near(prey.global_position, 50.0, "trap")
-	expect_equal(only_traps.size(), 1, "Should find only traps")
-	expect(only_traps.has(trap), "Should include trap")
+	expect_equal.call(only_traps.size(), 1, "Should find only traps")
+	expect.call(only_traps.has(trap), "Should include trap")
 	
 	var only_campfires = registry.get_buildings_near(prey.global_position, 50.0, "campfire")
-	expect_equal(only_campfires.size(), 1, "Should find only campfires")
-	expect(only_campfires.has(campfire), "Should include campfire")
+	expect_equal.call(only_campfires.size(), 1, "Should find only campfires")
+	expect.call(only_campfires.has(campfire), "Should include campfire")
 	
-	INTEGRATION_TEST_UTILS.shutdown()
+	await INTEGRATION_TEST_UTILS.shutdown_main(boot_result)
 	return false
 
 
 func _test_multiple_creatures_can_query_same_buildings() -> bool:
-	var boot_result = INTEGRATION_TEST_UTILS.boot_main()
-	if not boot_result.success:
+	var boot_result = await INTEGRATION_TEST_UTILS.boot_main()
+	if not bool(boot_result.get("ok", false)):
 		return true
 	
-	var world = boot_result.world
+	var main = boot_result.get("main") as Node
+	var world = main.get_node_or_null("World") if main != null else null
 	var registry = world.get_registry()
 	
 	# Spawn two creatures
@@ -240,21 +248,22 @@ func _test_multiple_creatures_can_query_same_buildings() -> bool:
 	var prey_nearby = registry.get_buildings_near(prey.global_position, 50.0, "wall")
 	var grazer_nearby = registry.get_buildings_near(grazer.global_position, 50.0, "wall")
 	
-	expect_equal(prey_nearby.size(), 1, "Prey should find wall")
-	expect_equal(grazer_nearby.size(), 1, "Grazer should find wall")
-	expect(prey_nearby.has(shared_wall), "Prey should find shared wall")
-	expect(grazer_nearby.has(shared_wall), "Grazer should find shared wall")
+	expect_equal.call(prey_nearby.size(), 1, "Prey should find wall")
+	expect_equal.call(grazer_nearby.size(), 1, "Grazer should find wall")
+	expect.call(prey_nearby.has(shared_wall), "Prey should find shared wall")
+	expect.call(grazer_nearby.has(shared_wall), "Grazer should find shared wall")
 	
-	INTEGRATION_TEST_UTILS.shutdown()
+	await INTEGRATION_TEST_UTILS.shutdown_main(boot_result)
 	return false
 
 
 func _test_creature_building_query_with_moved_target() -> bool:
-	var boot_result = INTEGRATION_TEST_UTILS.boot_main()
-	if not boot_result.success:
+	var boot_result = await INTEGRATION_TEST_UTILS.boot_main()
+	if not bool(boot_result.get("ok", false)):
 		return true
 	
-	var world = boot_result.world
+	var main = boot_result.get("main") as Node
+	var world = main.get_node_or_null("World") if main != null else null
 	var registry = world.get_registry()
 	
 	var prey = INTEGRATION_TEST_UTILS.spawn_creature(world, "small_prey", Vector2(800.0, 800.0))
@@ -266,7 +275,7 @@ func _test_creature_building_query_with_moved_target() -> bool:
 	
 	# Wall should be nearby
 	var nearby_before = registry.get_buildings_near(prey.global_position, 50.0, "wall")
-	expect_equal(nearby_before.size(), 1, "Wall should be nearby initially")
+	expect_equal.call(nearby_before.size(), 1, "Wall should be nearby initially")
 	
 	# Move prey far away
 	prey.global_position = Vector2(1000.0, 800.0)
@@ -274,7 +283,7 @@ func _test_creature_building_query_with_moved_target() -> bool:
 	
 	# Wall should no longer be nearby
 	var nearby_after = registry.get_buildings_near(prey.global_position, 50.0, "wall")
-	expect_equal(nearby_after.size(), 0, "Wall should not be nearby after move")
+	expect_equal.call(nearby_after.size(), 0, "Wall should not be nearby after move")
 	
-	INTEGRATION_TEST_UTILS.shutdown()
+	await INTEGRATION_TEST_UTILS.shutdown_main(boot_result)
 	return false

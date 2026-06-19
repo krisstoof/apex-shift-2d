@@ -16,12 +16,17 @@ var hidden_creature_count := 0
 var last_visible_rect := Rect2()
 
 # Batching & hysteresis
+const MAX_VISIBILITY_CHANGES_PER_FRAME := 64
+const MAX_VISIBILITY_QUEUE_MS_PER_FRAME := 1.5
+
 var pending_visibility_show: Array[int] = []
 var pending_visibility_hide: Array[int] = []
 var visibility_changes_budget := 25
 var shown_this_frame := 0
 var hidden_this_frame := 0
+var visibility_processed_this_frame := 0
 var visibility_pending_dropped_invalid := 0
+var visibility_queue_ms := 0.0
 var hysteresis_margin := 0.15  # 15% additional margin for hide_rect to prevent flickering
 var show_rect := Rect2()  # Inner rect - where to show nodes
 var hide_rect := Rect2()  # Outer rect with extra margin - where to hide nodes
@@ -41,6 +46,8 @@ func process(delta: float) -> void:
 		return
 	shown_this_frame = 0
 	hidden_this_frame = 0
+	visibility_processed_this_frame = 0
+	visibility_queue_ms = 0.0
 	_process_pending_visibility_changes()
 	update_timer += delta
 	if update_timer < interval_seconds:
@@ -67,7 +74,9 @@ func get_debug_data() -> Dictionary:
 		"hidden_creatures": hidden_creature_count,
 		"shown_this_frame": shown_this_frame,
 		"hidden_this_frame": hidden_this_frame,
+		"visibility_processed_this_frame": visibility_processed_this_frame,
 		"visibility_pending_dropped_invalid": visibility_pending_dropped_invalid,
+		"visibility_queue_ms": visibility_queue_ms,
 		"pending_show_count": pending_visibility_show.size(),
 		"pending_hide_count": pending_visibility_hide.size(),
 		"visibility_changes_budget": visibility_changes_budget
@@ -86,7 +95,9 @@ func reset() -> void:
 	pending_visibility_hide.clear()
 	shown_this_frame = 0
 	hidden_this_frame = 0
+	visibility_processed_this_frame = 0
 	visibility_pending_dropped_invalid = 0
+	visibility_queue_ms = 0.0
 	show_rect = Rect2()
 	hide_rect = Rect2()
 
@@ -214,10 +225,16 @@ func _queue_visibility_change(node: Node, should_be_visible: bool, is_resource: 
 
 
 func _process_pending_visibility_changes() -> void:
+	var start_usec := Time.get_ticks_usec()
 	var budget_used := 0
+	var max_changes := maxi(visibility_changes_budget, 1)
+	max_changes = mini(max_changes, MAX_VISIBILITY_CHANGES_PER_FRAME)
 	
 	# Process show queue
-	while budget_used < visibility_changes_budget and pending_visibility_show.size() > 0:
+	while budget_used < max_changes and pending_visibility_show.size() > 0:
+		visibility_queue_ms = float(Time.get_ticks_usec() - start_usec) / 1000.0
+		if visibility_queue_ms >= MAX_VISIBILITY_QUEUE_MS_PER_FRAME:
+			return
 		var instance_id := int(pending_visibility_show.pop_front())
 		var node := instance_from_id(instance_id) as Node
 		if is_instance_valid(node):
@@ -226,9 +243,13 @@ func _process_pending_visibility_changes() -> void:
 		else:
 			visibility_pending_dropped_invalid += 1
 		budget_used += 1
+		visibility_processed_this_frame += 1
 	
 	# Process hide queue with remaining budget
-	while budget_used < visibility_changes_budget and pending_visibility_hide.size() > 0:
+	while budget_used < max_changes and pending_visibility_hide.size() > 0:
+		visibility_queue_ms = float(Time.get_ticks_usec() - start_usec) / 1000.0
+		if visibility_queue_ms >= MAX_VISIBILITY_QUEUE_MS_PER_FRAME:
+			return
 		var instance_id := int(pending_visibility_hide.pop_front())
 		var node := instance_from_id(instance_id) as Node
 		if is_instance_valid(node):
@@ -237,6 +258,8 @@ func _process_pending_visibility_changes() -> void:
 		else:
 			visibility_pending_dropped_invalid += 1
 		budget_used += 1
+		visibility_processed_this_frame += 1
+	visibility_queue_ms = float(Time.get_ticks_usec() - start_usec) / 1000.0
 
 
 func _has_pending_node(queue: Array[int], node: Node) -> bool:

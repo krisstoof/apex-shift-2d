@@ -32,8 +32,6 @@ func _test_resource_in_registry_and_spatial_index(failures: Array[String]) -> vo
 		return
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
-	defer:
-		await INTEGRATION.shutdown_main(context)
 	
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -56,6 +54,7 @@ func _test_resource_in_registry_and_spatial_index(failures: Array[String]) -> vo
 	
 	# Check spatial index via query
 	_assert_resource_in_spatial_query(failures, world, resource, spawn_pos, 200.0, "REGISTRY_SPATIAL")
+	await INTEGRATION.shutdown_main(context)
 
 
 # ---------------------------------------------------------------------------
@@ -68,8 +67,6 @@ func _test_creature_in_registry_and_spatial_index(failures: Array[String]) -> vo
 		return
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
-	defer:
-		await INTEGRATION.shutdown_main(context)
 	
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -91,6 +88,7 @@ func _test_creature_in_registry_and_spatial_index(failures: Array[String]) -> vo
 	
 	# Check spatial index via query
 	_assert_creature_in_spatial_query(failures, world, creature, spawn_pos, 200.0, "CREATURE_REGISTRY")
+	await INTEGRATION.shutdown_main(context)
 
 
 # ---------------------------------------------------------------------------
@@ -103,8 +101,6 @@ func _test_meat_drop_registered_in_meat_bucket(failures: Array[String]) -> void:
 		return
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
-	defer:
-		await INTEGRATION.shutdown_main(context)
 	
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -126,6 +122,7 @@ func _test_meat_drop_registered_in_meat_bucket(failures: Array[String]) -> void:
 	
 	# Verify meat drop is in spatial query (via meat bucket, not regular resource bucket)
 	_assert_resource_in_spatial_query(failures, world, meat_drop, spawn_pos, 200.0, "MEAT_BUCKET")
+	await INTEGRATION.shutdown_main(context)
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +135,6 @@ func _test_moving_creature_updates_spatial_cell(failures: Array[String]) -> void
 		return
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
-	defer:
-		await INTEGRATION.shutdown_main(context)
 	
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -174,6 +169,7 @@ func _test_moving_creature_updates_spatial_cell(failures: Array[String]) -> void
 	
 	# Verify creature is in new position query
 	_assert_creature_in_spatial_query(failures, world, creature, new_pos, 100.0, "MOVING_CELL new")
+	await INTEGRATION.shutdown_main(context)
 
 
 # ---------------------------------------------------------------------------
@@ -186,8 +182,6 @@ func _test_visibility_culling_shows_nearby_objects(failures: Array[String]) -> v
 		return
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
-	defer:
-		await INTEGRATION.shutdown_main(context)
 	
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -217,6 +211,7 @@ func _test_visibility_culling_shows_nearby_objects(failures: Array[String]) -> v
 		TEST_UTILS.expect(resource.visible, failures, "CULLING_SHOW: Resource should be visible when near")
 	if creature is CanvasItem:
 		TEST_UTILS.expect(creature.visible, failures, "CULLING_SHOW: Creature should be visible when near")
+	await INTEGRATION.shutdown_main(context)
 
 
 # ---------------------------------------------------------------------------
@@ -229,8 +224,6 @@ func _test_visibility_culling_hides_far_objects(failures: Array[String]) -> void
 		return
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
-	defer:
-		await INTEGRATION.shutdown_main(context)
 	
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -262,6 +255,7 @@ func _test_visibility_culling_hides_far_objects(failures: Array[String]) -> void
 		TEST_UTILS.expect_equal(resource.visible, false, failures, "CULLING_HIDE: Resource should be hidden when far")
 	if creature is CanvasItem:
 		TEST_UTILS.expect_equal(creature.visible, false, failures, "CULLING_HIDE: Creature should be hidden when far")
+	await INTEGRATION.shutdown_main(context)
 
 
 # ---------------------------------------------------------------------------
@@ -274,8 +268,6 @@ func _test_culled_creature_skips_full_physics_update(failures: Array[String]) ->
 		return
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
-	defer:
-		await INTEGRATION.shutdown_main(context)
 	
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -299,8 +291,9 @@ func _test_culled_creature_skips_full_physics_update(failures: Array[String]) ->
 	
 	# Check if creature is culled
 	if creature.has_meta("is_visibility_culled"):
-		var is_culled := creature.get_meta("is_visibility_culled")
+		var is_culled: bool = creature.get_meta("is_visibility_culled")
 		TEST_UTILS.expect(is_culled, failures, "CULLING_PHYSICS: Creature should be marked culled when far")
+	await INTEGRATION.shutdown_main(context)
 
 
 # ---------------------------------------------------------------------------
@@ -313,8 +306,6 @@ func _test_unculled_creature_resumes_physics_update(failures: Array[String]) -> 
 		return
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
-	defer:
-		await INTEGRATION.shutdown_main(context)
 	
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -350,8 +341,9 @@ func _test_unculled_creature_resumes_physics_update(failures: Array[String]) -> 
 	if creature is CanvasItem:
 		TEST_UTILS.expect(creature.visible, failures, "CULLING_RESUME: Creature should be visible after player moves near")
 	if creature.has_meta("is_visibility_culled"):
-		var is_culled := creature.get_meta("is_visibility_culled")
+		var is_culled: bool = creature.get_meta("is_visibility_culled")
 		TEST_UTILS.expect_equal(is_culled, false, failures, "CULLING_RESUME: Creature should not be culled after player moves near")
+	await INTEGRATION.shutdown_main(context)
 
 
 # ---------------------------------------------------------------------------
@@ -364,8 +356,6 @@ func _test_removed_resource_disappears_from_spatial_query(failures: Array[String
 		return
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
-	defer:
-		await INTEGRATION.shutdown_main(context)
 	
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -394,6 +384,7 @@ func _test_removed_resource_disappears_from_spatial_query(failures: Array[String
 	# Verify removed from queries
 	var query_result := _query_resources_near(world, spawn_pos, 200.0, "rock")
 	TEST_UTILS.expect_equal(query_result.has(resource), false, failures, "REMOVE_RESOURCE: Resource should not be in spatial query after removal")
+	await INTEGRATION.shutdown_main(context)
 
 
 # ---------------------------------------------------------------------------
@@ -406,8 +397,6 @@ func _test_removed_creature_disappears_from_spatial_query(failures: Array[String
 		return
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
-	defer:
-		await INTEGRATION.shutdown_main(context)
 	
 	var world := main.get_node_or_null("World")
 	var player := main.get_node_or_null("Player") as Node2D
@@ -436,6 +425,7 @@ func _test_removed_creature_disappears_from_spatial_query(failures: Array[String
 	# Verify removed from queries
 	var query_result := _query_creatures_near(world, spawn_pos, 200.0, "small_prey")
 	TEST_UTILS.expect_equal(query_result.has(creature), false, failures, "REMOVE_CREATURE: Creature should not be in spatial query after removal")
+	await INTEGRATION.shutdown_main(context)
 
 
 # ---------------------------------------------------------------------------

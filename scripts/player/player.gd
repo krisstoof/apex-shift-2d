@@ -890,6 +890,7 @@ func _refresh_nearby_interactables_from_area() -> void:
 func _get_best_interactable() -> Node:
 	var candidates := _get_interactable_candidates()
 	var best_node: Node = null
+	var best_priority := -INF
 	var best_distance := INF
 	for candidate in candidates:
 		if not is_instance_valid(candidate):
@@ -901,8 +902,10 @@ func _get_best_interactable() -> Node:
 		var candidate_2d := candidate as Node2D
 		if candidate_2d == null:
 			continue
+		var candidate_priority := _get_candidate_pickup_priority(candidate)
 		var distance := global_position.distance_to(candidate_2d.global_position)
-		if distance < best_distance:
+		if candidate_priority > best_priority or (candidate_priority == best_priority and distance < best_distance):
+			best_priority = candidate_priority
 			best_distance = distance
 			best_node = candidate
 	return best_node
@@ -929,6 +932,12 @@ func _add_unique_interactable_candidate(candidates: Array[Node], node: Node) -> 
 		return
 	if candidates.has(node):
 		return
+	if node.has_method("get") and str(node.get("resource_kind")) == "meat_drop":
+		print("[PICKUP_DEBUG] candidate=%s kind=meat_drop priority=%d pos=%s" % [
+			str(node.name),
+			_get_candidate_pickup_priority(node),
+			str((node as Node2D).global_position if node is Node2D else Vector2.ZERO)
+		])
 	candidates.append(node)
 
 
@@ -946,6 +955,23 @@ func _add_nearby_resource_candidates(candidates: Array[Node]) -> void:
 			continue
 		if global_position.distance_to(resource_2d.global_position) <= 96.0:
 			_add_unique_interactable_candidate(candidates, resource)
+
+
+func _get_candidate_pickup_priority(candidate: Node) -> int:
+	if candidate == null or not is_instance_valid(candidate):
+		return 0
+	if candidate.has_method("get_pickup_priority"):
+		return int(candidate.call("get_pickup_priority"))
+	if candidate.has_method("get"):
+		var resource_kind := str(candidate.get("resource_kind"))
+		match resource_kind:
+			"meat_drop":
+				return 100
+			"bone_drop":
+				return 90
+			"item_drop":
+				return 80
+	return 10
 
 
 func _is_candidate_player_interactable(candidate: Node) -> bool:

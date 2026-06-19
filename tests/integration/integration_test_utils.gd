@@ -2,6 +2,11 @@ extends RefCounted
 
 const MAIN_SCENE := preload("res://scenes/main.tscn")
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
+const WALL_SCENE := preload("res://scenes/buildings/wall.tscn")
+const TRAP_SCENE := preload("res://scenes/buildings/trap.tscn")
+const TENT_SCENE := preload("res://scenes/buildings/tent.tscn")
+const STORAGE_BOX_SCENE := preload("res://scenes/buildings/storage_box.tscn")
+const CAMPFIRE_SCENE := preload("res://scenes/buildings/campfire.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
@@ -45,6 +50,10 @@ static func boot_main() -> Dictionary:
 	}
 
 
+static func boot_main_sync() -> Dictionary:
+	return await boot_main()
+
+
 static func shutdown_main(context: Dictionary) -> void:
 	var tree := context.get("tree") as SceneTree
 	var main := context.get("main") as Node
@@ -68,6 +77,10 @@ static func shutdown_main(context: Dictionary) -> void:
 		var save_path := ProjectSettings.globalize_path("user://savegame.json")
 		DirAccess.remove_absolute(save_path)
 	tree.paused = false
+
+
+static func shutdown() -> void:
+	await shutdown_main({})
 
 
 static func _wait_for_world_boot(main: Node, timeout_frames := WORLD_BOOT_TIMEOUT_FRAMES) -> Dictionary:
@@ -193,6 +206,56 @@ static func spawn_resource(world: Node, resource_kind: String, position: Vector2
 	var resource := world.call("spawn_resource_for_tests", resource_kind, position) as Node
 	refresh_world_cache(world)
 	return resource
+
+
+static func spawn_creature(world: Node, creature_type: String, position: Vector2) -> Node:
+	if world == null:
+		return null
+	var creature: Node = null
+	match creature_type:
+		"small_prey":
+			creature = world.call("spawn_small_prey_for_tests", position, "test_biome")
+		"grazer":
+			creature = world.call("spawn_grazer_for_tests", position, "test_biome")
+		"varnak":
+			creature = world.call("spawn_varnak_for_tests", position)
+	refresh_world_cache(world)
+	return creature
+
+
+static func spawn_building(world: Node, building_type: String, position: Vector2) -> Node:
+	if world == null:
+		return null
+	var scene: PackedScene = null
+	match building_type:
+		"wall":
+			scene = WALL_SCENE
+		"trap":
+			scene = TRAP_SCENE
+		"tent":
+			scene = TENT_SCENE
+		"storage_box":
+			scene = STORAGE_BOX_SCENE
+		"campfire":
+			scene = CAMPFIRE_SCENE
+	if scene == null:
+		return null
+	var building := scene.instantiate() as Node
+	if building == null:
+		return null
+	if building is Node2D:
+		(building as Node2D).global_position = position
+	world.add_child(building)
+	refresh_world_cache(world)
+	return building
+
+
+static func wait_frames(frame_count: int = 1) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return
+	for _i in range(maxi(frame_count, 1)):
+		await tree.process_frame
 
 
 static func spawn_small_prey(world: Node, biome_id: String, position: Vector2) -> Node:

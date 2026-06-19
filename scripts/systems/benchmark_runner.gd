@@ -380,15 +380,22 @@ func _capture_world_summary() -> Dictionary:
 	var visibility := _capture_world_visibility_culling_stats()
 	var activation := _capture_world_resource_render_mode_stats()
 	var biome_cache := _capture_world_biome_texture_cache_stats()
+	var minimap := _capture_minimap_stats()
 	var vegetation := _capture_world_vegetation_stats()
 	return {
 		"visible_resources": int(visibility.get("visible_resources", 0)),
 		"visible_creatures": int(visibility.get("visible_creatures", 0)),
+		"visibility_pending_count": int(visibility.get("pending_show_count", 0)) + int(visibility.get("pending_hide_count", 0)),
+		"visibility_processed_this_frame": int(visibility.get("visibility_processed_this_frame", 0)),
+		"visibility_pending_dropped_invalid": int(visibility.get("visibility_pending_dropped_invalid", 0)),
+		"visibility_queue_ms": float(visibility.get("visibility_queue_ms", 0.0)),
 		"active_resource_collisions": int(activation.get("active_resource_collisions", 0)),
 		"world_surface_texture_chunks_built": int(terrain.get("terrain_surface_chunks_built_last_frame", 0)),
 		"world_surface_texture_max_build_ms_per_frame": float(terrain.get("terrain_surface_max_build_ms_per_frame", 0.0)),
 		"world_surface_texture_pending_chunks": int(terrain.get("terrain_surface_chunk_pending_count", 0)),
 		"world_biome_texture_build_count": int(biome_cache.get("world_biome_texture_build_count", 0)),
+		"minimap_build_ms": float(minimap.get("texture_last_build_ms", 0.0)),
+		"minimap_build_count": int(minimap.get("texture_build_count", 0)),
 		"vegetation": vegetation
 	}
 
