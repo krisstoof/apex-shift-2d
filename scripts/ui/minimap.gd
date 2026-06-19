@@ -45,7 +45,7 @@ var _is_drawing_biomes := false
 var minimap_redraw_timer := 0.0
 var minimap_static_redraw_timer := 0.0
 var minimap_redraw_interval := 0.15
-var minimap_marker_rebuild_interval := 10.0  # Very long interval to avoid 140-150ms hitches; creatures will appear outdated max 10s
+var minimap_marker_rebuild_interval := 30.0  # Keep marker cache rebuilds rare so benchmark runs do not hitch on repeated refreshes
 var _marker_rebuild_timer := 0.0
 var _redraw_timer := 0.0
 var last_redraw_player_position := Vector2.INF
@@ -238,8 +238,8 @@ func _process(delta: float) -> void:
 		_process_biome_texture_build()
 		var budget := Dictionary(_get_world_render_budget())
 		minimap_redraw_interval = float(budget.get("minimap_redraw_interval", minimap_redraw_interval))
-		# Hard minimum 10.0s for marker rebuilds - prevent render governor from reducing it
-		minimap_marker_rebuild_interval = maxf(10.0, float(budget.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval)))
+		# Hard minimum 30.0s for marker rebuilds - prevent render governor from reducing it
+		minimap_marker_rebuild_interval = maxf(30.0, float(budget.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval)))
 		minimap_player_redraw_interval = float(budget.get("minimap_player_redraw_interval", minimap_player_redraw_interval))
 		minimap_marker_view_recenter_distance = float(budget.get("minimap_marker_view_recenter_distance", minimap_marker_view_recenter_distance))
 	

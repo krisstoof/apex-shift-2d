@@ -39,6 +39,8 @@ static func transfer_item(source_state: Variant, destination_state: Variant, ite
 
 	var removed := bool(source_state.call("remove_item", item_id, moved))
 	if not removed:
+		if destination_state.has_method("remove_item"):
+			destination_state.call("remove_item", item_id, moved)
 		return _build_transfer_result(item_id, requested, 0, requested, false)
 
 	return _build_transfer_result(item_id, requested, moved, leftover, true)
@@ -74,6 +76,8 @@ static func transfer_slot(source_state: Variant, destination_state: Variant, sou
 		removed = moved if bool(source_state.call("remove_item", item_id, moved)) else 0
 
 	if removed != moved:
+		if removed > 0 and destination_state.has_method("remove_item"):
+			destination_state.call("remove_item", item_id, removed)
 		return _build_transfer_result(item_id, requested, removed, requested - removed, removed > 0)
 
 	return _build_transfer_result(item_id, requested, moved, leftover, true)

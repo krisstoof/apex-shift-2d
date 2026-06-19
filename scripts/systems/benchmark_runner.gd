@@ -1040,12 +1040,17 @@ func _capture_world_vegetation_stats() -> Dictionary:
 		var resource_kind := ""
 		if resource.has_method("get"):
 			resource_kind = str(resource.get("resource_kind"))
+		var is_render_only := false
+		if resource.has_method("get"):
+			is_render_only = resource.get("render_only") == true
 		match resource_kind:
 			"grass_patch":
-				result["grass_patch_node_count"] = int(result["grass_patch_node_count"]) + 1
+				if not is_render_only:
+					result["grass_patch_node_count"] = int(result["grass_patch_node_count"]) + 1
 				result["decorative_grass_node_count"] = int(result["decorative_grass_node_count"]) + 1
 			"dense_grass":
-				result["dense_grass_node_count"] = int(result["dense_grass_node_count"]) + 1
+				if not is_render_only:
+					result["dense_grass_node_count"] = int(result["dense_grass_node_count"]) + 1
 				result["decorative_grass_node_count"] = int(result["decorative_grass_node_count"]) + 1
 			_:
 				result["interactive_resource_node_count"] = int(result["interactive_resource_node_count"]) + 1
