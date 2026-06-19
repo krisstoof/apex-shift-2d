@@ -17,6 +17,7 @@ func run() -> Array[String]:
 	_test_registering_same_entity_twice_does_not_duplicate(failures)
 	_test_cleanup_removes_queued_free_entity(failures)
 	_test_empty_buckets_are_removed_after_unregister(failures)
+	_test_adapter_uses_core_but_returns_nodes(failures)
 	return failures
 
 
@@ -134,6 +135,15 @@ func _test_empty_buckets_are_removed_after_unregister(failures: Array[String]) -
 	index.unregister_entity(resource)
 	var debug := index.get_debug_counts()
 	TEST_UTILS.expect_equal(int(debug.get("resource_cells", -1)), 0, failures, "Empty resource buckets should be removed after unregister")
+
+
+func _test_adapter_uses_core_but_returns_nodes(failures: Array[String]) -> void:
+	var index := WORLD_SPATIAL_INDEX.new()
+	var resource := _make_node(Vector2(96.0, 96.0))
+	index.register_entity(resource, "resource", "berry_bush")
+	var found := index.query_resources_near(Vector2(96.0, 96.0), 32.0, "berry_bush")
+	TEST_UTILS.expect(found.has(resource), failures, "WorldSpatialIndex adapter should return Node payloads for WorldRegistry compatibility")
+	TEST_UTILS.expect(index.has_method("query_circle"), failures, "WorldSpatialIndex adapter should expose core query_circle")
 
 
 func _make_node(position: Vector2) -> Node2D:
