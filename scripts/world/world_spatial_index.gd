@@ -92,11 +92,11 @@ func query_meat_in_rect(rect: Rect2) -> Array:
 
 func cleanup_stale_entries() -> Dictionary:
 	var removed := 0
-	for entity_id in _core_index.entity_records.keys():
+	for entity_id: Variant in _core_index.entity_records.keys():
 		var record := Dictionary(_core_index.entity_records.get(entity_id, {}))
 		var metadata := Dictionary(record.get("metadata", {}))
-		var node_ref := metadata.get("node_ref", null) as WeakRef
-		var node := node_ref.get_ref() if node_ref != null else null
+		var node_ref: WeakRef = metadata.get("node_ref", null) as WeakRef
+		var node: Variant = node_ref.get_ref() if node_ref != null else null
 		if node == null or not is_instance_valid(node) or node.is_queued_for_deletion():
 			unregister_entity_by_id(entity_id)
 			removed += 1
@@ -114,11 +114,11 @@ func get_debug_counts() -> Dictionary:
 	var debug := _core_index.get_debug_counts()
 	var stale_count: int = 0
 	var live_count: int = 0
-	for entity_id in _core_index.entity_records.keys():
+	for entity_id: Variant in _core_index.entity_records.keys():
 		var record := Dictionary(_core_index.entity_records.get(entity_id, {}))
 		var metadata := Dictionary(record.get("metadata", {}))
-		var node_ref := metadata.get("node_ref", null) as WeakRef
-		var node := node_ref.get_ref() if node_ref != null else null
+		var node_ref: WeakRef = metadata.get("node_ref", null) as WeakRef
+		var node: Variant = node_ref.get_ref() if node_ref != null else null
 		if node != null and is_instance_valid(node) and not node.is_queued_for_deletion():
 			live_count += 1
 		else:
@@ -145,8 +145,8 @@ func _results_to_live_nodes(results: Array) -> Array:
 	var nodes: Array = []
 	for result in results:
 		var metadata: Dictionary = Dictionary(result.metadata)
-		var node := metadata.get("payload", null)
-		var node_ref := metadata.get("node_ref", null) as WeakRef
+		var node: Variant = metadata.get("payload", null)
+		var node_ref: WeakRef = metadata.get("node_ref", null) as WeakRef
 		if node == null and node_ref != null:
 			node = node_ref.get_ref()
 		if node == null or not is_instance_valid(node) or node.is_queued_for_deletion():

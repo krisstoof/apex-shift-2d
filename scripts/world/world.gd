@@ -2489,7 +2489,7 @@ func _initialize_visibility_controller() -> void:
 	visibility_controller.setup({
 		"world": self,
 		"registry": world_registry,
-		"spatial_index": world_registry.spatial_index if world_registry != null else null,
+		"spatial_index": world_registry.get_visibility_query_provider() if world_registry != null and world_registry.has_method("get_visibility_query_provider") else null,
 		"enabled": visibility_culling_enabled,
 		"interval_seconds": VISIBILITY_CULL_INTERVAL_SECONDS,
 		"margin": VISIBILITY_CULL_MARGIN
