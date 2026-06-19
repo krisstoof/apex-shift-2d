@@ -1,146 +1,110 @@
 extends RefCounted
 class_name PlayerStats
 
-const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const SURVIVAL_STATE := preload("res://scripts/core/survival/survival_state.gd")
+const SURVIVAL_SYSTEM := preload("res://scripts/core/survival/survival_system.gd")
+const SURVIVAL_RULES := preload("res://scripts/core/survival/survival_rules.gd")
 
-const MAX_HEALTH := GAME_BALANCE.PLAYER_MAX_HEALTH
-const MAX_HUNGER := GAME_BALANCE.PLAYER_MAX_HUNGER
-const MAX_STAMINA := GAME_BALANCE.PLAYER_MAX_STAMINA
-const MAX_REST := GAME_BALANCE.PLAYER_MAX_REST
-const LOW_HUNGER := GAME_BALANCE.PLAYER_LOW_HUNGER
-const EXHAUSTED_REST := GAME_BALANCE.PLAYER_EXHAUSTED_REST
+const MAX_HEALTH := SURVIVAL_RULES.GAME_BALANCE.PLAYER_MAX_HEALTH
+const MAX_HUNGER := SURVIVAL_RULES.GAME_BALANCE.PLAYER_MAX_HUNGER
+const MAX_STAMINA := SURVIVAL_RULES.GAME_BALANCE.PLAYER_MAX_STAMINA
+const MAX_REST := SURVIVAL_RULES.GAME_BALANCE.PLAYER_MAX_REST
+const LOW_HUNGER := SURVIVAL_RULES.GAME_BALANCE.PLAYER_LOW_HUNGER
+const EXHAUSTED_REST := SURVIVAL_RULES.GAME_BALANCE.PLAYER_EXHAUSTED_REST
 
-var health := MAX_HEALTH
-var hunger := MAX_HUNGER
-var stamina := MAX_STAMINA
-var rest := MAX_REST
-var campfire_regen_active := false
-var campfire_regen_distance := -1.0
-var god_mode := false
+var _state: SurvivalState = SURVIVAL_STATE.new()
+var _system: SurvivalSystem = SURVIVAL_SYSTEM.new()
+
+var health: float:
+	get:
+		return _state.health
+	set(value):
+		_state.health = clampf(value, 0.0, MAX_HEALTH)
+
+var hunger: float:
+	get:
+		return _state.hunger
+	set(value):
+		_state.hunger = clampf(value, 0.0, MAX_HUNGER)
+
+var stamina: float:
+	get:
+		return _state.stamina
+	set(value):
+		_state.stamina = clampf(value, 0.0, MAX_STAMINA)
+
+var rest: float:
+	get:
+		return _state.rest
+	set(value):
+		_state.rest = clampf(value, 0.0, MAX_REST)
+
+var campfire_regen_active: bool:
+	get:
+		return _state.campfire_regen_active
+	set(value):
+		_state.campfire_regen_active = value
+
+var campfire_regen_distance: float:
+	get:
+		return _state.campfire_regen_distance
+	set(value):
+		_state.campfire_regen_distance = value
+
+var god_mode: bool:
+	get:
+		return _state.god_mode
+	set(value):
+		_state.god_mode = value
 
 func tick(delta: float, running: bool) -> void:
-	if not god_mode:
-		hunger = max(hunger - GAME_BALANCE.PLAYER_HUNGER_DECAY_RATE * delta, 0.0)
-		rest = max(rest - (GAME_BALANCE.PLAYER_RUNNING_REST_DECAY_RATE if running else GAME_BALANCE.PLAYER_REST_DECAY_RATE) * delta, 0.0)
-		if running:
-			stamina = max(stamina - GAME_BALANCE.PLAYER_RUNNING_STAMINA_DECAY_RATE * delta, 0.0)
-		else:
-			stamina = min(stamina + _get_stamina_regen() * delta, MAX_STAMINA)
-	else:
-		stamina = min(stamina + _get_stamina_regen() * delta, MAX_STAMINA)
-	if not god_mode:
-		if hunger <= 0.0:
-			health = max(health - GAME_BALANCE.PLAYER_STARVATION_DAMAGE_PER_SECOND * delta, 0.0)
-		elif hunger >= LOW_HUNGER and rest >= EXHAUSTED_REST:
-			var health_regen := GAME_BALANCE.PLAYER_HEALTH_REGEN_RATE
-			if campfire_regen_active:
-				health_regen *= GAME_BALANCE.PLAYER_CAMPFIRE_HEALTH_REGEN_MULTIPLIER
-			health = min(health + health_regen * delta, MAX_HEALTH)
-	elif hunger >= LOW_HUNGER and rest >= EXHAUSTED_REST:
-		var health_regen := GAME_BALANCE.PLAYER_HEALTH_REGEN_RATE
-		if campfire_regen_active:
-			health_regen *= GAME_BALANCE.PLAYER_CAMPFIRE_HEALTH_REGEN_MULTIPLIER
-		health = min(health + health_regen * delta, MAX_HEALTH)
-
+	_system.tick_survival(_state, delta, {"running": running})
 
 func spend_stamina(amount: float) -> bool:
-	if god_mode:
-		return true
-	if stamina < amount:
-		return false
-	stamina -= amount
-	return true
-
+	return _system.spend_stamina(_state, amount)
 
 func damage(amount: float) -> void:
-	if god_mode:
-		return
-	health = max(health - amount, 0.0)
-
+	_system.apply_damage(_state, amount)
 
 func heal(amount: float) -> void:
-	health = min(health + amount, MAX_HEALTH)
-
+	_system.apply_heal(_state, amount)
 
 func reduce_hunger_energy(amount: float) -> void:
-	if god_mode:
-		return
-	hunger = max(hunger - amount, 0.0)
-	stamina = max(stamina - amount, 0.0)
-	rest = max(rest - amount, 0.0)
-
+	_system.reduce_hunger_energy(_state, amount)
 
 func restore_hunger_energy(amount: float) -> void:
-	hunger = min(hunger + amount, MAX_HUNGER)
-	stamina = min(stamina + amount, MAX_STAMINA)
-	rest = min(rest + amount, MAX_REST)
-
+	_system.restore_hunger_energy(_state, amount)
 
 func eat_food(nutrition: float) -> void:
-	hunger = min(hunger + nutrition, MAX_HUNGER)
-
+	_system.apply_food(_state, nutrition)
 
 func sleep_recover() -> void:
-	rest = MAX_REST
-	stamina = MAX_STAMINA
-	if not god_mode:
-		hunger = max(hunger - GAME_BALANCE.PLAYER_SLEEP_HUNGER_COST, 0.0)
-	if hunger >= LOW_HUNGER:
-		health = min(health + GAME_BALANCE.PLAYER_SLEEP_HEALTH_RESTORE, MAX_HEALTH)
-
+	_system.sleep_recover(_state)
 
 func can_run() -> bool:
-	return stamina > 1.0 and hunger > 5.0 and rest > 5.0
-
+	return _system.can_run(_state)
 
 func get_speed_multiplier() -> float:
-	var multiplier := 1.0
-	if hunger < LOW_HUNGER:
-		multiplier *= GAME_BALANCE.PLAYER_LOW_HUNGER_SPEED_MULTIPLIER
-	if rest < EXHAUSTED_REST:
-		multiplier *= GAME_BALANCE.PLAYER_EXHAUSTED_REST_SPEED_MULTIPLIER
-	return multiplier
-
+	return _system.get_speed_multiplier(_state)
 
 func get_condition_text() -> String:
-	if hunger <= 0.0:
-		return "starving"
-	if hunger < LOW_HUNGER and rest < EXHAUSTED_REST:
-		return "hungry, exhausted"
-	if hunger < LOW_HUNGER:
-		return "hungry"
-	if rest < EXHAUSTED_REST:
-		return "exhausted"
-	return "steady"
-
+	return _system.get_condition_text(_state)
 
 func set_campfire_regen(active: bool, nearest_distance := -1.0) -> void:
 	campfire_regen_active = active
 	campfire_regen_distance = nearest_distance if active else -1.0
 
-
 func set_god_mode(enabled: bool) -> void:
 	god_mode = enabled
-
 
 func is_god_mode_enabled() -> bool:
 	return god_mode
 
-
 func get_stamina_regen_rate() -> float:
-	return _get_stamina_regen()
+	return _system.get_stamina_regen_rate(_state)
 
-
-func _get_stamina_regen() -> float:
-	var regen := GAME_BALANCE.PLAYER_BASE_STAMINA_REGEN
-	if hunger < LOW_HUNGER:
-		regen *= GAME_BALANCE.PLAYER_LOW_HUNGER_STAMINA_REGEN_MULTIPLIER
-	if rest < EXHAUSTED_REST:
-		regen *= GAME_BALANCE.PLAYER_EXHAUSTED_REST_STAMINA_REGEN_MULTIPLIER
-	if campfire_regen_active:
-		regen *= GAME_BALANCE.PLAYER_CAMPFIRE_STAMINA_REGEN_MULTIPLIER
-	return regen
-
+func get_health_regen_rate() -> float:
+	return _system.get_health_regen_rate(_state)
 
 func get_save_data() -> Dictionary:
 	return {
@@ -150,9 +114,8 @@ func get_save_data() -> Dictionary:
 		"rest": rest
 	}
 
-
 func restore_from_data(data: Dictionary) -> void:
-	health = clamp(float(data.get("health", health)), 0.0, MAX_HEALTH)
-	hunger = clamp(float(data.get("hunger", hunger)), 0.0, MAX_HUNGER)
-	stamina = clamp(float(data.get("stamina", stamina)), 0.0, MAX_STAMINA)
-	rest = clamp(float(data.get("rest", rest)), 0.0, MAX_REST)
+	health = clampf(float(data.get("health", health)), 0.0, MAX_HEALTH)
+	hunger = clampf(float(data.get("hunger", hunger)), 0.0, MAX_HUNGER)
+	stamina = clampf(float(data.get("stamina", stamina)), 0.0, MAX_STAMINA)
+	rest = clampf(float(data.get("rest", rest)), 0.0, MAX_REST)

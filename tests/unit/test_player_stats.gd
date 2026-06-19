@@ -1,6 +1,8 @@
 extends RefCounted
 
 const PLAYER_STATS := preload("res://scripts/player/player_stats.gd")
+const SURVIVAL_STATE := preload("res://scripts/core/survival/survival_state.gd")
+const SURVIVAL_SYSTEM := preload("res://scripts/core/survival/survival_system.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -16,6 +18,7 @@ func run() -> Array[String]:
 	_test_starvation_tick_damages_health(failures)
 	_test_god_mode_blocks_damage(failures)
 	_test_god_mode_blocks_hunger_energy_decay(failures)
+	_test_facade_exposes_core_state_and_rates(failures)
 	_test_save_load_round_trip(failures)
 	_test_restore_invalid_data_clamps_values(failures)
 	_test_condition_text_boundaries(failures)
@@ -101,6 +104,34 @@ func _test_god_mode_blocks_hunger_energy_decay(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(stats.hunger, PLAYER_STATS.MAX_HUNGER, failures, "God mode should block hunger decay")
 	TEST_UTILS.expect_equal(stats.rest, PLAYER_STATS.MAX_REST, failures, "God mode should block rest decay")
 	TEST_UTILS.expect(stats.stamina <= PLAYER_STATS.MAX_STAMINA, failures, "God mode should still keep stamina within bounds")
+
+
+func _test_facade_exposes_core_state_and_rates(failures: Array[String]) -> void:
+	var stats := PLAYER_STATS.new()
+	stats.health = 25.0
+	stats.hunger = 35.0
+	stats.stamina = 45.0
+	stats.rest = 55.0
+	stats.campfire_regen_active = true
+	stats.campfire_regen_distance = 7.5
+	stats.god_mode = true
+	TEST_UTILS.expect_equal(stats.get_save_data(), {
+		"health": 25.0,
+		"hunger": 35.0,
+		"stamina": 45.0,
+		"rest": 55.0
+	}, failures, "PlayerStats should preserve the legacy save shape")
+	TEST_UTILS.expect_equal(stats.is_god_mode_enabled(), true, failures, "PlayerStats should expose god mode state")
+	TEST_UTILS.expect_equal(stats.campfire_regen_active, true, failures, "PlayerStats should expose campfire regen state")
+	TEST_UTILS.expect_equal(stats.campfire_regen_distance, 7.5, failures, "PlayerStats should expose campfire regen distance")
+	var core_state := SURVIVAL_STATE.new()
+	core_state.hunger = stats.hunger
+	core_state.rest = stats.rest
+	core_state.stamina = stats.stamina
+	core_state.campfire_regen_active = stats.campfire_regen_active
+	var core_system := SURVIVAL_SYSTEM.new()
+	TEST_UTILS.expect_equal(stats.get_stamina_regen_rate(), core_system.get_stamina_regen_rate(core_state), failures, "PlayerStats should delegate stamina regen rate to core survival system")
+	TEST_UTILS.expect_equal(stats.get_health_regen_rate(), core_system.get_health_regen_rate(core_state), failures, "PlayerStats should expose core health regen rate")
 
 
 func _test_save_load_round_trip(failures: Array[String]) -> void:

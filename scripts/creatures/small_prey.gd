@@ -3,6 +3,7 @@ extends CharacterBody2D
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
+const MOVEMENT_SPIKE_TRACKER := preload("res://scripts/core/common/movement_spike_tracker.gd")
 const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
 const SPECIES_PATH := "res://data/species/small_prey.json"
@@ -91,6 +92,7 @@ var simulation_lod_change_count := 0
 var last_simulation_level := SIMULATION_LOD.Level.NEAR
 var movement_spike_count := 0
 var max_movement_spike_distance := 0.0
+var movement_spike_tracker := MOVEMENT_SPIKE_TRACKER.new()
 var visual_redraw_move_timer := 0.0
 var visual_redraw_effect_timer := 0.0
 var visual_redraw_count := 0
@@ -942,12 +944,11 @@ func _clamp_target_distance(target: Vector2, max_distance: float) -> Vector2:
 
 
 func _record_movement_spike(previous_position: Vector2) -> void:
-	var moved_distance := global_position.distance_to(previous_position)
-	if moved_distance <= LARGE_MOVEMENT_WARNING_DISTANCE:
+	if not movement_spike_tracker.record_movement_spike(previous_position, global_position, LARGE_MOVEMENT_WARNING_DISTANCE):
 		return
-	movement_spike_count += 1
-	max_movement_spike_distance = maxf(max_movement_spike_distance, moved_distance)
-	push_warning("SmallPrey movement spike: %.1f px" % moved_distance)
+	movement_spike_count = movement_spike_tracker.spike_count
+	max_movement_spike_distance = movement_spike_tracker.max_spike_distance
+	push_warning("SmallPrey movement spike: %.1f px" % movement_spike_tracker.max_spike_distance)
 
 
 func _get_world_rect() -> Rect2:

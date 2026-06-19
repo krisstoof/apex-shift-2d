@@ -5,6 +5,7 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
 const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
+const MOVEMENT_PROFILE := preload("res://scripts/core/common/movement_profile.gd")
 
 signal died(reason: String)
 
@@ -16,6 +17,7 @@ const ATTACK_ARC := deg_to_rad(82.0)
 const ATTACK_VISUAL_DURATION := 0.16
 
 var stats := PlayerStats.new()
+var movement_profile := MOVEMENT_PROFILE.new()
 var inventory := INVENTORY.new()
 var has_spear := false
 var has_bow := false
@@ -70,6 +72,7 @@ var aim_direction := Vector2.RIGHT
 
 func _ready() -> void:
 	add_to_group("player")
+	_sync_movement_profile()
 	recipes = _load_recipes()
 	interaction_area.body_entered.connect(_on_interactable_entered)
 	interaction_area.body_exited.connect(_on_interactable_exited)
@@ -134,7 +137,7 @@ func _physics_process(delta: float) -> void:
 	if is_swimming != was_swimming:
 		queue_redraw()
 	var wants_run := Input.is_key_pressed(KEY_SHIFT) and stats.can_run() and input_vector.length() > 0.0 and not is_swimming
-	var speed := (run_speed if wants_run else walk_speed) * stats.get_speed_multiplier() * terrain_speed
+	var speed := movement_profile.get_movement_speed(wants_run, stats.get_speed_multiplier(), terrain_speed)
 	var world_query: Variant = _get_world_query()
 	velocity = input_vector * speed
 	move_and_slide()
@@ -1254,3 +1257,11 @@ func _change_camera_zoom(delta: float) -> void:
 		return
 	var next_zoom := clampf(player_camera.zoom.x + delta, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM)
 	player_camera.zoom = Vector2(next_zoom, next_zoom)
+
+
+func _sync_movement_profile() -> void:
+	if movement_profile == null:
+		movement_profile = MOVEMENT_PROFILE.new(walk_speed, run_speed)
+		return
+	movement_profile.walk_speed = maxf(walk_speed, 0.0)
+	movement_profile.run_speed = maxf(run_speed, movement_profile.walk_speed)

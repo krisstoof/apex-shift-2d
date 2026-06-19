@@ -73,6 +73,7 @@ func run() -> Array[String]:
 	_test_player_torch_activation_and_deactivation(failures)
 	_test_player_creates_torch_light_and_enables_it_when_active(failures)
 	_test_player_camera_zoom_defaults_and_scroll_input(failures)
+	_test_player_movement_profile_matches_exported_speeds(failures)
 	_test_player_starvation_damage_is_slow_enough(failures)
 	_test_player_campfire_regen_speeds_up_health_recovery(failures)
 	_test_player_debug_item_helpers(failures)
@@ -282,6 +283,17 @@ func _test_player_camera_zoom_defaults_and_scroll_input(failures: Array[String])
 		TEST_UTILS.expect_close(camera.zoom.x, 1.50, failures, "Mouse wheel down should return toward default zoom")
 		player.call("set_default_camera_zoom")
 		TEST_UTILS.expect_close(camera.zoom.x, 1.50, failures, "Resetting the camera should restore default zoom")
+	player.queue_free()
+
+
+func _test_player_movement_profile_matches_exported_speeds(failures: Array[String]) -> void:
+	var player := _make_player()
+	TEST_UTILS.expect(player.movement_profile != null, failures, "Player should create a movement profile")
+	if player.movement_profile != null:
+		TEST_UTILS.expect_close(player.movement_profile.walk_speed, player.walk_speed, failures, "Movement profile should mirror the exported walk speed")
+		TEST_UTILS.expect_close(player.movement_profile.run_speed, player.run_speed, failures, "Movement profile should mirror the exported run speed")
+		TEST_UTILS.expect_close(player.movement_profile.get_movement_speed(false, 1.0, 1.0), player.walk_speed, failures, "Movement profile should compute walk speed without modifiers")
+		TEST_UTILS.expect_close(player.movement_profile.get_movement_speed(true, 1.0, 1.0), player.run_speed, failures, "Movement profile should compute run speed without modifiers")
 	player.queue_free()
 
 
