@@ -108,8 +108,6 @@ func _get_inventory_amount(inventory_state: Variant, item_id: String) -> int:
 func _can_add_item(inventory_state: Variant, item_id: String, amount: int) -> bool:
 	if inventory_state != null and inventory_state.has_method("can_add_item"):
 		return bool(inventory_state.call("can_add_item", item_id, amount))
-	if inventory_state != null and inventory_state.has_method("get_amount") and inventory_state.has_method("add_item"):
-		return int(inventory_state.call("add_item", item_id, amount)) == 0
 	return false
 
 

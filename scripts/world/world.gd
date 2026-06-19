@@ -356,7 +356,7 @@ func _ready() -> void:
 	_ensure_biome_blend_background()
 	_ensure_night_overlay_polygon()
 	_set_boot_progress("Preparing world...", 0.02)
-	await get_tree().process_frame
+	await _await_next_frame_safe()
 	_set_boot_progress("Preparing world systems...", 0.08)
 	_ensure_query_service()
 	_ensure_registry()
@@ -370,13 +370,20 @@ func _ready() -> void:
 	evolution_director = _get_sibling_node("EvolutionDirector")
 	day_night_system = _get_sibling_node("DayNightSystem")
 	ecosystem_director = _get_sibling_node("EcosystemDirector")
+	var event_bus := _get_event_bus()
+	if event_bus and event_bus.has_signal("game_event") and not event_bus.game_event.is_connected(_on_game_event):
+		event_bus.game_event.connect(_on_game_event)
 	if day_night_system and day_night_system.has_signal("day_changed"):
 		day_night_system.day_changed.connect(_on_day_changed)
 	if evolution_director and evolution_director.has_method("connect") and evolution_director.has_signal("profile_changed"):
 		evolution_director.profile_changed.connect(_on_profile_changed)
-	var event_bus := _get_event_bus()
-	if event_bus and event_bus.has_signal("game_event"):
-		event_bus.game_event.connect(_on_game_event)
+
+
+func _await_next_frame_safe() -> void:
+	var scene_tree := get_tree()
+	if scene_tree == null:
+		return
+	await scene_tree.process_frame
 	_ensure_render_controller()
 	_ensure_render_performance_governor()
 	_ensure_terrain_cell_map()
@@ -1094,10 +1101,6 @@ func is_rocky_patch_at(position: Vector2) -> bool:
 
 
 func get_biome_id_at(position: Vector2) -> String:
-	if world_generator and world_generator.has_method("get_biome_id_at"):
-		return str(world_generator.get_biome_id_at(position))
-	if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position"):
-		return str(biome_query_service.get_biome_id_for_position(position))
 	return _get_biome_id_for_position(position)
 
 
@@ -2251,6 +2254,10 @@ func get_world_registry():
 	return _ensure_registry()
 
 
+func get_registry():
+	return get_world_registry()
+
+
 func get_registered_resources() -> Array:
 	return _ensure_registry().get_resources()
 
@@ -2985,7 +2992,7 @@ func _is_low_end_static_surface_mode_enabled() -> bool:
 
 func _yield_initial_boot_step() -> void:
 	for _i in INITIAL_BOOT_STEP_FRAME_BREAKS:
-		await get_tree().process_frame
+		await _await_next_frame_safe()
 
 
 func get_terrain_speed_multiplier(world_position: Vector2) -> float:
@@ -3272,7 +3279,7 @@ func _clear_landmark_areas() -> void:
 	for landmark_area in get_tree().get_nodes_in_group("landmarks"):
 		if is_instance_valid(landmark_area):
 			landmark_area.queue_free()
-	await get_tree().process_frame
+	await _await_next_frame_safe()
 
 
 func _clear_pond_vegetation_resources() -> void:
@@ -3282,7 +3289,7 @@ func _clear_pond_vegetation_resources() -> void:
 
 
 func _respawn_pond_vegetation_for_current_landmarks() -> void:
-	await get_tree().process_frame
+	await _await_next_frame_safe()
 	var used_positions := _get_existing_resource_positions()
 	await _spawn_pond_aquatic_vegetation(used_positions, _get_player_position())
 	await _spawn_pond_vegetation(used_positions, _get_player_position())
@@ -3400,7 +3407,7 @@ func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Arr
 		spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
-			await get_tree().process_frame
+			await _await_next_frame_safe()
 
 
 func _spawn_grass_kind_mixed(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -3421,7 +3428,7 @@ func _spawn_grass_kind_mixed(resource_kind: String, count: int, used_positions: 
 		spawned_since_yield += 1
 		if spawned_since_yield >= 4:
 			spawned_since_yield = 0
-			await get_tree().process_frame
+			await _await_next_frame_safe()
 
 
 func _spawn_outer_island_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -3433,13 +3440,13 @@ func _spawn_outer_island_vegetation(used_positions: Array[Vector2], player_posit
 			spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
-			await get_tree().process_frame
+			await _await_next_frame_safe()
 	for _i in outer_bush_count:
 		if _try_spawn_resource_in_island_band("small_bush", used_positions, player_position, 0.50, 0.82, false):
 			spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
-			await get_tree().process_frame
+			await _await_next_frame_safe()
 
 
 func _try_spawn_resource_in_island_band(
@@ -3520,7 +3527,7 @@ func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: 
 				spawned += 1
 				topography_resource_distribution_debug["pond_edge_greenery_spawned"] = int(topography_resource_distribution_debug.get("pond_edge_greenery_spawned", 0)) + 1
 			if i % 12 == 0:
-				await get_tree().process_frame
+				await _await_next_frame_safe()
 
 
 func _spawn_pond_aquatic_vegetation(used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -3561,7 +3568,7 @@ func _spawn_pond_aquatic_vegetation(used_positions: Array[Vector2], player_posit
 			topography_resource_distribution_debug["pond_aquatic_vegetation_spawned"] = int(topography_resource_distribution_debug.get("pond_aquatic_vegetation_spawned", 0)) + 1
 			spawned += 1
 			if _i % 16 == 0:
-				await get_tree().process_frame
+				await _await_next_frame_safe()
 		if spawned == 0:
 			push_warning("No aquatic vegetation spawned for pond %s" % str(pond.get("id", "pond")))
 
@@ -3598,7 +3605,7 @@ func _spawn_highland_rocks(used_positions: Array[Vector2], player_position: Vect
 			if spawned >= target_count:
 				break
 			if _i % 10 == 0:
-				await get_tree().process_frame
+				await _await_next_frame_safe()
 
 
 func _spawn_resource_or_decorative_visual(resource_kind: String, position: Vector2, used_positions: Array[Vector2], player_position: Vector2) -> bool:
@@ -3706,7 +3713,7 @@ func _fill_sparse_land_areas(used_positions: Array[Vector2], player_position: Ve
 		else:
 			_spawn_resource_at(kind, candidate)
 		if i % 12 == 0:
-			await get_tree().process_frame
+			await _await_next_frame_safe()
 
 
 func _is_valid_sparse_land_fill_position(candidate: Vector2) -> bool:
@@ -3827,7 +3834,7 @@ func _spawn_central_band_visual_kind(kind: String, count: int, biome: Dictionary
 		spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
-			await get_tree().process_frame
+			await _await_next_frame_safe()
 
 
 func _get_random_position_in_biome(biome: Dictionary, center: Vector2, radius: Vector2) -> Vector2:
@@ -3906,7 +3913,9 @@ func _spawn_resource_kind_in_biome(
 		spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
-			await get_tree().process_frame
+			var scene_tree := get_tree()
+			if scene_tree != null:
+				await scene_tree.process_frame
 	if failed > 0:
 		_record_resource_spawn_rejection(resource_kind, biome_id, "biome_failed")
 
@@ -3941,7 +3950,7 @@ func _spawn_pond_vegetation(used_positions: Array[Vector2], player_position: Vec
 			spawned_since_yield += 1
 			if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 				spawned_since_yield = 0
-				await get_tree().process_frame
+				await _await_next_frame_safe()
 
 
 func _spawn_decorative_vegetation_visuals_for_loaded_world() -> void:
@@ -4745,7 +4754,7 @@ func restore_resources(resources: Array) -> void:
 	for resource in get_registered_resources():
 		if is_instance_valid(resource):
 			resource.queue_free()
-	await get_tree().process_frame
+	await _await_next_frame_safe()
 	_ensure_resource_service().restore_resources_from_data(
 		resources,
 		Callable(self, "_get_safe_restored_resource_position"),
@@ -4980,15 +4989,9 @@ func _is_valid_small_prey_position(candidate: Vector2, used_positions: Array[Vec
 
 
 func _get_biome_for_position(target_position: Vector2) -> Dictionary:
-	var biome_id := get_biome_id_at(target_position)
-	if biome_id.is_empty():
-		return {}
-	var runtime_biome := _get_biome_for_id(biome_id)
-	if not runtime_biome.is_empty():
-		return runtime_biome
 	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
-		if _get_biome_id(biome) == biome_id:
+		if _is_point_in_biome(target_position, biome):
 			return biome
 	return {}
 
@@ -5088,14 +5091,13 @@ func _get_biome_id(biome: Dictionary) -> String:
 
 
 func _get_biome_id_for_position(target_position: Vector2) -> String:
-	if world_generator and world_generator.has_method("get_biome_id_at"):
-		return str(world_generator.get_biome_id_at(target_position))
 	if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position"):
 		return str(biome_query_service.get_biome_id_for_position(target_position))
-	var biome := _get_biome_for_position(target_position)
-	if biome.is_empty():
-		return ""
-	return _get_biome_id(biome)
+	for biome_value in get_biome_zones():
+		var biome := Dictionary(biome_value)
+		if _is_point_in_biome(target_position, biome):
+			return _get_biome_id(biome)
+	return ""
 
 
 func _find_valid_creature_position_in_biome(
@@ -6129,7 +6131,7 @@ func respawn_varnaks() -> void:
 	for varnak in get_registered_creatures_by_type("varnak"):
 		if is_instance_valid(varnak):
 			varnak.queue_free()
-	await get_tree().process_frame
+	await _await_next_frame_safe()
 	_sync_visible_varnaks(true)
 	var event_bus := _get_event_bus()
 	if event_bus:
@@ -6281,7 +6283,7 @@ func restore_varnaks(varnaks: Array) -> void:
 	for varnak in get_registered_creatures_by_type("varnak"):
 		if is_instance_valid(varnak):
 			varnak.queue_free()
-	await get_tree().process_frame
+	await _await_next_frame_safe()
 	for varnak_data in varnaks:
 		if typeof(varnak_data) != TYPE_DICTIONARY:
 			continue
@@ -6300,7 +6302,7 @@ func _restore_creature_group(group_name: String, creature_data: Array, scene: Pa
 	for creature in get_registered_creatures_by_type(group_name):
 		if is_instance_valid(creature):
 			creature.queue_free()
-	await get_tree().process_frame
+	await _await_next_frame_safe()
 	for data_value in creature_data:
 		if typeof(data_value) != TYPE_DICTIONARY:
 			continue
@@ -7062,7 +7064,7 @@ func _build_pending_biome_terrain_accent_cache() -> void:
 		queue_redraw()
 		if built_since_yield >= BIOME_TERRAIN_ACCENT_BUILD_BATCH_SIZE and not pending_biome_terrain_accent_biomes.is_empty():
 			built_since_yield = 0
-			await get_tree().process_frame
+			await _await_next_frame_safe()
 	biome_terrain_accent_cache_build_running = false
 
 

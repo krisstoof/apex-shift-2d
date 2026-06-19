@@ -793,7 +793,7 @@ func _test_biome_color_palette_keeps_westwood_and_south_thicket_distinct(failure
 	var generator = load(WORLD_GENERATOR_PATH).new()
 	TEST_UTILS.expect(generator.get_biome_color("westwood").g < generator.get_biome_color("south_thicket").g, failures, "Westwood should stay darker than South Thicket")
 	TEST_UTILS.expect(generator.get_biome_color("westwood").r <= generator.get_biome_color("south_thicket").r, failures, "Westwood should remain the denser forest tone")
-	generator.free()
+	generator = null
 
 
 func _test_topography_resource_distribution_modifiers_respect_water_and_highlands(failures: Array[String]) -> void:
@@ -807,7 +807,7 @@ func _test_topography_resource_distribution_modifiers_respect_water_and_highland
 	TEST_UTILS.expect(float(pond_modifiers.get("rock", 1.0)) <= 1.0, failures, "Pond-adjacent topography should not boost rocks")
 	TEST_UTILS.expect(float(highland_modifiers.get("rock", 0.0)) >= 1.0, failures, "Highland topography should boost rocks")
 	TEST_UTILS.expect(float(pond_modifiers.get("water_lily", 0.0)) >= 1.0 or float(pond_modifiers.get("water_lily", 0.0)) == 0.0, failures, "Pond-adjacent topography should surface aquatic vegetation weights")
-	topo.free()
+	topo = null
 
 
 func _test_world_query_service_slows_highlands_and_water(failures: Array[String]) -> void:
@@ -1063,7 +1063,7 @@ func _test_terrain_cell_map_builds_and_looks_up_cells(failures: Array[String]) -
 	other_map.build(WORLD_CONFIG.WORLD_RECT, 96.0, other_generator, other_topo, 24680)
 	TEST_UTILS.expect(cell_map.get_cell(2, 2).get("biome_id", "") != other_map.get_cell(2, 2).get("biome_id", "") or cell_map.get_cell(2, 2).get("terrain_id", "") != other_map.get_cell(2, 2).get("terrain_id", ""), failures, "Different seeds should produce different terrain cell maps")
 	generator.free()
-	topo.free()
+	topo = null
 	other_generator.free()
 	other_topo.free()
 

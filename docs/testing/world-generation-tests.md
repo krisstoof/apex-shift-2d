@@ -160,6 +160,12 @@ var runner = preload("res://tests/unit_test_runner.gd").new()
 runner.run()  # Runs all test suites including world generation
 ```
 
+To run only the core crafting suite:
+
+```bash
+godot --headless --path . -s res://tests/unit/core_crafting_test_runner.gd
+```
+
 ### Command Line (Godot Headless)
 
 ```bash

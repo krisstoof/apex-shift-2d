@@ -60,7 +60,7 @@ func _test_landmark_config_is_valid(failures: Array[String]) -> void:
 	TEST_UTILS.expect(int(topo_counts.get("pond", 0)) > 0, failures, "Topography should generate pond features")
 	TEST_UTILS.expect(int(topo_counts.get("highland", 0)) > 0, failures, "Topography should generate highland features")
 	TEST_UTILS.expect(int(topo_counts.get("rocky_patch", 0)) > 0, failures, "Topography should generate rocky patch features")
-	topo.free()
+	topo = null
 
 
 func _test_biome_landmark_weights_follow_design(failures: Array[String]) -> void:
@@ -105,9 +105,9 @@ func _test_randomized_landmarks_are_seeded_and_spaced(failures: Array[String]) -
 		var second_feature := Dictionary(second_ponds[i])
 		TEST_UTILS.expect_close(Vector2(first_feature.get("position", Vector2.ZERO)).x, Vector2(second_feature.get("position", Vector2.ZERO)).x, failures, "The same world seed should reproduce pond feature X positions")
 		TEST_UTILS.expect_close(Vector2(first_feature.get("position", Vector2.ZERO)).y, Vector2(second_feature.get("position", Vector2.ZERO)).y, failures, "The same world seed should reproduce pond feature Y positions")
-	topo_a.free()
-	topo_b.free()
-	topo_c.free()
+	topo_a = null
+	topo_b = null
+	topo_c = null
 
 
 func _test_generated_landmarks_stay_on_land(failures: Array[String]) -> void:
@@ -125,7 +125,7 @@ func _test_generated_landmarks_stay_on_land(failures: Array[String]) -> void:
 				for direction in sample_directions:
 					var sample_zone := WORLD_CONFIG.get_terrain_zone(position + direction * radius * 0.9)
 					TEST_UTILS.expect(sample_zone != "deep_ocean" and sample_zone != "shallow_water", failures, "Generated topography feature footprint should avoid ocean water")
-		topo.free()
+		topo = null
 
 
 func _test_weighted_landmark_selection_matches_biome_character(failures: Array[String]) -> void:
@@ -135,7 +135,7 @@ func _test_weighted_landmark_selection_matches_biome_character(failures: Array[S
 		topo.setup(seed)
 		for feature_type in selected_counts.keys():
 			selected_counts[feature_type] = int(selected_counts.get(feature_type, 0)) + topo.get_topography_features_by_type(feature_type).size()
-		topo.free()
+		topo = null
 	TEST_UTILS.expect(int(selected_counts.get("pond", 0)) > 0, failures, "Topography should surface pond features across many seeds")
 	TEST_UTILS.expect(int(selected_counts.get("highland", 0)) > 0, failures, "Topography should surface highland features across many seeds")
 	TEST_UTILS.expect(int(selected_counts.get("rocky_patch", 0)) > 0, failures, "Topography should surface rocky patch features across many seeds")
