@@ -16,11 +16,12 @@ var hidden_creature_count := 0
 var last_visible_rect := Rect2()
 
 # Batching & hysteresis
-var pending_visibility_show: Array[WeakRef] = []
-var pending_visibility_hide: Array[WeakRef] = []
+var pending_visibility_show: Array[int] = []
+var pending_visibility_hide: Array[int] = []
 var visibility_changes_budget := 25
 var shown_this_frame := 0
 var hidden_this_frame := 0
+var visibility_pending_dropped_invalid := 0
 var hysteresis_margin := 0.15  # 15% additional margin for hide_rect to prevent flickering
 var show_rect := Rect2()  # Inner rect - where to show nodes
 var hide_rect := Rect2()  # Outer rect with extra margin - where to hide nodes
@@ -66,6 +67,7 @@ func get_debug_data() -> Dictionary:
 		"hidden_creatures": hidden_creature_count,
 		"shown_this_frame": shown_this_frame,
 		"hidden_this_frame": hidden_this_frame,
+		"visibility_pending_dropped_invalid": visibility_pending_dropped_invalid,
 		"pending_show_count": pending_visibility_show.size(),
 		"pending_hide_count": pending_visibility_hide.size(),
 		"visibility_changes_budget": visibility_changes_budget
@@ -84,6 +86,7 @@ func reset() -> void:
 	pending_visibility_hide.clear()
 	shown_this_frame = 0
 	hidden_this_frame = 0
+	visibility_pending_dropped_invalid = 0
 	show_rect = Rect2()
 	hide_rect = Rect2()
 
@@ -194,14 +197,14 @@ func _queue_visibility_change(node: Node, should_be_visible: bool, is_resource: 
 		return
 	if should_be_visible:
 		if not _has_pending_node(pending_visibility_show, node):
-			pending_visibility_show.append(weakref(node))
+			pending_visibility_show.append(node.get_instance_id())
 		if is_resource:
 			visible_resource_count += 1
 		else:
 			visible_creature_count += 1
 	else:
 		if not _has_pending_node(pending_visibility_hide, node):
-			pending_visibility_hide.append(weakref(node))
+			pending_visibility_hide.append(node.get_instance_id())
 		if is_resource:
 			hidden_resource_count += 1
 		else:
@@ -215,30 +218,31 @@ func _process_pending_visibility_changes() -> void:
 	
 	# Process show queue
 	while budget_used < visibility_changes_budget and pending_visibility_show.size() > 0:
-		var node_ref: WeakRef = pending_visibility_show.pop_front()
-		var node := node_ref.get_ref() as Node if node_ref != null else null
+		var instance_id := int(pending_visibility_show.pop_front())
+		var node := instance_from_id(instance_id) as Node
 		if is_instance_valid(node):
 			_set_visibility(node, true)
 			shown_this_frame += 1
+		else:
+			visibility_pending_dropped_invalid += 1
 		budget_used += 1
 	
 	# Process hide queue with remaining budget
 	while budget_used < visibility_changes_budget and pending_visibility_hide.size() > 0:
-		var node_ref: WeakRef = pending_visibility_hide.pop_front()
-		var node := node_ref.get_ref() as Node if node_ref != null else null
+		var instance_id := int(pending_visibility_hide.pop_front())
+		var node := instance_from_id(instance_id) as Node
 		if is_instance_valid(node):
 			_set_visibility(node, false)
 			hidden_this_frame += 1
+		else:
+			visibility_pending_dropped_invalid += 1
 		budget_used += 1
 
 
-func _has_pending_node(queue: Array[WeakRef], node: Node) -> bool:
+func _has_pending_node(queue: Array[int], node: Node) -> bool:
 	var instance_id := node.get_instance_id()
-	for node_ref in queue:
-		if node_ref == null:
-			continue
-		var queued_node := node_ref.get_ref() as Node
-		if queued_node != null and queued_node.get_instance_id() == instance_id:
+	for queued_instance_id in queue:
+		if int(queued_instance_id) == instance_id:
 			return true
 	return false
 

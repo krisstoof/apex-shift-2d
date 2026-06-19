@@ -122,6 +122,7 @@ var last_smoke_test_warning_ms := 0
 var refine_idle_grace_period_ms := 5000
 var refine_idle_min_interval_ms := 2500
 var last_refine_idle_allow_ms := 0
+var smoke_test_refine_work_pending := false
 var preview_build_watchdog_start_ms: Dictionary = {}
 
 func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
@@ -213,6 +214,7 @@ func mark_dirty(reason := "unknown") -> void:
 	smoke_test_warning_emitted = false
 	smoke_test_warning_count = 0
 	last_refine_idle_allow_ms = 0
+	smoke_test_refine_work_pending = false
 	preview_build_watchdog_start_ms.clear()
 	chunk_states.clear()
 	queue_redraw()
@@ -248,6 +250,7 @@ func clear_runtime_state(reason := "cleanup") -> void:
 	smoke_test_warning_emitted = false
 	smoke_test_warning_count = 0
 	last_refine_idle_allow_ms = 0
+	smoke_test_refine_work_pending = false
 	preview_build_watchdog_start_ms.clear()
 	queue_redraw()
 
@@ -301,7 +304,8 @@ func process_build_queue(delta: float = 0.0) -> void:
 		smoke_test_idle_duration_ms = int(Time.get_ticks_msec() - last_camera_idle_time_ms)
 		if smoke_test_idle_duration_ms >= 30000:  # 30 seconds
 			smoke_test_refine_build_count_at_idle = refined_build_count
-			if refined_build_count <= 1 and Time.get_ticks_msec() - last_smoke_test_warning_ms >= smoke_test_warning_cooldown_ms:
+			smoke_test_refine_work_pending = _count_active_stage("refine") > 0 or _count_active_stage("refine_pending") > 0 or pending_chunks.size() > 0
+			if smoke_test_refine_work_pending and refined_build_count <= 1 and Time.get_ticks_msec() - last_smoke_test_warning_ms >= smoke_test_warning_cooldown_ms:
 				smoke_test_warning_emitted = true
 				smoke_test_warning_count += 1
 				last_smoke_test_warning_ms = Time.get_ticks_msec()
@@ -310,6 +314,7 @@ func process_build_queue(delta: float = 0.0) -> void:
 		last_camera_idle_time_ms = 0
 		smoke_test_idle_duration_ms = 0
 		smoke_test_warning_emitted = false
+		smoke_test_refine_work_pending = false
 	
 	# Remove invisible chunks from active builds
 	var chunks_to_remove: Array = []
@@ -436,6 +441,7 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_refine_pending_count": _count_active_stage("refine_pending"),
 		"terrain_surface_smoke_test_idle_duration_ms": smoke_test_idle_duration_ms,
 		"terrain_surface_smoke_test_refine_count_at_idle": smoke_test_refine_build_count_at_idle,
+		"terrain_surface_smoke_test_refine_work_pending": smoke_test_refine_work_pending,
 		"terrain_surface_smoke_test_stuck": smoke_test_idle_duration_ms >= 30000 and smoke_test_refine_build_count_at_idle <= 1,
 		"terrain_surface_smoke_test_warning_count": smoke_test_warning_count,
 		"terrain_surface_smoke_test_last_warning_ms": last_smoke_test_warning_ms
