@@ -41,8 +41,7 @@ var creature_spawn_zones: Array[Dictionary]:
 
 
 static func from_layout(layout: Dictionary):
-	var result_script := load("res://scripts/core/world/world_generation_result.gd")
-	var result = result_script.new()
+	var result = WorldGenerationResult.new()
 	result.seed = int(layout.get("seed", 0))
 	result.generator_version = str(layout.get("generator_rules_version", layout.get("version", "")))
 	result.world_rect = Rect2(layout.get("world_rect", Rect2()))
@@ -65,18 +64,15 @@ static func from_layout(layout: Dictionary):
 
 
 func to_summary():
-	var summary_script := load("res://scripts/core/world/world_generation_summary.gd")
-	return summary_script.from_result(self)
+	return WorldGenerationSummary.from_result(self)
 
 
 func compute_hash() -> String:
-	var hash_script := load("res://scripts/core/world/world_generation_hash.gd")
-	return hash_script.compute_from_result(self)
+	return WorldGenerationHash.compute_from_result(self)
 
 
 static func compute_hash_from_layout(layout: Dictionary) -> String:
-	var hash_script := load("res://scripts/core/world/world_generation_hash.gd")
-	return hash_script.compute_from_layout(layout)
+	return WorldGenerationHash.compute_from_layout(layout)
 
 
 func to_dict() -> Dictionary:

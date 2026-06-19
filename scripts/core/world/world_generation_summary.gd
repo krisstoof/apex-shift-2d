@@ -1,3 +1,4 @@
+class_name WorldGenerationSummary
 extends RefCounted
 
 var seed: int = 0
@@ -16,8 +17,7 @@ var generation_hash: String = ""
 
 
 static func from_result(result):
-	var summary_script := load("res://scripts/core/world/world_generation_summary.gd")
-	var summary = summary_script.new()
+	var summary = WorldGenerationSummary.new()
 	if result == null:
 		return summary
 
@@ -38,8 +38,7 @@ static func from_result(result):
 
 
 static func from_layout(layout: Dictionary):
-	var summary_script := load("res://scripts/core/world/world_generation_summary.gd")
-	var summary = summary_script.new()
+	var summary = WorldGenerationSummary.new()
 	summary.seed = int(layout.get("seed", 0))
 	summary.generator_version = str(layout.get("generator_rules_version", layout.get("version", "")))
 	summary.world_rect = Rect2(layout.get("world_rect", Rect2()))
