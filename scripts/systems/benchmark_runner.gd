@@ -77,6 +77,7 @@ var benchmark_active := false
 var verbose_hitch_logging := false
 var last_hitch_summary_ms := 0
 var benchmark_duration_seconds := BENCHMARK_DURATION_SECONDS
+var benchmark_world_ready_elapsed_seconds := -1.0
 
 
 func _ready() -> void:
@@ -121,6 +122,7 @@ func start(preset_name: String = "normal") -> bool:
 	benchmark_hitch_capture_ms = 0.0
 	benchmark_report_build_ms = 0.0
 	last_reported_second = -1
+	benchmark_world_ready_elapsed_seconds = -1.0
 	benchmark_progress.emit(0.0, benchmark_duration_seconds)
 	return true
 
@@ -138,6 +140,7 @@ func _process(delta: float) -> void:
 		"samples": samples.size()
 	})
 	elapsed_seconds = float(Time.get_ticks_usec() - start_ticks_usec) / 1000000.0
+	_update_world_ready_elapsed_seconds()
 	sample_timer += delta
 	if sample_timer >= SAMPLE_INTERVAL_SECONDS and running:
 		sample_timer -= SAMPLE_INTERVAL_SECONDS
@@ -169,6 +172,7 @@ func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
 			var performance_physics_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 			var hitch := {
 				"elapsed_seconds": elapsed_seconds,
+				"phase": _get_benchmark_phase(),
 				"realtime_delta_ms": last_wall_frame_delta_ms,
 				"wall_frame_delta_ms": last_wall_frame_delta_ms,
 				"engine_delta_ms": last_engine_delta_ms,
@@ -306,6 +310,7 @@ func _capture_sample() -> Dictionary:
 	var sample: Dictionary = {}
 	sample["sample_index"] = samples.size() + 1
 	sample["elapsed_seconds"] = elapsed_seconds
+	sample["phase"] = _get_benchmark_phase()
 	sample["time_label"] = _format_time(elapsed_seconds)
 	sample["performance"] = _capture_performance_stats()
 	var performance: Dictionary = Dictionary(sample.get("performance", {}))
@@ -316,6 +321,7 @@ func _capture_sample() -> Dictionary:
 		"performance_physics_ms": float(performance.get("physics_time_s", 0.0)) * 1000.0
 	}
 	sample["world_summary"] = _capture_world_summary()
+	sample["resource_spawn_failure"] = _capture_world_resource_spawn_failure_debug()
 	if deep_debug:
 		var world_debug_start := Time.get_ticks_usec()
 		sample["world"] = _capture_world_stats(true)
@@ -432,8 +438,14 @@ func _capture_world_summary() -> Dictionary:
 	var minimap := _capture_minimap_stats()
 	var vegetation := _capture_world_vegetation_stats()
 	return {
+		"world_surface_texture_build_count": int(terrain.get("world_surface_texture_build_count", terrain.get("terrain_surface_refined_build_count", 0))),
+		"world_surface_texture_last_build_ms": float(terrain.get("world_surface_texture_last_build_ms", terrain.get("terrain_surface_last_build_ms", 0.0))),
+		"surface_texture_build_running": bool(terrain.get("surface_texture_build_running", terrain.get("terrain_surface_build_running", false))),
 		"visible_resources": int(visibility.get("visible_resources", 0)),
 		"visible_creatures": int(visibility.get("visible_creatures", 0)),
+		"visibility_cull_show_count": int(visibility.get("visibility_show_count", visibility.get("shown_this_frame", 0))),
+		"visibility_cull_hide_count": int(visibility.get("visibility_hide_count", visibility.get("hidden_this_frame", 0))),
+		"visibility_cull_ms": float(visibility.get("visibility_queue_ms", 0.0)),
 		"visibility_pending_count": int(visibility.get("pending_show_count", 0)) + int(visibility.get("pending_hide_count", 0)),
 		"visibility_processed_this_frame": int(visibility.get("visibility_processed_this_frame", 0)),
 		"visibility_pending_dropped_invalid": int(visibility.get("visibility_pending_dropped_invalid", 0)),
@@ -455,6 +467,30 @@ func _capture_world_summary() -> Dictionary:
 		"biome_blend_texture_rebuild_reason": str(biome_cache.get("biome_blend_texture_rebuild_reason", "")),
 		"vegetation": vegetation
 	}
+
+
+func _update_world_ready_elapsed_seconds() -> void:
+	if benchmark_world_ready_elapsed_seconds >= 0.0:
+		return
+	if not is_instance_valid(world):
+		return
+	var ready := false
+	if world.has_method("get_boot_progress_state"):
+		var state := Dictionary(world.get_boot_progress_state())
+		ready = bool(state.get("boot_ready", false))
+	elif world.has_method("is_boot_ready"):
+		ready = bool(world.is_boot_ready())
+	if ready:
+		benchmark_world_ready_elapsed_seconds = elapsed_seconds
+
+
+func _get_benchmark_phase() -> String:
+	if benchmark_world_ready_elapsed_seconds < 0.0:
+		return "pre_ready"
+	var post_ready_elapsed := elapsed_seconds - benchmark_world_ready_elapsed_seconds
+	if post_ready_elapsed < 10.0:
+		return "boot_after_ready"
+	return "stable_runtime"
 
 
 func _get_lightweight_render_attribution_summary() -> Dictionary:
@@ -713,6 +749,12 @@ func _capture_world_resource_spawn_summary() -> Dictionary:
 	return Dictionary(world.call("_build_resource_spawn_debug_summary"))
 
 
+func _capture_world_resource_spawn_failure_debug() -> Dictionary:
+	if not is_instance_valid(world) or not world.has_method("get_resource_spawn_failure_debug"):
+		return {}
+	return Dictionary(world.call("get_resource_spawn_failure_debug"))
+
+
 func _capture_world_render_flags() -> Dictionary:
 	if not is_instance_valid(world):
 		return {}
@@ -736,11 +778,18 @@ func _capture_world_terrain_renderer_stats() -> Dictionary:
 	if not is_instance_valid(world):
 		return {}
 	if world.has_method("get_terrain_renderer_debug"):
-		return Dictionary(world.get_terrain_renderer_debug())
+		var stats := Dictionary(world.get_terrain_renderer_debug())
+		stats["world_surface_texture_build_count"] = int(stats.get("world_surface_texture_build_count", stats.get("terrain_surface_refined_build_count", 0)))
+		stats["world_surface_texture_last_build_ms"] = float(stats.get("world_surface_texture_last_build_ms", stats.get("terrain_surface_last_build_ms", 0.0)))
+		stats["surface_texture_build_running"] = bool(stats.get("surface_texture_build_running", stats.get("terrain_surface_build_running", false)))
+		return stats
 	return {
 		"terrain_surface_chunks_built_last_frame": 0,
 		"terrain_surface_max_build_ms_per_frame": 0.0,
 		"terrain_surface_chunk_pending_count": 0,
+		"world_surface_texture_build_count": 0,
+		"world_surface_texture_last_build_ms": 0.0,
+		"surface_texture_build_running": false,
 		"not_applicable": true
 	}
 
@@ -905,6 +954,8 @@ func _capture_world_vegetation_stats() -> Dictionary:
 		result["decorative_vegetation_visible_chunk_count"] = int(visual_debug.get("visible_chunk_count", 0))
 		result["decorative_vegetation_total_chunk_count"] = int(visual_debug.get("total_chunk_count", 0))
 		result["decorative_vegetation_visual_count_by_kind"] = Dictionary(visual_debug.get("count_by_kind", {}))
+		result["vegetation_draw_ms"] = float(visual_debug.get("draw_ms", visual_debug.get("vegetation_draw_ms", 0.0)))
+		result["vegetation_candidate_count"] = int(visual_debug.get("candidate_count_before_cap", visual_debug.get("vegetation_candidate_count", 0)))
 	return result
 
 
@@ -1180,6 +1231,8 @@ func _build_report() -> Dictionary:
 		"samples": samples,
 		"render_attribution_summary": _build_render_attribution_summary()
 	}
+	report["phase_metrics"] = _build_phase_metrics(report)
+	report["top_hitch_sections"] = _build_top_hitch_sections(Array(report.get("hitch_breakdown", [])), "")
 	benchmark_report_build_ms = float(Time.get_ticks_msec() - report_start_ms)
 	report["benchmark_report_build_ms"] = benchmark_report_build_ms
 	report["runtime_hitch_summary"] = {
@@ -1191,6 +1244,103 @@ func _build_report() -> Dictionary:
 	}
 	report["threshold_validation"] = _validate_benchmark_thresholds(report)
 	return report
+
+
+func _build_phase_metrics(report: Dictionary) -> Dictionary:
+	var result := {
+		"pre_ready": _build_phase_metric_bucket(),
+		"boot_after_ready": _build_phase_metric_bucket(),
+		"stable_runtime": _build_phase_metric_bucket()
+	}
+	var phase_map := {
+		"pre_ready": "pre_ready",
+		"boot_after_ready": "boot_after_ready",
+		"stable_runtime": "stable_runtime"
+	}
+	var samples_array := Array(report.get("samples", []))
+	var hitches_array := Array(report.get("realtime_hitches", []))
+	for sample_value in samples_array:
+		var sample := Dictionary(sample_value)
+		var phase := str(sample.get("phase", "pre_ready"))
+		if not phase_map.has(phase):
+			continue
+		var bucket: Dictionary = Dictionary(result[phase])
+		_build_phase_metric_bucket_update(bucket, sample, false)
+		result[phase] = bucket
+	for hitch_value in hitches_array:
+		var hitch := Dictionary(hitch_value)
+		var phase := str(hitch.get("phase", "pre_ready"))
+		if not phase_map.has(phase):
+			continue
+		var bucket: Dictionary = Dictionary(result[phase])
+		_build_phase_metric_bucket_update(bucket, hitch, true)
+		result[phase] = bucket
+	for phase in result.keys():
+		var bucket := Dictionary(result[phase])
+		bucket["average_fps"] = float(bucket.get("total_fps", 0.0)) / float(bucket.get("sample_count", 1)) if int(bucket.get("sample_count", 0)) > 0 else 0.0
+		if float(bucket.get("min_fps", 999999.0)) >= 999999.0:
+			bucket["min_fps"] = 0.0
+		bucket["top_5_hitch_sections"] = _build_top_hitch_sections(hitches_array, str(phase))
+		result[phase] = bucket
+	return result
+
+
+func _build_phase_metric_bucket() -> Dictionary:
+	return {
+		"sample_count": 0,
+		"total_fps": 0.0,
+		"min_fps": 999999.0,
+		"max_frame_time_ms": 0.0,
+		"max_realtime_delta_ms": 0,
+		"realtime_hitch_count": 0,
+		"max_world_surface_texture_last_build_ms": 0.0,
+		"max_visibility_cull_ms": 0.0,
+		"max_vegetation_draw_ms": 0.0,
+		"max_minimap_build_ms": 0.0
+	}
+
+
+func _build_phase_metric_bucket_update(bucket: Dictionary, entry: Dictionary, is_hitch: bool) -> void:
+	if not is_hitch:
+		var performance: Dictionary = Dictionary(entry.get("performance", {}))
+		var world_summary: Dictionary = Dictionary(entry.get("world_summary", {}))
+		bucket["sample_count"] = int(bucket.get("sample_count", 0)) + 1
+		bucket["total_fps"] = float(bucket.get("total_fps", 0.0)) + float(performance.get("fps", 0))
+		bucket["min_fps"] = min(float(bucket.get("min_fps", 999999.0)), float(performance.get("fps", 0)))
+		var frame_time_ms := float(Dictionary(entry.get("timing", {})).get("performance_process_ms", 0.0))
+		bucket["max_frame_time_ms"] = max(float(bucket.get("max_frame_time_ms", 0.0)), frame_time_ms)
+		bucket["max_world_surface_texture_last_build_ms"] = max(float(bucket.get("max_world_surface_texture_last_build_ms", 0.0)), float(world_summary.get("world_surface_texture_last_build_ms", 0.0)))
+		bucket["max_visibility_cull_ms"] = max(float(bucket.get("max_visibility_cull_ms", 0.0)), float(world_summary.get("visibility_cull_ms", 0.0)))
+		var vegetation: Dictionary = Dictionary(world_summary.get("vegetation", {}))
+		bucket["max_vegetation_draw_ms"] = max(float(bucket.get("max_vegetation_draw_ms", 0.0)), float(vegetation.get("vegetation_draw_ms", 0.0)))
+		bucket["max_minimap_build_ms"] = max(float(bucket.get("max_minimap_build_ms", 0.0)), float(world_summary.get("minimap_build_ms", 0.0)))
+	else:
+		bucket["realtime_hitch_count"] = int(bucket.get("realtime_hitch_count", 0)) + 1
+		bucket["max_realtime_delta_ms"] = maxi(int(bucket.get("max_realtime_delta_ms", 0)), int(entry.get("realtime_delta_ms", 0)))
+
+
+func _build_top_hitch_sections(hitches: Array, phase: String = "") -> Array:
+	var totals: Dictionary = {}
+	for hitch_value in hitches:
+		var hitch := Dictionary(hitch_value)
+		var hitch_phase := str(hitch.get("phase", "boot"))
+		if not phase.is_empty() and hitch_phase != phase:
+			continue
+		var breakdown: Dictionary = Dictionary(hitch.get("frame_breakdown", {}))
+		for key in breakdown.keys():
+			var section := str(key)
+			totals[section] = float(totals.get(section, 0.0)) + float(breakdown.get(key, 0.0))
+	var ranked: Array[Dictionary] = []
+	for key in totals.keys():
+		ranked.append({"section": str(key), "total_ms": float(totals.get(key, 0.0))})
+	ranked.sort_custom(Callable(self, "_sort_hitch_section_descending"))
+	if ranked.size() > 5:
+		ranked.resize(5)
+	return ranked
+
+
+func _sort_hitch_section_descending(left: Dictionary, right: Dictionary) -> bool:
+	return float(left.get("total_ms", 0.0)) > float(right.get("total_ms", 0.0))
 
 
 func _update_hitch_breakdown_summary(hitch: Dictionary, frame_breakdown: Dictionary, top_scopes: Array[Dictionary]) -> void:
@@ -1401,6 +1551,14 @@ func _format_report_text(report: Dictionary) -> String:
 	lines.append(_format_hitch_summary_text(report))
 	lines.append(_format_hitch_breakdown_summary_text(report))
 	lines.append("")
+	lines.append("Phase summary:")
+	lines.append(_format_phase_summary_text(report))
+	lines.append("")
+	lines.append("Top hitch sections:")
+	for item in Array(report.get("top_hitch_sections", [])):
+		var section := Dictionary(item)
+		lines.append("- %s: %.2f ms" % [str(section.get("section", "")), float(section.get("total_ms", 0.0))])
+	lines.append("")
 	lines.append(_format_threshold_validation_text(report))
 	var heaviest_sample: Dictionary = Dictionary(report.get("heaviest_sample", {}))
 	if not heaviest_sample.is_empty():
@@ -1433,11 +1591,35 @@ func _format_report_text(report: Dictionary) -> String:
 	return "\n".join(lines)
 
 
+func _format_phase_summary_text(report: Dictionary) -> String:
+	var phase_metrics := Dictionary(report.get("phase_metrics", {}))
+	if phase_metrics.is_empty():
+		return "Phase summary unavailable"
+	var lines: Array[String] = []
+	for phase_name in ["pre_ready", "boot_after_ready", "stable_runtime"]:
+		var bucket := Dictionary(phase_metrics.get(phase_name, {}))
+		lines.append("%s: samples=%d avg_fps=%.2f min_fps=%.2f max_frame_time=%.2fms hitch_count=%d" % [
+			phase_name,
+			int(bucket.get("sample_count", 0)),
+			float(bucket.get("average_fps", 0.0)),
+			float(bucket.get("min_fps", 0.0)),
+			float(bucket.get("max_frame_time_ms", 0.0)),
+			int(bucket.get("realtime_hitch_count", 0))
+		])
+	return "\n".join(lines)
+
+
 func _load_benchmark_thresholds() -> Dictionary:
 	var defaults := {
 		"enabled": true,
 		"fail_on_regression_by_default": false,
 		"thresholds": {
+			"boot_max_frame_time_ms": 120,
+			"post_ready_max_frame_time_ms": 90,
+			"runtime_max_frame_time_ms": 80,
+			"runtime_realtime_hitch_count_max": 3,
+			"runtime_max_realtime_delta_ms": 250,
+			"realtime_hitches_after_ready_max": 3,
 			"average_fps_min": 50,
 			"max_frame_time_ms_max": 80,
 			"max_wall_frame_delta_ms_max": 250,
@@ -1448,6 +1630,9 @@ func _load_benchmark_thresholds() -> Dictionary:
 			"minimap_texture_build_count_max": 2,
 			"map_screen_texture_build_count_max": 2,
 			"world_biome_texture_build_count_max": 2,
+			"world_surface_texture_last_build_ms_max": 20,
+			"visibility_cull_ms_max": 10,
+			"vegetation_draw_ms_max": 20,
 			"active_resource_collisions_max": 80,
 			"node_count_max": 2500
 		}
@@ -1488,6 +1673,16 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 		"max_performance_process_ms": float(report.get("max_performance_process_ms", 0.0)),
 		"realtime_hitch_count": int(report.get("realtime_hitch_count", 0)),
 		"max_realtime_delta_ms": int(report.get("max_realtime_delta_ms", 0)),
+		"world_surface_texture_build_count": 0,
+		"world_surface_texture_last_build_ms": 0.0,
+		"surface_texture_build_running": false,
+		"visibility_cull_show_count": 0,
+		"visibility_cull_hide_count": 0,
+		"visibility_cull_ms": 0.0,
+		"vegetation_draw_ms": 0.0,
+		"vegetation_candidate_count": 0,
+		"resource_spawn_failed_total": 0,
+		"resource_spawn_failed_by_kind": {},
 		"minimap_texture_build_count": 0,
 		"minimap_build_ms": 0.0,
 		"map_screen_texture_build_count": 0,
@@ -1520,6 +1715,7 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 		var world_summary: Dictionary = Dictionary(sample.get("world_summary", {}))
 		var minimap_stats: Dictionary = Dictionary(sample.get("minimap", {}))
 		var map_screen_stats: Dictionary = Dictionary(sample.get("map_screen", {}))
+		var world_vegetation: Dictionary = Dictionary(world_summary.get("vegetation", {}))
 		var resource_render_mode: Dictionary = Dictionary(world_stats.get("resource_render_mode", {}))
 		if performance.has("node_count"):
 			metrics["node_count"] = maxi(int(metrics["node_count"]), int(performance.get("node_count", 0)))
@@ -1567,6 +1763,21 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 			metrics["world_surface_texture_pending_chunks"] = maxi(int(metrics["world_surface_texture_pending_chunks"]), int(performance.get("world_surface_texture_pending_chunks", 0)))
 		else:
 			missing_metric_set["world_surface_texture_pending_chunks"] = true
+		metrics["world_surface_texture_build_count"] = maxi(int(metrics["world_surface_texture_build_count"]), int(world_summary.get("world_surface_texture_build_count", 0)))
+		metrics["world_surface_texture_last_build_ms"] = max(float(metrics["world_surface_texture_last_build_ms"]), float(world_summary.get("world_surface_texture_last_build_ms", 0.0)))
+		metrics["surface_texture_build_running"] = bool(metrics["surface_texture_build_running"]) or bool(world_summary.get("surface_texture_build_running", false))
+		metrics["visibility_cull_show_count"] = maxi(int(metrics["visibility_cull_show_count"]), int(world_summary.get("visibility_cull_show_count", 0)))
+		metrics["visibility_cull_hide_count"] = maxi(int(metrics["visibility_cull_hide_count"]), int(world_summary.get("visibility_cull_hide_count", 0)))
+		metrics["visibility_cull_ms"] = max(float(metrics["visibility_cull_ms"]), float(world_summary.get("visibility_cull_ms", 0.0)))
+		metrics["vegetation_draw_ms"] = max(float(metrics["vegetation_draw_ms"]), float(world_vegetation.get("vegetation_draw_ms", 0.0)))
+		metrics["vegetation_candidate_count"] = maxi(int(metrics["vegetation_candidate_count"]), int(world_vegetation.get("vegetation_candidate_count", 0)))
+		var resource_spawn_failure: Dictionary = Dictionary(sample.get("resource_spawn_failure", {}))
+		metrics["resource_spawn_failed_total"] = maxi(int(metrics["resource_spawn_failed_total"]), int(resource_spawn_failure.get("total_failed", 0)))
+		var failed_by_kind: Dictionary = Dictionary(resource_spawn_failure.get("failed_by_kind", {}))
+		var current_failed_by_kind: Dictionary = Dictionary(metrics.get("resource_spawn_failed_by_kind", {}))
+		for kind in failed_by_kind.keys():
+			current_failed_by_kind[kind] = maxi(int(current_failed_by_kind.get(kind, 0)), int(failed_by_kind.get(kind, 0)))
+		metrics["resource_spawn_failed_by_kind"] = current_failed_by_kind
 	var missing_metrics: Array[String] = []
 	for metric_name in missing_metric_set.keys():
 		missing_metrics.append(str(metric_name))
@@ -1584,6 +1795,7 @@ func _validate_benchmark_thresholds(report: Dictionary) -> Dictionary:
 	var metrics := _extract_regression_metrics(report)
 	var violations: Array[Dictionary] = []
 	var warnings: Array[Dictionary] = []
+	var missing_metrics_reported: Dictionary = {}
 	var missing_metrics: Array = Array(metrics.get("missing_metrics", []))
 	if not enabled:
 		return {
@@ -1596,22 +1808,28 @@ func _validate_benchmark_thresholds(report: Dictionary) -> Dictionary:
 			"warnings": warnings,
 			"missing_metrics": missing_metrics
 		}
-	_check_threshold_min(metrics, thresholds, violations, warnings, "average_fps", "average_fps_min", ">=", "average_fps %s is below required minimum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "max_frame_time_ms", "max_frame_time_ms_max", "<=", "max_frame_time_ms %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "max_wall_frame_delta_ms", "max_wall_frame_delta_ms_max", "<=", "max_wall_frame_delta_ms %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "max_performance_process_ms", "max_performance_process_ms_max", "<=", "max_performance_process_ms %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "realtime_hitch_count", "realtime_hitch_count_max", "<=", "realtime_hitch_count %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "max_realtime_delta_ms", "max_realtime_delta_ms_max", "<=", "max_realtime_delta_ms %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "minimap_texture_build_count", "minimap_texture_build_count_max", "<=", "minimap_texture_build_count %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "minimap_build_ms", "minimap_build_ms_max", "<=", "minimap_build_ms %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "map_screen_texture_build_count", "map_screen_texture_build_count_max", "<=", "map_screen_texture_build_count %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "world_biome_texture_build_count", "world_biome_texture_build_count_max", "<=", "world_biome_texture_build_count %s exceeds maximum %s")
-	# World surface texture thresholds
-	_check_threshold_max(metrics, thresholds, violations, warnings, "world_surface_texture_chunks_built", "world_surface_texture_chunks_built_max", "<=", "world_surface_texture_chunks_built %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "world_surface_texture_max_build_ms_per_frame", "world_surface_texture_max_build_ms_per_frame_max", "<=", "world_surface_texture_max_build_ms_per_frame %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "world_surface_texture_pending_chunks", "world_surface_texture_pending_chunks_max", "<=", "world_surface_texture_pending_chunks %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "active_resource_collisions", "active_resource_collisions_max", "<=", "active_resource_collisions %s exceeds maximum %s")
-	_check_threshold_max(metrics, thresholds, violations, warnings, "node_count", "node_count_max", "<=", "node_count %s exceeds maximum %s")
+	_check_threshold_min(metrics, thresholds, violations, warnings, missing_metrics_reported, "average_fps", "average_fps_min", ">=", "average_fps %s is below required minimum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "max_frame_time_ms", "max_frame_time_ms_max", "<=", "max_frame_time_ms %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "max_wall_frame_delta_ms", "max_wall_frame_delta_ms_max", "<=", "max_wall_frame_delta_ms %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "max_performance_process_ms", "max_performance_process_ms_max", "<=", "max_performance_process_ms %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "realtime_hitch_count", "realtime_hitch_count_max", "<=", "realtime_hitch_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "max_realtime_delta_ms", "max_realtime_delta_ms_max", "<=", "max_realtime_delta_ms %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "minimap_texture_build_count", "minimap_texture_build_count_max", "<=", "minimap_texture_build_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "minimap_build_ms", "minimap_build_ms_max", "<=", "minimap_build_ms %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "map_screen_texture_build_count", "map_screen_texture_build_count_max", "<=", "map_screen_texture_build_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "world_biome_texture_build_count", "world_biome_texture_build_count_max", "<=", "world_biome_texture_build_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "world_surface_texture_build_count", "world_surface_texture_build_count_max", "<=", "world_surface_texture_build_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "world_surface_texture_last_build_ms", "world_surface_texture_last_build_ms_max", "<=", "world_surface_texture_last_build_ms %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "surface_texture_build_running", "surface_texture_build_running_max", "<=", "surface_texture_build_running %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "visibility_cull_show_count", "visibility_cull_show_count_max", "<=", "visibility_cull_show_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "visibility_cull_hide_count", "visibility_cull_hide_count_max", "<=", "visibility_cull_hide_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "visibility_cull_ms", "visibility_cull_ms_max", "<=", "visibility_cull_ms %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "vegetation_draw_ms", "vegetation_draw_ms_max", "<=", "vegetation_draw_ms %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "vegetation_candidate_count", "vegetation_candidate_count_max", "<=", "vegetation_candidate_count %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "resource_spawn_failed_total", "resource_spawn_failed_total_max", "<=", "resource_spawn_failed_total %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "active_resource_collisions", "active_resource_collisions_max", "<=", "active_resource_collisions %s exceeds maximum %s")
+	_check_threshold_max(metrics, thresholds, violations, warnings, missing_metrics_reported, "node_count", "node_count_max", "<=", "node_count %s exceeds maximum %s")
+	_append_phase_threshold_checks(report, thresholds, violations, warnings, missing_metrics_reported)
 	var status := "passed"
 	if not violations.is_empty():
 		status = "failed" if fail_on_regression else "warning"
@@ -1629,12 +1847,48 @@ func _validate_benchmark_thresholds(report: Dictionary) -> Dictionary:
 	}
 
 
-func _check_threshold_min(metrics: Dictionary, thresholds: Dictionary, violations: Array[Dictionary], warnings: Array[Dictionary], metric_name: String, threshold_name: String, operator_text: String, message_template: String) -> void:
+func _append_phase_threshold_checks(report: Dictionary, thresholds: Dictionary, violations: Array[Dictionary], warnings: Array[Dictionary], missing_metrics_reported: Dictionary) -> void:
+	var phase_metrics := Dictionary(report.get("phase_metrics", {}))
+	var pre_ready := Dictionary(phase_metrics.get("pre_ready", {}))
+	var boot_after_ready := Dictionary(phase_metrics.get("boot_after_ready", {}))
+	var stable := Dictionary(phase_metrics.get("stable_runtime", {}))
+	_check_phase_metric_max(pre_ready, thresholds, violations, warnings, missing_metrics_reported, "max_frame_time_ms", "pre_ready_max_frame_time_ms", "pre_ready max_frame_time_ms %s exceeds maximum %s")
+	_check_phase_metric_max(boot_after_ready, thresholds, violations, warnings, missing_metrics_reported, "max_frame_time_ms", "boot_after_ready_max_frame_time_ms", "boot_after_ready max_frame_time_ms %s exceeds maximum %s")
+	_check_phase_metric_max(stable, thresholds, violations, warnings, missing_metrics_reported, "max_frame_time_ms", "runtime_max_frame_time_ms", "runtime max_frame_time_ms %s exceeds maximum %s")
+	_check_phase_metric_max(stable, thresholds, violations, warnings, missing_metrics_reported, "realtime_hitch_count", "runtime_realtime_hitch_count_max", "runtime realtime_hitch_count %s exceeds maximum %s")
+	_check_phase_metric_max(stable, thresholds, violations, warnings, missing_metrics_reported, "max_realtime_delta_ms", "runtime_max_realtime_delta_ms", "runtime max_realtime_delta_ms %s exceeds maximum %s")
+	_check_phase_metric_max(boot_after_ready, thresholds, violations, warnings, missing_metrics_reported, "realtime_hitch_count", "realtime_hitches_after_ready_max", "boot_after_ready realtime_hitch_count %s exceeds maximum %s")
+	_check_phase_metric_max(stable, thresholds, violations, warnings, missing_metrics_reported, "realtime_hitch_count", "realtime_hitches_after_ready_max", "stable runtime realtime_hitch_count %s exceeds maximum %s")
+	_check_phase_metric_max(boot_after_ready, thresholds, violations, warnings, missing_metrics_reported, "max_world_surface_texture_last_build_ms", "world_surface_texture_last_build_ms_max", "boot_after_ready world_surface_texture_last_build_ms %s exceeds maximum %s")
+	_check_phase_metric_max(boot_after_ready, thresholds, violations, warnings, missing_metrics_reported, "max_visibility_cull_ms", "visibility_cull_ms_max", "boot_after_ready visibility_cull_ms %s exceeds maximum %s")
+	_check_phase_metric_max(boot_after_ready, thresholds, violations, warnings, missing_metrics_reported, "max_vegetation_draw_ms", "vegetation_draw_ms_max", "boot_after_ready vegetation_draw_ms %s exceeds maximum %s")
+
+
+func _check_phase_metric_max(bucket: Dictionary, thresholds: Dictionary, violations: Array[Dictionary], warnings: Array[Dictionary], missing_metrics_reported: Dictionary, metric_name: String, threshold_name: String, message_template: String) -> void:
+	if not bucket.has(metric_name):
+		_record_missing_metric_once(missing_metrics_reported, warnings, metric_name)
+		return
+	if not thresholds.has(threshold_name):
+		return
+	var actual := float(bucket.get(metric_name, 0.0))
+	var threshold := float(thresholds.get(threshold_name, 0.0))
+	if actual > threshold:
+		violations.append(_build_threshold_violation(metric_name, "<=", threshold, actual, "warning", message_template))
+
+
+func _record_missing_metric_once(missing_metrics_reported: Dictionary, warnings: Array[Dictionary], metric_name: String) -> void:
+	if missing_metrics_reported.has(metric_name):
+		return
+	missing_metrics_reported[metric_name] = true
+	warnings.append({
+		"metric": metric_name,
+		"message": "Metric missing from benchmark report"
+	})
+
+
+func _check_threshold_min(metrics: Dictionary, thresholds: Dictionary, violations: Array[Dictionary], warnings: Array[Dictionary], missing_metrics_reported: Dictionary, metric_name: String, threshold_name: String, operator_text: String, message_template: String) -> void:
 	if not metrics.has(metric_name):
-		warnings.append({
-			"metric": metric_name,
-			"message": "Metric missing from benchmark report"
-		})
+		_record_missing_metric_once(missing_metrics_reported, warnings, metric_name)
 		return
 	if not thresholds.has(threshold_name):
 		return
@@ -1644,12 +1898,9 @@ func _check_threshold_min(metrics: Dictionary, thresholds: Dictionary, violation
 		violations.append(_build_threshold_violation(metric_name, operator_text, threshold, actual, "warning", message_template))
 
 
-func _check_threshold_max(metrics: Dictionary, thresholds: Dictionary, violations: Array[Dictionary], warnings: Array[Dictionary], metric_name: String, threshold_name: String, operator_text: String, message_template: String) -> void:
+func _check_threshold_max(metrics: Dictionary, thresholds: Dictionary, violations: Array[Dictionary], warnings: Array[Dictionary], missing_metrics_reported: Dictionary, metric_name: String, threshold_name: String, operator_text: String, message_template: String) -> void:
 	if not metrics.has(metric_name):
-		warnings.append({
-			"metric": metric_name,
-			"message": "Metric missing from benchmark report"
-		})
+		_record_missing_metric_once(missing_metrics_reported, warnings, metric_name)
 		return
 	if not thresholds.has(threshold_name):
 		return
@@ -1691,6 +1942,15 @@ func _format_threshold_validation_text(report: Dictionary) -> String:
 	_append_threshold_metric_line(lines, metrics, thresholds, "minimap_build_ms", "minimap_build_ms_max", "<=")
 	_append_threshold_metric_line(lines, metrics, thresholds, "map_screen_texture_build_count", "map_screen_texture_build_count_max", "<=")
 	_append_threshold_metric_line(lines, metrics, thresholds, "world_biome_texture_build_count", "world_biome_texture_build_count_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "world_surface_texture_build_count", "world_surface_texture_build_count_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "world_surface_texture_last_build_ms", "world_surface_texture_last_build_ms_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "surface_texture_build_running", "surface_texture_build_running_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "visibility_cull_show_count", "visibility_cull_show_count_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "visibility_cull_hide_count", "visibility_cull_hide_count_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "visibility_cull_ms", "visibility_cull_ms_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "vegetation_draw_ms", "vegetation_draw_ms_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "vegetation_candidate_count", "vegetation_candidate_count_max", "<=")
+	_append_threshold_metric_line(lines, metrics, thresholds, "resource_spawn_failed_total", "resource_spawn_failed_total_max", "<=")
 	_append_threshold_metric_line(lines, metrics, thresholds, "active_resource_collisions", "active_resource_collisions_max", "<=")
 	_append_threshold_metric_line(lines, metrics, thresholds, "node_count", "node_count_max", "<=")
 	if Array(validation.get("missing_metrics", [])).size() > 0:

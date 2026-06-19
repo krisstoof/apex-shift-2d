@@ -5347,16 +5347,22 @@ func get_resource_spawn_debug() -> Dictionary:
 		"biome_spawn_point_cache_count": biome_spawn_point_cache.size()
 	}
 
+
+func get_resource_spawn_failure_debug() -> Dictionary:
+	return _build_resource_spawn_debug_summary()
+
 func _build_resource_spawn_debug_summary() -> Dictionary:
 	var failure_summary := Dictionary(resource_spawn_failure_summary.duplicate(true))
 	var rejection_summary := Dictionary(resource_spawn_rejection_summary.duplicate(true))
-	var total_failed := 0
+	var total_failed := _sum_resource_spawn_failures(failure_summary)
+	var failed_by_kind := {}
 	var top_failure_key := ""
 	var top_failure_count := 0
 	for key in failure_summary.keys():
 		var entry := Dictionary(failure_summary.get(key, {}))
 		var failed := int(entry.get("failed", 0))
-		total_failed += failed
+		var kind := str(entry.get("kind", key))
+		failed_by_kind[kind] = int(failed_by_kind.get(kind, 0)) + failed
 		if failed > top_failure_count:
 			top_failure_count = failed
 			top_failure_key = str(key)
@@ -5372,11 +5378,20 @@ func _build_resource_spawn_debug_summary() -> Dictionary:
 	return {
 		"summary_count": failure_summary.size(),
 		"total_failed": total_failed,
+		"failed_by_kind": failed_by_kind,
 		"top_failure_key": top_failure_key,
 		"top_failure_count": top_failure_count,
 		"top_rejection_reason": top_reason_key,
 		"top_rejection_count": top_reason_count
 	}
+
+
+func _sum_resource_spawn_failures(failure_summary: Dictionary) -> int:
+	var total_failed := 0
+	for key in failure_summary.keys():
+		var entry := Dictionary(failure_summary.get(key, {}))
+		total_failed += int(entry.get("failed", 0))
+	return total_failed
 
 
 func _try_spawn_resource_near_biome_edge(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:

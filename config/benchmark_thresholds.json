@@ -2,6 +2,12 @@
   "enabled": true,
   "fail_on_regression_by_default": false,
   "thresholds": {
+    "pre_ready_max_frame_time_ms": 120,
+    "boot_after_ready_max_frame_time_ms": 90,
+    "runtime_max_frame_time_ms": 80,
+    "runtime_realtime_hitch_count_max": 3,
+    "runtime_max_realtime_delta_ms": 250,
+    "realtime_hitches_after_ready_max": 3,
     "average_fps_min": 50,
     "max_frame_time_ms_max": 120,
     "realtime_hitch_count_max": 5,
@@ -12,6 +18,9 @@
     "world_surface_texture_chunks_built_max": 3,
     "world_surface_texture_max_build_ms_per_frame_max": 6,
     "world_surface_texture_pending_chunks_max": 10,
+    "world_surface_texture_last_build_ms_max": 20,
+    "visibility_cull_ms_max": 10,
+    "vegetation_draw_ms_max": 20,
     "active_resource_collisions_max": 80,
     "node_count_max": 2500
   }
