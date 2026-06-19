@@ -59,6 +59,7 @@ var benchmark_sample_build_ms: float = 0.0
 var benchmark_sample_collection_ms: float = 0.0
 var benchmark_world_debug_collection_ms: float = 0.0
 var benchmark_hitch_capture_ms: float = 0.0
+var benchmark_hitch_log_print_ms: float = 0.0
 var benchmark_report_build_ms: float = 0.0
 var deep_debug := false
 var benchmark_file_write_ms: float = 0.0
@@ -127,6 +128,7 @@ func start(preset_name: String = "normal") -> bool:
 	benchmark_sample_collection_ms = 0.0
 	benchmark_world_debug_collection_ms = 0.0
 	benchmark_hitch_capture_ms = 0.0
+	benchmark_hitch_log_print_ms = 0.0
 	benchmark_report_build_ms = 0.0
 	last_reported_second = -1
 	benchmark_world_ready_elapsed_seconds = -1.0
@@ -229,8 +231,10 @@ func _capture_realtime_hitch(now_ticks: int, delta: float, frame_snapshot: Dicti
 			if realtime_hitches.size() > (40 if deep_debug else 12):
 				realtime_hitches.pop_front()
 			_update_hitch_breakdown_summary(hitch, frame_breakdown, top_scopes)
-			if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING) or verbose_hitch_logging or last_wall_frame_delta_ms >= int(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_THRESHOLD_MS):
+			if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING) or verbose_hitch_logging:
+				var log_start := Time.get_ticks_usec()
 				print(_format_hitch_detail_text(hitch, top_scopes))
+				benchmark_hitch_log_print_ms = float(Time.get_ticks_usec() - log_start) / 1000.0
 			if verbose_hitch_logging:
 				print_debug("[REALTIME_HITCH] %d ms engine_delta=%.1f sample_count=%d" % [
 					last_wall_frame_delta_ms,
@@ -389,6 +393,7 @@ func _record_sample() -> void:
 	sample["benchmark_sample_collection_ms"] = benchmark_sample_collection_ms
 	sample["benchmark_world_debug_collection_ms"] = benchmark_world_debug_collection_ms
 	sample["benchmark_hitch_capture_ms"] = benchmark_hitch_capture_ms
+	sample["benchmark_hitch_log_print_ms"] = benchmark_hitch_log_print_ms
 	samples.append(sample)
 
 
@@ -1319,6 +1324,7 @@ func _build_report() -> Dictionary:
 			"disable_minimap_for_benchmark": disable_minimap_for_benchmark,
 			"disable_terrain_surface_refine_for_benchmark": disable_terrain_surface_refine_for_benchmark
 		},
+		"benchmark_hitch_log_print_ms": benchmark_hitch_log_print_ms,
 		"duration_target_seconds": benchmark_duration_seconds,
 		"actual_duration_seconds": elapsed_seconds,
 		"started_unix_time": int(start_unix_time),
