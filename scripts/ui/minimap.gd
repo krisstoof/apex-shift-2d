@@ -507,8 +507,9 @@ func _process_biome_texture_build() -> void:
 	if not _minimap_texture_build_queued or _minimap_texture_build_image == null:
 		return
 	var build_start_ms: int = Time.get_ticks_msec()
-	var rows_per_frame := 6
-	while _minimap_texture_build_next_y < BIOME_BLEND_TEXTURE_SIZE.y and rows_per_frame > 0:
+	var build_start_usec: int = Time.get_ticks_usec()
+	const BUDGET_USEC := 5000
+	while _minimap_texture_build_next_y < BIOME_BLEND_TEXTURE_SIZE.y:
 		for x in range(BIOME_BLEND_TEXTURE_SIZE.x):
 			var uv := Vector2(
 				(float(x) + 0.5) / float(BIOME_BLEND_TEXTURE_SIZE.x),
@@ -517,7 +518,8 @@ func _process_biome_texture_build() -> void:
 			var world_position := world_rect.position + uv * world_rect.size
 			_minimap_texture_build_image.set_pixel(x, _minimap_texture_build_next_y, _get_world_surface_color_at(world_position))
 		_minimap_texture_build_next_y += 1
-		rows_per_frame -= 1
+		if Time.get_ticks_usec() - build_start_usec >= BUDGET_USEC:
+			break
 	if _minimap_texture_build_next_y >= BIOME_BLEND_TEXTURE_SIZE.y:
 		biome_blend_texture = ImageTexture.create_from_image(_minimap_texture_build_image)
 		biome_blend_colors_key = _minimap_texture_build_key
@@ -1479,18 +1481,10 @@ func _get_resource_marker_color(resource_marker: Dictionary) -> Color:
 
 
 func _update_marker_cache() -> bool:
-	var snapshot := _get_snapshot(true)
-	var markers := Dictionary(snapshot.get("markers", {}))
-	if not markers.is_empty():
-		cached_resources = _to_dictionary_array(Array(markers.get("resources", [])))
-		cached_campfires = _to_dictionary_array(Array(markers.get("campfires", [])))
-		cached_varnaks = _to_dictionary_array(Array(markers.get("varnaks", [])))
-		cached_grazers = _to_dictionary_array(Array(markers.get("grazers", [])))
-	else:
-		cached_resources = _build_resource_markers_from_world()
-		cached_campfires = _build_campfire_markers_from_world()
-		cached_varnaks = _build_varnak_markers_from_world()
-		cached_grazers = _build_grazer_markers_from_world()
+	cached_resources = _build_resource_markers_from_world()
+	cached_campfires = _build_campfire_markers_from_world()
+	cached_varnaks = _build_varnak_markers_from_world()
+	cached_grazers = _build_grazer_markers_from_world()
 	var resource_signature := _build_resources_signature()
 	var campfire_signature := _build_campfires_signature()
 	var varnak_signature := _build_varnaks_signature()
