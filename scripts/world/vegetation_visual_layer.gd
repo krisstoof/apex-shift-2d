@@ -61,6 +61,7 @@ var _bulk_add_depth := 0
 var _bulk_add_request_redraw := false
 var _queue_redraw_count := 0
 var _bulk_redraw_count := 0
+var runtime_config: Dictionary = {}
 var _debug_stats: Dictionary = {
 	"candidate_count_before_cap": 0,
 	"drawn_instance_count": 0,
@@ -250,6 +251,14 @@ func apply_render_budget(budget: Dictionary) -> void:
 	_quality_cap_version += 1
 	_invalidate_visible_candidate_cache("quality_cap_changed")
 	_request_redraw_once()
+
+
+func apply_graphics_preset_config(config: Dictionary) -> void:
+	runtime_config = config.duplicate(true)
+	var next_max := int(config.get("decorative_vegetation_max_drawn", max_drawn_instances))
+	if next_max > 0:
+		max_drawn_instances = next_max
+	queue_redraw()
 
 
 func get_debug_stats() -> Dictionary:

@@ -102,6 +102,7 @@ var minimap_biome_texture_dirty := true
 var _minimap_texture_build_image: Image
 var _minimap_texture_build_key := ""
 var _minimap_texture_build_next_y := 0
+var runtime_graphics_config: Dictionary = {}
 
 
 func _ready() -> void:
@@ -180,6 +181,14 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	_mark_static_layer_dirty()
 	_request_marker_redraw()
 	_request_player_redraw()
+
+
+func apply_graphics_preset_config(config: Dictionary) -> void:
+	runtime_graphics_config = config.duplicate(true)
+	minimap_redraw_interval = float(config.get("minimap_redraw_interval", minimap_redraw_interval))
+	minimap_marker_rebuild_interval = float(config.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval))
+	minimap_player_redraw_interval = float(config.get("minimap_player_redraw_interval", minimap_player_redraw_interval))
+	queue_redraw()
 
 
 func _process(delta: float) -> void:

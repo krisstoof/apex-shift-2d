@@ -667,6 +667,75 @@ const BIOME_TEXTURES_PRESETS := {
 	}
 }
 
+const GRAPHICS_PRESETS := {
+	"low": {
+		"biome_textures_enabled": false,
+		"biome_texture_scale": 0.20,
+		"surface_texture_mode": "off_or_static_low_res",
+		"use_terrain_surface_chunk_renderer": false,
+		"low_end_static_surface_mode": true,
+		"decorative_vegetation_max_drawn": 160,
+		"decorative_vegetation_visibility_margin": 128.0,
+		"resource_collision_activation_radius": 520.0,
+		"ai_food_activation_radius": 800.0,
+		"activation_update_interval": 0.60,
+		"activation_changes_per_frame": 18,
+		"minimap_redraw_interval": 1.0,
+		"minimap_marker_rebuild_interval": 1.5,
+		"minimap_player_redraw_interval": 0.12,
+		"terrain_surface_chunk_texture_size": 64,
+		"terrain_surface_refined_texture_size": 96,
+		"terrain_surface_max_chunks_built_per_frame": 1,
+		"terrain_surface_max_build_ms_per_frame": 2.0,
+		"terrain_surface_hard_budget_ms": 2.0,
+		"debug_overlays_enabled": false
+	},
+	"normal": {
+		"biome_textures_enabled": true,
+		"biome_texture_scale": 0.35,
+		"surface_texture_mode": "chunked",
+		"use_terrain_surface_chunk_renderer": true,
+		"low_end_static_surface_mode": false,
+		"decorative_vegetation_max_drawn": 260,
+		"decorative_vegetation_visibility_margin": 192.0,
+		"resource_collision_activation_radius": 700.0,
+		"ai_food_activation_radius": 1000.0,
+		"activation_update_interval": 0.45,
+		"activation_changes_per_frame": 24,
+		"minimap_redraw_interval": 0.75,
+		"minimap_marker_rebuild_interval": 1.25,
+		"minimap_player_redraw_interval": 0.10,
+		"terrain_surface_chunk_texture_size": 96,
+		"terrain_surface_refined_texture_size": 128,
+		"terrain_surface_max_chunks_built_per_frame": 2,
+		"terrain_surface_max_build_ms_per_frame": 3.0,
+		"terrain_surface_hard_budget_ms": 3.0,
+		"debug_overlays_enabled": false
+	},
+	"debug_high": {
+		"biome_textures_enabled": true,
+		"biome_texture_scale": 0.65,
+		"surface_texture_mode": "chunked_high",
+		"use_terrain_surface_chunk_renderer": true,
+		"low_end_static_surface_mode": false,
+		"decorative_vegetation_max_drawn": 320,
+		"decorative_vegetation_visibility_margin": 256.0,
+		"resource_collision_activation_radius": 900.0,
+		"ai_food_activation_radius": 1200.0,
+		"activation_update_interval": 0.45,
+		"activation_changes_per_frame": 28,
+		"minimap_redraw_interval": 0.50,
+		"minimap_marker_rebuild_interval": 1.0,
+		"minimap_player_redraw_interval": 0.08,
+		"terrain_surface_chunk_texture_size": 128,
+		"terrain_surface_refined_texture_size": 160,
+		"terrain_surface_max_chunks_built_per_frame": 4,
+		"terrain_surface_max_build_ms_per_frame": 6.0,
+		"terrain_surface_hard_budget_ms": 4.0,
+		"debug_overlays_enabled": true
+	}
+}
+
 const POPULATION_RECOVERY := {
 	"small_prey_min_population": 12.0,
 	"small_prey_target_population": 25.0,
@@ -760,6 +829,22 @@ static func get_biome_textures_with_preset(preset_name: String = "normal") -> Di
 	# Merge preset values into result (preset values override defaults)
 	for key in preset.keys():
 		result[key] = preset[key]
+	return result
+
+
+static func get_graphics_preset(preset_name: String = "normal") -> Dictionary:
+	var normalized := preset_name.to_lower()
+	if not GRAPHICS_PRESETS.has(normalized):
+		normalized = "normal"
+	return Dictionary(GRAPHICS_PRESETS.get(normalized, {})).duplicate(true)
+
+
+static func get_biome_textures_with_graphics_preset(preset_name: String = "normal") -> Dictionary:
+	var result := BIOME_TEXTURES.duplicate(true)
+	var preset := get_graphics_preset(preset_name)
+	for key in preset.keys():
+		if result.has(key):
+			result[key] = preset[key]
 	return result
 
 

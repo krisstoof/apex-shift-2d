@@ -23,5 +23,25 @@
     "vegetation_draw_ms_max": 20,
     "active_resource_collisions_max": 80,
     "node_count_max": 2500
+  },
+  "graphics_presets": {
+    "low": {
+      "average_fps_min": 60,
+      "runtime_realtime_hitch_count_max": 0,
+      "runtime_max_realtime_delta_ms": 250,
+      "active_resource_collisions_max": 50
+    },
+    "normal": {
+      "average_fps_min": 60,
+      "runtime_realtime_hitch_count_max": 5,
+      "runtime_max_realtime_delta_ms": 350,
+      "active_resource_collisions_max": 80
+    },
+    "debug_high": {
+      "average_fps_min": 45,
+      "runtime_realtime_hitch_count_max": 12,
+      "runtime_max_realtime_delta_ms": 500,
+      "active_resource_collisions_max": 120
+    }
   }
 }

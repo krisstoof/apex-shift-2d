@@ -339,7 +339,15 @@ func _capture_sample() -> Dictionary:
 	sample["load_score"] = _calculate_load_score(sample)
 	benchmark_sample_collection_ms = float(Time.get_ticks_usec() - sample_collection_start) / 1000.0
 	sample["render_attribution"] = _get_lightweight_render_attribution_summary()
+	sample["graphics_preset"] = _get_active_graphics_preset()
 	return sample
+
+
+func _get_active_graphics_preset() -> String:
+	var graphics_settings := get_node_or_null("/root/GraphicsSettings")
+	if graphics_settings != null and graphics_settings.has_method("get_graphics_preset_name"):
+		return str(graphics_settings.get_graphics_preset_name())
+	return "normal"
 
 
 func _capture_world_stats_deep() -> Dictionary:
@@ -1229,11 +1237,16 @@ func _build_report() -> Dictionary:
 		"heaviest_sample": heaviest_sample,
 		"top_samples": top_samples,
 		"samples": samples,
-		"render_attribution_summary": _build_render_attribution_summary()
+		"render_attribution_summary": _build_render_attribution_summary(),
+		"graphics_preset": _get_active_graphics_preset()
 	}
 	report["resource_spawn_failure_debug"] = _capture_latest_resource_spawn_failure_debug()
+	report["resource_spawn_failure_breakdown"] = _build_resource_spawn_failure_breakdown(report)
+	report["resource_spawn_failure_summary_text"] = _format_resource_spawn_failure_text(report)
 	report["phase_metrics"] = _build_phase_metrics(report)
 	report["top_hitch_sections"] = _build_top_hitch_sections(Array(report.get("hitch_breakdown", [])), "")
+	report["active_benchmark_thresholds"] = _get_active_benchmark_thresholds(report)
+	report["threshold_source_breakdown"] = _build_threshold_source_breakdown(report)
 	benchmark_report_build_ms = float(Time.get_ticks_msec() - report_start_ms)
 	report["benchmark_report_build_ms"] = benchmark_report_build_ms
 	report["runtime_hitch_summary"] = {
@@ -1549,6 +1562,8 @@ func _format_report_text(report: Dictionary) -> String:
 	lines.append("Target duration: %.1fs" % float(report.get("duration_target_seconds", 0.0)))
 	lines.append("Actual duration: %.2fs" % float(report.get("actual_duration_seconds", 0.0)))
 	lines.append("Start unix time: %d" % int(report.get("started_unix_time", 0)))
+	lines.append("Graphics preset: %s" % str(report.get("graphics_preset", "normal")))
+	lines.append(_format_active_limits_text(report))
 	lines.append("Samples: %d" % int(report.get("sample_count", 0)))
 	lines.append("Average FPS: %.2f" % float(report.get("average_fps", 0.0)))
 	lines.append("Min FPS: %.2f" % float(report.get("min_fps", 0.0)))
@@ -1631,6 +1646,50 @@ func _format_resource_spawn_failure_text(report: Dictionary) -> String:
 	return "\n".join(lines)
 
 
+func _format_active_limits_text(report: Dictionary) -> String:
+	var active_thresholds := Dictionary(report.get("active_benchmark_thresholds", {}))
+	if active_thresholds.is_empty():
+		return "Active limits: unavailable"
+	var base_thresholds := Dictionary(_load_benchmark_thresholds().get("thresholds", {}))
+	var lines: Array[String] = []
+	lines.append("Active limits for preset %s:" % str(report.get("graphics_preset", "normal")))
+	for key in [
+		"average_fps_min",
+		"runtime_realtime_hitch_count_max",
+		"runtime_max_realtime_delta_ms",
+		"active_resource_collisions_max",
+		"boot_max_frame_time_ms",
+		"post_ready_max_frame_time_ms",
+		"runtime_max_frame_time_ms",
+		"world_surface_texture_max_build_ms_per_frame_max",
+		"visibility_cull_ms_max",
+		"vegetation_draw_ms_max"
+	]:
+		if not active_thresholds.has(key):
+			continue
+		var active_value: Variant = active_thresholds.get(key)
+		var base_value: Variant = base_thresholds.get(key, null)
+		if base_value == null or active_value != base_value:
+			lines.append("- %s: %s" % [key, str(active_value)])
+	if lines.size() == 1:
+		lines.append("- no overrides from base thresholds")
+	return "\n".join(lines)
+
+
+func _build_resource_spawn_failure_breakdown(report: Dictionary) -> Dictionary:
+	var debug := Dictionary(report.get("resource_spawn_failure_debug", {}))
+	if debug.is_empty():
+		return {}
+	return {
+		"total_failed": int(debug.get("total_failed", 0)),
+		"top_failure_key": str(debug.get("top_failure_key", "")),
+		"top_rejection_reason": str(debug.get("top_rejection_reason", "")),
+		"failed_by_key": _sort_dictionary_by_int_value_desc(Dictionary(debug.get("resource_spawn_failed_by_key", {})), 25),
+		"rejection_by_key": _sort_dictionary_by_int_value_desc(Dictionary(debug.get("resource_spawn_rejection_by_key", {})), 25),
+		"prepass_debug": _build_sorted_nested_debug(Dictionary(debug.get("resource_spawn_prepass_debug", {})), 25)
+	}
+
+
 func _capture_latest_resource_spawn_failure_debug() -> Dictionary:
 	var latest := {}
 	for sample_value in Array(samples):
@@ -1641,12 +1700,25 @@ func _capture_latest_resource_spawn_failure_debug() -> Dictionary:
 	return Dictionary(latest)
 
 
+func _build_sorted_nested_debug(data: Dictionary, limit: int) -> Array[Dictionary]:
+	var ranked: Array[Dictionary] = []
+	for key in data.keys():
+		ranked.append({
+			"key": str(key),
+			"value": Dictionary(data.get(key, {}))
+		})
+	if ranked.size() > limit:
+		ranked.resize(limit)
+	return ranked
+
+
 func _sort_dictionary_by_int_value_desc(data: Dictionary, limit: int) -> Array[Dictionary]:
 	var ranked: Array[Dictionary] = []
 	for key in data.keys():
-		ranked.append({"key": str(key), "value": int(data.get(key, 0))})
+		var numeric_value: Variant = data.get(key, 0)
+		ranked.append({"key": str(key), "value": numeric_value})
 	ranked.sort_custom(func(left: Dictionary, right: Dictionary) -> bool:
-		return int(left.get("value", 0)) > int(right.get("value", 0))
+		return float(left.get("value", 0.0)) > float(right.get("value", 0.0))
 	)
 	if ranked.size() > limit:
 		ranked.resize(limit)
@@ -1711,6 +1783,18 @@ func _load_benchmark_thresholds() -> Dictionary:
 			parsed_dict["thresholds"] = defaults["thresholds"]
 		return parsed_dict
 	return defaults
+
+
+func _get_active_benchmark_thresholds(report: Dictionary = {}) -> Dictionary:
+	var threshold_config := _load_benchmark_thresholds()
+	var thresholds := Dictionary(threshold_config.get("thresholds", {})).duplicate(true)
+	var preset_name := str(report.get("graphics_preset", _get_active_graphics_preset()))
+	var graphics_presets := Dictionary(threshold_config.get("graphics_presets", {}))
+	if graphics_presets.has(preset_name):
+		var preset_overrides := Dictionary(graphics_presets.get(preset_name, {}))
+		for key in preset_overrides.keys():
+			thresholds[key] = preset_overrides[key]
+	return thresholds
 
 
 func _should_fail_on_regression(threshold_config: Dictionary) -> bool:
@@ -1852,7 +1936,7 @@ func _extract_regression_metrics(report: Dictionary) -> Dictionary:
 func _validate_benchmark_thresholds(report: Dictionary) -> Dictionary:
 	var threshold_config := _load_benchmark_thresholds()
 	var enabled := bool(threshold_config.get("enabled", true))
-	var thresholds := Dictionary(threshold_config.get("thresholds", {}))
+	var thresholds := _get_active_benchmark_thresholds(report)
 	var fail_on_regression := _should_fail_on_regression(threshold_config)
 	var metrics := _extract_regression_metrics(report)
 	var violations: Array[Dictionary] = []
@@ -1991,6 +2075,8 @@ func _format_threshold_validation_text(report: Dictionary) -> String:
 	var fail_on_regression := bool(validation.get("fail_on_regression", false))
 	var lines: Array[String] = []
 	lines.append("Threshold validation: %s" % status)
+	lines.append(_format_threshold_source_text(report, validation))
+	lines.append(_format_threshold_differences_text(report))
 	lines.append("Regression metrics:")
 	var metrics := Dictionary(validation.get("metrics", {}))
 	var thresholds := Dictionary(validation.get("thresholds", {}))
@@ -2031,6 +2117,83 @@ func _format_threshold_validation_text(report: Dictionary) -> String:
 			lines.append("- %s: %s" % [str(warning.get("metric", "metric")), str(warning.get("message", "warning"))])
 	lines.append("Fail on regression: %s" % ("true" if fail_on_regression else "false"))
 	return "\n".join(lines)
+
+
+func _format_threshold_source_text(report: Dictionary, validation: Dictionary) -> String:
+	var source_breakdown := Dictionary(report.get("threshold_source_breakdown", {}))
+	var base_thresholds := Dictionary(source_breakdown.get("base_thresholds", {}))
+	var preset_overrides := Dictionary(source_breakdown.get("preset_overrides", {}))
+	var effective_thresholds := Dictionary(source_breakdown.get("effective_thresholds", validation.get("thresholds", {})))
+	var preset_name := str(source_breakdown.get("graphics_preset", report.get("graphics_preset", "normal")))
+	var lines: Array[String] = []
+	lines.append("Threshold sources:")
+	lines.append("- base thresholds: %d entries" % base_thresholds.size())
+	if preset_overrides.is_empty():
+		lines.append("- preset overrides: none for %s" % preset_name)
+	else:
+		lines.append("- preset overrides for %s: %d entries" % [preset_name, preset_overrides.size()])
+	lines.append("- effective thresholds: %d entries" % effective_thresholds.size())
+	return "\n".join(lines)
+
+
+func _format_threshold_differences_text(report: Dictionary) -> String:
+	var source_breakdown := Dictionary(report.get("threshold_source_breakdown", {}))
+	var differences := Array(source_breakdown.get("differences", []))
+	if differences.is_empty():
+		return "Threshold differences: none"
+	var lines: Array[String] = []
+	lines.append("Threshold differences:")
+	for item_value in differences:
+		var item := Dictionary(item_value)
+		lines.append("- %s: base=%s preset=%s effective=%s" % [
+			str(item.get("key", "")),
+			str(item.get("base", "")),
+			str(item.get("preset", "")),
+			str(item.get("effective", ""))
+		])
+	return "\n".join(lines)
+
+
+func _build_threshold_source_breakdown(report: Dictionary) -> Dictionary:
+	var threshold_config := _load_benchmark_thresholds()
+	var base_thresholds := Dictionary(threshold_config.get("thresholds", {})).duplicate(true)
+	var graphics_presets := Dictionary(threshold_config.get("graphics_presets", {}))
+	var preset_name := str(report.get("graphics_preset", "normal"))
+	var preset_overrides := Dictionary(graphics_presets.get(preset_name, {})).duplicate(true)
+	var effective_thresholds := Dictionary(_get_active_benchmark_thresholds(report)).duplicate(true)
+	var interesting_keys := [
+		"average_fps_min",
+		"runtime_realtime_hitch_count_max",
+		"runtime_max_realtime_delta_ms",
+		"active_resource_collisions_max",
+		"boot_max_frame_time_ms",
+		"post_ready_max_frame_time_ms",
+		"runtime_max_frame_time_ms",
+		"world_surface_texture_max_build_ms_per_frame_max",
+		"visibility_cull_ms_max",
+		"vegetation_draw_ms_max"
+	]
+	var differences: Array[Dictionary] = []
+	for key in interesting_keys:
+		if not effective_thresholds.has(key):
+			continue
+		var base_value: Variant = base_thresholds.get(key, null)
+		var preset_value: Variant = preset_overrides.get(key, base_value)
+		var effective_value: Variant = effective_thresholds.get(key, base_value)
+		if base_value != preset_value or base_value != effective_value:
+			differences.append({
+				"key": key,
+				"base": base_value,
+				"preset": preset_value,
+				"effective": effective_value
+			})
+	return {
+		"graphics_preset": preset_name,
+		"base_thresholds": base_thresholds,
+		"preset_overrides": preset_overrides,
+		"effective_thresholds": effective_thresholds,
+		"differences": differences
+	}
 
 
 func _format_hitch_summary_text(report: Dictionary) -> String:

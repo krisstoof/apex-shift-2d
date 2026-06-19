@@ -218,6 +218,22 @@ var vegetation_visual_layer: VegetationVisualLayer
 var edible_grass_node_spawn_count := 0
 var decorative_grass_visual_spawn_count := 0
 var edible_pond_grass_node_spawn_count := 0
+var runtime_decorative_vegetation_max_drawn := DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES
+var runtime_decorative_vegetation_visibility_margin := DECORATIVE_VEGETATION_VISIBILITY_MARGIN
+var runtime_decorative_vegetation_update_interval := DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
+var runtime_resource_collision_activation_radius := 900.0
+var runtime_ai_food_activation_radius := 1200.0
+var runtime_activation_update_interval := 0.45
+var runtime_activation_changes_per_frame := 28
+var runtime_minimap_redraw_interval := 0.75
+var runtime_minimap_marker_rebuild_interval := 1.25
+var runtime_minimap_player_redraw_interval := 0.10
+var runtime_terrain_surface_chunk_texture_size := int(SURFACE_BLEND_TEXTURE_SIZE.x)
+var runtime_terrain_surface_refined_texture_size := int(SURFACE_BLEND_TEXTURE_SIZE.x)
+var runtime_terrain_surface_max_chunks_built_per_frame := 2
+var runtime_terrain_surface_max_build_ms_per_frame := 3.0
+var runtime_terrain_surface_hard_budget_ms := 3.0
+var runtime_debug_overlays_enabled := false
 var graphics_settings: Node = GRAPHICS_SETTINGS_SCRIPT.new()
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
@@ -558,7 +574,7 @@ func _process(delta: float) -> void:
 			RUNTIME_PROFILER.end_scope("world_decorative_visible_rect_ms")
 	resource_activation_timer -= delta
 	if resource_activation_timer <= 0.0:
-		resource_activation_timer = float(GAME_BALANCE.RESOURCE_ACTIVATION.get("activation_update_interval", 0.45))
+		resource_activation_timer = runtime_activation_update_interval
 		_update_resource_interactions()
 	var use_surface_renderer := bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
 	var allow_legacy_overlay := bool(GAME_BALANCE.BIOME_TEXTURES.get("legacy_biome_detail_overlay_enabled_with_surface_renderer", false))
@@ -582,9 +598,31 @@ func _process(delta: float) -> void:
 
 
 func _apply_graphics_settings_defaults() -> void:
+	var runtime_config: Dictionary = {}
+	if graphics_settings != null and graphics_settings.has_method("get_graphics_runtime_config"):
+		runtime_config = Dictionary(graphics_settings.get_graphics_runtime_config())
 	biome_textures_enabled = graphics_settings.get_default_biome_textures_enabled() if graphics_settings.has_method("get_default_biome_textures_enabled") else true
 	debug_landmark_overlay_enabled = graphics_settings.get_default_landmark_debug_overlay_enabled() if graphics_settings.has_method("get_default_landmark_debug_overlay_enabled") else false
 	biome_terrain_accents_enabled = graphics_settings.get_default_biome_terrain_accents_enabled() if graphics_settings.has_method("get_default_biome_terrain_accents_enabled") else false
+	biome_textures_enabled = bool(runtime_config.get("biome_textures_enabled", biome_textures_enabled))
+	biome_terrain_accents_enabled = bool(runtime_config.get("biome_terrain_accents_enabled", biome_terrain_accents_enabled))
+	debug_landmark_overlay_enabled = bool(runtime_config.get("debug_overlays_enabled", debug_landmark_overlay_enabled))
+	runtime_decorative_vegetation_max_drawn = int(runtime_config.get("decorative_vegetation_max_drawn", runtime_decorative_vegetation_max_drawn))
+	runtime_decorative_vegetation_visibility_margin = float(runtime_config.get("decorative_vegetation_visibility_margin", runtime_decorative_vegetation_visibility_margin))
+	runtime_decorative_vegetation_update_interval = float(runtime_config.get("decorative_vegetation_update_interval", runtime_decorative_vegetation_update_interval))
+	runtime_resource_collision_activation_radius = float(runtime_config.get("resource_collision_activation_radius", runtime_resource_collision_activation_radius))
+	runtime_ai_food_activation_radius = float(runtime_config.get("ai_food_activation_radius", runtime_ai_food_activation_radius))
+	runtime_activation_update_interval = float(runtime_config.get("activation_update_interval", runtime_activation_update_interval))
+	runtime_activation_changes_per_frame = int(runtime_config.get("activation_changes_per_frame", runtime_activation_changes_per_frame))
+	runtime_minimap_redraw_interval = float(runtime_config.get("minimap_redraw_interval", runtime_minimap_redraw_interval))
+	runtime_minimap_marker_rebuild_interval = float(runtime_config.get("minimap_marker_rebuild_interval", runtime_minimap_marker_rebuild_interval))
+	runtime_minimap_player_redraw_interval = float(runtime_config.get("minimap_player_redraw_interval", runtime_minimap_player_redraw_interval))
+	runtime_terrain_surface_chunk_texture_size = int(runtime_config.get("terrain_surface_chunk_texture_size", runtime_terrain_surface_chunk_texture_size))
+	runtime_terrain_surface_refined_texture_size = int(runtime_config.get("terrain_surface_refined_texture_size", runtime_terrain_surface_refined_texture_size))
+	runtime_terrain_surface_max_chunks_built_per_frame = int(runtime_config.get("terrain_surface_max_chunks_built_per_frame", runtime_terrain_surface_max_chunks_built_per_frame))
+	runtime_terrain_surface_max_build_ms_per_frame = float(runtime_config.get("terrain_surface_max_build_ms_per_frame", runtime_terrain_surface_max_build_ms_per_frame))
+	runtime_terrain_surface_hard_budget_ms = float(runtime_config.get("terrain_surface_hard_budget_ms", runtime_terrain_surface_hard_budget_ms))
+	runtime_debug_overlays_enabled = bool(runtime_config.get("debug_overlays_enabled", runtime_debug_overlays_enabled))
 	biome_detail_overlay_enabled = true
 	if _is_low_end_static_surface_mode_enabled():
 		biome_textures_enabled = false
@@ -632,10 +670,24 @@ func _update_decorative_vegetation_visible_rect() -> void:
 			focus_position = visible_rect.get_center()
 		vegetation_visual_layer.set_camera_focus_position(focus_position)
 	if vegetation_visual_layer.has_method("set_max_drawn_instances"):
-		var budget: Dictionary = Dictionary(render_performance_governor.get_budget()) if render_performance_governor != null and render_performance_governor.has_method("get_budget") else Dictionary(GAME_BALANCE.RENDER_PERFORMANCE.get("normal", {}))
-		if budget.is_empty():
-			budget = Dictionary(GAME_BALANCE.RENDER_PERFORMANCE.get("normal", {}))
+		var budget: Dictionary = {
+			"decorative_vegetation_max_drawn": runtime_decorative_vegetation_max_drawn,
+			"decorative_vegetation_visibility_margin": runtime_decorative_vegetation_visibility_margin
+		}
+		if render_performance_governor != null and render_performance_governor.has_method("get_budget"):
+			var governor_budget := Dictionary(render_performance_governor.get_budget())
+			for key in governor_budget.keys():
+				budget[key] = governor_budget.get(key)
 		vegetation_visual_layer.apply_render_budget(budget)
+	var ui_root := get_tree().root if get_tree() != null else null
+	if ui_root != null:
+		var minimap_node: Node = ui_root.find_child("Minimap", true, false)
+		if minimap_node != null and minimap_node.has_method("apply_graphics_preset_config"):
+			minimap_node.call("apply_graphics_preset_config", {
+				"minimap_redraw_interval": runtime_minimap_redraw_interval,
+				"minimap_marker_rebuild_interval": runtime_minimap_marker_rebuild_interval,
+				"minimap_player_redraw_interval": runtime_minimap_player_redraw_interval
+			})
 
 
 func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2, margin := VISIBILITY_CULL_MARGIN) -> Rect2:
@@ -1916,10 +1968,10 @@ func _update_resource_interactions() -> void:
 		RUNTIME_PROFILER.end_scope("resource_activation_update_ms")
 		return
 	var player_position := player_node.global_position if player_node is Node2D else _get_player_position()
-	var activation_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("resource_collision_activation_radius", 900.0))
+	var activation_radius := runtime_resource_collision_activation_radius
 	var player_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("player_interaction_radius", 420.0))
-	var ai_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("ai_food_activation_radius", 1200.0))
-	var change_budget := maxi(int(GAME_BALANCE.RESOURCE_ACTIVATION.get("activation_changes_per_frame", 28)), 1)
+	var ai_radius := runtime_ai_food_activation_radius
+	var change_budget := maxi(runtime_activation_changes_per_frame, 1)
 	var world_registry = _ensure_registry()
 	var near_scan_radius := maxf(ai_radius, activation_radius)
 	var resources: Array = []
@@ -2140,10 +2192,10 @@ func end_save_restore() -> void:
 		_update_world_object_visibility()
 	var ui_root := get_tree().root if get_tree() != null else null
 	if ui_root != null:
-		var minimap := ui_root.find_child("Minimap", true, false)
+		var minimap: Node = ui_root.find_child("Minimap", true, false)
 		if minimap != null and minimap.has_method("invalidate_map_surface_cache"):
 			minimap.call("invalidate_map_surface_cache")
-		var map_screen := ui_root.find_child("MapScreen", true, false)
+		var map_screen: Node = ui_root.find_child("MapScreen", true, false)
 		if map_screen != null and map_screen.has_method("invalidate_map_surface_cache"):
 			map_screen.call("invalidate_map_surface_cache")
 	queue_redraw()
