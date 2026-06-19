@@ -4,7 +4,7 @@ class_name WorldGenerator
 const GEN_CONFIG := preload("res://scripts/world/world_generation_config.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
-const WORLD_GENERATION_RESULT := preload("res://scripts/world/world_generation_result.gd")
+const WORLD_GENERATION_RESULT := preload("res://scripts/core/world/world_generation_result.gd")
 const WORLD_GENERATION_VALIDATOR := preload("res://scripts/world/world_generation_validator.gd")
 const BIOME_GENERATOR := preload("res://scripts/world/biome_generator.gd")
 const GENERATOR_RULES_VERSION := "v5"
@@ -82,7 +82,7 @@ func get_world_generation_hash(layout: Dictionary) -> String:
 
 
 ## Generate a world and wrap the result in a typed WorldGenerationResult object.
-func generate_world_with_result(p_seed: int = 0) -> WorldGenerationResult:
+func generate_world_with_result(p_seed: int = 0):
 	var layout := generate_world(p_seed)
 	return WORLD_GENERATION_RESULT.from_layout(layout)
 

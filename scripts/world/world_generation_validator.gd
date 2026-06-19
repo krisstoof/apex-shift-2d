@@ -1,6 +1,8 @@
 extends RefCounted
 class_name WorldGenerationValidator
 
+const WORLD_GENERATION_RESULT := preload("res://scripts/core/world/world_generation_result.gd")
+
 ## Validates a WorldGenerationResult against hard rules that must hold
 ## for a world to be correct and playable.
 ## Call validate() after generation; check the returned report for errors/warnings.
@@ -16,7 +18,7 @@ const MAX_OCEAN_FRACTION := 0.75
 ## Run all checks on the given result using the generator for spatial queries.
 ## generator must expose get_terrain_zone(position: Vector2) -> String.
 ## Returns: { valid, errors: Array[String], warnings: Array[String] }
-func validate(result: WorldGenerationResult, generator: Object) -> Dictionary:
+func validate(result, generator: Object) -> Dictionary:
 	var errors: Array[String] = []
 	var warnings: Array[String] = []
 
@@ -34,15 +36,15 @@ func validate(result: WorldGenerationResult, generator: Object) -> Dictionary:
 	}
 
 
-func _check_world_rect(result: WorldGenerationResult, errors: Array[String]) -> void:
+func _check_world_rect(result, errors: Array[String]) -> void:
 	if result.world_rect.size.x <= 0.0 or result.world_rect.size.y <= 0.0:
 		errors.append("world_rect has zero or negative size: %s" % result.world_rect)
 
 
-func _check_creature_spawn_zones(result: WorldGenerationResult, generator: Object, errors: Array[String]) -> void:
+func _check_creature_spawn_zones(result, generator: Object, errors: Array[String]) -> void:
 	if not generator.has_method("get_terrain_zone"):
 		return
-	var world_rect := result.world_rect
+	var world_rect: Rect2 = result.world_rect
 	for zone_value in result.creature_spawn_zones:
 		var zone := Dictionary(zone_value)
 		var zone_id := str(zone.get("id", "?"))
@@ -57,7 +59,7 @@ func _check_creature_spawn_zones(result: WorldGenerationResult, generator: Objec
 			errors.append("Spawn zone '%s' in water (terrain=%s) at %s" % [zone_id, terrain, pos])
 
 
-func _check_biome_coverage(result: WorldGenerationResult, warnings: Array[String]) -> void:
+func _check_biome_coverage(result, warnings: Array[String]) -> void:
 	if result.biome_regions.is_empty():
 		warnings.append("No biome regions in generation result")
 		return
@@ -71,8 +73,8 @@ func _check_biome_coverage(result: WorldGenerationResult, warnings: Array[String
 			])
 
 
-func _check_terrain_coverage(result: WorldGenerationResult, warnings: Array[String]) -> void:
-	var counts := result.terrain_counts
+func _check_terrain_coverage(result, warnings: Array[String]) -> void:
+	var counts: Dictionary = result.terrain_counts
 	if counts.is_empty():
 		return
 	var total := 0
