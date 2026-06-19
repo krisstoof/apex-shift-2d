@@ -1,6 +1,7 @@
 extends Control
 
 const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
+const INVENTORY_SYSTEM := preload("res://scripts/core/inventory/inventory_system.gd")
 const PLAYER_SLOT_COUNT := 9
 const STORAGE_SLOT_COUNT := 12
 const MAX_STACK_SIZE := 20
@@ -317,21 +318,11 @@ func _transfer_item(source_inventory: Variant, destination_inventory: Variant, i
 		return
 	if item_id.is_empty() or amount <= 0:
 		return
-	if not source_inventory.has_method("get_amount"):
-		return
-	if not source_inventory.has_method("remove_item"):
-		return
-	if not destination_inventory.has_method("add_item"):
-		return
-	var available := int(source_inventory.call("get_amount", item_id))
-	var requested := mini(amount, available)
-	if requested <= 0:
-		refresh()
-		return
-	var leftover := int(destination_inventory.call("add_item", item_id, requested))
-	var moved := requested - leftover
+	var result: Dictionary = INVENTORY_SYSTEM.transfer_item(source_inventory, destination_inventory, item_id, amount)
+	var requested := int(result.get("requested", amount))
+	var moved := int(result.get("moved", 0))
+	var leftover := int(result.get("leftover", requested))
 	if moved > 0:
-		source_inventory.call("remove_item", item_id, moved)
 		var item_label := _format_item_label(item_id)
 		var success_message := "%s %s x%d" % [action_label, item_label, moved]
 		_show_info(success_message)

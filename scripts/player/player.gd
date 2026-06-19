@@ -6,6 +6,7 @@ const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
 const INVENTORY := preload("res://scripts/player/inventory.gd")
 const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 const MOVEMENT_PROFILE := preload("res://scripts/core/common/movement_profile.gd")
+const HOTBAR_STATE := preload("res://scripts/core/inventory/hotbar_state.gd")
 
 signal died(reason: String)
 
@@ -19,6 +20,7 @@ const ATTACK_VISUAL_DURATION := 0.16
 var stats := PlayerStats.new()
 var movement_profile := MOVEMENT_PROFILE.new()
 var inventory := INVENTORY.new()
+var hotbar_state := HOTBAR_STATE.new(9)
 var has_spear := false
 var has_bow := false
 var torch_active := false
@@ -69,6 +71,14 @@ const PLAYER_POSE_MAX_TILT := deg_to_rad(16.0)
 @onready var attack_area: Area2D = $AttackArea
 
 var aim_direction := Vector2.RIGHT
+
+
+func select_hotbar_slot(slot_index: int) -> bool:
+	return hotbar_state.select_slot(slot_index)
+
+
+func get_selected_hotbar_slot() -> int:
+	return hotbar_state.get_selected_index()
 
 func _ready() -> void:
 	add_to_group("player")
@@ -176,22 +186,31 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_SPACE:
 				_melee_attack()
 			KEY_1:
+				hotbar_state.select_slot(0)
 				_craft("campfire")
 			KEY_2:
+				hotbar_state.select_slot(1)
 				_craft("spear")
 			KEY_3:
+				hotbar_state.select_slot(2)
 				_craft("trap")
 			KEY_4:
+				hotbar_state.select_slot(3)
 				_craft("wall")
 			KEY_5:
+				hotbar_state.select_slot(4)
 				_craft("storage_box")
 			KEY_6:
+				hotbar_state.select_slot(5)
 				_craft("tent")
 			KEY_7:
+				hotbar_state.select_slot(6)
 				_eat("meat")
 			KEY_8:
+				hotbar_state.select_slot(7)
 				_craft("torch")
 			KEY_9:
+				hotbar_state.select_slot(8)
 				_craft("bow")
 			KEY_T:
 				_activate_torch()

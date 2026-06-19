@@ -1,8 +1,10 @@
 extends StaticBody2D
 
 const INVENTORY := preload("res://scripts/player/inventory.gd")
+const STORAGE_STATE := preload("res://scripts/core/inventory/storage_state.gd")
 
-var inventory := INVENTORY.new(12)
+var storage_state := STORAGE_STATE.new(12, INVENTORY.new(12))
+var inventory: Variant = storage_state.get_inventory_state()
 
 
 func _post_event_message(message: String) -> void:
@@ -37,15 +39,15 @@ func get_prompt() -> String:
 func get_save_data() -> Dictionary:
 	return {
 		"position": _vector_to_data(global_position),
-		"inventory": inventory.to_save_data()
+		"inventory": storage_state.get_inventory_save_data()
 	}
 
 
 func restore_from_data(data: Dictionary) -> void:
 	if data.has("position"):
 		global_position = _data_to_vector(Dictionary(data.get("position", {})), global_position)
-	if data.has("inventory") and inventory != null:
-		inventory.load_from_save_data(Dictionary(data.get("inventory", {})))
+	storage_state.load_from_save_data(data)
+	inventory = storage_state.get_inventory_state()
 
 
 func _vector_to_data(value: Vector2) -> Dictionary:

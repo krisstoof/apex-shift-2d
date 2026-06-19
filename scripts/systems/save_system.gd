@@ -86,6 +86,7 @@ func _get_player_data(player: Node) -> Dictionary:
 		"position": _vector_to_data(player.global_position),
 		"stats": player.stats.get_save_data(),
 		"inventory": player.inventory.to_save_data(),
+		"hotbar": player.hotbar_state.to_save_data() if player.get("hotbar_state") != null and player.hotbar_state.has_method("to_save_data") else {},
 		"has_spear": player.has_spear,
 		"has_bow": player.has_bow,
 		"torch_active": player.torch_active,
@@ -203,6 +204,8 @@ func _restore_player_data(player: Node, data: Dictionary) -> void:
 		player.inventory.add_item("fiber", int(data.get("fiber", 0)))
 		player.inventory.add_item("meat", int(data.get("meat", 0)))
 		player.inventory.add_item("bone", int(data.get("bone", 0)))
+	if data.has("hotbar") and player.get("hotbar_state") != null and player.hotbar_state.has_method("load_from_save_data"):
+		player.hotbar_state.load_from_save_data(Dictionary(data.get("hotbar", {})))
 	player.has_spear = data.get("has_spear", player.has_spear) == true
 	player.has_bow = data.get("has_bow", player.has_bow) == true
 	player.torch_active = data.get("torch_active", player.torch_active) == true

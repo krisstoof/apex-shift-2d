@@ -693,7 +693,7 @@ func _test_benchmark_runner_reports_benchmark_isolation_flags(failures: Array[St
 	runner.disable_minimap_for_benchmark = true
 	runner.disable_terrain_surface_refine_for_benchmark = true
 
-	var report := runner.call("_build_report")
+	var report: Dictionary = Dictionary(runner.call("_build_report"))
 	var isolation := Dictionary(report.get("benchmark_isolation", {}))
 
 	TEST_UTILS.expect_equal(bool(isolation.get("disable_minimap_for_benchmark", false)), true, failures, "Benchmark report should expose minimap isolation flag")
@@ -719,7 +719,7 @@ func _test_benchmark_runner_formats_suspect_hitch_details(failures: Array[String
 		"world_summary": {},
 		"performance": {"fps": 30}
 	}
-	var text := runner.call("_format_hitch_detail_text", hitch, [{"name": "minimap_process_ms", "ms": 1400.0}])
+	var text: String = str(runner.call("_format_hitch_detail_text", hitch, [{"name": "minimap_process_ms", "ms": 1400.0}]))
 
 	TEST_UTILS.expect(text.contains("prof_total=1400.0ms"), failures, "Hitch detail text should include profiler total")
 	TEST_UTILS.expect(text.contains("prof_max=minimap_process_ms:1400.0ms"), failures, "Hitch detail text should include profiler max scope")
