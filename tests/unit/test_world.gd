@@ -1036,7 +1036,7 @@ func _test_visual_biome_influence_scores_vary_across_space(failures: Array[Strin
 			differs = true
 			break
 	TEST_UTILS.expect(differs, failures, "Visual biome influence scores should vary across the map instead of staying flat")
-	generator.free()
+	generator = null
 
 
 func _test_terrain_cell_map_builds_and_looks_up_cells(failures: Array[String]) -> void:
@@ -1062,10 +1062,10 @@ func _test_terrain_cell_map_builds_and_looks_up_cells(failures: Array[String]) -
 	var other_map := TERRAIN_CELL_MAP.new()
 	other_map.build(WORLD_CONFIG.WORLD_RECT, 96.0, other_generator, other_topo, 24680)
 	TEST_UTILS.expect(cell_map.get_cell(2, 2).get("biome_id", "") != other_map.get_cell(2, 2).get("biome_id", "") or cell_map.get_cell(2, 2).get("terrain_id", "") != other_map.get_cell(2, 2).get("terrain_id", ""), failures, "Different seeds should produce different terrain cell maps")
-	generator.free()
+	generator = null
 	topo = null
-	other_generator.free()
-	other_topo.free()
+	other_generator = null
+	other_topo = null
 
 
 func _test_biome_shape_map_builds_connected_regions(failures: Array[String]) -> void:
@@ -1142,7 +1142,7 @@ func _test_topography_sample_returns_a_single_combined_snapshot(failures: Array[
 	TEST_UTILS.expect(sample.has("dominant_feature_type"), failures, "Topography sampling should expose the dominant feature type")
 	TEST_UTILS.expect(sample.has("dominant_feature_influence"), failures, "Topography sampling should expose the dominant feature influence")
 	TEST_UTILS.expect(sample.has("dominant_feature_home_biome_id"), failures, "Topography sampling should expose the dominant feature biome id")
-	topo.free()
+	topo = null
 
 
 func _test_world_surface_debug_matches_query_service_surface_terrain(failures: Array[String]) -> void:
