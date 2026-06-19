@@ -128,6 +128,8 @@ var smoke_test_last_refine_progress_ms := 0
 var terrain_surface_refine_blocked_reason := ""
 var terrain_surface_last_refine_allowed_ms := 0
 var terrain_surface_last_refine_started_ms := 0
+var terrain_surface_refine_enabled := true
+var terrain_surface_refine_disabled_reason := ""
 var preview_build_watchdog_start_ms: Dictionary = {}
 
 func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
@@ -177,6 +179,21 @@ func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	if world_changed:
 		mark_dirty("bind_world_changed")
+
+
+func set_terrain_surface_refine_enabled(enabled: bool) -> void:
+	terrain_surface_refine_enabled = enabled
+	terrain_surface_refine_disabled_reason = "" if enabled else "benchmark_disabled"
+	if not enabled:
+		_clear_or_pause_refine_queue_for_benchmark()
+
+
+func is_terrain_surface_refine_enabled() -> bool:
+	return terrain_surface_refine_enabled
+
+
+func _clear_or_pause_refine_queue_for_benchmark() -> void:
+	terrain_surface_refine_blocked_reason = terrain_surface_refine_disabled_reason
 func apply_render_budget(budget: Dictionary) -> void:
 	max_chunks_built_per_frame = maxi(int(budget.get("terrain_refined_chunks_per_frame", max_chunks_built_per_frame)), 1)
 	max_build_ms_per_frame = maxf(float(budget.get("terrain_build_budget_ms", max_build_ms_per_frame)), 0.5)
@@ -804,6 +821,9 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 
 
 func _can_process_refine() -> bool:
+	if not terrain_surface_refine_enabled:
+		terrain_surface_refine_blocked_reason = terrain_surface_refine_disabled_reason
+		return false
 	var camera_moving_fast := _is_camera_moving_fast()
 	if preview_only_during_fast_movement and refine_pause_when_camera_moving and camera_moving_fast:
 		terrain_surface_refine_blocked_reason = "camera_moving"

@@ -103,6 +103,7 @@ var _minimap_texture_build_image: Image
 var _minimap_texture_build_key := ""
 var _minimap_texture_build_next_y := 0
 var runtime_graphics_config: Dictionary = {}
+var benchmark_disabled := false
 
 
 func _ready() -> void:
@@ -192,6 +193,8 @@ func apply_graphics_preset_config(config: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	if benchmark_disabled:
+		return
 	RUNTIME_PROFILER.begin_scope("minimap_process_ms")
 	RUNTIME_PROFILER.begin_scope("minimap_total_cpu_ms")
 	if not is_visible_in_tree():
@@ -265,6 +268,8 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	if benchmark_disabled:
+		return
 	RUNTIME_PROFILER.begin_scope("minimap_draw_ms")
 	RUNTIME_PROFILER.begin_scope("minimap_total_cpu_ms")
 	_draw_static_layer(self)
@@ -314,6 +319,20 @@ func _get_content_rect(map_rect: Rect2) -> Rect2:
 			maxf(map_rect.size.y - PADDING * 2.0 - MINIMAP_LABEL_HEIGHT, 1.0)
 		)
 	)
+
+
+func set_benchmark_disabled(disabled: bool) -> void:
+	benchmark_disabled = disabled
+	visible = not disabled
+	process_mode = Node.PROCESS_MODE_DISABLED if disabled else Node.PROCESS_MODE_INHERIT
+	if disabled:
+		biome_blend_texture = null
+		_minimap_texture_build_image = null
+		_minimap_texture_build_queued = false
+		minimap_biome_texture_dirty = false
+		minimap_static_map_dirty = false
+		minimap_marker_cache_dirty = false
+		minimap_shoreline_cache_dirty = false
 
 
 func _draw_static_contents(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:

@@ -8,6 +8,11 @@ static var _rolling_window_seconds := 1.0
 static var _rolling_window_start_usec := 0
 static var _rolling_sample_count := 0
 static var _active_scope_starts: Dictionary = {}
+static var _last_frame_snapshot: Dictionary = {}
+static var _last_frame_total_ms: float = 0.0
+static var _last_frame_max_scope := ""
+static var _last_frame_max_scope_ms: float = 0.0
+static var _frame_sequence: int = 0
 
 static func set_enabled(value: bool) -> void:
 	enabled = value
@@ -45,8 +50,24 @@ static func reset_frame_snapshot() -> void:
 
 static func get_and_reset_frame_snapshot() -> Dictionary:
 	var snapshot := get_frame_snapshot()
+	_store_last_frame_snapshot(snapshot)
 	_reset_frame()
 	return snapshot
+
+static func consume_frame_snapshot() -> Dictionary:
+	return get_and_reset_frame_snapshot()
+
+static func get_last_frame_snapshot() -> Dictionary:
+	return _last_frame_snapshot.duplicate(true)
+
+static func get_last_frame_summary() -> Dictionary:
+	return {
+		"frame_sequence": _frame_sequence,
+		"total_ms": _last_frame_total_ms,
+		"max_scope": _last_frame_max_scope,
+		"max_scope_ms": _last_frame_max_scope_ms,
+		"scope_count": _last_frame_snapshot.size()
+	}
 
 static func get_rolling_summary() -> Dictionary:
 	return _build_summary(_rolling)
@@ -79,6 +100,11 @@ static func reset() -> void:
 	_rolling_window_start_usec = 0
 	_rolling_sample_count = 0
 	_active_scope_starts.clear()
+	_last_frame_snapshot.clear()
+	_last_frame_total_ms = 0.0
+	_last_frame_max_scope = ""
+	_last_frame_max_scope_ms = 0.0
+	_frame_sequence = 0
 
 static func _reset_frame() -> void:
 	_frame_times.clear()
@@ -135,3 +161,39 @@ static func get_snapshot_total_ms(snapshot: Dictionary) -> float:
 	for key in snapshot.keys():
 		total += float(snapshot.get(key, 0.0))
 	return total
+
+static func get_snapshot_max_scope(snapshot: Dictionary) -> Dictionary:
+	var max_scope := ""
+	var max_ms := 0.0
+	for key in snapshot.keys():
+		var value := float(snapshot.get(key, 0.0))
+		if value >= max_ms:
+			max_ms = value
+			max_scope = str(key)
+	return {
+		"name": max_scope,
+		"ms": max_ms
+	}
+
+static func is_snapshot_suspect(snapshot: Dictionary, wall_frame_delta_ms: float, performance_process_ms: float) -> bool:
+	if snapshot.is_empty():
+		return false
+	var max_scope := get_snapshot_max_scope(snapshot)
+	var max_scope_ms := float(max_scope.get("ms", 0.0))
+	if wall_frame_delta_ms > 0.0 and max_scope_ms > wall_frame_delta_ms * 1.15:
+		return true
+	if performance_process_ms > 0.0 and max_scope_ms > maxf(performance_process_ms * 4.0, performance_process_ms + 120.0):
+		return true
+	return false
+
+static func _store_last_frame_snapshot(snapshot: Dictionary) -> void:
+	_last_frame_snapshot = snapshot.duplicate(true)
+	_last_frame_total_ms = get_snapshot_total_ms(snapshot)
+	_last_frame_max_scope = ""
+	_last_frame_max_scope_ms = 0.0
+	for key in snapshot.keys():
+		var value := float(snapshot.get(key, 0.0))
+		if value >= _last_frame_max_scope_ms:
+			_last_frame_max_scope_ms = value
+			_last_frame_max_scope = str(key)
+	_frame_sequence += 1

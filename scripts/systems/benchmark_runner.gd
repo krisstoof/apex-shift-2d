@@ -78,6 +78,11 @@ var verbose_hitch_logging := false
 var last_hitch_summary_ms := 0
 var benchmark_duration_seconds := BENCHMARK_DURATION_SECONDS
 var benchmark_world_ready_elapsed_seconds := -1.0
+@export var disable_minimap_for_benchmark := false
+@export var disable_terrain_surface_refine_for_benchmark := false
+var _original_minimap_visible := true
+var _original_minimap_process_mode := Node.PROCESS_MODE_INHERIT
+var _benchmark_isolation_applied := false
 
 
 func _ready() -> void:
@@ -94,9 +99,11 @@ func start(preset_name: String = "normal") -> bool:
 		_post_message("Benchmark could not start: missing game state")
 		queue_free()
 		return false
+	_load_benchmark_isolation_flags_from_environment()
 	_apply_biome_textures_preset(preset_name)
 	if preset_name == "map_open":
 		_open_map_screen_for_benchmark()
+	_apply_benchmark_isolation_flags()
 	running = true
 	elapsed_seconds = 0.0
 	sample_timer = 0.0
@@ -133,7 +140,9 @@ func _process(delta: float) -> void:
 	if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING):
 		RUNTIME_PROFILER.begin_scope("benchmark_runner_process_ms")
 	var now_ticks := Time.get_ticks_msec()
-	_capture_realtime_hitch(now_ticks, delta)
+	var frame_snapshot := RUNTIME_PROFILER.consume_frame_snapshot()
+	RUNTIME_PROFILER.record_frame_snapshot(frame_snapshot)
+	_capture_realtime_hitch(now_ticks, delta, frame_snapshot)
 	_log_hitch(delta, "BenchmarkRunner", {
 		"running": running,
 		"sample_timer": sample_timer,
@@ -153,7 +162,7 @@ func _process(delta: float) -> void:
 		RUNTIME_PROFILER.end_scope("benchmark_runner_process_ms")
 
 
-func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
+func _capture_realtime_hitch(now_ticks: int, delta: float, frame_snapshot: Dictionary) -> void:
 	var hitch_start := Time.get_ticks_usec()
 	last_engine_delta_ms = delta * 1000.0
 	if last_process_ticks_msec > 0:
@@ -165,11 +174,24 @@ func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
 			hitch_count_by_scope["BenchmarkRunner"] = int(hitch_count_by_scope.get("BenchmarkRunner", 0)) + 1
 			max_delta_by_scope["BenchmarkRunner"] = maxi(int(max_delta_by_scope.get("BenchmarkRunner", 0)), last_wall_frame_delta_ms)
 			last_hitch_delta_by_scope["BenchmarkRunner"] = last_wall_frame_delta_ms
-			var frame_breakdown := Dictionary(RUNTIME_PROFILER.get_frame_snapshot())
+			var frame_breakdown := frame_snapshot.duplicate(true)
 			var top_scopes := RUNTIME_PROFILER.get_top_scopes_from_snapshot(frame_breakdown, 8)
 			var likely_subsystem := RUNTIME_PROFILER.get_top_scope_from_snapshot(frame_breakdown)
 			var performance_process_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 			var performance_physics_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+			var profiler_snapshot_total_ms := RUNTIME_PROFILER.get_snapshot_total_ms(frame_breakdown)
+			var profiler_max_scope := Dictionary(RUNTIME_PROFILER.get_snapshot_max_scope(frame_breakdown))
+			var profiler_snapshot_max_scope := str(profiler_max_scope.get("name", ""))
+			var profiler_snapshot_max_scope_ms := float(profiler_max_scope.get("ms", 0.0))
+			var profiler_snapshot_suspect := RUNTIME_PROFILER.is_snapshot_suspect(frame_breakdown, float(last_wall_frame_delta_ms), performance_process_ms)
+			var profiled_runtime_ms := maxf(performance_process_ms, profiler_snapshot_max_scope_ms)
+			var frame_stall_unattributed_ms := maxf(float(last_wall_frame_delta_ms) - profiled_runtime_ms, 0.0)
+			if profiler_snapshot_suspect:
+				likely_subsystem = "frame_stall_unattributed:%.1fms profiler_snapshot_suspect top=%s %.1fms" % [
+					frame_stall_unattributed_ms,
+					profiler_snapshot_max_scope,
+					profiler_snapshot_max_scope_ms
+				]
 			var hitch := {
 				"elapsed_seconds": elapsed_seconds,
 				"phase": _get_benchmark_phase(),
@@ -178,6 +200,11 @@ func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
 				"engine_delta_ms": last_engine_delta_ms,
 				"performance_process_ms": performance_process_ms,
 				"performance_physics_ms": performance_physics_ms,
+				"profiler_snapshot_total_ms": profiler_snapshot_total_ms,
+				"profiler_snapshot_max_scope": profiler_snapshot_max_scope,
+				"profiler_snapshot_max_scope_ms": profiler_snapshot_max_scope_ms,
+				"profiler_snapshot_suspect": profiler_snapshot_suspect,
+				"frame_stall_unattributed_ms": frame_stall_unattributed_ms,
 				"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 				"render_objects": Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
 				"render_primitives": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
@@ -202,8 +229,6 @@ func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
 			if realtime_hitches.size() > (40 if deep_debug else 12):
 				realtime_hitches.pop_front()
 			_update_hitch_breakdown_summary(hitch, frame_breakdown, top_scopes)
-			RUNTIME_PROFILER.record_frame_snapshot(frame_breakdown)
-			RUNTIME_PROFILER.reset_frame_snapshot()
 			if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING) or verbose_hitch_logging or last_wall_frame_delta_ms >= int(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_THRESHOLD_MS):
 				print(_format_hitch_detail_text(hitch, top_scopes))
 			if verbose_hitch_logging:
@@ -244,6 +269,79 @@ func _open_map_screen_for_benchmark() -> bool:
 		return false
 	hud.call("_set_map_screen_open", true)
 	return true
+
+
+func _load_benchmark_isolation_flags_from_environment() -> void:
+	var env_disable_minimap := OS.get_environment("APEX_BENCH_DISABLE_MINIMAP")
+	var env_disable_terrain_refine := OS.get_environment("APEX_BENCH_DISABLE_TERRAIN_REFINE")
+	if env_disable_minimap == "1" or env_disable_minimap.to_lower() == "true":
+		disable_minimap_for_benchmark = true
+	if env_disable_terrain_refine == "1" or env_disable_terrain_refine.to_lower() == "true":
+		disable_terrain_surface_refine_for_benchmark = true
+
+
+func _apply_benchmark_isolation_flags() -> void:
+	if _benchmark_isolation_applied:
+		return
+	_benchmark_isolation_applied = true
+	if disable_minimap_for_benchmark and is_instance_valid(minimap):
+		_original_minimap_visible = minimap.visible
+		_original_minimap_process_mode = minimap.process_mode
+		if minimap.has_method("set_benchmark_disabled"):
+			minimap.call("set_benchmark_disabled", true)
+		else:
+			minimap.visible = false
+			minimap.process_mode = Node.PROCESS_MODE_DISABLED
+		print("[BENCHMARK] Minimap disabled for benchmark isolation")
+	if disable_terrain_surface_refine_for_benchmark and is_instance_valid(world):
+		_disable_terrain_surface_refine_for_benchmark()
+
+
+func _disable_terrain_surface_refine_for_benchmark() -> void:
+	if world == null or not is_instance_valid(world):
+		return
+	if world.has_method("set_terrain_surface_refine_enabled"):
+		world.call("set_terrain_surface_refine_enabled", false)
+		print("[BENCHMARK] Terrain surface refine disabled through World API")
+		return
+	if world.has_method("set_surface_refine_enabled"):
+		world.call("set_surface_refine_enabled", false)
+		print("[BENCHMARK] Terrain surface refine disabled through surface API")
+		return
+	var render_controller: Variant = null
+	if world.has_method("get_render_controller"):
+		render_controller = world.call("get_render_controller")
+	elif world.has_method("get_world_render_controller"):
+		render_controller = world.call("get_world_render_controller")
+	if render_controller != null and render_controller.has_method("set_terrain_surface_refine_enabled"):
+		render_controller.call("set_terrain_surface_refine_enabled", false)
+		print("[BENCHMARK] Terrain surface refine disabled through render controller")
+		return
+	print("[BENCHMARK] Requested terrain surface refine isolation, but no compatible API was found")
+
+
+func _restore_benchmark_isolation_flags() -> void:
+	if not _benchmark_isolation_applied:
+		return
+	if disable_minimap_for_benchmark and is_instance_valid(minimap):
+		if minimap.has_method("set_benchmark_disabled"):
+			minimap.call("set_benchmark_disabled", false)
+		minimap.visible = _original_minimap_visible
+		minimap.process_mode = _original_minimap_process_mode
+	if disable_terrain_surface_refine_for_benchmark and is_instance_valid(world):
+		if world.has_method("set_terrain_surface_refine_enabled"):
+			world.call("set_terrain_surface_refine_enabled", true)
+		elif world.has_method("set_surface_refine_enabled"):
+			world.call("set_surface_refine_enabled", true)
+		else:
+			var render_controller: Variant = null
+			if world.has_method("get_render_controller"):
+				render_controller = world.call("get_render_controller")
+			elif world.has_method("get_world_render_controller"):
+				render_controller = world.call("get_world_render_controller")
+			if render_controller != null and render_controller.has_method("set_terrain_surface_refine_enabled"):
+				render_controller.call("set_terrain_surface_refine_enabled", true)
+	_benchmark_isolation_applied = false
 
 
 func _find_active_scene(root: Node) -> Node:
@@ -1145,6 +1243,7 @@ func _calculate_load_score(sample: Dictionary) -> float:
 func _finish() -> void:
 	running = false
 	benchmark_active = false
+	_restore_benchmark_isolation_flags()
 	process_mode = Node.PROCESS_MODE_DISABLED
 	benchmark_progress.emit(benchmark_duration_seconds, 0.0)
 	var output_paths := _write_logs()
@@ -1216,6 +1315,10 @@ func _build_report() -> Dictionary:
 	var report := {
 		"benchmark_name": "apex_shift_60_second_debug_benchmark",
 		"benchmark_preset": active_preset_name,
+		"benchmark_isolation": {
+			"disable_minimap_for_benchmark": disable_minimap_for_benchmark,
+			"disable_terrain_surface_refine_for_benchmark": disable_terrain_surface_refine_for_benchmark
+		},
 		"duration_target_seconds": benchmark_duration_seconds,
 		"actual_duration_seconds": elapsed_seconds,
 		"started_unix_time": int(start_unix_time),
@@ -1443,7 +1546,7 @@ func _format_hitch_detail_text(hitch: Dictionary, top_scopes: Array[Dictionary])
 	var map_screen_ms := float(frame_breakdown.get("map_screen_total_ms", 0.0))
 	var vegetation_candidates := int(Dictionary(world_debug.get("vegetation", {})).get("candidate_count_before_cap", 0))
 	var vegetation_drawn := int(Dictionary(world_debug.get("vegetation", {})).get("drawn_instance_count", 0))
-	return "[HITCH_DETAIL] frame=%dms engine_delta=%.1fms top=%s world_process=%.0fms visibility_cull=%.0fms show=%d hide=%d pending=%d dropped_invalid=%d decorative_visible_rect=%.0fms candidates=%d drawn=%d sort=%.1fms draw_loop=%.1fms surface_texture=%.0fms build_running=%s build_count=%d biome_blend=%.0fms cache_hit=%s ai_sync=%.1fms terrain_surface=%.0fms chunks_built=%d pending=%d minimap_total_cpu=%.0fms minimap_process=%.0fms minimap_draw=%.0fms minimap_static=%.0fms minimap_markers=%.0fms build_count=%d map_screen=%.0fms night_overlay=%.1fms total_resources=%d total_creatures=%d fps=%d performance_process=%.1fms physics=%.1fms" % [
+	return "[HITCH_DETAIL] frame=%dms engine_delta=%.1fms top=%s world_process=%.0fms visibility_cull=%.0fms show=%d hide=%d pending=%d dropped_invalid=%d decorative_visible_rect=%.0fms candidates=%d drawn=%d sort=%.1fms draw_loop=%.1fms surface_texture=%.0fms build_running=%s build_count=%d biome_blend=%.0fms cache_hit=%s ai_sync=%.1fms terrain_surface=%.0fms chunks_built=%d pending=%d minimap_total_cpu=%.0fms minimap_process=%.0fms minimap_draw=%.0fms minimap_static=%.0fms minimap_markers=%.0fms build_count=%d map_screen=%.0fms night_overlay=%.1fms total_resources=%d total_creatures=%d fps=%d performance_process=%.1fms physics=%.1fms prof_total=%.1fms prof_max=%s:%.1fms prof_suspect=%s unattributed=%.1fms" % [
 		int(hitch.get("realtime_delta_ms", 0)),
 		float(hitch.get("engine_delta_ms", 0.0)),
 		top_text,
@@ -1479,7 +1582,12 @@ func _format_hitch_detail_text(hitch: Dictionary, top_scopes: Array[Dictionary])
 		int(world_summary.get("visible_creatures", 0)),
 		int(performance.get("fps", 0)),
 		float(hitch.get("performance_process_ms", 0.0)),
-		float(hitch.get("performance_physics_ms", 0.0))
+		float(hitch.get("performance_physics_ms", 0.0)),
+		float(hitch.get("profiler_snapshot_total_ms", 0.0)),
+		str(hitch.get("profiler_snapshot_max_scope", "")),
+		float(hitch.get("profiler_snapshot_max_scope_ms", 0.0)),
+		str(hitch.get("profiler_snapshot_suspect", false)),
+		float(hitch.get("frame_stall_unattributed_ms", 0.0))
 	]
 
 

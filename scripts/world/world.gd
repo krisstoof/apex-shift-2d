@@ -2744,6 +2744,17 @@ func _sync_terrain_surface_chunk_renderer(force_rebuild := false) -> void:
 		call_deferred("_finish_boot_surface_sync")
 
 
+func set_terrain_surface_refine_enabled(enabled: bool) -> void:
+	if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("set_terrain_surface_refine_enabled"):
+		terrain_surface_chunk_renderer.call("set_terrain_surface_refine_enabled", enabled)
+
+
+func is_terrain_surface_refine_enabled() -> bool:
+	if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("is_terrain_surface_refine_enabled"):
+		return bool(terrain_surface_chunk_renderer.call("is_terrain_surface_refine_enabled"))
+	return true
+
+
 func _finish_boot_surface_sync() -> void:
 	_boot_surface_sync_queued = false
 	if not is_instance_valid(terrain_surface_chunk_renderer):

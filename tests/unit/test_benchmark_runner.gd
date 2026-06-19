@@ -248,6 +248,8 @@ func run() -> Array[String]:
 	_test_benchmark_runner_defaults_realtime_hitch_count_to_zero(failures)
 	_test_benchmark_runner_opens_map_screen_for_map_open_preset(failures)
 	_test_benchmark_runner_captures_ecosystem_and_spawn_debug(failures)
+	_test_benchmark_runner_reports_benchmark_isolation_flags(failures)
+	_test_benchmark_runner_formats_suspect_hitch_details(failures)
 	return failures
 
 
@@ -684,3 +686,42 @@ func _test_benchmark_runner_captures_ecosystem_and_spawn_debug(failures: Array[S
 	TEST_UTILS.expect_equal(str(stats.get("ecosystem_state_source", "")), "generated", failures, "Benchmark runner should capture ecosystem state source")
 	var spawn_debug: Dictionary = Dictionary(stats.get("resource_spawn_rejection_debug", {}))
 	TEST_UTILS.expect_equal(int(Dictionary(spawn_debug.get("tree", {})).get("blocked_by_water", 0)), 3, failures, "Benchmark runner should capture resource spawn rejection debug")
+
+
+func _test_benchmark_runner_reports_benchmark_isolation_flags(failures: Array[String]) -> void:
+	var runner := BENCHMARK_RUNNER.new()
+	runner.disable_minimap_for_benchmark = true
+	runner.disable_terrain_surface_refine_for_benchmark = true
+
+	var report := runner.call("_build_report")
+	var isolation := Dictionary(report.get("benchmark_isolation", {}))
+
+	TEST_UTILS.expect_equal(bool(isolation.get("disable_minimap_for_benchmark", false)), true, failures, "Benchmark report should expose minimap isolation flag")
+	TEST_UTILS.expect_equal(bool(isolation.get("disable_terrain_surface_refine_for_benchmark", false)), true, failures, "Benchmark report should expose terrain refine isolation flag")
+
+
+func _test_benchmark_runner_formats_suspect_hitch_details(failures: Array[String]) -> void:
+	var runner := BENCHMARK_RUNNER.new()
+	var hitch := {
+		"realtime_delta_ms": 1400,
+		"engine_delta_ms": 16.0,
+		"performance_process_ms": 10.0,
+		"performance_physics_ms": 2.0,
+		"profiler_snapshot_total_ms": 1400.0,
+		"profiler_snapshot_max_scope": "minimap_process_ms",
+		"profiler_snapshot_max_scope_ms": 1400.0,
+		"profiler_snapshot_suspect": true,
+		"frame_stall_unattributed_ms": 1390.0,
+		"frame_breakdown": {
+			"minimap_total_cpu_ms": 1400.0,
+			"minimap_process_ms": 1400.0
+		},
+		"world_summary": {},
+		"performance": {"fps": 30}
+	}
+	var text := runner.call("_format_hitch_detail_text", hitch, [{"name": "minimap_process_ms", "ms": 1400.0}])
+
+	TEST_UTILS.expect(text.contains("prof_total=1400.0ms"), failures, "Hitch detail text should include profiler total")
+	TEST_UTILS.expect(text.contains("prof_max=minimap_process_ms:1400.0ms"), failures, "Hitch detail text should include profiler max scope")
+	TEST_UTILS.expect(text.contains("prof_suspect=true"), failures, "Hitch detail text should include suspect flag")
+	TEST_UTILS.expect(text.contains("unattributed=1390.0ms"), failures, "Hitch detail text should include unattributed stall")
