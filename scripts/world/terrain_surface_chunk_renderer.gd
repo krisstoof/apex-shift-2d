@@ -123,6 +123,11 @@ var refine_idle_grace_period_ms := 5000
 var refine_idle_min_interval_ms := 2500
 var last_refine_idle_allow_ms := 0
 var smoke_test_refine_work_pending := false
+var smoke_test_last_refined_count := 0
+var smoke_test_last_refine_progress_ms := 0
+var terrain_surface_refine_blocked_reason := ""
+var terrain_surface_last_refine_allowed_ms := 0
+var terrain_surface_last_refine_started_ms := 0
 var preview_build_watchdog_start_ms: Dictionary = {}
 
 func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
@@ -215,6 +220,11 @@ func mark_dirty(reason := "unknown") -> void:
 	smoke_test_warning_count = 0
 	last_refine_idle_allow_ms = 0
 	smoke_test_refine_work_pending = false
+	smoke_test_last_refined_count = 0
+	smoke_test_last_refine_progress_ms = 0
+	terrain_surface_refine_blocked_reason = ""
+	terrain_surface_last_refine_allowed_ms = 0
+	terrain_surface_last_refine_started_ms = 0
 	preview_build_watchdog_start_ms.clear()
 	chunk_states.clear()
 	queue_redraw()
@@ -251,6 +261,11 @@ func clear_runtime_state(reason := "cleanup") -> void:
 	smoke_test_warning_count = 0
 	last_refine_idle_allow_ms = 0
 	smoke_test_refine_work_pending = false
+	smoke_test_last_refined_count = 0
+	smoke_test_last_refine_progress_ms = 0
+	terrain_surface_refine_blocked_reason = ""
+	terrain_surface_last_refine_allowed_ms = 0
+	terrain_surface_last_refine_started_ms = 0
 	preview_build_watchdog_start_ms.clear()
 	queue_redraw()
 
@@ -259,12 +274,22 @@ func _exit_tree() -> void:
 	clear_runtime_state("exit_tree")
 
 func process_visibility(_delta: float) -> void:
+	var profile_enabled := bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING)
+	if profile_enabled:
+		RUNTIME_PROFILER.begin_scope("terrain_surface_process_visibility_ms")
 	if world == null:
+		if profile_enabled:
+			RUNTIME_PROFILER.end_scope("terrain_surface_process_visibility_ms")
 		return
+	if profile_enabled:
+		RUNTIME_PROFILER.begin_scope("terrain_surface_rebuild_visible_chunks_ms")
 	var visible_rect := _get_visible_world_rect()
 	var chunk_bounds := _get_chunk_bounds_for_rect(visible_rect)
 	var signature := _chunk_bounds_signature(chunk_bounds)
 	if not dirty and signature == last_visible_signature:
+		if profile_enabled:
+			RUNTIME_PROFILER.end_scope("terrain_surface_rebuild_visible_chunks_ms")
+			RUNTIME_PROFILER.end_scope("terrain_surface_process_visibility_ms")
 		return
 	last_visible_signature = signature
 	dirty = false
@@ -279,8 +304,14 @@ func process_visibility(_delta: float) -> void:
 	visible_chunk_count = visible_chunks.size()
 	cached_chunk_count = chunk_textures.size()
 	queue_redraw()
+	if profile_enabled:
+		RUNTIME_PROFILER.end_scope("terrain_surface_rebuild_visible_chunks_ms")
+		RUNTIME_PROFILER.end_scope("terrain_surface_process_visibility_ms")
 
 func process_build_queue(delta: float = 0.0) -> void:
+	var profile_enabled := bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING)
+	if profile_enabled:
+		RUNTIME_PROFILER.begin_scope("terrain_surface_build_chunks_ms")
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.begin_scope("terrain_surface_chunk_build_queue_ms")
 	chunks_built_last_frame = 0
@@ -304,12 +335,20 @@ func process_build_queue(delta: float = 0.0) -> void:
 		smoke_test_idle_duration_ms = int(Time.get_ticks_msec() - last_camera_idle_time_ms)
 		if smoke_test_idle_duration_ms >= 30000:  # 30 seconds
 			smoke_test_refine_build_count_at_idle = refined_build_count
-			smoke_test_refine_work_pending = _count_active_stage("refine") > 0 or _count_active_stage("refine_pending") > 0 or pending_chunks.size() > 0
-			if smoke_test_refine_work_pending and refined_build_count <= 1 and Time.get_ticks_msec() - last_smoke_test_warning_ms >= smoke_test_warning_cooldown_ms:
+			smoke_test_refine_work_pending = _count_active_stage("refine") > 0 or _count_active_stage("refine_pending") > 0
+			if refined_build_count > smoke_test_last_refined_count:
+				smoke_test_last_refined_count = refined_build_count
+				smoke_test_last_refine_progress_ms = Time.get_ticks_msec()
+			var stalled_refine := Time.get_ticks_msec() - smoke_test_last_refine_progress_ms >= 30000
+			if smoke_test_refine_work_pending and stalled_refine and Time.get_ticks_msec() - last_smoke_test_warning_ms >= smoke_test_warning_cooldown_ms:
 				smoke_test_warning_emitted = true
 				smoke_test_warning_count += 1
 				last_smoke_test_warning_ms = Time.get_ticks_msec()
-				push_warning("TERRAIN_SURFACE_SMOKE_TEST: Refined build count stuck at 1 after 30s idle. Check refine pipeline.")
+				push_warning("TERRAIN_SURFACE_SMOKE_TEST: Refine work pending after 30s idle (pending=%d active=%d blocked_reason=%s)." % [
+					_count_active_stage("refine_pending"),
+					_count_active_stage("refine"),
+					terrain_surface_refine_blocked_reason if not terrain_surface_refine_blocked_reason.is_empty() else "none"
+				])
 	else:
 		last_camera_idle_time_ms = 0
 		smoke_test_idle_duration_ms = 0
@@ -366,6 +405,8 @@ func process_build_queue(delta: float = 0.0) -> void:
 		queue_redraw()
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.end_scope("terrain_surface_chunk_build_queue_ms")
+	if profile_enabled:
+		RUNTIME_PROFILER.end_scope("terrain_surface_build_chunks_ms")
 
 func get_debug_data() -> Dictionary:
 	return {
@@ -437,12 +478,15 @@ func get_debug_data() -> Dictionary:
 		"terrain_surface_refine_jobs_completed": refine_jobs_completed,
 		"terrain_surface_refine_jobs_cancelled": refine_jobs_cancelled,
 		"terrain_surface_refine_jobs_stale": refine_jobs_stale,
+		"terrain_surface_refine_blocked_reason": terrain_surface_refine_blocked_reason,
+		"terrain_surface_last_refine_allowed_ms": terrain_surface_last_refine_allowed_ms,
+		"terrain_surface_last_refine_started_ms": terrain_surface_last_refine_started_ms,
 		"terrain_surface_active_refine_count": _count_active_stage("refine"),
 		"terrain_surface_refine_pending_count": _count_active_stage("refine_pending"),
 		"terrain_surface_smoke_test_idle_duration_ms": smoke_test_idle_duration_ms,
 		"terrain_surface_smoke_test_refine_count_at_idle": smoke_test_refine_build_count_at_idle,
 		"terrain_surface_smoke_test_refine_work_pending": smoke_test_refine_work_pending,
-		"terrain_surface_smoke_test_stuck": smoke_test_idle_duration_ms >= 30000 and smoke_test_refine_build_count_at_idle <= 1,
+		"terrain_surface_smoke_test_stuck": smoke_test_refine_work_pending and smoke_test_idle_duration_ms >= 30000 and smoke_test_refine_build_count_at_idle <= 1,
 		"terrain_surface_smoke_test_warning_count": smoke_test_warning_count,
 		"terrain_surface_smoke_test_last_warning_ms": last_smoke_test_warning_ms
 	}
@@ -624,7 +668,7 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 		if allow_refine:
 			var ready_at := float(state.get("stage_ready_at", 0.0))
 			var now_s := float(Time.get_ticks_msec()) / 1000.0
-			if now_s >= ready_at and _can_start_refine_chunk():
+			if now_s >= ready_at and _can_start_refine_chunk(allow_refine):
 				var refine_texture_size := refined_chunk_texture_size
 				var refine_image := Image.create(refine_texture_size, refine_texture_size, false, Image.FORMAT_RGBA8)
 				state["image"] = refine_image
@@ -637,6 +681,8 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 				next_y = 0
 				next_x = 0
 				refine_jobs_started += 1
+				terrain_surface_last_refine_started_ms = Time.get_ticks_msec()
+				terrain_surface_refine_blocked_reason = ""
 				active_builds[chunk_key] = state
 				chunk_states[chunk_key] = ChunkState.REFINE_BUILDING
 		# If not ready to transition, just update and return early
@@ -742,6 +788,8 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 			terrain_surface_build_chunks_completed_last_frame += 1
 			total_build_count += 1
 			refined_build_count += 1
+			smoke_test_last_refined_count = refined_build_count
+			smoke_test_last_refine_progress_ms = Time.get_ticks_msec()
 			chunk_build_completed_count += 1
 			refine_jobs_completed += 1
 			sample_cache.clear()
@@ -758,28 +806,39 @@ func _process_active_chunk_build(chunk_key: Vector2i, frame_start_usec: int, all
 func _can_process_refine() -> bool:
 	var camera_moving_fast := _is_camera_moving_fast()
 	if preview_only_during_fast_movement and refine_pause_when_camera_moving and camera_moving_fast:
+		terrain_surface_refine_blocked_reason = "camera_moving"
 		terrain_surface_refine_skipped_due_to_camera_movement_count += 1
 		return false
 	var fps := Engine.get_frames_per_second()
 	if refine_pause_when_fps_below > 0 and fps > 0 and fps < refine_pause_when_fps_below:
+		terrain_surface_refine_blocked_reason = "fps_below_threshold"
 		if smoke_test_idle_duration_ms >= refine_idle_grace_period_ms:
 			var now_ms := Time.get_ticks_msec()
 			if last_refine_idle_allow_ms == 0 or now_ms - last_refine_idle_allow_ms >= refine_idle_min_interval_ms:
 				last_refine_idle_allow_ms = now_ms
+				terrain_surface_last_refine_allowed_ms = now_ms
+				terrain_surface_refine_blocked_reason = ""
 				return true
 		terrain_surface_refine_skipped_due_to_fps_count += 1
 		return false
 	if max_refined_chunks_per_second <= 0:
+		terrain_surface_refine_blocked_reason = ""
+		terrain_surface_last_refine_allowed_ms = Time.get_ticks_msec()
 		return true
 	var now_ms := Time.get_ticks_msec()
 	if now_ms - refined_chunk_window_start_ms >= 1000:
 		refined_chunk_window_start_ms = now_ms
 		refined_chunks_started_in_window = 0
-	return refined_chunks_started_in_window < max_refined_chunks_per_second
+	if refined_chunks_started_in_window >= max_refined_chunks_per_second:
+		terrain_surface_refine_blocked_reason = "rate_limited"
+		return false
+	terrain_surface_refine_blocked_reason = ""
+	terrain_surface_last_refine_allowed_ms = now_ms
+	return true
 
 
-func _can_start_refine_chunk() -> bool:
-	if not _can_process_refine():
+func _can_start_refine_chunk(allow_refine: bool) -> bool:
+	if not allow_refine:
 		return false
 	refined_chunks_started_in_window += 1
 	return true

@@ -72,13 +72,22 @@ func get_debug_data() -> Dictionary:
 		"hidden_resources": hidden_resource_count,
 		"visible_creatures": visible_creature_count,
 		"hidden_creatures": hidden_creature_count,
+		"visibility_visible_resources": visible_resource_count,
+		"visibility_hidden_resources": hidden_resource_count,
+		"visibility_visible_creatures": visible_creature_count,
+		"visibility_hidden_creatures": hidden_creature_count,
 		"shown_this_frame": shown_this_frame,
 		"hidden_this_frame": hidden_this_frame,
+		"visibility_show_count": shown_this_frame,
+		"visibility_hide_count": hidden_this_frame,
 		"visibility_processed_this_frame": visibility_processed_this_frame,
 		"visibility_pending_dropped_invalid": visibility_pending_dropped_invalid,
+		"visibility_dropped_invalid_count": visibility_pending_dropped_invalid,
 		"visibility_queue_ms": visibility_queue_ms,
 		"pending_show_count": pending_visibility_show.size(),
 		"pending_hide_count": pending_visibility_hide.size(),
+		"visibility_pending_show_count": pending_visibility_show.size(),
+		"visibility_pending_hide_count": pending_visibility_hide.size(),
 		"visibility_changes_budget": visibility_changes_budget
 	}
 

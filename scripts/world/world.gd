@@ -190,6 +190,9 @@ var resource_spawn_rejection_debug := {
 }
 var resource_spawn_failure_summary: Dictionary = {}
 var resource_spawn_rejection_summary: Dictionary = {}
+var resource_spawn_failure_detail_summary: Dictionary = {}
+var resource_spawn_rejection_detail_summary: Dictionary = {}
+var resource_spawn_prepass_debug: Dictionary = {}
 var biome_spawn_point_cache: Dictionary = {}
 var world_seed := 0
 var world_layout: Dictionary = {}
@@ -215,6 +218,22 @@ var vegetation_visual_layer: VegetationVisualLayer
 var edible_grass_node_spawn_count := 0
 var decorative_grass_visual_spawn_count := 0
 var edible_pond_grass_node_spawn_count := 0
+var runtime_decorative_vegetation_max_drawn := DECORATIVE_VEGETATION_MAX_DRAWN_INSTANCES
+var runtime_decorative_vegetation_visibility_margin := DECORATIVE_VEGETATION_VISIBILITY_MARGIN
+var runtime_decorative_vegetation_update_interval := DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
+var runtime_resource_collision_activation_radius := 900.0
+var runtime_ai_food_activation_radius := 1200.0
+var runtime_activation_update_interval := 0.45
+var runtime_activation_changes_per_frame := 28
+var runtime_minimap_redraw_interval := 0.75
+var runtime_minimap_marker_rebuild_interval := 1.25
+var runtime_minimap_player_redraw_interval := 0.10
+var runtime_terrain_surface_chunk_texture_size := int(SURFACE_BLEND_TEXTURE_SIZE.x)
+var runtime_terrain_surface_refined_texture_size := int(SURFACE_BLEND_TEXTURE_SIZE.x)
+var runtime_terrain_surface_max_chunks_built_per_frame := 2
+var runtime_terrain_surface_max_build_ms_per_frame := 3.0
+var runtime_terrain_surface_hard_budget_ms := 3.0
+var runtime_debug_overlays_enabled := false
 var graphics_settings: Node = GRAPHICS_SETTINGS_SCRIPT.new()
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
@@ -503,49 +522,107 @@ func _process(delta: float) -> void:
 	small_prey_spawn_timer += delta
 	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
 		small_prey_spawn_timer = 0.0
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_sync_visible_small_prey_ms")
 		_sync_visible_small_prey()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_sync_visible_small_prey_ms")
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_sync_visible_grazers_ms")
 		_sync_visible_grazers()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_sync_visible_grazers_ms")
 	varnak_spawn_timer += delta
 	if varnak_spawn_timer >= _get_varnak_spawn_check_interval():
 		varnak_spawn_timer = 0.0
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_sync_visible_varnaks_ms")
 		_sync_visible_varnaks()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_sync_visible_varnaks_ms")
 	rock_spawn_timer += delta
 	if rock_spawn_timer >= ROCK_SPAWN_TICK_SECONDS:
 		rock_spawn_timer = 0.0
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_sync_periodic_rock_spawn_ms")
 		_sync_periodic_rock_spawn()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_sync_periodic_rock_spawn_ms")
 	var current_night_amount := _get_night_amount()
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.begin_scope("world_render_controller_process_ms")
 	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.end_scope("world_render_controller_process_ms")
 	if should_redraw_background:
 		queue_redraw()
 	if boot_ready and visibility_controller != null:
-		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
-			RUNTIME_PROFILER.begin_scope("world_visibility_controller_ms")
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("visibility_cull_ms")
 		visibility_controller.process(delta)
-		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
-			RUNTIME_PROFILER.end_scope("world_visibility_controller_ms")
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("visibility_cull_ms")
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.end_scope("world_process_render_sync_ms")
 	decorative_vegetation_visibility_timer -= delta
 	if decorative_vegetation_visibility_timer <= 0.0:
 		decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_decorative_visible_rect_ms")
 		_update_decorative_vegetation_visible_rect()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_decorative_visible_rect_ms")
 	resource_activation_timer -= delta
 	if resource_activation_timer <= 0.0:
-		resource_activation_timer = float(GAME_BALANCE.RESOURCE_ACTIVATION.get("activation_update_interval", 0.45))
+		resource_activation_timer = runtime_activation_update_interval
 		_update_resource_interactions()
 	var use_surface_renderer := bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
 	var allow_legacy_overlay := bool(GAME_BALANCE.BIOME_TEXTURES.get("legacy_biome_detail_overlay_enabled_with_surface_renderer", false))
 	if not use_surface_renderer or allow_legacy_overlay:
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_biome_detail_overlay_ms")
 		_update_biome_detail_overlay(delta)
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_biome_detail_overlay_ms")
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_biome_detail_overlay_build_pending_chunks_ms")
 		_build_pending_biome_detail_overlay_chunks()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_biome_detail_overlay_build_pending_chunks_ms")
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.begin_scope("world_night_overlay_ms")
 	_update_night_overlay(current_night_amount)
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.end_scope("world_night_overlay_ms")
 	RUNTIME_PROFILER.end_scope("world_process_total_ms")
 
 
 func _apply_graphics_settings_defaults() -> void:
+	var runtime_config: Dictionary = {}
+	if graphics_settings != null and graphics_settings.has_method("get_graphics_runtime_config"):
+		runtime_config = Dictionary(graphics_settings.get_graphics_runtime_config())
 	biome_textures_enabled = graphics_settings.get_default_biome_textures_enabled() if graphics_settings.has_method("get_default_biome_textures_enabled") else true
 	debug_landmark_overlay_enabled = graphics_settings.get_default_landmark_debug_overlay_enabled() if graphics_settings.has_method("get_default_landmark_debug_overlay_enabled") else false
 	biome_terrain_accents_enabled = graphics_settings.get_default_biome_terrain_accents_enabled() if graphics_settings.has_method("get_default_biome_terrain_accents_enabled") else false
+	biome_textures_enabled = bool(runtime_config.get("biome_textures_enabled", biome_textures_enabled))
+	biome_terrain_accents_enabled = bool(runtime_config.get("biome_terrain_accents_enabled", biome_terrain_accents_enabled))
+	debug_landmark_overlay_enabled = bool(runtime_config.get("debug_overlays_enabled", debug_landmark_overlay_enabled))
+	runtime_decorative_vegetation_max_drawn = int(runtime_config.get("decorative_vegetation_max_drawn", runtime_decorative_vegetation_max_drawn))
+	runtime_decorative_vegetation_visibility_margin = float(runtime_config.get("decorative_vegetation_visibility_margin", runtime_decorative_vegetation_visibility_margin))
+	runtime_decorative_vegetation_update_interval = float(runtime_config.get("decorative_vegetation_update_interval", runtime_decorative_vegetation_update_interval))
+	runtime_resource_collision_activation_radius = float(runtime_config.get("resource_collision_activation_radius", runtime_resource_collision_activation_radius))
+	runtime_ai_food_activation_radius = float(runtime_config.get("ai_food_activation_radius", runtime_ai_food_activation_radius))
+	runtime_activation_update_interval = float(runtime_config.get("activation_update_interval", runtime_activation_update_interval))
+	runtime_activation_changes_per_frame = int(runtime_config.get("activation_changes_per_frame", runtime_activation_changes_per_frame))
+	runtime_minimap_redraw_interval = float(runtime_config.get("minimap_redraw_interval", runtime_minimap_redraw_interval))
+	runtime_minimap_marker_rebuild_interval = float(runtime_config.get("minimap_marker_rebuild_interval", runtime_minimap_marker_rebuild_interval))
+	runtime_minimap_player_redraw_interval = float(runtime_config.get("minimap_player_redraw_interval", runtime_minimap_player_redraw_interval))
+	runtime_terrain_surface_chunk_texture_size = int(runtime_config.get("terrain_surface_chunk_texture_size", runtime_terrain_surface_chunk_texture_size))
+	runtime_terrain_surface_refined_texture_size = int(runtime_config.get("terrain_surface_refined_texture_size", runtime_terrain_surface_refined_texture_size))
+	runtime_terrain_surface_max_chunks_built_per_frame = int(runtime_config.get("terrain_surface_max_chunks_built_per_frame", runtime_terrain_surface_max_chunks_built_per_frame))
+	runtime_terrain_surface_max_build_ms_per_frame = float(runtime_config.get("terrain_surface_max_build_ms_per_frame", runtime_terrain_surface_max_build_ms_per_frame))
+	runtime_terrain_surface_hard_budget_ms = float(runtime_config.get("terrain_surface_hard_budget_ms", runtime_terrain_surface_hard_budget_ms))
+	runtime_debug_overlays_enabled = bool(runtime_config.get("debug_overlays_enabled", runtime_debug_overlays_enabled))
 	biome_detail_overlay_enabled = true
 	if _is_low_end_static_surface_mode_enabled():
 		biome_textures_enabled = false
@@ -593,10 +670,24 @@ func _update_decorative_vegetation_visible_rect() -> void:
 			focus_position = visible_rect.get_center()
 		vegetation_visual_layer.set_camera_focus_position(focus_position)
 	if vegetation_visual_layer.has_method("set_max_drawn_instances"):
-		var budget: Dictionary = Dictionary(render_performance_governor.get_budget()) if render_performance_governor != null and render_performance_governor.has_method("get_budget") else Dictionary(GAME_BALANCE.RENDER_PERFORMANCE.get("normal", {}))
-		if budget.is_empty():
-			budget = Dictionary(GAME_BALANCE.RENDER_PERFORMANCE.get("normal", {}))
+		var budget: Dictionary = {
+			"decorative_vegetation_max_drawn": runtime_decorative_vegetation_max_drawn,
+			"decorative_vegetation_visibility_margin": runtime_decorative_vegetation_visibility_margin
+		}
+		if render_performance_governor != null and render_performance_governor.has_method("get_budget"):
+			var governor_budget := Dictionary(render_performance_governor.get_budget())
+			for key in governor_budget.keys():
+				budget[key] = governor_budget.get(key)
 		vegetation_visual_layer.apply_render_budget(budget)
+	var ui_root := get_tree().root if get_tree() != null else null
+	if ui_root != null:
+		var minimap_node: Node = ui_root.find_child("Minimap", true, false)
+		if minimap_node != null and minimap_node.has_method("apply_graphics_preset_config"):
+			minimap_node.call("apply_graphics_preset_config", {
+				"minimap_redraw_interval": runtime_minimap_redraw_interval,
+				"minimap_marker_rebuild_interval": runtime_minimap_marker_rebuild_interval,
+				"minimap_player_redraw_interval": runtime_minimap_player_redraw_interval
+			})
 
 
 func _get_world_object_visibility_rect(viewport_size: Vector2, camera_position: Vector2, camera_zoom: Vector2, margin := VISIBILITY_CULL_MARGIN) -> Rect2:
@@ -1877,15 +1968,19 @@ func _update_resource_interactions() -> void:
 		RUNTIME_PROFILER.end_scope("resource_activation_update_ms")
 		return
 	var player_position := player_node.global_position if player_node is Node2D else _get_player_position()
-	var activation_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("resource_collision_activation_radius", 900.0))
+	var activation_radius := runtime_resource_collision_activation_radius
 	var player_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("player_interaction_radius", 420.0))
-	var ai_radius := float(GAME_BALANCE.RESOURCE_ACTIVATION.get("ai_food_activation_radius", 1200.0))
-	var change_budget := maxi(int(GAME_BALANCE.RESOURCE_ACTIVATION.get("activation_changes_per_frame", 28)), 1)
+	var ai_radius := runtime_ai_food_activation_radius
+	var change_budget := maxi(runtime_activation_changes_per_frame, 1)
 	var world_registry = _ensure_registry()
 	var near_scan_radius := maxf(ai_radius, activation_radius)
 	var resources: Array = []
 	if world_registry != null and world_registry.has_method("get_resources_near"):
 		resources = Array(world_registry.get_resources_near(player_position, near_scan_radius))
+		if world_registry.has_method("get_meat_near"):
+			for meat_drop in world_registry.get_meat_near(player_position, near_scan_radius):
+				if not resources.has(meat_drop):
+					resources.append(meat_drop)
 	else:
 		resources = get_cached_group_nodes("resources")
 	if resources.is_empty():
@@ -2084,6 +2179,9 @@ func begin_save_restore() -> void:
 	biome_spawn_point_cache.clear()
 	resource_spawn_failure_summary.clear()
 	resource_spawn_rejection_summary.clear()
+	resource_spawn_failure_detail_summary.clear()
+	resource_spawn_rejection_detail_summary.clear()
+	resource_spawn_prepass_debug.clear()
 
 
 func end_save_restore() -> void:
@@ -2094,10 +2192,10 @@ func end_save_restore() -> void:
 		_update_world_object_visibility()
 	var ui_root := get_tree().root if get_tree() != null else null
 	if ui_root != null:
-		var minimap := ui_root.find_child("Minimap", true, false)
+		var minimap: Node = ui_root.find_child("Minimap", true, false)
 		if minimap != null and minimap.has_method("invalidate_map_surface_cache"):
 			minimap.call("invalidate_map_surface_cache")
-		var map_screen := ui_root.find_child("MapScreen", true, false)
+		var map_screen: Node = ui_root.find_child("MapScreen", true, false)
 		if map_screen != null and map_screen.has_method("invalidate_map_surface_cache"):
 			map_screen.call("invalidate_map_surface_cache")
 	queue_redraw()
@@ -2301,6 +2399,9 @@ func _try_spawn_decorative_grass_visual(resource_kind: String, used_positions: A
 	if biome.is_empty():
 		return false
 	var biome_id := _get_biome_id(biome)
+	if _should_skip_resource_spawn_in_biome(resource_kind, biome):
+		_count_resource_spawn_rejection(resource_kind, "prepass_skipped")
+		return false
 	var attempts := _get_decorative_visual_spawn_attempts(resource_kind)
 	_record_resource_spawn_request(resource_kind, biome_id, attempts)
 	for attempt_index in range(attempts):
@@ -2310,11 +2411,12 @@ func _try_spawn_decorative_grass_visual(resource_kind: String, used_positions: A
 		var rejection_reason := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.55, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE * 0.88)
 		if not rejection_reason.is_empty():
 			_record_resource_spawn_rejection(resource_kind, biome_id, rejection_reason)
+			_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, rejection_reason)
 			continue
 		used_positions.append(candidate)
 		_spawn_decorative_vegetation_visual(resource_kind, candidate, biome_id, 1.0)
 		return true
-	_record_resource_spawn_failure(resource_kind, biome_id, attempts)
+	_count_resource_spawn_rejection(resource_kind, "no_valid_decorative_position")
 	return false
 
 
@@ -2729,10 +2831,14 @@ func _sync_biome_blend_background() -> void:
 		background.texture = null
 		return
 	var controller: Object = _ensure_render_controller()
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.begin_scope("world_sync_biome_blend_background_ms")
 	var blend_texture: ImageTexture = controller.ensure_biome_blend_texture()
 	var render_state: Dictionary = controller.get_biome_texture_cache_status()
 	world_biome_texture_build_count = int(render_state.get("rebuild_count", world_biome_texture_build_count))
 	world_biome_texture_last_build_ms = float(render_state.get("last_build_ms", world_biome_texture_last_build_ms))
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.end_scope("world_sync_biome_blend_background_ms")
 	if blend_texture == null:
 		background.visible = false
 		background.texture = null
@@ -2827,6 +2933,8 @@ func _ensure_surface_texture() -> ImageTexture:
 	var texture_size := SURFACE_BLEND_TEXTURE_SIZE
 	if _is_low_end_static_surface_mode_enabled():
 		texture_size = Vector2i(192, 118)
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.begin_scope("world_surface_texture_ms")
 	var build_start_ms: int = Time.get_ticks_msec()
 	var image := Image.create(texture_size.x, texture_size.y, false, Image.FORMAT_RGBA8)
 	for y in range(texture_size.y):
@@ -2841,6 +2949,8 @@ func _ensure_surface_texture() -> ImageTexture:
 	world_surface_texture_build_count += 1
 	world_surface_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 	print("[WORLD] surface texture build count=%d last_build_ms=%.2f key=%s" % [world_surface_texture_build_count, world_surface_texture_last_build_ms, world_surface_texture_key])
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.end_scope("world_surface_texture_ms")
 	return world_surface_texture
 
 
@@ -3071,6 +3181,9 @@ func debug_regenerate_world(p_seed: int = 0) -> void:
 	biome_spawn_point_cache.clear()
 	resource_spawn_failure_summary.clear()
 	resource_spawn_rejection_summary.clear()
+	resource_spawn_failure_detail_summary.clear()
+	resource_spawn_rejection_detail_summary.clear()
+	resource_spawn_prepass_debug.clear()
 	_update_world_object_visibility()
 	queue_redraw()
 
@@ -3774,9 +3887,11 @@ func _spawn_resource_kind_in_biome(
 	var failed := 0
 	var spawned_since_yield := 0
 	for _i in count:
-		if not _try_spawn_resource_in_biome_optimized(resource_kind, biome, used_positions, player_position, min_distance, spawn_attempts):
+		var spawned := _try_spawn_resource_in_biome_optimized(resource_kind, biome, used_positions, player_position, min_distance, spawn_attempts)
+		if not spawned:
 			failed += 1
-			_record_resource_spawn_failure(resource_kind, biome_id, spawn_attempts)
+			if not VegetationCatalog.is_decorative_kind(resource_kind):
+				_record_resource_spawn_failure(resource_kind, biome_id, spawn_attempts)
 		spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
@@ -3827,7 +3942,7 @@ func _spawn_decorative_vegetation_visuals_for_loaded_world() -> void:
 	for kind in ["grass_patch", "dense_grass"]:
 		for _i in range(max(WORLD_CONFIG.get_grass_patch_count(), WORLD_CONFIG.get_dense_grass_count())):
 			if not _try_spawn_decorative_grass_visual(kind, used_positions, player_position):
-				break
+				continue
 	if bool(GAME_BALANCE.LANDMARKS.get("topography_pond_vegetation_enabled", true)):
 		for pond in get_topography_features_by_type("pond"):
 			var biome := _get_biome_for_id(str(pond.get("biome_id", "")))
@@ -3914,6 +4029,57 @@ func _count_resource_spawn_rejection(resource_kind: String, reason: String) -> v
 
 func get_resource_spawn_rejection_debug() -> Dictionary:
 	return resource_spawn_rejection_debug.duplicate(true)
+
+
+func _format_resource_spawn_detail_key(resource_kind: String, target_biome_id: String, actual_biome_id: String, terrain_zone: String, water_zone: String, reason: String) -> String:
+	return "%s|%s|%s|%s|%s|%s" % [
+		resource_kind,
+		target_biome_id,
+		actual_biome_id,
+		terrain_zone,
+		water_zone,
+		reason
+	]
+
+
+func _build_resource_spawn_candidate_context(resource_kind: String, candidate: Vector2, biome: Dictionary) -> Dictionary:
+	var target_biome_id := _get_biome_id(biome)
+	var actual_biome_id := _get_biome_id_for_position(candidate)
+	var terrain_zone := get_topography_zone_at(candidate)
+	var water_zone := get_water_zone(candidate)
+	return {
+		"target_biome_id": target_biome_id,
+		"actual_biome_id": actual_biome_id,
+		"terrain_zone": terrain_zone,
+		"water_zone": water_zone,
+		"resource_kind": resource_kind
+	}
+
+
+func _record_resource_spawn_failure_detail(resource_kind: String, candidate: Vector2, biome: Dictionary, reason: String) -> void:
+	var context := _build_resource_spawn_candidate_context(resource_kind, candidate, biome)
+	var key := _format_resource_spawn_detail_key(
+		resource_kind,
+		str(context.get("target_biome_id", "")),
+		str(context.get("actual_biome_id", "")),
+		str(context.get("terrain_zone", "")),
+		str(context.get("water_zone", "")),
+		reason
+	)
+	resource_spawn_failure_detail_summary[key] = int(resource_spawn_failure_detail_summary.get(key, 0)) + 1
+
+
+func _record_resource_spawn_rejection_detail(resource_kind: String, candidate: Vector2, biome: Dictionary, reason: String) -> void:
+	var context := _build_resource_spawn_candidate_context(resource_kind, candidate, biome)
+	var key := _format_resource_spawn_detail_key(
+		resource_kind,
+		str(context.get("target_biome_id", "")),
+		str(context.get("actual_biome_id", "")),
+		str(context.get("terrain_zone", "")),
+		str(context.get("water_zone", "")),
+		reason
+	)
+	resource_spawn_rejection_detail_summary[key] = int(resource_spawn_rejection_detail_summary.get(key, 0)) + 1
 
 
 func _get_pond_vegetation_count() -> int:
@@ -4171,6 +4337,7 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 		return null
 	if node is Node2D:
 		(node as Node2D).visible = true
+	_finalize_spawned_pickup_drop(node)
 	if visibility_culling_enabled:
 		_update_world_object_visibility()
 	var event_bus := _get_event_bus()
@@ -4181,6 +4348,27 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 			"position": node.global_position
 		})
 	return node
+
+
+func _finalize_spawned_pickup_drop(drop: Node) -> void:
+	if drop == null or not is_instance_valid(drop):
+		return
+	if drop.has_method("set_visibility_culled"):
+		drop.call("set_visibility_culled", true)
+	var player_node := _get_player_node()
+	var near_player := false
+	if player_node != null and drop is Node2D:
+		near_player = player_node.global_position.distance_to((drop as Node2D).global_position) <= float(GAME_BALANCE.RESOURCE_ACTIVATION.get("player_interaction_radius", 420.0))
+	if near_player and drop.has_method("set_interaction_active"):
+		drop.call("set_interaction_active", true)
+	if drop.has_method("get_resource_kind"):
+		print("[MEAT_DROP] finalized kind=%s visible=%s near_player=%s interaction_active=%s pos=%s" % [
+			str(drop.call("get_resource_kind")),
+			str(drop.visible),
+			str(near_player),
+			str(drop.call("is_interaction_active") if drop.has_method("is_interaction_active") else false),
+			str((drop as Node2D).global_position if drop is Node2D else Vector2.ZERO)
+		])
 
 
 func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
@@ -4279,6 +4467,9 @@ func _is_valid_drop_position(drop_position: Vector2, radius: float = 18.0, resou
 func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
 	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var biome := _pick_resource_biome(resource_kind)
+		if _should_skip_resource_spawn_in_biome(resource_kind, biome):
+			_record_resource_spawn_rejection(resource_kind, _get_biome_id(biome), "prepass_skipped")
+			continue
 		var candidate := _find_resource_spawn_candidate(resource_kind, biome)
 		if candidate != Vector2.INF and _is_valid_resource_position(candidate, used_positions, player_position):
 			used_positions.append(candidate)
@@ -5076,12 +5267,19 @@ func _try_spawn_resource_in_biome_optimized(
 	var biome_id := _get_biome_id(biome)
 	var max_attempts := _get_max_attempts_for_resource_kind(resource_kind)
 	var attempts := mini(spawn_attempts, max_attempts)
+	var prepass := _get_resource_spawn_prepass_estimate(resource_kind, biome)
+	resource_spawn_prepass_debug["%s|%s" % [resource_kind, biome_id]] = prepass.duplicate(true)
+	if _should_skip_resource_spawn_in_biome(resource_kind, biome):
+		_record_resource_spawn_rejection(resource_kind, biome_id, "prepass_skipped")
+		_record_resource_spawn_rejection_detail(resource_kind, Vector2.ZERO, biome, "prepass_skipped")
+		return false
 	_record_resource_spawn_request(resource_kind, biome_id, attempts)
 	for attempt_index in range(attempts):
 		var candidate := _get_direct_resource_candidate_in_biome(resource_kind, biome, attempt_index)
 		var reason := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE)
 		if not reason.is_empty():
 			_record_resource_spawn_rejection(resource_kind, biome_id, reason)
+			_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, reason)
 			continue
 		used_positions.append(candidate)
 		_spawn_resource_at(resource_kind, candidate)
@@ -5091,6 +5289,7 @@ func _try_spawn_resource_in_biome_optimized(
 			var reason2 := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE)
 			if not reason2.is_empty():
 				_record_resource_spawn_rejection(resource_kind, biome_id, reason2)
+				_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, reason2)
 				continue
 			used_positions.append(candidate)
 			_spawn_resource_at(resource_kind, candidate)
@@ -5245,6 +5444,63 @@ func _validate_resource_spawn_candidate(resource_kind: String, candidate: Vector
 			return "min_distance"
 	return ""
 
+
+func _should_skip_resource_spawn_in_biome(resource_kind: String, biome: Dictionary) -> bool:
+	if biome.is_empty():
+		return true
+	var biome_id := _get_biome_id(biome)
+	if biome_id.is_empty():
+		return true
+	var terrain_zone := str(biome.get("terrain_zone", biome.get("zone", "")))
+	if terrain_zone.is_empty() and biome.has("position"):
+		terrain_zone = get_topography_zone_at(Vector2(biome.get("position", Vector2.ZERO)))
+	if resource_kind in ["grass_patch", "dense_grass"] and terrain_zone == WATER_ZONE_SHORE:
+		return true
+	return false
+
+
+func _get_resource_spawn_prepass_estimate(resource_kind: String, biome: Dictionary) -> Dictionary:
+	var estimate := {
+		"target_biome_id": _get_biome_id(biome),
+		"land_area": 0,
+		"shore_area": 0,
+		"blocked_by_water": 0,
+		"blocked_by_hill": 0,
+		"blocked_by_min_distance": 0,
+		"biome_mismatch": 0,
+		"valid": 0
+	}
+	var bounds := _get_biome_bounds(biome)
+	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		return estimate
+	for i in range(16):
+		var candidate := bounds.position + Vector2(
+			resource_rng.randf_range(0.0, maxf(bounds.size.x, 1.0)),
+			resource_rng.randf_range(0.0, maxf(bounds.size.y, 1.0))
+		)
+		if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
+			continue
+		var terrain_zone := get_topography_zone_at(candidate)
+		var water_zone := get_water_zone(candidate)
+		if water_zone == WATER_ZONE_SHORE:
+			estimate["shore_area"] = int(estimate.get("shore_area", 0)) + 1
+		else:
+			estimate["land_area"] = int(estimate.get("land_area", 0)) + 1
+		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			estimate["blocked_by_water"] = int(estimate.get("blocked_by_water", 0)) + 1
+			continue
+		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			estimate["blocked_by_hill"] = int(estimate.get("blocked_by_hill", 0)) + 1
+			continue
+		if resource_kind in ["grass_patch", "dense_grass"] and water_zone == WATER_ZONE_SHORE:
+			estimate["biome_mismatch"] = int(estimate.get("biome_mismatch", 0)) + 1
+			continue
+		if terrain_zone == "pond":
+			estimate["blocked_by_water"] = int(estimate.get("blocked_by_water", 0)) + 1
+			continue
+		estimate["valid"] = int(estimate.get("valid", 0)) + 1
+	return estimate
+
 func _record_resource_spawn_rejection(resource_kind: String, biome_id: String, reason: String) -> void:
 	var key := "%s|%s" % [resource_kind, biome_id]
 	if not resource_spawn_rejection_summary.has(key):
@@ -5274,19 +5530,28 @@ func get_resource_spawn_debug() -> Dictionary:
 	return {
 		"failure_summary": resource_spawn_failure_summary.duplicate(true),
 		"rejection_summary": resource_spawn_rejection_summary.duplicate(true),
+		"resource_spawn_failed_by_key": resource_spawn_failure_detail_summary.duplicate(true),
+		"resource_spawn_rejection_by_key": resource_spawn_rejection_detail_summary.duplicate(true),
+		"resource_spawn_prepass_debug": resource_spawn_prepass_debug.duplicate(true),
 		"biome_spawn_point_cache_count": biome_spawn_point_cache.size()
 	}
+
+
+func get_resource_spawn_failure_debug() -> Dictionary:
+	return _build_resource_spawn_debug_summary()
 
 func _build_resource_spawn_debug_summary() -> Dictionary:
 	var failure_summary := Dictionary(resource_spawn_failure_summary.duplicate(true))
 	var rejection_summary := Dictionary(resource_spawn_rejection_summary.duplicate(true))
-	var total_failed := 0
+	var total_failed := _sum_resource_spawn_failures(failure_summary)
+	var failed_by_kind := {}
 	var top_failure_key := ""
 	var top_failure_count := 0
 	for key in failure_summary.keys():
 		var entry := Dictionary(failure_summary.get(key, {}))
 		var failed := int(entry.get("failed", 0))
-		total_failed += failed
+		var kind := str(entry.get("kind", key))
+		failed_by_kind[kind] = int(failed_by_kind.get(kind, 0)) + failed
 		if failed > top_failure_count:
 			top_failure_count = failed
 			top_failure_key = str(key)
@@ -5302,11 +5567,23 @@ func _build_resource_spawn_debug_summary() -> Dictionary:
 	return {
 		"summary_count": failure_summary.size(),
 		"total_failed": total_failed,
+		"failed_by_kind": failed_by_kind,
+		"resource_spawn_failed_by_key": resource_spawn_failure_detail_summary.duplicate(true),
+		"resource_spawn_rejection_by_key": resource_spawn_rejection_detail_summary.duplicate(true),
+		"resource_spawn_prepass_debug": resource_spawn_prepass_debug.duplicate(true),
 		"top_failure_key": top_failure_key,
 		"top_failure_count": top_failure_count,
 		"top_rejection_reason": top_reason_key,
 		"top_rejection_count": top_reason_count
 	}
+
+
+func _sum_resource_spawn_failures(failure_summary: Dictionary) -> int:
+	var total_failed := 0
+	for key in failure_summary.keys():
+		var entry := Dictionary(failure_summary.get(key, {}))
+		total_failed += int(entry.get("failed", 0))
+	return total_failed
 
 
 func _try_spawn_resource_near_biome_edge(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:

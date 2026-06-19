@@ -9,6 +9,7 @@ const SIDE_MARGIN := 28.0
 var graphics_settings
 var resolution_option: OptionButton
 var display_mode_option: OptionButton
+var graphics_preset_option: OptionButton
 var show_resource_markers_toggle: CheckButton
 var status_label: Label
 
@@ -85,6 +86,21 @@ func _build_ui() -> void:
 	display_mode_option.item_selected.connect(_on_display_mode_selected)
 	display_row.add_child(display_mode_option)
 
+	var preset_row := HBoxContainer.new()
+	preset_row.add_theme_constant_override("separation", 12)
+	stack.add_child(preset_row)
+
+	var preset_label := Label.new()
+	preset_label.text = "Graphics preset"
+	preset_label.custom_minimum_size = Vector2(150.0, 0.0)
+	preset_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	preset_row.add_child(preset_label)
+
+	graphics_preset_option = OptionButton.new()
+	graphics_preset_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	graphics_preset_option.item_selected.connect(_on_graphics_preset_selected)
+	preset_row.add_child(graphics_preset_option)
+
 	var markers_row := HBoxContainer.new()
 	markers_row.add_theme_constant_override("separation", 12)
 	stack.add_child(markers_row)
@@ -144,6 +160,10 @@ func _sync_from_settings() -> void:
 	display_mode_option.add_item("Fullscreen")
 	display_mode_option.add_item("Borderless Fullscreen")
 	display_mode_option.select(clamp(int(graphics_settings.display_mode_index), 0, graphics_settings.get_display_mode_count() - 1))
+	graphics_preset_option.clear()
+	for preset_name in graphics_settings.get_available_graphics_presets():
+		graphics_preset_option.add_item(preset_name.capitalize())
+	graphics_preset_option.select(maxi(graphics_settings.get_available_graphics_presets().find(graphics_settings.get_graphics_preset_name()), 0))
 	show_resource_markers_toggle.button_pressed = graphics_settings.should_show_resource_markers_on_maps()
 
 	_refresh_resolution_availability()
@@ -152,6 +172,10 @@ func _sync_from_settings() -> void:
 
 func _on_apply_pressed() -> void:
 	graphics_settings.set_from_indices(resolution_option.selected, display_mode_option.selected)
+	var preset_index := graphics_preset_option.selected
+	var preset_names := PackedStringArray(graphics_settings.get_available_graphics_presets())
+	if preset_index >= 0 and preset_index < preset_names.size():
+		graphics_settings.set_graphics_preset(str(preset_names[preset_index]), false)
 	graphics_settings.apply_and_save()
 	if graphics_settings.can_apply_window_settings():
 		var resolution: Vector2i = graphics_settings.get_effective_resolution()
@@ -177,6 +201,10 @@ func _on_display_mode_selected(_index: int) -> void:
 	_refresh_status_text()
 
 
+func _on_graphics_preset_selected(_index: int) -> void:
+	_refresh_status_text()
+
+
 func _on_show_resource_markers_toggled(enabled: bool) -> void:
 	graphics_settings.set_show_resource_markers_on_maps(enabled)
 
@@ -193,7 +221,7 @@ func _refresh_status_text() -> void:
 	if display_mode_option.selected == graphics_settings.DISPLAY_MODE_BORDERLESS_FULLSCREEN:
 		status_label.text = "Borderless Fullscreen uses the current desktop resolution."
 		return
-	status_label.text = "Selected resolution will be applied and saved locally."
+	status_label.text = "Selected resolution and graphics preset will be applied and saved locally."
 
 
 func _back_to_start_menu() -> void:

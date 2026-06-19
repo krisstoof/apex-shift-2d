@@ -1,6 +1,9 @@
 extends RefCounted
 class_name WorldRenderController
 
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
+
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(480, 296)
 
 var biome_blend_texture: ImageTexture
@@ -21,6 +24,8 @@ var biome_blend_texture_rebuild_count: int = 0
 var biome_blend_texture_last_build_ms: float = 0.0
 var biome_blend_texture_rebuild_blocked_count: int = 0
 var biome_blend_texture_dirty_key := ""
+var biome_blend_texture_cache_hit := false
+var biome_blend_texture_rebuild_reason := ""
 
 
 func bind_world(
@@ -60,6 +65,8 @@ func get_biome_texture_cache_status() -> Dictionary:
 		"rebuild_count": biome_blend_texture_rebuild_count,
 		"last_build_ms": biome_blend_texture_last_build_ms,
 		"rebuild_blocked_count": biome_blend_texture_rebuild_blocked_count,
+		"cache_hit": biome_blend_texture_cache_hit,
+		"rebuild_reason": biome_blend_texture_rebuild_reason,
 		"dirty_key_pending": not biome_blend_texture_dirty_key.is_empty(),
 		"freeze_after_first_build": freeze_blend_texture_after_first_build
 	}
@@ -69,10 +76,14 @@ func ensure_biome_blend_texture() -> ImageTexture:
 	var current_key := _get_biome_colors_key()
 	if biome_blend_texture != null and biome_blend_colors_key == current_key:
 		biome_blend_texture_dirty_key = ""
+		biome_blend_texture_cache_hit = true
+		biome_blend_texture_rebuild_reason = "cache_hit"
 		return biome_blend_texture
 	if biome_blend_texture != null and freeze_blend_texture_after_first_build:
 		biome_blend_texture_dirty_key = current_key
 		biome_blend_texture_rebuild_blocked_count += 1
+		biome_blend_texture_cache_hit = true
+		biome_blend_texture_rebuild_reason = "frozen"
 		return biome_blend_texture
 	return _rebuild_biome_blend_texture(current_key)
 
@@ -82,6 +93,9 @@ func force_rebuild_biome_blend_texture() -> ImageTexture:
 
 func _rebuild_biome_blend_texture(current_key: String) -> ImageTexture:
 	# Track blend texture rebuild timing for hitch logging.
+	var profile_enabled := bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING)
+	if profile_enabled:
+		RUNTIME_PROFILER.begin_scope("world_render_controller_ensure_biome_blend_texture_ms")
 	var build_start_ms: int = Time.get_ticks_msec()
 	var biome_zones: Array = []
 	if biome_zones_getter.is_valid():
@@ -101,6 +115,10 @@ func _rebuild_biome_blend_texture(current_key: String) -> ImageTexture:
 	biome_blend_texture_dirty_key = ""
 	biome_blend_texture_rebuild_count += 1
 	biome_blend_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
+	biome_blend_texture_cache_hit = false
+	biome_blend_texture_rebuild_reason = "rebuild"
+	if profile_enabled:
+		RUNTIME_PROFILER.end_scope("world_render_controller_ensure_biome_blend_texture_ms")
 	return biome_blend_texture
 
 

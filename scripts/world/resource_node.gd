@@ -238,6 +238,8 @@ func interact(player: Node) -> void:
 func get_prompt() -> String:
 	if is_inventory_drop:
 		return "E: pick up %s x%d" % [ITEM_DATABASE.get_display_name(item_name), amount]
+	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
+		return "E: pick up %s x%d" % [ITEM_DATABASE.get_display_name(_get_drop_item_id()), amount]
 	if resource_kind == "item_drop":
 		return "E: pick up %s x%d" % [ITEM_DATABASE.get_display_name(_get_drop_item_id()), amount]
 	if not player_harvestable:
@@ -248,6 +250,12 @@ func get_prompt() -> String:
 
 
 func is_player_interactable() -> bool:
+	if resource_kind == "meat_drop" or resource_kind == "bone_drop" or resource_kind == "item_drop" or is_inventory_drop:
+		if amount <= 0:
+			return false
+		if not visible:
+			return false
+		return true
 	if not player_harvestable:
 		return false
 	if not can_be_harvested:
@@ -487,10 +495,10 @@ func _get_visual_sprite() -> Sprite2D:
 
 
 func consume_by_creature(_consumer: Node, _consumption_rate: float = 1.0) -> float:
-	if not is_edible_vegetation():
-		return 0.0
 	if resource_kind == "meat_drop":
 		return _consume_meat_by_creature(_consumer)
+	if not is_edible_vegetation():
+		return 0.0
 	if not is_edible_by_herbivores:
 		return 0.0
 	var consumed_value: float = food_value * max(_get_growth_ratio(), 0.25)
