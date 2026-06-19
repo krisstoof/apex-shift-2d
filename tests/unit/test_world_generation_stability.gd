@@ -10,7 +10,7 @@ extends RefCounted
 ## These tests run pure data generation — no scene tree required.
 
 const WORLD_GENERATION_RESULT := preload("res://scripts/core/world/world_generation_result.gd")
-const WORLD_GENERATION_VALIDATOR := preload("res://scripts/world/world_generation_validator.gd")
+const WORLD_GENERATION_VALIDATOR := preload("res://scripts/core/world/world_generation_validator.gd")
 
 # Seeds that appear in benchmark logs or have special significance.
 const TEST_SEEDS: Array[int] = [

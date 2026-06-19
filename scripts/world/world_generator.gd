@@ -4,7 +4,7 @@ class_name WorldGenerator
 const GEN_CONFIG := preload("res://scripts/world/world_generation_config.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
-const WORLD_GENERATION_VALIDATOR := preload("res://scripts/world/world_generation_validator.gd")
+const WORLD_GENERATION_VALIDATOR := preload("res://scripts/core/world/world_generation_validator.gd")
 const BIOME_GENERATOR := preload("res://scripts/world/biome_generator.gd")
 const GENERATOR_RULES_VERSION := "v5"
 
