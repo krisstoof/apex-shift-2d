@@ -1,7 +1,5 @@
+class_name WorldGenerationHash
 extends RefCounted
-
-const WORLD_GENERATION_RESULT := preload("res://scripts/core/world/world_generation_result.gd")
-
 
 static func compute_from_result(result) -> String:
 	if result == null:
@@ -10,7 +8,19 @@ static func compute_from_result(result) -> String:
 
 
 static func compute_from_layout(layout: Dictionary) -> String:
-	return compute_from_result(WORLD_GENERATION_RESULT.from_layout(layout))
+	var payload := {
+		"seed": int(layout.get("seed", 0)),
+		"generator_version": str(layout.get("generator_rules_version", layout.get("version", ""))),
+		"world_rect": _rect_to_payload(Rect2(layout.get("world_rect", Rect2()))),
+		"terrain_counts": Dictionary(Dictionary(layout.get("debug", {})).get("terrain_counts", {})),
+		"biome_coverage": Dictionary(Dictionary(layout.get("debug", {})).get("biome_coverage", {})),
+		"biomes": _normalize_dict_array(Array(layout.get("biomes", []))),
+		"landmarks": _normalize_dict_array(Array(layout.get("landmarks", []))),
+		"player_spawn_position": _vector_to_payload(Vector2(layout.get("player_spawn_position", layout.get("player_spawn", Vector2.ZERO)))),
+		"resource_spawns": _normalize_dict_array(Array(layout.get("resource_zones", []))),
+		"creature_spawns": _normalize_dict_array(Array(layout.get("creature_spawn_zones", [])))
+	}
+	return compute_from_payload(payload)
 
 
 static func compute_from_payload(payload: Dictionary) -> String:

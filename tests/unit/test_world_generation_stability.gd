@@ -95,7 +95,8 @@ func _test_no_water_spawns() -> Array[String]:
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
 		var layout: Dictionary = gen.generate_world(test_seed)
-		var result := WORLD_GENERATION_RESULT.from_layout(layout)
+		var result_script := load("res://scripts/core/world/world_generation_result.gd")
+		var result = result_script.from_layout(layout)
 		var report := validator.validate(result, gen)
 		for error in Array(report.get("errors", [])):
 			failures.append("VALIDATE seed=%d: %s" % [test_seed, str(error)])
@@ -221,8 +222,9 @@ func _test_player_spawn_on_land() -> Array[String]:
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
 		var layout: Dictionary = gen.generate_world(test_seed)
-		var result := WORLD_GENERATION_RESULT.from_layout(layout)
-		var spawn_pos := result.player_spawn_position
+		var result_script := load("res://scripts/core/world/world_generation_result.gd")
+		var result = result_script.from_layout(layout)
+		var spawn_pos: Vector2 = result.player_spawn_position
 		
 		if spawn_pos == Vector2.ZERO:
 			failures.append("PLAYER_SPAWN seed=%d: spawn position is zero" % test_seed)
@@ -246,8 +248,9 @@ func _test_creatures_spawn_on_valid_terrain() -> Array[String]:
 	for test_seed in TEST_SEEDS:
 		var gen := WorldGenerator.new()
 		var layout: Dictionary = gen.generate_world(test_seed)
-		var result := WORLD_GENERATION_RESULT.from_layout(layout)
-		var world_rect := result.world_rect
+		var result_script := load("res://scripts/core/world/world_generation_result.gd")
+		var result = result_script.from_layout(layout)
+		var world_rect: Rect2 = result.world_rect
 		
 		for zone_value in Array(result.creature_spawn_zones):
 			var zone := Dictionary(zone_value)
@@ -281,7 +284,7 @@ func _test_biomes_exist_on_land() -> Array[String]:
 	for test_seed in TEST_SEEDS:
 		var gen = _make_generator()
 		var layout: Dictionary = gen.generate_world(test_seed)
-		var result := WORLD_GENERATION_RESULT.from_layout(layout)
+		var result = WORLD_GENERATION_RESULT.from_layout(layout)
 		
 		if result.biome_regions.is_empty():
 			failures.append("BIOME_PLACEMENT seed=%d: no biome regions found" % test_seed)

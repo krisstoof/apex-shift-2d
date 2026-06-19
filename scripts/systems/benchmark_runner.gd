@@ -1715,10 +1715,16 @@ func _build_sorted_nested_debug(data: Dictionary, limit: int) -> Array[Dictionar
 func _sort_dictionary_by_int_value_desc(data: Dictionary, limit: int) -> Array[Dictionary]:
 	var ranked: Array[Dictionary] = []
 	for key in data.keys():
-		var numeric_value: Variant = data.get(key, 0)
-		ranked.append({"key": str(key), "value": numeric_value})
+		var raw_value: Variant = data.get(key, 0)
+		var sort_value: int = 0
+		if raw_value is Dictionary:
+			var nested := Dictionary(raw_value)
+			sort_value = int(nested.get("total_failed", nested.get("count", nested.get("samples", 0))))
+		else:
+			sort_value = int(raw_value)
+		ranked.append({"key": str(key), "value": raw_value, "sort_value": sort_value})
 	ranked.sort_custom(func(left: Dictionary, right: Dictionary) -> bool:
-		return float(left.get("value", 0.0)) > float(right.get("value", 0.0))
+		return int(left.get("sort_value", 0)) > int(right.get("sort_value", 0))
 	)
 	if ranked.size() > limit:
 		ranked.resize(limit)

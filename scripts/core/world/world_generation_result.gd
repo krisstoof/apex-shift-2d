@@ -1,8 +1,5 @@
+class_name WorldGenerationResult
 extends RefCounted
-
-const WORLD_GENERATION_RESULT_SCRIPT := preload("res://scripts/core/world/world_generation_result.gd")
-const WORLD_GENERATION_SUMMARY := preload("res://scripts/core/world/world_generation_summary.gd")
-const WORLD_GENERATION_HASH := preload("res://scripts/core/world/world_generation_hash.gd")
 
 var seed: int = 0
 var generator_version: String = ""
@@ -43,8 +40,9 @@ var creature_spawn_zones: Array[Dictionary]:
 		creature_spawns = _copy_dict_array(value)
 
 
-static func from_layout(layout: Dictionary) -> WorldGenerationResult:
-	var result := WORLD_GENERATION_RESULT_SCRIPT.new()
+static func from_layout(layout: Dictionary):
+	var result_script := load("res://scripts/core/world/world_generation_result.gd")
+	var result = result_script.new()
 	result.seed = int(layout.get("seed", 0))
 	result.generator_version = str(layout.get("generator_rules_version", layout.get("version", "")))
 	result.world_rect = Rect2(layout.get("world_rect", Rect2()))
@@ -61,20 +59,24 @@ static func from_layout(layout: Dictionary) -> WorldGenerationResult:
 	result.topography = _extract_topography(layout, result.debug_stats)
 	result.generation_hash = str(layout.get("generation_hash", ""))
 	if result.generation_hash.is_empty():
-		result.generation_hash = WORLD_GENERATION_HASH.compute_from_result(result)
+		var hash_script := load("res://scripts/core/world/world_generation_hash.gd")
+		result.generation_hash = hash_script.compute_from_result(result)
 	return result
 
 
 func to_summary():
-	return WORLD_GENERATION_SUMMARY.from_result(self)
+	var summary_script := load("res://scripts/core/world/world_generation_summary.gd")
+	return summary_script.from_result(self)
 
 
 func compute_hash() -> String:
-	return WORLD_GENERATION_HASH.compute_from_result(self)
+	var hash_script := load("res://scripts/core/world/world_generation_hash.gd")
+	return hash_script.compute_from_result(self)
 
 
 static func compute_hash_from_layout(layout: Dictionary) -> String:
-	return WORLD_GENERATION_HASH.compute_from_layout(layout)
+	var hash_script := load("res://scripts/core/world/world_generation_hash.gd")
+	return hash_script.compute_from_layout(layout)
 
 
 func to_dict() -> Dictionary:

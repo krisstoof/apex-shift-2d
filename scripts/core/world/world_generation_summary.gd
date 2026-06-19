@@ -1,8 +1,5 @@
 extends RefCounted
 
-const WORLD_GENERATION_RESULT := preload("res://scripts/core/world/world_generation_result.gd")
-const WORLD_GENERATION_SUMMARY_SCRIPT := preload("res://scripts/core/world/world_generation_summary.gd")
-
 var seed: int = 0
 var generator_version: String = ""
 var world_rect: Rect2 = Rect2()
@@ -19,7 +16,8 @@ var generation_hash: String = ""
 
 
 static func from_result(result):
-	var summary: RefCounted = WORLD_GENERATION_SUMMARY_SCRIPT.new()
+	var summary_script := load("res://scripts/core/world/world_generation_summary.gd")
+	var summary = summary_script.new()
 	if result == null:
 		return summary
 
@@ -40,7 +38,21 @@ static func from_result(result):
 
 
 static func from_layout(layout: Dictionary):
-	return from_result(WORLD_GENERATION_RESULT.from_layout(layout))
+	var summary_script := load("res://scripts/core/world/world_generation_summary.gd")
+	var summary = summary_script.new()
+	summary.seed = int(layout.get("seed", 0))
+	summary.generator_version = str(layout.get("generator_rules_version", layout.get("version", "")))
+	summary.world_rect = Rect2(layout.get("world_rect", Rect2()))
+	summary.biome_count = Array(layout.get("biomes", [])).size()
+	summary.landmark_count = Array(layout.get("landmarks", [])).size()
+	summary.resource_spawn_count = Array(layout.get("resource_zones", [])).size()
+	summary.creature_spawn_count = Array(layout.get("creature_spawn_zones", [])).size()
+	summary.player_spawn_position = Vector2(layout.get("player_spawn_position", layout.get("player_spawn", Vector2.ZERO)))
+	var debug := Dictionary(layout.get("debug", {}))
+	summary.terrain_counts = Dictionary(debug.get("terrain_counts", {})).duplicate(true)
+	summary.biome_coverage = Dictionary(debug.get("biome_coverage", {})).duplicate(true)
+	summary.generation_hash = str(layout.get("generation_hash", ""))
+	return summary
 
 
 func to_dict() -> Dictionary:

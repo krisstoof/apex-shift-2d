@@ -20,7 +20,8 @@ func run() -> Array[String]:
 func _test_result_from_layout_contains_generation_data(failures: Array[String]) -> void:
 	var generator := WORLD_GENERATOR.new()
 	var layout := generator.generate_world(42)
-	var result := WORLD_GENERATION_RESULT.from_layout(layout)
+	var result_script := load("res://scripts/core/world/world_generation_result.gd")
+	var result = result_script.from_layout(layout)
 
 	TEST_UTILS.expect_equal(result.seed, 42, failures, "WorldGenerationResult should preserve seed")
 	TEST_UTILS.expect(result.world_rect.size.x > 0.0, failures, "WorldGenerationResult should preserve world rect width")
@@ -36,8 +37,9 @@ func _test_result_from_layout_contains_generation_data(failures: Array[String]) 
 func _test_summary_from_result_contains_stable_counts(failures: Array[String]) -> void:
 	var generator := WORLD_GENERATOR.new()
 	var layout := generator.generate_world(42)
-	var result := WORLD_GENERATION_RESULT.from_layout(layout)
-	var summary: Object = result.to_summary()
+	var result_script := load("res://scripts/core/world/world_generation_result.gd")
+	var result = result_script.from_layout(layout)
+	var summary = result.to_summary()
 
 	TEST_UTILS.expect_equal(summary.seed, result.seed, failures, "WorldGenerationSummary should preserve seed")
 	TEST_UTILS.expect_equal(summary.biome_count, result.biome_regions.size(), failures, "WorldGenerationSummary should count biomes")
@@ -74,8 +76,8 @@ func _test_hash_changes_for_different_seed(failures: Array[String]) -> void:
 
 
 func _test_result_does_not_require_nodes(failures: Array[String]) -> void:
-	var result := WORLD_GENERATION_RESULT.new()
-	var summary: Object = result.to_summary()
+	var result = WORLD_GENERATION_RESULT.new()
+	var summary = result.to_summary()
 
 	TEST_UTILS.expect(result is RefCounted, failures, "WorldGenerationResult should be RefCounted")
 	TEST_UTILS.expect(summary is RefCounted, failures, "WorldGenerationSummary should be RefCounted")
