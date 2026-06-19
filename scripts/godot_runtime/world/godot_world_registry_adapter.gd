@@ -53,6 +53,7 @@ var spatial_index = null
 var _biome_id_resolver := Callable()
 var _node_refs_by_entity_id: Dictionary = {}
 var _entity_id_by_instance_id: Dictionary = {}
+var _registered_node_records_by_id: Dictionary = {}
 
 
 func _init() -> void:
@@ -66,8 +67,8 @@ func set_biome_id_resolver(resolver: Callable) -> void:
 func register_resource(node: Node) -> void:
 	var resource_kind := _get_resource_kind(node)
 	var category := "meat" if resource_kind == "meat_drop" else "resource"
-	_register_node(node, category, resource_kind)
-	resource_version += 1
+	if _register_node(node, category, resource_kind):
+		resource_version += 1
 
 
 func unregister_resource(node: Node) -> void:
@@ -100,8 +101,8 @@ func get_resources_by_biome(biome_id: String) -> Array:
 
 
 func register_creature(node: Node, creature_type: String, _biome_id: String = "") -> void:
-	_register_node(node, "creature", creature_type)
-	creature_version += 1
+	if _register_node(node, "creature", creature_type):
+		creature_version += 1
 
 
 func unregister_creature(node: Node) -> void:
@@ -118,8 +119,8 @@ func get_creatures_by_biome(biome_id: String, creature_type: String = "") -> Arr
 
 
 func register_building(node: Node, building_type: String) -> void:
-	_register_node(node, "building", building_type)
-	building_version += 1
+	if _register_node(node, "building", building_type):
+		building_version += 1
 
 
 func unregister_building(node: Node) -> void:
@@ -182,7 +183,20 @@ func get_meat_in_rect(rect: Rect2) -> Array:
 
 
 func get_spatial_index_debug_data() -> Dictionary:
-	return core_registry.get_debug_counts()
+	var registry_debug := core_registry.get_debug_counts()
+	var spatial_debug := Dictionary(registry_debug.get("spatial_index", {})).duplicate(true)
+	if spatial_debug.is_empty() and core_registry.spatial_index != null and core_registry.spatial_index.has_method("get_debug_counts"):
+		spatial_debug = core_registry.spatial_index.get_debug_counts()
+	spatial_debug["registry_tracked_entities"] = int(registry_debug.get("tracked_entities", 0))
+	spatial_debug["registry_resources_total"] = int(registry_debug.get("resources_total", 0))
+	spatial_debug["registry_creatures_total"] = int(registry_debug.get("creatures_total", 0))
+	spatial_debug["registry_buildings_total"] = int(registry_debug.get("buildings_total", 0))
+	spatial_debug["registry_meat_total"] = int(registry_debug.get("meat_total", 0))
+	spatial_debug["registry_resource_version"] = int(registry_debug.get("resource_version", 0))
+	spatial_debug["registry_creature_version"] = int(registry_debug.get("creature_version", 0))
+	spatial_debug["registry_building_version"] = int(registry_debug.get("building_version", 0))
+	spatial_debug["registry_meat_version"] = int(registry_debug.get("meat_version", 0))
+	return spatial_debug
 
 
 func get_visibility_query_provider() -> RefCounted:
@@ -193,6 +207,7 @@ func clear_runtime() -> void:
 	core_registry.clear()
 	_node_refs_by_entity_id.clear()
 	_entity_id_by_instance_id.clear()
+	_registered_node_records_by_id.clear()
 	resource_version = 0
 	creature_version = 0
 	building_version = 0
@@ -210,12 +225,25 @@ func get_all_registered_decorations() -> Array:
 	return get_buildings()
 
 
-func _register_node(node: Node, category: String, type_name: String) -> void:
+func _register_node(node: Node, category: String, type_name: String) -> bool:
 	if not _is_live_node_2d(node):
-		return
+		return false
 	var entity_id := node.get_instance_id()
-	var biome_id := _resolve_node_biome_id(node)
 	var node_2d := node as Node2D
+	var position := node_2d.global_position
+	var biome_id := _resolve_node_biome_id(node)
+	var previous := Dictionary(_registered_node_records_by_id.get(entity_id, {}))
+	if not previous.is_empty():
+		var previous_category := str(previous.get("category", ""))
+		var previous_type := str(previous.get("type_name", ""))
+		var previous_position := Vector2(previous.get("position", Vector2.INF))
+		var previous_biome_id := str(previous.get("biome_id", ""))
+		if previous_category == category \
+		and previous_type == type_name \
+		and previous_position == position \
+		and previous_biome_id == biome_id \
+		and core_registry.has_entity(entity_id):
+			return false
 	var metadata := {
 		"type": type_name,
 		"kind": type_name,
@@ -225,10 +253,17 @@ func _register_node(node: Node, category: String, type_name: String) -> void:
 	}
 	_node_refs_by_entity_id[entity_id] = weakref(node)
 	_entity_id_by_instance_id[entity_id] = entity_id
-	core_registry.register_entity(entity_id, category, type_name, node_2d.global_position, biome_id, metadata, true)
+	core_registry.register_entity(entity_id, category, type_name, position, biome_id, metadata, true)
+	_registered_node_records_by_id[entity_id] = {
+		"category": category,
+		"type_name": type_name,
+		"position": position,
+		"biome_id": biome_id
+	}
 	var tree_exited_callback := _on_registered_node_tree_exited.bind(entity_id)
 	if not node.tree_exited.is_connected(tree_exited_callback):
 		node.tree_exited.connect(tree_exited_callback, CONNECT_ONE_SHOT)
+	return true
 
 
 func _unregister_node(node: Node) -> void:
@@ -241,6 +276,7 @@ func _remove_entry(entity_id: int) -> void:
 	core_registry.unregister_entity(entity_id)
 	_node_refs_by_entity_id.erase(entity_id)
 	_entity_id_by_instance_id.erase(entity_id)
+	_registered_node_records_by_id.erase(entity_id)
 
 
 func _on_registered_node_tree_exited(entity_id: int) -> void:
