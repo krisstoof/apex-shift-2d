@@ -183,9 +183,11 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 
 
 func _process(delta: float) -> void:
-	RUNTIME_PROFILER.begin_scope("minimap_total_ms")
+	RUNTIME_PROFILER.begin_scope("minimap_process_ms")
+	RUNTIME_PROFILER.begin_scope("minimap_total_cpu_ms")
 	if not is_visible_in_tree():
-		RUNTIME_PROFILER.end_scope("minimap_total_ms")
+		RUNTIME_PROFILER.end_scope("minimap_total_cpu_ms")
+		RUNTIME_PROFILER.end_scope("minimap_process_ms")
 		return
 	_log_hitch(delta, "Minimap", {
 		"texture_cached": biome_blend_texture != null,
@@ -249,11 +251,17 @@ func _process(delta: float) -> void:
 	if _marker_rebuild_timer >= minimap_marker_rebuild_interval:
 		_marker_rebuild_timer = 0.0
 		_refresh_static_caches()
-	RUNTIME_PROFILER.end_scope("minimap_total_ms")
+	RUNTIME_PROFILER.end_scope("minimap_total_cpu_ms")
+	RUNTIME_PROFILER.end_scope("minimap_process_ms")
 
 
 func _draw() -> void:
-	pass
+	RUNTIME_PROFILER.begin_scope("minimap_draw_ms")
+	RUNTIME_PROFILER.begin_scope("minimap_total_cpu_ms")
+	_draw_static_layer(self)
+	_draw_dynamic_layer(self)
+	RUNTIME_PROFILER.end_scope("minimap_total_cpu_ms")
+	RUNTIME_PROFILER.end_scope("minimap_draw_ms")
 
 
 func _draw_static_layer(target: CanvasItem) -> void:

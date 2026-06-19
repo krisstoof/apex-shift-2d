@@ -190,6 +190,9 @@ var resource_spawn_rejection_debug := {
 }
 var resource_spawn_failure_summary: Dictionary = {}
 var resource_spawn_rejection_summary: Dictionary = {}
+var resource_spawn_failure_detail_summary: Dictionary = {}
+var resource_spawn_rejection_detail_summary: Dictionary = {}
+var resource_spawn_prepass_debug: Dictionary = {}
 var biome_spawn_point_cache: Dictionary = {}
 var world_seed := 0
 var world_layout: Dictionary = {}
@@ -2124,6 +2127,9 @@ func begin_save_restore() -> void:
 	biome_spawn_point_cache.clear()
 	resource_spawn_failure_summary.clear()
 	resource_spawn_rejection_summary.clear()
+	resource_spawn_failure_detail_summary.clear()
+	resource_spawn_rejection_detail_summary.clear()
+	resource_spawn_prepass_debug.clear()
 
 
 func end_save_restore() -> void:
@@ -2341,6 +2347,9 @@ func _try_spawn_decorative_grass_visual(resource_kind: String, used_positions: A
 	if biome.is_empty():
 		return false
 	var biome_id := _get_biome_id(biome)
+	if _should_skip_resource_spawn_in_biome(resource_kind, biome):
+		_count_resource_spawn_rejection(resource_kind, "prepass_skipped")
+		return false
 	var attempts := _get_decorative_visual_spawn_attempts(resource_kind)
 	_record_resource_spawn_request(resource_kind, biome_id, attempts)
 	for attempt_index in range(attempts):
@@ -2350,11 +2359,12 @@ func _try_spawn_decorative_grass_visual(resource_kind: String, used_positions: A
 		var rejection_reason := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.55, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE * 0.88)
 		if not rejection_reason.is_empty():
 			_record_resource_spawn_rejection(resource_kind, biome_id, rejection_reason)
+			_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, rejection_reason)
 			continue
 		used_positions.append(candidate)
 		_spawn_decorative_vegetation_visual(resource_kind, candidate, biome_id, 1.0)
 		return true
-	_record_resource_spawn_failure(resource_kind, biome_id, attempts)
+	_count_resource_spawn_rejection(resource_kind, "no_valid_decorative_position")
 	return false
 
 
@@ -3119,6 +3129,9 @@ func debug_regenerate_world(p_seed: int = 0) -> void:
 	biome_spawn_point_cache.clear()
 	resource_spawn_failure_summary.clear()
 	resource_spawn_rejection_summary.clear()
+	resource_spawn_failure_detail_summary.clear()
+	resource_spawn_rejection_detail_summary.clear()
+	resource_spawn_prepass_debug.clear()
 	_update_world_object_visibility()
 	queue_redraw()
 
@@ -3822,9 +3835,11 @@ func _spawn_resource_kind_in_biome(
 	var failed := 0
 	var spawned_since_yield := 0
 	for _i in count:
-		if not _try_spawn_resource_in_biome_optimized(resource_kind, biome, used_positions, player_position, min_distance, spawn_attempts):
+		var spawned := _try_spawn_resource_in_biome_optimized(resource_kind, biome, used_positions, player_position, min_distance, spawn_attempts)
+		if not spawned:
 			failed += 1
-			_record_resource_spawn_failure(resource_kind, biome_id, spawn_attempts)
+			if not VegetationCatalog.is_decorative_kind(resource_kind):
+				_record_resource_spawn_failure(resource_kind, biome_id, spawn_attempts)
 		spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
@@ -3875,7 +3890,7 @@ func _spawn_decorative_vegetation_visuals_for_loaded_world() -> void:
 	for kind in ["grass_patch", "dense_grass"]:
 		for _i in range(max(WORLD_CONFIG.get_grass_patch_count(), WORLD_CONFIG.get_dense_grass_count())):
 			if not _try_spawn_decorative_grass_visual(kind, used_positions, player_position):
-				break
+				continue
 	if bool(GAME_BALANCE.LANDMARKS.get("topography_pond_vegetation_enabled", true)):
 		for pond in get_topography_features_by_type("pond"):
 			var biome := _get_biome_for_id(str(pond.get("biome_id", "")))
@@ -3962,6 +3977,57 @@ func _count_resource_spawn_rejection(resource_kind: String, reason: String) -> v
 
 func get_resource_spawn_rejection_debug() -> Dictionary:
 	return resource_spawn_rejection_debug.duplicate(true)
+
+
+func _format_resource_spawn_detail_key(resource_kind: String, target_biome_id: String, actual_biome_id: String, terrain_zone: String, water_zone: String, reason: String) -> String:
+	return "%s|%s|%s|%s|%s|%s" % [
+		resource_kind,
+		target_biome_id,
+		actual_biome_id,
+		terrain_zone,
+		water_zone,
+		reason
+	]
+
+
+func _build_resource_spawn_candidate_context(resource_kind: String, candidate: Vector2, biome: Dictionary) -> Dictionary:
+	var target_biome_id := _get_biome_id(biome)
+	var actual_biome_id := _get_biome_id_for_position(candidate)
+	var terrain_zone := get_topography_zone_at(candidate)
+	var water_zone := get_water_zone(candidate)
+	return {
+		"target_biome_id": target_biome_id,
+		"actual_biome_id": actual_biome_id,
+		"terrain_zone": terrain_zone,
+		"water_zone": water_zone,
+		"resource_kind": resource_kind
+	}
+
+
+func _record_resource_spawn_failure_detail(resource_kind: String, candidate: Vector2, biome: Dictionary, reason: String) -> void:
+	var context := _build_resource_spawn_candidate_context(resource_kind, candidate, biome)
+	var key := _format_resource_spawn_detail_key(
+		resource_kind,
+		str(context.get("target_biome_id", "")),
+		str(context.get("actual_biome_id", "")),
+		str(context.get("terrain_zone", "")),
+		str(context.get("water_zone", "")),
+		reason
+	)
+	resource_spawn_failure_detail_summary[key] = int(resource_spawn_failure_detail_summary.get(key, 0)) + 1
+
+
+func _record_resource_spawn_rejection_detail(resource_kind: String, candidate: Vector2, biome: Dictionary, reason: String) -> void:
+	var context := _build_resource_spawn_candidate_context(resource_kind, candidate, biome)
+	var key := _format_resource_spawn_detail_key(
+		resource_kind,
+		str(context.get("target_biome_id", "")),
+		str(context.get("actual_biome_id", "")),
+		str(context.get("terrain_zone", "")),
+		str(context.get("water_zone", "")),
+		reason
+	)
+	resource_spawn_rejection_detail_summary[key] = int(resource_spawn_rejection_detail_summary.get(key, 0)) + 1
 
 
 func _get_pond_vegetation_count() -> int:
@@ -4349,6 +4415,9 @@ func _is_valid_drop_position(drop_position: Vector2, radius: float = 18.0, resou
 func _try_spawn_resource(resource_kind: String, used_positions: Array[Vector2], player_position: Vector2) -> bool:
 	for _attempt in WORLD_CONFIG.get_resource_spawn_attempts():
 		var biome := _pick_resource_biome(resource_kind)
+		if _should_skip_resource_spawn_in_biome(resource_kind, biome):
+			_record_resource_spawn_rejection(resource_kind, _get_biome_id(biome), "prepass_skipped")
+			continue
 		var candidate := _find_resource_spawn_candidate(resource_kind, biome)
 		if candidate != Vector2.INF and _is_valid_resource_position(candidate, used_positions, player_position):
 			used_positions.append(candidate)
@@ -5146,12 +5215,19 @@ func _try_spawn_resource_in_biome_optimized(
 	var biome_id := _get_biome_id(biome)
 	var max_attempts := _get_max_attempts_for_resource_kind(resource_kind)
 	var attempts := mini(spawn_attempts, max_attempts)
+	var prepass := _get_resource_spawn_prepass_estimate(resource_kind, biome)
+	resource_spawn_prepass_debug["%s|%s" % [resource_kind, biome_id]] = prepass.duplicate(true)
+	if _should_skip_resource_spawn_in_biome(resource_kind, biome):
+		_record_resource_spawn_rejection(resource_kind, biome_id, "prepass_skipped")
+		_record_resource_spawn_rejection_detail(resource_kind, Vector2.ZERO, biome, "prepass_skipped")
+		return false
 	_record_resource_spawn_request(resource_kind, biome_id, attempts)
 	for attempt_index in range(attempts):
 		var candidate := _get_direct_resource_candidate_in_biome(resource_kind, biome, attempt_index)
 		var reason := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE)
 		if not reason.is_empty():
 			_record_resource_spawn_rejection(resource_kind, biome_id, reason)
+			_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, reason)
 			continue
 		used_positions.append(candidate)
 		_spawn_resource_at(resource_kind, candidate)
@@ -5161,6 +5237,7 @@ func _try_spawn_resource_in_biome_optimized(
 			var reason2 := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE)
 			if not reason2.is_empty():
 				_record_resource_spawn_rejection(resource_kind, biome_id, reason2)
+				_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, reason2)
 				continue
 			used_positions.append(candidate)
 			_spawn_resource_at(resource_kind, candidate)
@@ -5315,6 +5392,63 @@ func _validate_resource_spawn_candidate(resource_kind: String, candidate: Vector
 			return "min_distance"
 	return ""
 
+
+func _should_skip_resource_spawn_in_biome(resource_kind: String, biome: Dictionary) -> bool:
+	if biome.is_empty():
+		return true
+	var biome_id := _get_biome_id(biome)
+	if biome_id.is_empty():
+		return true
+	var terrain_zone := str(biome.get("terrain_zone", biome.get("zone", "")))
+	if terrain_zone.is_empty() and biome.has("position"):
+		terrain_zone = get_topography_zone_at(Vector2(biome.get("position", Vector2.ZERO)))
+	if resource_kind in ["grass_patch", "dense_grass"] and terrain_zone == WATER_ZONE_SHORE:
+		return true
+	return false
+
+
+func _get_resource_spawn_prepass_estimate(resource_kind: String, biome: Dictionary) -> Dictionary:
+	var estimate := {
+		"target_biome_id": _get_biome_id(biome),
+		"land_area": 0,
+		"shore_area": 0,
+		"blocked_by_water": 0,
+		"blocked_by_hill": 0,
+		"blocked_by_min_distance": 0,
+		"biome_mismatch": 0,
+		"valid": 0
+	}
+	var bounds := _get_biome_bounds(biome)
+	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		return estimate
+	for i in range(16):
+		var candidate := bounds.position + Vector2(
+			resource_rng.randf_range(0.0, maxf(bounds.size.x, 1.0)),
+			resource_rng.randf_range(0.0, maxf(bounds.size.y, 1.0))
+		)
+		if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
+			continue
+		var terrain_zone := get_topography_zone_at(candidate)
+		var water_zone := get_water_zone(candidate)
+		if water_zone == WATER_ZONE_SHORE:
+			estimate["shore_area"] = int(estimate.get("shore_area", 0)) + 1
+		else:
+			estimate["land_area"] = int(estimate.get("land_area", 0)) + 1
+		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			estimate["blocked_by_water"] = int(estimate.get("blocked_by_water", 0)) + 1
+			continue
+		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			estimate["blocked_by_hill"] = int(estimate.get("blocked_by_hill", 0)) + 1
+			continue
+		if resource_kind in ["grass_patch", "dense_grass"] and water_zone == WATER_ZONE_SHORE:
+			estimate["biome_mismatch"] = int(estimate.get("biome_mismatch", 0)) + 1
+			continue
+		if terrain_zone == "pond":
+			estimate["blocked_by_water"] = int(estimate.get("blocked_by_water", 0)) + 1
+			continue
+		estimate["valid"] = int(estimate.get("valid", 0)) + 1
+	return estimate
+
 func _record_resource_spawn_rejection(resource_kind: String, biome_id: String, reason: String) -> void:
 	var key := "%s|%s" % [resource_kind, biome_id]
 	if not resource_spawn_rejection_summary.has(key):
@@ -5344,6 +5478,9 @@ func get_resource_spawn_debug() -> Dictionary:
 	return {
 		"failure_summary": resource_spawn_failure_summary.duplicate(true),
 		"rejection_summary": resource_spawn_rejection_summary.duplicate(true),
+		"resource_spawn_failed_by_key": resource_spawn_failure_detail_summary.duplicate(true),
+		"resource_spawn_rejection_by_key": resource_spawn_rejection_detail_summary.duplicate(true),
+		"resource_spawn_prepass_debug": resource_spawn_prepass_debug.duplicate(true),
 		"biome_spawn_point_cache_count": biome_spawn_point_cache.size()
 	}
 
@@ -5379,6 +5516,9 @@ func _build_resource_spawn_debug_summary() -> Dictionary:
 		"summary_count": failure_summary.size(),
 		"total_failed": total_failed,
 		"failed_by_kind": failed_by_kind,
+		"resource_spawn_failed_by_key": resource_spawn_failure_detail_summary.duplicate(true),
+		"resource_spawn_rejection_by_key": resource_spawn_rejection_detail_summary.duplicate(true),
+		"resource_spawn_prepass_debug": resource_spawn_prepass_debug.duplicate(true),
 		"top_failure_key": top_failure_key,
 		"top_failure_count": top_failure_count,
 		"top_rejection_reason": top_reason_key,
