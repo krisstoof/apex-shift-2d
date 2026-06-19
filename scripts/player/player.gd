@@ -7,6 +7,8 @@ const INVENTORY := preload("res://scripts/player/inventory.gd")
 const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
 const MOVEMENT_PROFILE := preload("res://scripts/core/common/movement_profile.gd")
 const HOTBAR_STATE := preload("res://scripts/core/inventory/hotbar_state.gd")
+const CRAFTING_CATALOG := preload("res://scripts/core/crafting/crafting_catalog.gd")
+const CRAFTING_SYSTEM := preload("res://scripts/core/crafting/crafting_system.gd")
 
 signal died(reason: String)
 
@@ -21,6 +23,8 @@ var stats := PlayerStats.new()
 var movement_profile := MOVEMENT_PROFILE.new()
 var inventory := INVENTORY.new()
 var hotbar_state := HOTBAR_STATE.new(9)
+var crafting_catalog = CRAFTING_CATALOG.new()
+var crafting_system = CRAFTING_SYSTEM.new()
 var has_spear := false
 var has_bow := false
 var torch_active := false
@@ -83,6 +87,8 @@ func get_selected_hotbar_slot() -> int:
 func _ready() -> void:
 	add_to_group("player")
 	_sync_movement_profile()
+	crafting_catalog = _build_crafting_catalog()
+	crafting_system.set_catalog(crafting_catalog)
 	recipes = _load_recipes()
 	interaction_area.body_entered.connect(_on_interactable_entered)
 	interaction_area.body_exited.connect(_on_interactable_exited)
@@ -730,52 +736,14 @@ func _is_in_attack_arc(target_position: Vector2) -> bool:
 func _craft(item_name: String) -> void:
 	if is_dead:
 		return
-	var recipe: Dictionary = recipes.get(item_name, {})
-	if recipe.is_empty():
-		_post_event_message("Unknown recipe: %s" % item_name)
-		return
 	if item_name == "bow" and has_bow:
 		_post_event_message("Bow already crafted")
 		return
-	if not _can_afford_recipe(recipe):
-		_post_event_message("Missing resources")
+	var result: Variant = crafting_system.craft(item_name, inventory)
+	if not result.is_success():
+		_post_event_message(result.message if not result.message.is_empty() else "Missing resources")
 		return
-	if not _pay_recipe_cost(recipe):
-		_post_event_message("Missing resources")
-		return
-	if item_name == "torch":
-		var torch_leftover := inventory.add_item("torch", 1)
-		if torch_leftover > 0:
-			_refund_recipe_cost(recipe)
-			_post_event_message("Inventory full")
-			return
-		_emit_game_event("player_crafted_torch", {"count": inventory.get_amount("torch")})
-		_post_event_message("Crafted torch")
-		return
-	if item_name == "spear":
-		has_spear = true
-		_post_event_message("Crafted spear")
-		return
-	if item_name == "bow":
-		has_bow = true
-		_emit_game_event("player_crafted_bow", {"has_bow": has_bow})
-		_post_event_message("Crafted bow")
-		return
-	var scene: PackedScene = {
-		"campfire": CAMPFIRE_SCENE,
-		"trap": TRAP_SCENE,
-		"wall": WALL_SCENE,
-		"storage_box": STORAGE_BOX_SCENE,
-		"tent": TENT_SCENE
-	}[item_name]
-	var building := scene.instantiate()
-	building.global_position = global_position + _get_aim_vector() * 56.0
-	get_tree().current_scene.add_child(building)
-	var world := get_tree().current_scene.get_node_or_null("World")
-	if world and world.has_method("register_building_node"):
-		world.register_building_node(building, item_name)
-	_emit_game_event("player_crafted_%s" % item_name, {"position": building.global_position})
-	_post_event_message("Crafted %s" % _format_item_label(item_name))
+	_apply_crafting_result(item_name, result)
 
 
 func _eat(item_name: String) -> void:
@@ -1017,6 +985,64 @@ func _is_candidate_player_interactable(candidate: Node) -> bool:
 
 func _load_recipes() -> Dictionary:
 	return GAME_BALANCE.CRAFTING_COSTS.duplicate(true)
+
+
+func _build_crafting_catalog():
+	var output_rules := {
+		"torch": {"outputs": {"torch": 1}},
+		"spear": {"metadata": {"effect": "unlock_flag", "flag": "has_spear"}},
+		"bow": {"metadata": {"effect": "unlock_flag", "flag": "has_bow"}},
+		"campfire": {"metadata": {"effect": "place_building", "building_id": "campfire"}},
+		"trap": {"metadata": {"effect": "place_building", "building_id": "trap"}},
+		"wall": {"metadata": {"effect": "place_building", "building_id": "wall"}},
+		"storage_box": {"metadata": {"effect": "place_building", "building_id": "storage_box"}},
+		"tent": {"metadata": {"effect": "place_building", "building_id": "tent"}}
+	}
+	return CRAFTING_CATALOG.from_costs(GAME_BALANCE.CRAFTING_COSTS, output_rules)
+
+
+func _apply_crafting_result(item_name: String, result) -> void:
+	if result == null or not result.is_success():
+		return
+	var metadata: Dictionary = Dictionary(result.metadata)
+	var effect := str(metadata.get("effect", ""))
+	match effect:
+		"unlock_flag":
+			var flag := str(metadata.get("flag", ""))
+			if flag == "has_spear":
+				has_spear = true
+			elif flag == "has_bow":
+				has_bow = true
+		"place_building":
+			_place_crafted_building(str(metadata.get("building_id", item_name)))
+		_:
+			if item_name == "torch":
+				pass
+	if item_name == "bow":
+		_emit_game_event("player_crafted_bow", {"has_bow": has_bow})
+	elif item_name == "torch":
+		_emit_game_event("player_crafted_torch", {"count": inventory.get_amount("torch")})
+	_post_event_message("Crafted %s" % _format_item_label(item_name))
+
+
+func _place_crafted_building(building_id: String) -> void:
+	var scene_map := {
+		"campfire": CAMPFIRE_SCENE,
+		"trap": TRAP_SCENE,
+		"wall": WALL_SCENE,
+		"storage_box": STORAGE_BOX_SCENE,
+		"tent": TENT_SCENE
+	}
+	if not scene_map.has(building_id):
+		return
+	var scene: PackedScene = scene_map[building_id]
+	var building := scene.instantiate()
+	building.global_position = global_position + _get_aim_vector() * 56.0
+	get_tree().current_scene.add_child(building)
+	var world := get_tree().current_scene.get_node_or_null("World")
+	if world and world.has_method("register_building_node"):
+		world.register_building_node(building, building_id)
+	_emit_game_event("player_crafted_%s" % building_id, {"position": building.global_position})
 
 
 func _face_mouse() -> void:
