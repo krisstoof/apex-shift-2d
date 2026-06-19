@@ -21,6 +21,8 @@ const MAX_VISIBILITY_QUEUE_MS_PER_FRAME := 1.5
 
 var pending_visibility_show: Array[int] = []
 var pending_visibility_hide: Array[int] = []
+var pending_visibility_show_set: Dictionary = {}  # O(1) membership check
+var pending_visibility_hide_set: Dictionary = {}  # O(1) membership check
 var visibility_changes_budget := 25
 var shown_this_frame := 0
 var hidden_this_frame := 0
@@ -30,6 +32,9 @@ var visibility_queue_ms := 0.0
 var hysteresis_margin := 0.15  # 15% additional margin for hide_rect to prevent flickering
 var show_rect := Rect2()  # Inner rect - where to show nodes
 var hide_rect := Rect2()  # Outer rect with extra margin - where to hide nodes
+var cached_query_rect := Rect2()  # Cache to avoid repeated Rect2 allocations
+var last_camera_center := Vector2.ZERO  # Track camera position for movement threshold
+const CAMERA_MOVEMENT_THRESHOLD := 50.0  # Recalculate query rect if camera moved this much
 
 
 func setup(config: Dictionary) -> void:
@@ -102,12 +107,17 @@ func reset() -> void:
 	last_visible_rect = Rect2()
 	pending_visibility_show.clear()
 	pending_visibility_hide.clear()
+	pending_visibility_show_set.clear()
+	pending_visibility_hide_set.clear()
 	shown_this_frame = 0
 	hidden_this_frame = 0
 	visibility_processed_this_frame = 0
 	visibility_pending_dropped_invalid = 0
 	visibility_queue_ms = 0.0
 	show_rect = Rect2()
+	hide_rect = Rect2()
+	cached_query_rect = Rect2()
+	last_camera_center = Vector2.ZERO
 	hide_rect = Rect2()
 
 
@@ -120,18 +130,23 @@ func _update_visibility() -> void:
 	# hide_rect has additional hysteresis margin to prevent flickering
 	hide_rect = show_rect.grow(maxf(show_rect.size.x, show_rect.size.y) * hysteresis_margin)
 	
+	# Cache query_rect if camera hasn't moved significantly
+	var camera_center := show_rect.get_center()
+	if camera_center.distance_squared_to(last_camera_center) > (CAMERA_MOVEMENT_THRESHOLD * CAMERA_MOVEMENT_THRESHOLD):
+		cached_query_rect = show_rect.grow(48.0)
+		last_camera_center = camera_center
+	
 	var current_visible_nodes: Dictionary = {}
 	visible_resource_count = 0
 	hidden_resource_count = 0
 	visible_creature_count = 0
 	hidden_creature_count = 0
-	var query_rect := show_rect.grow(48.0)
-	for node in _query_resources(query_rect):
+	for node in _query_resources(cached_query_rect):
 		_queue_visibility_change(node, true, true, current_visible_nodes)
-	for node in _query_meat(query_rect):
+	for node in _query_meat(cached_query_rect):
 		_queue_visibility_change(node, true, true, current_visible_nodes)
 	for creature_type in ["small_prey", "grazer", "varnak"]:
-		for node in _query_creatures(query_rect, creature_type):
+		for node in _query_creatures(cached_query_rect, creature_type):
 			_queue_visibility_change(node, true, false, current_visible_nodes)
 	
 	# Queue hide for nodes that left visibility rect
@@ -215,22 +230,25 @@ func _hide_nodes_that_left_visibility_rect(current_visible_nodes: Dictionary) ->
 func _queue_visibility_change(node: Node, should_be_visible: bool, is_resource: bool, current_visible_nodes: Dictionary) -> void:
 	if not is_instance_valid(node):
 		return
+	var instance_id := node.get_instance_id()
 	if should_be_visible:
-		if not _has_pending_node(pending_visibility_show, node):
-			pending_visibility_show.append(node.get_instance_id())
+		if instance_id not in pending_visibility_show_set:
+			pending_visibility_show.append(instance_id)
+			pending_visibility_show_set[instance_id] = true
 		if is_resource:
 			visible_resource_count += 1
 		else:
 			visible_creature_count += 1
 	else:
-		if not _has_pending_node(pending_visibility_hide, node):
-			pending_visibility_hide.append(node.get_instance_id())
+		if instance_id not in pending_visibility_hide_set:
+			pending_visibility_hide.append(instance_id)
+			pending_visibility_hide_set[instance_id] = true
 		if is_resource:
 			hidden_resource_count += 1
 		else:
 			hidden_creature_count += 1
 	if should_be_visible:
-		current_visible_nodes[node.get_instance_id()] = node
+		current_visible_nodes[instance_id] = node
 
 
 func _process_pending_visibility_changes() -> void:
@@ -245,6 +263,7 @@ func _process_pending_visibility_changes() -> void:
 		if visibility_queue_ms >= MAX_VISIBILITY_QUEUE_MS_PER_FRAME:
 			return
 		var instance_id := int(pending_visibility_show.pop_front())
+		pending_visibility_show_set.erase(instance_id)
 		var node := instance_from_id(instance_id) as Node
 		if is_instance_valid(node):
 			_set_visibility(node, true)
@@ -260,6 +279,7 @@ func _process_pending_visibility_changes() -> void:
 		if visibility_queue_ms >= MAX_VISIBILITY_QUEUE_MS_PER_FRAME:
 			return
 		var instance_id := int(pending_visibility_hide.pop_front())
+		pending_visibility_hide_set.erase(instance_id)
 		var node := instance_from_id(instance_id) as Node
 		if is_instance_valid(node):
 			_set_visibility(node, false)
@@ -269,14 +289,6 @@ func _process_pending_visibility_changes() -> void:
 		budget_used += 1
 		visibility_processed_this_frame += 1
 	visibility_queue_ms = float(Time.get_ticks_usec() - start_usec) / 1000.0
-
-
-func _has_pending_node(queue: Array[int], node: Node) -> bool:
-	var instance_id := node.get_instance_id()
-	for queued_instance_id in queue:
-		if int(queued_instance_id) == instance_id:
-			return true
-	return false
 
 
 func _set_visibility(node: Node, should_be_visible: bool) -> void:

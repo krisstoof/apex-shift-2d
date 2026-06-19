@@ -276,8 +276,10 @@ func world_query_is_deep_water(world_position: Vector2) -> bool:
 
 
 func _update_campfire_regen_state() -> void:
-	var nearest_active_distance := INF
+	var nearest_active_distance_sq := INF
 	var regen_active := false
+	var radius_sq := GAME_BALANCE.CAMPFIRE_STAMINA_REGEN_RADIUS
+	var radius_sq_default := radius_sq * radius_sq
 	for campfire_node in _get_campfires():
 		if not is_instance_valid(campfire_node):
 			continue
@@ -286,15 +288,17 @@ func _update_campfire_regen_state() -> void:
 		var campfire := campfire_node as Node2D
 		if not campfire:
 			continue
-		var distance := global_position.distance_to(campfire.global_position)
-		nearest_active_distance = min(nearest_active_distance, distance)
+		var distance_sq := global_position.distance_squared_to(campfire.global_position)
+		nearest_active_distance_sq = min(nearest_active_distance_sq, distance_sq)
 		var radius := GAME_BALANCE.CAMPFIRE_STAMINA_REGEN_RADIUS
 		var custom_radius: Variant = campfire_node.get("stamina_regen_radius")
 		if custom_radius != null:
 			radius = float(custom_radius)
-		if distance <= radius:
+		var check_radius_sq := radius * radius
+		if distance_sq <= check_radius_sq:
 			regen_active = true
-	stats.set_campfire_regen(regen_active, nearest_active_distance if regen_active else -1.0)
+	var nearest_distance := sqrt(nearest_active_distance_sq) if nearest_active_distance_sq != INF else -1.0
+	stats.set_campfire_regen(regen_active, nearest_distance if regen_active else -1.0)
 
 
 func _refresh_campfire_regen_state(delta: float) -> void:
@@ -956,11 +960,12 @@ func _add_nearby_resource_candidates(candidates: Array[Node]) -> void:
 			_add_unique_interactable_candidate(candidates, meat_drop)
 	if world.has_method("get_resources_near"):
 		return
+	var search_radius_sq := 96.0 * 96.0
 	for resource in get_tree().get_nodes_in_group("resources"):
 		var resource_2d := resource as Node2D
 		if resource_2d == null:
 			continue
-		if global_position.distance_to(resource_2d.global_position) <= 96.0:
+		if global_position.distance_squared_to(resource_2d.global_position) <= search_radius_sq:
 			_add_unique_interactable_candidate(candidates, resource)
 
 

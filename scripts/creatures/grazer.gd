@@ -415,7 +415,9 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_record_movement_spike(position_before_move)
 	_enforce_world_bounds()
-	_update_spatial_cell_tick(safe_delta)
+	# Skip spatial updates for FAR creatures (invisible, low-cost simulation)
+	if simulation_level != SIMULATION_LOD.Level.FAR:
+		_update_spatial_cell_tick(safe_delta)
 
 
 func _process(delta: float) -> void:
@@ -424,6 +426,9 @@ func _process(delta: float) -> void:
 	if not _is_background_simulation_mode():
 		background_simulation_timer = 0.0
 		return
+	# Avoid further _process() calls by disabling processing when culled
+	if is_visibility_culled and simulation_level == SIMULATION_LOD.Level.MEDIUM:
+		set_process(false)
 	_run_background_simulation(delta)
 
 
@@ -518,11 +523,15 @@ func _tick_far_simulation(delta: float) -> void:
 	state_time = max(state_time - tick_delta, 0.0)
 	target_lock_time = max(target_lock_time - tick_delta, 0.0)
 	velocity = Vector2.ZERO
-	_update_spatial_cell_tick(tick_delta)
+	# FAR creatures don't update spatial cell (invisible, low-cost background sim only)
 
 
 func _is_background_simulation_mode() -> bool:
-	return is_visibility_culled and simulation_level != SIMULATION_LOD.Level.FAR
+	var bg_mode := is_visibility_culled and simulation_level != SIMULATION_LOD.Level.FAR
+	# Re-enable processing if transitioned from culled to near
+	if bg_mode and not is_processing():
+		set_process(true)
+	return bg_mode
 
 
 func _run_background_simulation(delta: float) -> void:
