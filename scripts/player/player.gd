@@ -948,6 +948,10 @@ func _add_nearby_resource_candidates(candidates: Array[Node]) -> void:
 	if world.has_method("get_resources_near"):
 		for resource in world.get_resources_near(global_position, 96.0):
 			_add_unique_interactable_candidate(candidates, resource)
+	if world.has_method("get_meat_near"):
+		for meat_drop in world.get_meat_near(global_position, 112.0):
+			_add_unique_interactable_candidate(candidates, meat_drop)
+	if world.has_method("get_resources_near"):
 		return
 	for resource in get_tree().get_nodes_in_group("resources"):
 		var resource_2d := resource as Node2D

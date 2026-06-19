@@ -40,6 +40,9 @@ static func add_time(scope_name: String, ms: float) -> void:
 static func get_frame_snapshot() -> Dictionary:
 	return _frame_times.duplicate(true)
 
+static func reset_frame_snapshot() -> void:
+	_reset_frame()
+
 static func get_and_reset_frame_snapshot() -> Dictionary:
 	var snapshot := get_frame_snapshot()
 	_reset_frame()
@@ -105,3 +108,30 @@ static func _build_summary(source: Dictionary) -> Dictionary:
 		"samples_with_render_attribution": _rolling_sample_count,
 		"subsystems": subsystems
 	}
+
+static func get_top_scopes_from_snapshot(snapshot: Dictionary, limit: int = 8) -> Array[Dictionary]:
+	var ranked: Array[Dictionary] = []
+	for key_value in snapshot.keys():
+		ranked.append({
+			"name": str(key_value),
+			"ms": float(snapshot.get(key_value, 0.0))
+		})
+	ranked.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("ms", 0.0)) > float(b.get("ms", 0.0))
+	)
+	if ranked.size() > limit:
+		ranked.resize(limit)
+	return ranked
+
+static func get_top_scope_from_snapshot(snapshot: Dictionary) -> String:
+	var top_scopes := get_top_scopes_from_snapshot(snapshot, 1)
+	if top_scopes.is_empty():
+		return ""
+	var top := Dictionary(top_scopes[0])
+	return "%s:%.1fms" % [str(top.get("name", "")), float(top.get("ms", 0.0))]
+
+static func get_snapshot_total_ms(snapshot: Dictionary) -> float:
+	var total := 0.0
+	for key in snapshot.keys():
+		total += float(snapshot.get(key, 0.0))
+	return total

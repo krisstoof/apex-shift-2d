@@ -503,32 +503,56 @@ func _process(delta: float) -> void:
 	small_prey_spawn_timer += delta
 	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
 		small_prey_spawn_timer = 0.0
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_sync_visible_small_prey_ms")
 		_sync_visible_small_prey()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_sync_visible_small_prey_ms")
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_sync_visible_grazers_ms")
 		_sync_visible_grazers()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_sync_visible_grazers_ms")
 	varnak_spawn_timer += delta
 	if varnak_spawn_timer >= _get_varnak_spawn_check_interval():
 		varnak_spawn_timer = 0.0
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_sync_visible_varnaks_ms")
 		_sync_visible_varnaks()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_sync_visible_varnaks_ms")
 	rock_spawn_timer += delta
 	if rock_spawn_timer >= ROCK_SPAWN_TICK_SECONDS:
 		rock_spawn_timer = 0.0
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_sync_periodic_rock_spawn_ms")
 		_sync_periodic_rock_spawn()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_sync_periodic_rock_spawn_ms")
 	var current_night_amount := _get_night_amount()
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.begin_scope("world_render_controller_process_ms")
 	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.end_scope("world_render_controller_process_ms")
 	if should_redraw_background:
 		queue_redraw()
 	if boot_ready and visibility_controller != null:
-		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
-			RUNTIME_PROFILER.begin_scope("world_visibility_controller_ms")
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("visibility_cull_ms")
 		visibility_controller.process(delta)
-		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
-			RUNTIME_PROFILER.end_scope("world_visibility_controller_ms")
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("visibility_cull_ms")
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.end_scope("world_process_render_sync_ms")
 	decorative_vegetation_visibility_timer -= delta
 	if decorative_vegetation_visibility_timer <= 0.0:
 		decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_decorative_visible_rect_ms")
 		_update_decorative_vegetation_visible_rect()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_decorative_visible_rect_ms")
 	resource_activation_timer -= delta
 	if resource_activation_timer <= 0.0:
 		resource_activation_timer = float(GAME_BALANCE.RESOURCE_ACTIVATION.get("activation_update_interval", 0.45))
@@ -536,9 +560,21 @@ func _process(delta: float) -> void:
 	var use_surface_renderer := bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
 	var allow_legacy_overlay := bool(GAME_BALANCE.BIOME_TEXTURES.get("legacy_biome_detail_overlay_enabled_with_surface_renderer", false))
 	if not use_surface_renderer or allow_legacy_overlay:
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_biome_detail_overlay_ms")
 		_update_biome_detail_overlay(delta)
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_biome_detail_overlay_ms")
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.begin_scope("world_biome_detail_overlay_build_pending_chunks_ms")
 		_build_pending_biome_detail_overlay_chunks()
+		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+			RUNTIME_PROFILER.end_scope("world_biome_detail_overlay_build_pending_chunks_ms")
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.begin_scope("world_night_overlay_ms")
 	_update_night_overlay(current_night_amount)
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.end_scope("world_night_overlay_ms")
 	RUNTIME_PROFILER.end_scope("world_process_total_ms")
 
 
@@ -1886,6 +1922,10 @@ func _update_resource_interactions() -> void:
 	var resources: Array = []
 	if world_registry != null and world_registry.has_method("get_resources_near"):
 		resources = Array(world_registry.get_resources_near(player_position, near_scan_radius))
+		if world_registry.has_method("get_meat_near"):
+			for meat_drop in world_registry.get_meat_near(player_position, near_scan_radius):
+				if not resources.has(meat_drop):
+					resources.append(meat_drop)
 	else:
 		resources = get_cached_group_nodes("resources")
 	if resources.is_empty():
@@ -2729,10 +2769,14 @@ func _sync_biome_blend_background() -> void:
 		background.texture = null
 		return
 	var controller: Object = _ensure_render_controller()
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.begin_scope("world_sync_biome_blend_background_ms")
 	var blend_texture: ImageTexture = controller.ensure_biome_blend_texture()
 	var render_state: Dictionary = controller.get_biome_texture_cache_status()
 	world_biome_texture_build_count = int(render_state.get("rebuild_count", world_biome_texture_build_count))
 	world_biome_texture_last_build_ms = float(render_state.get("last_build_ms", world_biome_texture_last_build_ms))
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.end_scope("world_sync_biome_blend_background_ms")
 	if blend_texture == null:
 		background.visible = false
 		background.texture = null
@@ -2827,6 +2871,8 @@ func _ensure_surface_texture() -> ImageTexture:
 	var texture_size := SURFACE_BLEND_TEXTURE_SIZE
 	if _is_low_end_static_surface_mode_enabled():
 		texture_size = Vector2i(192, 118)
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.begin_scope("world_surface_texture_ms")
 	var build_start_ms: int = Time.get_ticks_msec()
 	var image := Image.create(texture_size.x, texture_size.y, false, Image.FORMAT_RGBA8)
 	for y in range(texture_size.y):
@@ -2841,6 +2887,8 @@ func _ensure_surface_texture() -> ImageTexture:
 	world_surface_texture_build_count += 1
 	world_surface_texture_last_build_ms = float(Time.get_ticks_msec() - build_start_ms)
 	print("[WORLD] surface texture build count=%d last_build_ms=%.2f key=%s" % [world_surface_texture_build_count, world_surface_texture_last_build_ms, world_surface_texture_key])
+	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
+		RUNTIME_PROFILER.end_scope("world_surface_texture_ms")
 	return world_surface_texture
 
 
@@ -4171,6 +4219,7 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 		return null
 	if node is Node2D:
 		(node as Node2D).visible = true
+	_finalize_spawned_pickup_drop(node)
 	if visibility_culling_enabled:
 		_update_world_object_visibility()
 	var event_bus := _get_event_bus()
@@ -4181,6 +4230,27 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 			"position": node.global_position
 		})
 	return node
+
+
+func _finalize_spawned_pickup_drop(drop: Node) -> void:
+	if drop == null or not is_instance_valid(drop):
+		return
+	if drop.has_method("set_visibility_culled"):
+		drop.call("set_visibility_culled", true)
+	var player_node := _get_player_node()
+	var near_player := false
+	if player_node != null and drop is Node2D:
+		near_player = player_node.global_position.distance_to((drop as Node2D).global_position) <= float(GAME_BALANCE.RESOURCE_ACTIVATION.get("player_interaction_radius", 420.0))
+	if near_player and drop.has_method("set_interaction_active"):
+		drop.call("set_interaction_active", true)
+	if drop.has_method("get_resource_kind"):
+		print("[MEAT_DROP] finalized kind=%s visible=%s near_player=%s interaction_active=%s pos=%s" % [
+			str(drop.call("get_resource_kind")),
+			str(drop.visible),
+			str(near_player),
+			str(drop.call("is_interaction_active") if drop.has_method("is_interaction_active") else false),
+			str((drop as Node2D).global_position if drop is Node2D else Vector2.ZERO)
+		])
 
 
 func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:

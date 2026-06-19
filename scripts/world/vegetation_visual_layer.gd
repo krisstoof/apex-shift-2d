@@ -1,6 +1,9 @@
 extends Node2D
 class_name VegetationVisualLayer
 
+const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
+
 const DEFAULT_GRASS_RADIUS := 5.0
 const DEFAULT_DENSE_GRASS_RADIUS := 8.0
 const DEFAULT_CHUNK_SIZE := 768.0
@@ -56,10 +59,14 @@ var _draw_cache_dirty := true
 var _redraw_reason := "initial"
 var _bulk_add_depth := 0
 var _bulk_add_request_redraw := false
+var _queue_redraw_count := 0
+var _bulk_redraw_count := 0
 var _debug_stats: Dictionary = {
 	"candidate_count_before_cap": 0,
 	"drawn_instance_count": 0,
 	"candidate_sort_ms": 0.0,
+	"candidate_collect_ms": 0.0,
+	"draw_loop_ms": 0.0,
 	"draw_ms": 0.0,
 	"redraw_reason": "initial",
 	"draw_cache_rebuilt": false,
@@ -159,13 +166,6 @@ func add_instances(items: Array) -> void:
 	end_bulk_add_queue_redraw_once()
 
 
-func _request_redraw_once() -> void:
-	if _bulk_add_depth > 0:
-		_bulk_add_request_redraw = true
-		return
-	queue_redraw()
-
-
 func begin_bulk_add() -> void:
 	_bulk_add_depth += 1
 
@@ -176,6 +176,7 @@ func end_bulk_add_queue_redraw_once() -> void:
 		return
 	if _bulk_add_request_redraw:
 		_bulk_add_request_redraw = false
+		_bulk_redraw_count += 1
 		_invalidate_visible_candidate_cache("bulk_add_finished")
 		queue_redraw()
 	else:
@@ -269,11 +270,18 @@ func get_debug_stats() -> Dictionary:
 		"visible_world_rect": str(visible_world_rect),
 		"max_drawn_instances": max_drawn_instances,
 		"candidate_count_before_cap": int(_debug_stats.get("candidate_count_before_cap", 0)),
+		"vegetation_candidate_count_before_cap": int(_debug_stats.get("candidate_count_before_cap", 0)),
 		"candidate_sort_ms": float(_debug_stats.get("candidate_sort_ms", 0.0)),
+		"candidate_collect_ms": float(_debug_stats.get("candidate_collect_ms", 0.0)),
+		"draw_loop_ms": float(_debug_stats.get("draw_loop_ms", 0.0)),
 		"draw_ms": float(_debug_stats.get("draw_ms", 0.0)),
 		"redraw_reason": str(_debug_stats.get("redraw_reason", "cached")),
 		"draw_cache_rebuilt": bool(_debug_stats.get("draw_cache_rebuilt", false)),
-		"visible_chunk_signature": str(_debug_stats.get("visible_chunk_signature", ""))
+		"visible_chunk_signature": str(_debug_stats.get("visible_chunk_signature", "")),
+		"vegetation_queue_redraw_count": _queue_redraw_count,
+		"vegetation_bulk_redraw_count": _bulk_redraw_count,
+		"vegetation_visible_chunk_count": visible_chunk_count,
+		"vegetation_total_chunk_count": total_chunk_count
 	}
 
 
@@ -289,6 +297,9 @@ func get_default_radius(kind: String) -> float:
 func _draw() -> void:
 	var draw_start := Time.get_ticks_usec()
 	_reset_draw_debug_counters()
+	var profile_enabled := bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING)
+	if profile_enabled:
+		RUNTIME_PROFILER.begin_scope("vegetation_draw_total_ms")
 	var visible_chunk_signature := last_visible_chunk_signature if has_visible_world_rect else _get_visible_chunk_signature(visible_world_rect)
 	var camera_focus_cell := _get_camera_focus_cell()
 	var should_rebuild := _should_rebuild_draw_cache(visible_chunk_signature, camera_focus_cell)
@@ -300,8 +311,13 @@ func _draw() -> void:
 	var candidates := _cached_draw_candidates
 	if candidates.is_empty():
 		_debug_stats["draw_ms"] = float(Time.get_ticks_usec() - draw_start) / 1000.0
+		if profile_enabled:
+			RUNTIME_PROFILER.end_scope("vegetation_draw_total_ms")
 		return
 	total_visible_instance_count = candidates.size()
+	if profile_enabled:
+		RUNTIME_PROFILER.begin_scope("vegetation_draw_loop_ms")
+	var draw_loop_start := Time.get_ticks_usec()
 	for item in candidates:
 		if drawn_instance_count >= max_drawn_instances:
 			skipped_by_cap_count += 1
@@ -324,7 +340,12 @@ func _draw() -> void:
 			LOD_FAR:
 				far_lod_count += 1
 	_debug_stats["drawn_instance_count"] = drawn_instance_count
+	_debug_stats["draw_loop_ms"] = float(Time.get_ticks_usec() - draw_loop_start) / 1000.0
+	if profile_enabled:
+		RUNTIME_PROFILER.end_scope("vegetation_draw_loop_ms")
 	_debug_stats["draw_ms"] = float(Time.get_ticks_usec() - draw_start) / 1000.0
+	if profile_enabled:
+		RUNTIME_PROFILER.end_scope("vegetation_draw_total_ms")
 
 
 func _reset_draw_debug_counters() -> void:
@@ -356,6 +377,10 @@ func _should_rebuild_draw_cache(visible_chunk_signature: String, camera_focus_ce
 
 func _rebuild_draw_candidates(visible_chunk_signature: String, camera_focus_cell: Vector2i) -> void:
 	var sort_start := Time.get_ticks_usec()
+	var profile_enabled := bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING)
+	var collect_start := Time.get_ticks_usec()
+	if profile_enabled:
+		RUNTIME_PROFILER.begin_scope("vegetation_collect_candidates_ms")
 	var result: Array[Dictionary] = []
 	if not has_visible_world_rect:
 		for item_value in instances:
@@ -371,12 +396,19 @@ func _rebuild_draw_candidates(visible_chunk_signature: String, camera_focus_cell
 				if not visible_world_rect.has_point(position):
 					continue
 				result.append(item)
+	_debug_stats["candidate_collect_ms"] = float(Time.get_ticks_usec() - collect_start) / 1000.0
+	if profile_enabled:
+		RUNTIME_PROFILER.end_scope("vegetation_collect_candidates_ms")
 	if has_camera_focus_position:
+		if profile_enabled:
+			RUNTIME_PROFILER.begin_scope("vegetation_sort_candidates_ms")
 		result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 			var a_pos := Vector2(a.get("position", Vector2.ZERO))
 			var b_pos := Vector2(b.get("position", Vector2.ZERO))
 			return a_pos.distance_squared_to(camera_focus_position) < b_pos.distance_squared_to(camera_focus_position)
 		)
+		if profile_enabled:
+			RUNTIME_PROFILER.end_scope("vegetation_sort_candidates_ms")
 	_sorted_candidate_cache_key = "%s|%s|%d|%d" % [visible_chunk_signature, str(camera_focus_cell), _instances_version, _quality_cap_version]
 	_cached_draw_candidates = result
 	_cached_visible_chunk_signature = visible_chunk_signature
@@ -600,6 +632,14 @@ func _invalidate_visible_candidate_cache(reason: String = "manual_redraw") -> vo
 	_sorted_candidate_cache_key = ""
 	_debug_stats["redraw_reason"] = reason
 	_debug_stats["draw_cache_rebuilt"] = false
+
+
+func _request_redraw_once() -> void:
+	_queue_redraw_count += 1
+	if _bulk_add_depth > 0:
+		_bulk_add_request_redraw = true
+		return
+	queue_redraw()
 
 
 func _get_camera_focus_cell() -> Vector2i:

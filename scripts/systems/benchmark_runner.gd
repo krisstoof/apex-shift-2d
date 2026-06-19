@@ -47,6 +47,8 @@ var last_wall_frame_delta_ms := 0
 var last_engine_delta_ms := 0.0
 var max_wall_frame_delta_ms := 0
 var max_performance_process_ms := 0.0
+var hitch_breakdown: Array = []
+var hitch_breakdown_summary: Dictionary = {}
 var active_preset_name := "normal"
 var hitch_count_by_scope: Dictionary = {}
 var max_delta_by_scope: Dictionary = {}
@@ -111,6 +113,8 @@ func start(preset_name: String = "normal") -> bool:
 	last_engine_delta_ms = 0.0
 	max_wall_frame_delta_ms = 0
 	max_performance_process_ms = 0.0
+	hitch_breakdown.clear()
+	hitch_breakdown_summary = {}
 	benchmark_sample_build_ms = 0.0
 	benchmark_sample_collection_ms = 0.0
 	benchmark_world_debug_collection_ms = 0.0
@@ -152,25 +156,52 @@ func _capture_realtime_hitch(now_ticks: int, delta: float) -> void:
 	if last_process_ticks_msec > 0:
 		last_wall_frame_delta_ms = now_ticks - last_process_ticks_msec
 		max_wall_frame_delta_ms = maxi(max_wall_frame_delta_ms, last_wall_frame_delta_ms)
-		if last_wall_frame_delta_ms > 250:
+		if last_wall_frame_delta_ms >= int(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_THRESHOLD_MS):
 			realtime_hitch_count += 1
 			max_realtime_delta_ms = maxi(max_realtime_delta_ms, last_wall_frame_delta_ms)
 			hitch_count_by_scope["BenchmarkRunner"] = int(hitch_count_by_scope.get("BenchmarkRunner", 0)) + 1
 			max_delta_by_scope["BenchmarkRunner"] = maxi(int(max_delta_by_scope.get("BenchmarkRunner", 0)), last_wall_frame_delta_ms)
 			last_hitch_delta_by_scope["BenchmarkRunner"] = last_wall_frame_delta_ms
+			var frame_breakdown := Dictionary(RUNTIME_PROFILER.get_frame_snapshot())
+			var top_scopes := RUNTIME_PROFILER.get_top_scopes_from_snapshot(frame_breakdown, 8)
+			var likely_subsystem := RUNTIME_PROFILER.get_top_scope_from_snapshot(frame_breakdown)
+			var performance_process_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+			var performance_physics_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 			var hitch := {
 				"elapsed_seconds": elapsed_seconds,
 				"realtime_delta_ms": last_wall_frame_delta_ms,
 				"wall_frame_delta_ms": last_wall_frame_delta_ms,
 				"engine_delta_ms": last_engine_delta_ms,
+				"performance_process_ms": performance_process_ms,
+				"performance_physics_ms": performance_physics_ms,
+				"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+				"render_objects": Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
+				"render_primitives": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
+				"node_count": Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+				"texture_mem_used": Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED),
+				"video_mem_used": Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED),
+				"runtime_profiler_top_subsystem": str(Dictionary(RUNTIME_PROFILER.get_rolling_summary()).get("top_subsystem", "")),
+				"world_summary": _capture_world_summary(),
+				"frame_breakdown": frame_breakdown,
+				"likely_subsystem": likely_subsystem,
+				"top_scopes": top_scopes,
+				"performance": _capture_performance_stats(),
 				"sample_count": samples.size(),
 				"sample_timer": sample_timer
 			}
 			if deep_debug:
 				hitch["world_debug"] = _capture_lightweight_world_debug()
 			realtime_hitches.append(hitch)
+			hitch_breakdown.append(hitch)
+			if hitch_breakdown.size() > int(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_MAX_STORED):
+				hitch_breakdown.pop_front()
 			if realtime_hitches.size() > (40 if deep_debug else 12):
 				realtime_hitches.pop_front()
+			_update_hitch_breakdown_summary(hitch, frame_breakdown, top_scopes)
+			RUNTIME_PROFILER.record_frame_snapshot(frame_breakdown)
+			RUNTIME_PROFILER.reset_frame_snapshot()
+			if bool(GAME_BALANCE.DEBUG_HITCH_VERBOSE_LOGGING) or verbose_hitch_logging or last_wall_frame_delta_ms >= int(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_THRESHOLD_MS):
+				print(_format_hitch_detail_text(hitch, top_scopes))
 			if verbose_hitch_logging:
 				print_debug("[REALTIME_HITCH] %d ms engine_delta=%.1f sample_count=%d" % [
 					last_wall_frame_delta_ms,
@@ -420,6 +451,8 @@ func _capture_world_summary() -> Dictionary:
 		"terrain_surface_refine_pending_count": int(terrain.get("terrain_surface_refine_pending_count", 0)),
 		"terrain_surface_active_refine_count": int(terrain.get("terrain_surface_active_refine_count", 0)),
 		"terrain_surface_refine_blocked_reason": str(terrain.get("terrain_surface_refine_blocked_reason", "")),
+		"biome_blend_texture_cache_hit": bool(biome_cache.get("biome_blend_texture_cache_hit", false)),
+		"biome_blend_texture_rebuild_reason": str(biome_cache.get("biome_blend_texture_rebuild_reason", "")),
 		"vegetation": vegetation
 	}
 
@@ -557,6 +590,8 @@ func _capture_world_biome_texture_cache_stats() -> Dictionary:
 		"biome_detail_overlay_chunks_built_last_frame": int(cache_status.get("biome_detail_overlay_chunks_built_last_frame", 0)),
 		"biome_detail_overlay_total_build_count": int(cache_status.get("biome_detail_overlay_total_build_count", 0)),
 		"biome_detail_overlay_rebuild_count": int(cache_status.get("biome_detail_overlay_rebuild_count", 0)),
+		"biome_blend_texture_cache_hit": bool(cache_status.get("cache_hit", false)),
+		"biome_blend_texture_rebuild_reason": str(cache_status.get("rebuild_reason", "")),
 		"biome_detail_overlay_cache_hit_count": int(cache_status.get("biome_detail_overlay_cache_hit_count", 0)),
 		"biome_detail_overlay_cache_miss_count": int(cache_status.get("biome_detail_overlay_cache_miss_count", 0)),
 		"biome_detail_overlay_last_build_ms": float(cache_status.get("biome_detail_overlay_last_build_ms", 0.0)),
@@ -952,6 +987,7 @@ func _calculate_driver_scores(sample: Dictionary) -> Dictionary:
 	var world_stats: Dictionary = Dictionary(sample.get("world", {}))
 	var world_summary: Dictionary = Dictionary(sample.get("world_summary", {}))
 	var ecosystem_stats: Dictionary = Dictionary(sample.get("ecosystem", {}))
+	var frame_breakdown: Dictionary = Dictionary(sample.get("frame_breakdown", {}))
 	var creature_counts: Dictionary = Dictionary(world_stats.get("creature_counts", {}))
 	var resource_counts: Dictionary = Dictionary(world_stats.get("resource_counts", {}))
 	var special_resource_counts: Dictionary = Dictionary(world_stats.get("special_resource_counts", {}))
@@ -968,29 +1004,52 @@ func _calculate_driver_scores(sample: Dictionary) -> Dictionary:
 	var node_count := float(performance.get("node_count", 0))
 	var physics_pairs := float(performance.get("physics_2d_collision_pairs", 0))
 	var physics_active := float(performance.get("physics_2d_active", 0))
-	var creature_pressure := total_creatures * 1.8 + float(creature_counts.get("varnak", 0)) * 1.4
+	var world_process_ms := float(frame_breakdown.get("world_process_total_ms", 0.0))
+	var visibility_cull_ms := float(frame_breakdown.get("visibility_cull_ms", frame_breakdown.get("world_visibility_controller_ms", 0.0)))
+	var resource_activation_ms := float(frame_breakdown.get("resource_activation_update_ms", 0.0))
+	var spatial_index_ms := float(frame_breakdown.get("spatial_index_refresh_ms", 0.0))
+	var spawn_sync_ms := float(frame_breakdown.get("small_prey_spawn_ms", 0.0)) + float(frame_breakdown.get("grazer_spawn_ms", 0.0)) + float(frame_breakdown.get("varnak_sync_ms", 0.0)) + float(frame_breakdown.get("world_sync_periodic_rock_spawn_ms", 0.0))
+	var ai_sync_ms := float(frame_breakdown.get("small_prey_sync_ms", 0.0)) + float(frame_breakdown.get("varnak_sync_ms", 0.0))
+	var creature_process_ms := float(frame_breakdown.get("small_prey_process_ms", 0.0)) + float(frame_breakdown.get("grazer_process_ms", 0.0)) + float(frame_breakdown.get("varnak_process_ms", 0.0))
+	var creature_physics_ms := float(frame_breakdown.get("small_prey_physics_process_ms", 0.0)) + float(frame_breakdown.get("grazer_physics_process_ms", 0.0)) + float(frame_breakdown.get("varnak_physics_process_ms", 0.0))
+	var creature_pressure := total_creatures * 1.2 + float(creature_counts.get("varnak", 0)) * 1.0 + creature_process_ms * 6.0 + creature_physics_ms * 5.0 + ai_sync_ms * 4.0
 	var decorative_grass_nodes := float(vegetation_stats.get("decorative_grass_node_count", 0))
 	var drawn_visual_grass_instances := float(vegetation_stats.get("decorative_vegetation_drawn_instance_count", 0))
-	var resource_pressure := total_resources * 0.8 + float(resource_counts.get("pond_vegetation", 0)) * 0.6 + float(special_resource_counts.get("edible_vegetation", 0)) * 0.4
-	resource_pressure += drawn_visual_grass_instances * 0.03
-	resource_pressure += decorative_grass_nodes * 0.5
-	resource_pressure += float(vegetation_stats.get("decorative_vegetation_skipped_by_cap_count", 0)) * 0.01
-	var render_pressure := draw_calls * 1.9 + render_primitives * 0.02 + render_objects * 0.8
+	var resource_pressure := total_resources * 0.7 + float(resource_counts.get("pond_vegetation", 0)) * 0.6 + float(special_resource_counts.get("edible_vegetation", 0)) * 0.4
+	resource_pressure += drawn_visual_grass_instances * 0.02
+	resource_pressure += decorative_grass_nodes * 0.4
+	var vegetation_draw_ms := float(frame_breakdown.get("vegetation_draw_total_ms", 0.0)) + float(frame_breakdown.get("vegetation_draw_loop_ms", 0.0))
+	var terrain_draw_ms := float(frame_breakdown.get("terrain_surface_chunk_draw_ms", 0.0)) + float(frame_breakdown.get("terrain_surface_chunk_build_ms", 0.0))
+	var biome_surface_ms := float(frame_breakdown.get("world_surface_texture_ms", 0.0)) + float(frame_breakdown.get("world_render_controller_ensure_biome_blend_texture_ms", 0.0))
+	var texture_build_ms := float(frame_breakdown.get("minimap_total_ms", 0.0)) + float(frame_breakdown.get("map_screen_total_ms", 0.0)) + float(frame_breakdown.get("world_surface_texture_ms", 0.0))
+	var render_pressure := draw_calls * 1.4 + render_primitives * 0.015 + render_objects * 0.55 + vegetation_draw_ms * 12.0 + terrain_draw_ms * 10.0 + biome_surface_ms * 10.0 + texture_build_ms * 8.0
 	var physics_pressure := physics_time_ms * 8.0 + physics_pairs * 0.06 + physics_active * 0.08
 	var scene_pressure := node_count * 0.02
+	var world_pressure := world_process_ms * 6.0 + visibility_cull_ms * 10.0 + resource_activation_ms * 8.0 + spatial_index_ms * 8.0 + spawn_sync_ms * 6.0
+	var ui_pressure := float(frame_breakdown.get("minimap_total_ms", 0.0)) * 12.0 + float(frame_breakdown.get("map_screen_total_ms", 0.0)) * 12.0
 	var ecosystem_pressure := float(ecosystem_stats.get("biome_count", 0)) * 0.8 + float(ecosystem_stats.get("highest_food_stress", 0.0)) * 5.0
+	var measured_total := world_pressure + render_pressure + ui_pressure + creature_pressure + physics_pressure + scene_pressure + ecosystem_pressure
+	var unattributed_pressure := 0.0
+	if wall_frame_ms >= 80.0 and measured_total < wall_frame_ms * 0.5:
+		unattributed_pressure = wall_frame_ms * 8.0
 	return {
 		"render": render_pressure,
+		"ai": creature_pressure,
+		"world": world_pressure,
+		"ui": ui_pressure,
 		"physics": physics_pressure,
 		"creatures": creature_pressure,
 		"resources": resource_pressure,
 		"scene": scene_pressure,
 		"ecosystem": ecosystem_pressure,
+		"unattributed": unattributed_pressure,
 		"frame_stall": maxf(wall_frame_ms, performance_process_ms)
 	}
 
 
 func _pick_likely_driver(driver_scores: Dictionary) -> String:
+	if float(driver_scores.get("unattributed", 0.0)) > 0.0:
+		return "unattributed"
 	if float(driver_scores.get("frame_stall", 0.0)) >= 250.0 and float(driver_scores.get("render", 0.0)) < 600.0 and float(driver_scores.get("physics", 0.0)) < 100.0:
 		return "frame_stall_unattributed"
 	var best_driver := "unknown"
@@ -1107,12 +1166,15 @@ func _build_report() -> Dictionary:
 		"min_fps": min_fps if total_samples > 0 else 0.0,
 		"max_fps": max_fps,
 		"max_frame_time_ms": max_frame_time_ms,
-		"max_wall_frame_delta_ms": max_wall_frame_delta_ms_report,
+		"max_wall_frame_delta_ms": maxi(max_wall_frame_delta_ms_report, max_wall_frame_delta_ms),
 		"max_performance_process_ms": max_performance_process_ms_report,
 		"max_physics_time_ms": max_physics_time_ms,
 		"realtime_hitch_count": realtime_hitch_count,
 		"max_realtime_delta_ms": max_realtime_delta_ms,
 		"realtime_hitches": realtime_hitches,
+		"hitch_breakdown": hitch_breakdown,
+		"hitch_breakdown_summary": _build_hitch_breakdown_summary(),
+		"runtime_profiler_summary": RUNTIME_PROFILER.get_rolling_summary(),
 		"heaviest_sample": heaviest_sample,
 		"top_samples": top_samples,
 		"samples": samples,
@@ -1129,6 +1191,124 @@ func _build_report() -> Dictionary:
 	}
 	report["threshold_validation"] = _validate_benchmark_thresholds(report)
 	return report
+
+
+func _update_hitch_breakdown_summary(hitch: Dictionary, frame_breakdown: Dictionary, top_scopes: Array[Dictionary]) -> void:
+	var scope_totals: Dictionary = Dictionary(hitch_breakdown_summary.get("scope_totals", {}))
+	var scope_max: Dictionary = Dictionary(hitch_breakdown_summary.get("scope_max", {}))
+	var top_name := str(hitch.get("likely_subsystem", ""))
+	var hitch_ms := int(hitch.get("realtime_delta_ms", 0))
+	var measured_total := RuntimeProfiler.get_snapshot_total_ms(frame_breakdown)
+	var unattributed_count := int(hitch_breakdown_summary.get("unattributed_hitch_count", 0))
+	if top_name.is_empty() or measured_total < float(hitch_ms) * 0.5:
+		unattributed_count += 1
+	for scope_value in top_scopes:
+		var scope := Dictionary(scope_value)
+		var name := str(scope.get("name", ""))
+		var ms := float(scope.get("ms", 0.0))
+		if name.is_empty():
+			continue
+		scope_totals[name] = float(scope_totals.get(name, 0.0)) + ms
+		scope_max[name] = maxf(float(scope_max.get(name, 0.0)), ms)
+	hitch_breakdown_summary = {
+		"count": int(hitch_breakdown_summary.get("count", 0)) + 1,
+		"threshold_ms": int(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_THRESHOLD_MS),
+		"top_scope_by_total_ms": _pick_scope_by_total_ms(scope_totals),
+		"top_scope_by_max_ms": _pick_scope_by_max_ms(scope_max),
+		"max_hitch_ms": maxi(int(hitch_breakdown_summary.get("max_hitch_ms", 0)), hitch_ms),
+		"unattributed_hitch_count": unattributed_count,
+		"scope_totals": scope_totals,
+		"scope_max": scope_max
+	}
+
+
+func _build_hitch_breakdown_summary() -> Dictionary:
+	var summary := hitch_breakdown_summary.duplicate(true)
+	summary.erase("scope_totals")
+	summary.erase("scope_max")
+	return summary
+
+
+func _pick_scope_by_total_ms(scope_totals: Dictionary) -> String:
+	var best_name := "unattributed"
+	var best_ms := -1.0
+	for key_value in scope_totals.keys():
+		var name := str(key_value)
+		var ms := float(scope_totals.get(key_value, 0.0))
+		if ms > best_ms:
+			best_ms = ms
+			best_name = name
+	return best_name
+
+
+func _pick_scope_by_max_ms(scope_max: Dictionary) -> String:
+	var best_name := "unattributed"
+	var best_ms := -1.0
+	for key_value in scope_max.keys():
+		var name := str(key_value)
+		var ms := float(scope_max.get(key_value, 0.0))
+		if ms > best_ms:
+			best_ms = ms
+			best_name = name
+	return best_name
+
+
+func _format_hitch_detail_text(hitch: Dictionary, top_scopes: Array[Dictionary]) -> String:
+	var top_text := "none"
+	if not top_scopes.is_empty():
+		var top := Dictionary(top_scopes[0])
+		top_text = "%s:%.1fms" % [str(top.get("name", "")), float(top.get("ms", 0.0))]
+	var frame_breakdown: Dictionary = Dictionary(hitch.get("frame_breakdown", {}))
+	var world_summary: Dictionary = Dictionary(hitch.get("world_summary", {}))
+	var performance: Dictionary = Dictionary(hitch.get("performance", {}))
+	var world_debug: Dictionary = Dictionary(hitch.get("world_debug", {}))
+	var visibility_ms := float(frame_breakdown.get("visibility_cull_ms", frame_breakdown.get("world_visibility_controller_ms", 0.0)))
+	var vegetation_draw_ms := float(frame_breakdown.get("vegetation_draw_total_ms", 0.0))
+	var vegetation_sort_ms := float(frame_breakdown.get("vegetation_sort_candidates_ms", 0.0))
+	var vegetation_collect_ms := float(frame_breakdown.get("vegetation_collect_candidates_ms", 0.0))
+	var surface_texture_ms := float(frame_breakdown.get("world_surface_texture_ms", 0.0))
+	var biome_blend_ms := float(frame_breakdown.get("world_render_controller_ensure_biome_blend_texture_ms", 0.0))
+	var world_process_ms := float(frame_breakdown.get("world_process_total_ms", 0.0))
+	var ai_sync_ms := float(frame_breakdown.get("world_sync_visible_small_prey_ms", 0.0)) + float(frame_breakdown.get("world_sync_visible_grazers_ms", 0.0)) + float(frame_breakdown.get("world_sync_visible_varnaks_ms", 0.0))
+	var terrain_surface_ms := float(frame_breakdown.get("terrain_surface_process_visibility_ms", 0.0)) + float(frame_breakdown.get("terrain_surface_rebuild_visible_chunks_ms", 0.0)) + float(frame_breakdown.get("terrain_surface_build_chunks_ms", 0.0))
+	var minimap_ms := float(frame_breakdown.get("minimap_total_ms", 0.0))
+	var map_screen_ms := float(frame_breakdown.get("map_screen_total_ms", 0.0))
+	var vegetation_candidates := int(Dictionary(world_debug.get("vegetation", {})).get("candidate_count_before_cap", 0))
+	var vegetation_drawn := int(Dictionary(world_debug.get("vegetation", {})).get("drawn_instance_count", 0))
+	return "[HITCH_DETAIL] frame=%dms engine_delta=%.1fms top=%s world_process=%.0fms visibility_cull=%.0fms show=%d hide=%d pending=%d dropped_invalid=%d decorative_visible_rect=%.0fms candidates=%d drawn=%d sort=%.1fms draw_loop=%.1fms surface_texture=%.0fms build_running=%s build_count=%d biome_blend=%.0fms cache_hit=%s ai_sync=%.1fms terrain_surface=%.0fms chunks_built=%d pending=%d minimap=%.0fms build_count=%d map_screen=%.0fms night_overlay=%.1fms total_resources=%d total_creatures=%d fps=%d performance_process=%.1fms physics=%.1fms" % [
+		int(hitch.get("realtime_delta_ms", 0)),
+		float(hitch.get("engine_delta_ms", 0.0)),
+		top_text,
+		world_process_ms,
+		visibility_ms,
+		int(world_summary.get("visibility_show_count", world_summary.get("shown_this_frame", 0))),
+		int(world_summary.get("visibility_hide_count", world_summary.get("hidden_this_frame", 0))),
+		int(world_summary.get("visibility_pending_show_count", world_summary.get("pending_show_count", 0))),
+		int(world_summary.get("visibility_dropped_invalid_count", world_summary.get("visibility_pending_dropped_invalid", 0))),
+		float(frame_breakdown.get("world_decorative_visible_rect_ms", 0.0)),
+		vegetation_candidates,
+		vegetation_drawn,
+		vegetation_sort_ms,
+		float(frame_breakdown.get("vegetation_draw_loop_ms", 0.0)),
+		surface_texture_ms,
+		str(frame_breakdown.get("world_surface_texture_build_running", false)),
+		int(frame_breakdown.get("world_surface_texture_build_count", 0)),
+		biome_blend_ms,
+		"true" if bool(world_summary.get("biome_blend_texture_cache_hit", false)) else "false",
+		ai_sync_ms,
+		terrain_surface_ms,
+		int(frame_breakdown.get("terrain_surface_chunks_built_last_frame", 0)),
+		int(frame_breakdown.get("terrain_surface_refine_pending_count", 0)),
+		minimap_ms,
+		int(world_summary.get("minimap_build_count", 0)),
+		map_screen_ms,
+		float(frame_breakdown.get("world_night_overlay_ms", 0.0)),
+		int(world_summary.get("visible_resources", 0)),
+		int(world_summary.get("visible_creatures", 0)),
+		int(performance.get("fps", 0)),
+		float(hitch.get("performance_process_ms", 0.0)),
+		float(hitch.get("performance_physics_ms", 0.0))
+	]
 
 
 func _get_top_samples(limit: int) -> Array[Dictionary]:
@@ -1219,6 +1399,7 @@ func _format_report_text(report: Dictionary) -> String:
 	lines.append("Realtime hitch count: %d" % int(report.get("realtime_hitch_count", 0)))
 	lines.append("Max realtime delta: %d ms" % int(report.get("max_realtime_delta_ms", 0)))
 	lines.append(_format_hitch_summary_text(report))
+	lines.append(_format_hitch_breakdown_summary_text(report))
 	lines.append("")
 	lines.append(_format_threshold_validation_text(report))
 	var heaviest_sample: Dictionary = Dictionary(report.get("heaviest_sample", {}))
@@ -1245,6 +1426,10 @@ func _format_report_text(report: Dictionary) -> String:
 	lines.append("Suspected cost drivers:")
 	for item in _build_suspected_cost_driver_lines(report):
 		lines.append("- %s" % item)
+	var profiler_summary := Dictionary(report.get("runtime_profiler_summary", {}))
+	if not profiler_summary.is_empty():
+		lines.append("")
+		lines.append("Runtime profiler summary: %s" % JSON.stringify(profiler_summary))
 	return "\n".join(lines)
 
 
@@ -1545,6 +1730,20 @@ func _format_hitch_summary_text(report: Dictionary) -> String:
 	return "Hitch detector: %s" % ", ".join(entries)
 
 
+func _format_hitch_breakdown_summary_text(report: Dictionary) -> String:
+	var summary := Dictionary(report.get("hitch_breakdown_summary", {}))
+	if summary.is_empty():
+		return "Hitch breakdown: unavailable"
+	return "Hitch breakdown: count=%d threshold_ms=%d top_total=%s top_max=%s max_hitch_ms=%d unattributed=%d" % [
+		int(summary.get("count", 0)),
+		int(summary.get("threshold_ms", 0)),
+		str(summary.get("top_scope_by_total_ms", "unattributed")),
+		str(summary.get("top_scope_by_max_ms", "unattributed")),
+		int(summary.get("max_hitch_ms", 0)),
+		int(summary.get("unattributed_hitch_count", 0))
+	]
+
+
 func _append_threshold_metric_line(lines: Array[String], metrics: Dictionary, thresholds: Dictionary, metric_name: String, threshold_name: String, operator_text: String) -> void:
 	if not metrics.has(metric_name) or not thresholds.has(threshold_name):
 		return
@@ -1604,13 +1803,17 @@ func _format_driver_scores(sample: Dictionary) -> String:
 	var driver_scores: Dictionary = Dictionary(sample.get("driver_scores", {}))
 	if driver_scores.is_empty():
 		return "  driver scores unavailable"
-	return "  driver_scores render=%.2f physics=%.2f creatures=%.2f resources=%.2f scene=%.2f ecosystem=%.2f frame_stall=%.2f" % [
+	return "  driver_scores render=%.2f ai=%.2f world=%.2f ui=%.2f physics=%.2f resources=%.2f scene=%.2f ecosystem=%.2f unattributed=%.2f frame_stall=%.2f" % [
 		float(driver_scores.get("render", 0.0)),
+		float(driver_scores.get("ai", 0.0)),
+		float(driver_scores.get("world", 0.0)),
+		float(driver_scores.get("ui", 0.0)),
 		float(driver_scores.get("physics", 0.0)),
 		float(driver_scores.get("creatures", 0.0)),
 		float(driver_scores.get("resources", 0.0)),
 		float(driver_scores.get("scene", 0.0)),
 		float(driver_scores.get("ecosystem", 0.0)),
+		float(driver_scores.get("unattributed", 0.0)),
 		float(driver_scores.get("frame_stall", 0.0))
 	]
 
