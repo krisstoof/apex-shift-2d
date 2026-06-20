@@ -55,6 +55,8 @@ func run() -> Array[String]:
 func _test_resource_node_setup_exposes_herbivore_food(failures: Array[String]) -> void:
 	var resource := RESOURCE_NODE_SCENE.instantiate()
 	resource.call("setup", "tree")
+	TEST_UTILS.expect(resource.get("resource_state") != null, failures, "Tree resources should create a core ResourceState")
+	TEST_UTILS.expect_equal(str(resource.get("resource_state").resource_kind), "conifer_tree", failures, "Tree setup should normalize to the conifer_tree core kind")
 	TEST_UTILS.expect(resource.is_in_group("edible_vegetation"), failures, "Tree resources should belong to edible_vegetation")
 	TEST_UTILS.expect(float(resource.get("food_value")) > 0.0, failures, "Tree resources should expose a positive food value")
 	var eaten := float(resource.call("consume_by_creature", null, 1.0))
@@ -84,6 +86,8 @@ func _test_resource_node_restore_recreates_edible_food_value(failures: Array[Str
 		"food_bonus_multiplier": 1.0,
 		"pond_visual_multiplier": 1.0
 	})
+	TEST_UTILS.expect(resource.get("resource_state") != null, failures, "Restore should hydrate a core ResourceState")
+	TEST_UTILS.expect_equal(str(resource.get("resource_state").resource_kind), "conifer_tree", failures, "Legacy tree saves should default to conifer_tree core kind")
 	TEST_UTILS.expect(float(resource.get("food_value")) > 0.0, failures, "Older saves should restore a herbivore food value for trees and bushes")
 	TEST_UTILS.expect(bool(resource.get("is_edible_by_herbivores")), failures, "Older saves should rejoin edible_vegetation after restore")
 	resource.free()
@@ -93,6 +97,7 @@ func _test_resource_node_marks_grass_as_render_only_and_edible(failures: Array[S
 	for kind in ["grass_patch", "dense_grass"]:
 		var resource := RESOURCE_NODE_SCENE.instantiate()
 		resource.call("setup", kind)
+		TEST_UTILS.expect(resource.get("resource_state") != null, failures, "%s should create a core ResourceState" % kind)
 		TEST_UTILS.expect_equal(resource.call("is_render_only_resource"), true, failures, "%s should be render-only" % kind)
 		TEST_UTILS.expect_equal(resource.get("player_harvestable"), false, failures, "%s should not be player harvestable" % kind)
 		TEST_UTILS.expect_equal(str(resource.call("get_prompt")), "", failures, "%s should not show a player prompt" % kind)
@@ -272,6 +277,7 @@ func _test_resource_node_advance_growth_days_restores_harvestable_tree(failures:
 	var tree := Engine.get_main_loop() as SceneTree
 	tree.current_scene.add_child(resource)
 	resource.call("setup", "bush")
+	TEST_UTILS.expect(resource.get("resource_state") != null, failures, "Bush setup should create a core ResourceState")
 	var player := TestPlayer.new()
 	tree.current_scene.add_child(player)
 	resource.call("interact", player)
@@ -305,6 +311,7 @@ func _test_resource_node_force_full_regrowth_restores_mature_state(failures: Arr
 func _test_resource_node_meat_drop_does_not_use_regrowth(failures: Array[String]) -> void:
 	var resource := RESOURCE_NODE_SCENE.instantiate()
 	resource.call("setup", "meat_drop")
+	TEST_UTILS.expect_equal(str(resource.get("resource_state").resource_kind), "meat_drop", failures, "Meat drops should use the meat_drop core kind")
 	TEST_UTILS.expect_equal(resource.call("advance_growth_days", 3.0), false, failures, "Meat drops should not use regrowth")
 	TEST_UTILS.expect_equal(resource.get("can_be_harvested"), true, failures, "Meat drops should stay harvestable until empty")
 	TEST_UTILS.expect_equal(resource.get("is_harvested"), false, failures, "Meat drops should not be treated as harvested plants")
@@ -409,6 +416,7 @@ func _test_resource_node_picks_up_generic_item_drop(failures: Array[String]) -> 
 	var resource := RESOURCE_NODE_SCENE.instantiate()
 	tree.current_scene.add_child(resource)
 	resource.call("setup", "item_drop")
+	TEST_UTILS.expect(resource.get("resource_state").is_inventory_drop, failures, "Generic item drops should set the inventory-drop core flag")
 	resource.set("item_id", "wood")
 	resource.set("amount", 3)
 	var player := TestPlayer.new()
@@ -430,6 +438,7 @@ func _test_resource_node_keeps_generic_item_drop_when_inventory_full(failures: A
 	var resource := RESOURCE_NODE_SCENE.instantiate()
 	tree.current_scene.add_child(resource)
 	resource.call("setup", "item_drop")
+	TEST_UTILS.expect(resource.get("resource_state").is_inventory_drop, failures, "Generic item drops should set the inventory-drop core flag")
 	resource.set("item_id", "stone")
 	resource.set("amount", 2)
 	var player := TestPlayer.new()
@@ -458,6 +467,7 @@ func _test_resource_node_rejects_partial_pickup_for_full_stack_drop(failures: Ar
 	var resource := RESOURCE_NODE_SCENE.instantiate()
 	tree.current_scene.add_child(resource)
 	resource.call("setup", "item_drop")
+	TEST_UTILS.expect(resource.get("resource_state").is_inventory_drop, failures, "Generic item drops should set the inventory-drop core flag")
 	resource.set("item_id", "wood")
 	resource.set("amount", 2)
 	var player := TestPlayer.new()
