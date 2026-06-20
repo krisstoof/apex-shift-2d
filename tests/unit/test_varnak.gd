@@ -105,6 +105,7 @@ func run() -> Array[String]:
 	_test_varnak_can_wander(failures)
 	_test_varnak_does_not_leave_world_bounds(failures)
 	_test_varnak_searches_prey_when_hungry(failures)
+	_test_varnak_builds_decision_context(failures)
 	_test_varnak_does_not_hunt_when_not_hungry(failures)
 	_test_varnak_prefers_nearest_valid_prey(failures)
 	_test_varnak_protects_critical_prey_populations(failures)
@@ -239,6 +240,22 @@ func _test_varnak_searches_prey_when_hungry(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(varnak.state, varnak.State.HUNT_ECOSYSTEM, failures, "Hungry Varnak should hunt ecosystem prey")
 	TEST_UTILS.expect_equal(varnak.ecosystem_target_kind, "small_prey", failures, "Varnak should lock a small prey target")
 	prey.queue_free()
+	varnak.queue_free()
+
+
+func _test_varnak_builds_decision_context(failures: Array[String]) -> void:
+	var varnak := _make_varnak()
+	varnak.global_position = Vector2(128.0, 64.0)
+	varnak.biome_id = "westwood"
+	varnak.hunger = 0.58
+	varnak.energy = 0.44
+	varnak.state = varnak.State.WANDER
+	var context = varnak.call("build_decision_context")
+	TEST_UTILS.expect(context != null, failures, "Varnak should expose a decision context helper")
+	TEST_UTILS.expect_equal(str(context.get("current_behavior", "")), "wander", failures, "Varnak decision context should expose behavior")
+	TEST_UTILS.expect_equal(str(context.get("current_biome", "")), "westwood", failures, "Varnak decision context should include biome")
+	TEST_UTILS.expect_equal(str(context.get("hunger_stage", "")), "starving", failures, "Varnak decision context should derive hunger stage")
+	TEST_UTILS.expect_equal(bool(context.get("should_rest", false)), false, failures, "Varnak decision context should not force rest at moderate energy")
 	varnak.queue_free()
 
 

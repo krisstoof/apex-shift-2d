@@ -7,6 +7,7 @@ const MOVEMENT_SPIKE_TRACKER := preload("res://scripts/core/common/movement_spik
 const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
 const CREATURE_STATE := preload("res://scripts/core/creatures/creature_state.gd")
+const CREATURE_CONTEXT := preload("res://scripts/core/creatures/creature_context.gd")
 const SPECIES_PATH := "res://data/species/small_prey.json"
 const AI_DECISION_INTERVAL_SECONDS := 0.14
 const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
@@ -344,6 +345,31 @@ func sync_creature_state_from_node() -> CreatureState:
 		"plant_consumption_rate": plant_consumption_rate
 	}
 	return creature_state
+
+
+func build_decision_context() -> CreatureContext:
+	var context := CREATURE_CONTEXT.new()
+	var current_biome_id := _get_current_biome_id()
+	context.position = global_position
+	context.current_biome = current_biome_id
+	context.home_biome = home_biome_id
+	context.return_position = wander_target
+	context.is_inside_home_biome = current_biome_id == home_biome_id or home_biome_id.is_empty()
+	context.current_behavior = _small_prey_state_to_behavior_name(state)
+	context.hunger_ratio = hunger_diet.get_hunger_ratio()
+	context.hunger_stage = hunger_diet.get_hunger_stage()
+	context.energy = energy
+	context.state_time = state_time
+	context.target_lock_time = target_lock_time
+	context.eat_cooldown = eat_cooldown
+	context.should_rest = state == State.IDLE and state_time > 0.0
+	if is_instance_valid(plant_target):
+		context.set_food_target("plant", plant_target.global_position, plant_target.get_instance_id(), global_position.distance_to(plant_target.global_position) <= vegetation_eat_range)
+	if _get_flee_origin() != Vector2.INF:
+		context.set_predator_threat(_get_flee_origin(), 0, "predator")
+	if _get_flee_origin() == Vector2.INF and not WORLD_CONFIG.WORLD_RECT.has_point(global_position):
+		context.set_water_hazard(_clamp_to_world(global_position))
+	return context
 
 
 func get_creature_state_data() -> Dictionary:

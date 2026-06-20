@@ -7,6 +7,7 @@ const MOVEMENT_SPIKE_TRACKER := preload("res://scripts/core/common/movement_spik
 const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
 const CREATURE_STATE := preload("res://scripts/core/creatures/creature_state.gd")
+const CREATURE_CONTEXT := preload("res://scripts/core/creatures/creature_context.gd")
 const SPECIES_PATH := "res://data/species/grazer.json"
 const AI_DECISION_INTERVAL_SECONDS := 0.14
 const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
@@ -364,6 +365,33 @@ func sync_creature_state_from_node() -> CreatureState:
 		"dropped_meat": dropped_meat
 	}
 	return creature_state
+
+
+func build_decision_context() -> CreatureContext:
+	var context := CREATURE_CONTEXT.new()
+	var current_biome_id := _get_current_biome_id()
+	context.position = global_position
+	context.current_biome = current_biome_id
+	context.home_biome = home_biome_id
+	context.return_position = wander_target
+	context.is_inside_home_biome = current_biome_id == home_biome_id or home_biome_id.is_empty()
+	context.current_behavior = _grazer_state_to_behavior_name(state)
+	context.hunger_ratio = hunger_diet.get_hunger_ratio()
+	context.hunger_stage = hunger_diet.get_hunger_stage()
+	context.energy = energy
+	context.state_time = state_time
+	context.target_lock_time = target_lock_time
+	context.eat_cooldown = eat_visual_time
+	context.should_rest = state == State.IDLE and state_time > 0.0
+	if is_instance_valid(plant_target):
+		context.set_food_target("plant", plant_target.global_position, plant_target.get_instance_id(), global_position.distance_to(plant_target.global_position) <= vegetation_eat_range)
+	elif is_instance_valid(meat_target):
+		context.set_meat_target(meat_target.global_position, meat_target.get_instance_id(), global_position.distance_to(meat_target.global_position) <= meat_eat_range)
+	elif is_instance_valid(prey_target):
+		context.set_prey_target("small_prey", prey_target.global_position, prey_target.get_instance_id(), global_position.distance_to(prey_target.global_position) <= small_prey_attack_range)
+	if _get_flee_origin() != Vector2.INF:
+		context.set_predator_threat(_get_flee_origin(), 0, "predator")
+	return context
 
 
 func get_creature_state_data() -> Dictionary:

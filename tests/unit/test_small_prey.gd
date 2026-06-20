@@ -54,6 +54,7 @@ func run() -> Array[String]:
 	_test_small_prey_can_wander(failures)
 	_test_small_prey_does_not_leave_world_bounds(failures)
 	_test_small_prey_searches_food_when_hungry(failures)
+	_test_small_prey_builds_decision_context(failures)
 	_test_small_prey_ignores_food_when_not_hungry(failures)
 	_test_small_prey_moves_toward_food(failures)
 	_test_small_prey_eats_valid_food(failures)
@@ -145,6 +146,23 @@ func _test_small_prey_searches_food_when_hungry(failures: Array[String]) -> void
 	TEST_UTILS.expect_equal(prey.state, prey.State.SEEK_FOOD, failures, "Hungry small prey should seek food")
 	TEST_UTILS.expect(is_instance_valid(prey.plant_target), failures, "Hungry small prey should lock a plant target")
 	resource.queue_free()
+	prey.queue_free()
+
+
+func _test_small_prey_builds_decision_context(failures: Array[String]) -> void:
+	var prey := _make_small_prey()
+	prey.call("_load_species_data")
+	prey.global_position = Vector2(44.0, 18.0)
+	prey.biome_id = "westwood"
+	prey.home_biome_id = "westwood"
+	prey.hunger_diet.hunger = 0.65
+	prey.call("_sync_hunger_fields")
+	var context = prey.call("build_decision_context")
+	TEST_UTILS.expect(context != null, failures, "Small prey should expose a decision context helper")
+	TEST_UTILS.expect_equal(str(context.get("current_biome", "")), "westwood", failures, "Small prey decision context should include the current biome")
+	TEST_UTILS.expect_equal(bool(context.get("is_inside_home_biome", false)), true, failures, "Small prey decision context should reflect home biome membership")
+	TEST_UTILS.expect_equal(str(context.get("hunger_stage", "")), "hungry", failures, "Small prey decision context should include hunger stage")
+	TEST_UTILS.expect_equal(str(context.get("current_behavior", "")), "wander", failures, "Small prey decision context should expose behavior")
 	prey.queue_free()
 
 

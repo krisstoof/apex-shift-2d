@@ -5,6 +5,7 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
 const CREATURE_STATE := preload("res://scripts/core/creatures/creature_state.gd")
+const CREATURE_CONTEXT := preload("res://scripts/core/creatures/creature_context.gd")
 
 enum State { IDLE, WANDER, STALK, CHASE, ATTACK, FLEE, HUNT_ECOSYSTEM, EAT_MEAT }
 
@@ -344,6 +345,31 @@ func sync_creature_state_from_node() -> CreatureState:
 		"stalk_tendency": stalk_tendency
 	}
 	return creature_state
+
+
+func build_decision_context() -> CreatureContext:
+	var context := CREATURE_CONTEXT.new()
+	var current_biome_id := _get_current_biome_id()
+	context.position = global_position
+	context.current_biome = current_biome_id
+	context.home_biome = ""
+	context.return_position = wander_target
+	context.is_inside_home_biome = true
+	context.current_behavior = _varnak_state_to_behavior_name(state)
+	context.hunger_ratio = clamp(hunger, 0.0, 1.0)
+	context.hunger_stage = "desperate" if hunger >= 0.75 else ("starving" if hunger >= 0.45 else ("hungry" if hunger >= 0.25 else "sated"))
+	context.energy = energy
+	context.state_time = 0.0
+	context.target_lock_time = target_lock_time
+	context.eat_cooldown = attack_cooldown
+	context.should_rest = is_dead or energy <= 0.12
+	if is_instance_valid(scared_fire):
+		context.set_fire_threat(scared_fire.global_position, scared_fire.get_instance_id())
+	if is_instance_valid(meat_target):
+		context.set_meat_target(meat_target.global_position, meat_target.get_instance_id(), global_position.distance_to(meat_target.global_position) <= MEAT_CONSUME_RANGE)
+	if is_instance_valid(ecosystem_target):
+		context.set_prey_target(ecosystem_target_kind, ecosystem_target.global_position, ecosystem_target.get_instance_id(), global_position.distance_to(ecosystem_target.global_position) <= ATTACK_RANGE)
+	return context
 
 
 func get_creature_state_data() -> Dictionary:

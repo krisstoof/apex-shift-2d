@@ -73,6 +73,7 @@ func run() -> Array[String]:
 	_test_grazer_does_not_leave_world_bounds(failures)
 	_test_grazer_prefers_world_query_service_for_navigation_and_terrain(failures)
 	_test_grazer_searches_plants_when_hungry(failures)
+	_test_grazer_builds_decision_context(failures)
 	_test_grazer_moves_toward_nearest_food(failures)
 	_test_grazer_eats_plant_resource(failures)
 	_test_grazer_consumes_nearby_plant_over_time(failures)
@@ -183,6 +184,23 @@ func _test_grazer_searches_plants_when_hungry(failures: Array[String]) -> void:
 	TEST_UTILS.expect_equal(grazer.state, grazer.State.SEEK_FOOD, failures, "Hungry grazer should seek plants")
 	TEST_UTILS.expect(is_instance_valid(grazer.plant_target), failures, "Hungry grazer should lock a plant target")
 	resource.queue_free()
+	grazer.queue_free()
+
+
+func _test_grazer_builds_decision_context(failures: Array[String]) -> void:
+	var grazer := _make_grazer()
+	grazer.call("_load_species_data")
+	grazer.global_position = Vector2(88.0, 40.0)
+	grazer.biome_id = "hearth_meadow"
+	grazer.home_biome_id = "hearth_meadow"
+	grazer.hunger_diet.hunger = 0.78
+	grazer.call("_sync_hunger_fields")
+	var context = grazer.call("build_decision_context")
+	TEST_UTILS.expect(context != null, failures, "Grazer should expose a decision context helper")
+	TEST_UTILS.expect_equal(str(context.get("current_biome", "")), "hearth_meadow", failures, "Grazer decision context should include the current biome")
+	TEST_UTILS.expect_equal(str(context.get("hunger_stage", "")), "starving", failures, "Grazer decision context should include hunger stage")
+	TEST_UTILS.expect_equal(str(context.get("current_behavior", "")), "wander", failures, "Grazer decision context should expose behavior")
+	TEST_UTILS.expect_equal(bool(context.get("is_inside_home_biome", false)), true, failures, "Grazer decision context should reflect home biome membership")
 	grazer.queue_free()
 
 

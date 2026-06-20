@@ -5,6 +5,11 @@ const CREATURE_STATS := preload("res://scripts/core/creatures/creature_stats.gd"
 const CREATURE_NEEDS := preload("res://scripts/core/creatures/creature_needs.gd")
 const CREATURE_MEMORY := preload("res://scripts/core/creatures/creature_memory.gd")
 const CREATURE_SIMULATION_RESULT := preload("res://scripts/core/creatures/creature_simulation_result.gd")
+const CREATURE_CONTEXT := preload("res://scripts/core/creatures/creature_context.gd")
+const CREATURE_DECISION := preload("res://scripts/core/creatures/creature_decision.gd")
+const SMALL_PREY_BRAIN := preload("res://scripts/core/creatures/small_prey_brain.gd")
+const GRAZER_BRAIN := preload("res://scripts/core/creatures/grazer_brain.gd")
+const VARNAK_BRAIN := preload("res://scripts/core/creatures/varnak_brain.gd")
 
 var entity_id := 0
 var creature_type := ""
@@ -46,10 +51,61 @@ func decide_next_behavior(context: Dictionary = {}) -> CreatureSimulationResult:
 		memory.set_behavior("dead", "dead")
 		return CREATURE_SIMULATION_RESULT.for_behavior("dead", "dead")
 
-	var result := CREATURE_SIMULATION_RESULT.for_behavior(memory.current_behavior, memory.decision_reason)
-	result.target_entity_id = memory.target_entity_id
-	result.target_position = memory.target_position
-	result.target_kind = memory.target_kind
+	var decision := _decide_with_brain(context)
+	return _decision_to_simulation_result(decision)
+
+
+func _decide_with_brain(context: Variant) -> CreatureDecision:
+	var brain: Variant = _get_brain_for_type()
+	if brain == null:
+		return CREATURE_DECISION.for_action(memory.current_behavior, memory.decision_reason, memory.target_position, memory.target_entity_id, memory.target_kind)
+	return brain.decide(self, _context_from_variant(context))
+
+
+func _get_brain_for_type():
+	var type_name := creature_type
+	if type_name.is_empty():
+		type_name = species_id
+	match type_name:
+		"small_prey":
+			return SMALL_PREY_BRAIN.new()
+		"grazer":
+			return GRAZER_BRAIN.new()
+		"varnak":
+			return VARNAK_BRAIN.new()
+		_:
+			return null
+
+
+func _context_from_variant(context: Variant) -> CreatureContext:
+	var resolved: CreatureContext
+	if context is CreatureContext:
+		resolved = context
+	elif typeof(context) == TYPE_DICTIONARY:
+		resolved = CREATURE_CONTEXT.from_dictionary(Dictionary(context))
+	else:
+		resolved = CREATURE_CONTEXT.new()
+	resolved.position = position
+	resolved.current_behavior = memory.current_behavior
+	resolved.current_biome = memory.current_biome
+	resolved.home_biome = memory.home_biome
+	resolved.state_time = memory.state_time
+	resolved.target_lock_time = memory.target_lock_time
+	resolved.eat_cooldown = memory.eat_cooldown
+	resolved.energy = needs.energy
+	resolved.hunger_ratio = needs.get_hunger_ratio()
+	resolved.hunger_stage = needs.get_hunger_stage()
+	return resolved
+
+
+func _decision_to_simulation_result(decision: CreatureDecision) -> CreatureSimulationResult:
+	var result := CREATURE_SIMULATION_RESULT.for_behavior(decision.action, decision.reason)
+	result.target_entity_id = decision.target_entity_id
+	result.target_position = decision.target_position
+	result.target_kind = decision.target_kind
+	result.should_consume_target = bool(decision.metadata.get("consume", decision.action == CreatureDecision.ACTION_EAT))
+	result.should_attack_target = bool(decision.metadata.get("attack", decision.action == CreatureDecision.ACTION_HUNT))
+	result.should_flee = decision.action == CreatureDecision.ACTION_FLEE
 	return result
 
 
