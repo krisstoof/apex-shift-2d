@@ -1,21 +1,11 @@
 extends Node
 
 const SAVE_PATH := "user://savegame.json"
-const BUILDING_SCENES := {
-	"campfire": preload("res://scenes/buildings/campfire.tscn"),
-	"trap": preload("res://scenes/buildings/trap.tscn"),
-	"wall": preload("res://scenes/buildings/wall.tscn"),
-	"storage_box": preload("res://scenes/buildings/storage_box.tscn"),
-	"tent": preload("res://scenes/buildings/tent.tscn")
-}
-const BUILDING_GROUPS := {
-	"campfire": "campfires",
-	"trap": "traps",
-	"wall": "walls",
-	"storage_box": "storage_boxes",
-	"tent": "tents"
-}
-const BUILDING_STATE_SCRIPT := preload("res://scripts/core/buildings/building_state.gd")
+const SAVE_SERIALIZER_SCRIPT := preload("res://scripts/core/save/save_serializer.gd")
+const SAVE_DATA_COLLECTOR_SCRIPT := preload("res://scripts/core/save/save_data_collector.gd")
+const SAVE_DATA_RESTORER_SCRIPT := preload("res://scripts/core/save/save_data_restorer.gd")
+var _collector: SaveDataCollector
+var _restorer: SaveDataRestorer
 
 
 func _post_event_message(message: String) -> void:
@@ -28,7 +18,7 @@ func _post_event_message(message: String) -> void:
 
 
 func save_game() -> void:
-	var data: Dictionary = Dictionary(_sanitize_save_data(_collect_save_data()))
+	var data: Dictionary = SAVE_SERIALIZER_SCRIPT.serialize(_collect_save_data())
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if not file:
 		_post_event_message("Could not save game")
@@ -50,242 +40,44 @@ func load_game() -> void:
 
 
 func _collect_save_data() -> Dictionary:
-	var scene := get_tree().current_scene
-	var player := scene.get_node("Player")
-	var world := scene.get_node("World")
-	var day_night_system := scene.get_node("DayNightSystem")
-	var evolution_director := scene.get_node("EvolutionDirector")
-	var ecosystem_director := scene.get_node("EcosystemDirector")
-	return {
-		"version": 5,
-		"world": world.get_save_data(),
-		"world_generation": {
-			"version": int(world.get_world_generation_debug().get("version", 0)) if world.has_method("get_world_generation_debug") else 0,
-			"seed": int(world.get_world_seed()) if world.has_method("get_world_seed") else 0,
-			"layout": world.get_world_layout() if world.has_method("get_world_layout") else {},
-			"save_has_world_generation_layout": world.has_method("get_world_layout") and not world.get_world_layout().is_empty(),
-			"save_world_generation_version": int(world.get_world_generation_debug().get("world_generation_version", 0)) if world.has_method("get_world_generation_debug") else 0,
-			"current_world_generation_version": int(world.get_world_generation_debug().get("world_generation_version", 0)) if world.has_method("get_world_generation_debug") else 0,
-			"generator_rules_version": str(world.get_world_generation_debug().get("generator_rules_version", "")) if world.has_method("get_world_generation_debug") else "",
-			"topography_rules_version": str(world.get_world_generation_debug().get("topography_rules_version", "")) if world.has_method("get_world_generation_debug") else ""
-		},
-		"player": _get_player_data(player),
-		"resources": world.get_resource_save_data(),
-		"varnaks": world.get_varnak_save_data(),
-		"small_prey": world.get_small_prey_save_data(),
-		"grazers": world.get_grazer_save_data(),
-		"buildings": _get_buildings_data(),
-		"storage_boxes": _get_storage_boxes_data(),
-		"day_night": day_night_system.get_save_data(),
-		"evolution": evolution_director.get_save_data(),
-		"ecosystem": ecosystem_director.get_save_data()
-	}
+	return _get_collector().collect()
 
 
 func _get_player_data(player: Node) -> Dictionary:
-	return {
-		"position": _vector_to_data(player.global_position),
-		"stats": player.stats.get_save_data(),
-		"inventory": player.inventory.to_save_data(),
-		"hotbar": player.hotbar_state.to_save_data() if player.get("hotbar_state") != null and player.hotbar_state.has_method("to_save_data") else {},
-		"has_spear": player.has_spear,
-		"has_bow": player.has_bow,
-		"torch_active": player.torch_active,
-		"torch_remaining_seconds": player.torch_remaining_seconds
-	}
+	return _get_collector().get_player_data_from_player(player)
 
 
 func _get_buildings_data() -> Array[Dictionary]:
-	var buildings: Array[Dictionary] = []
-	var scene := get_tree().current_scene
-	var world := scene.get_node_or_null("World") if scene else null
-	for building_kind in BUILDING_GROUPS.keys():
-		var building_nodes: Array = []
-		if world and world.has_method("get_registered_buildings_by_type"):
-			building_nodes = world.get_registered_buildings_by_type(String(building_kind))
-		else:
-			var group_name := String(BUILDING_GROUPS[building_kind])
-			building_nodes = get_tree().get_nodes_in_group(group_name)
-		for building in building_nodes:
-			if not is_instance_valid(building):
-				continue
-			buildings.append(_get_building_data(String(building_kind), building))
-	return buildings
+	return _get_collector().get_buildings_data()
 
 
 func _get_storage_boxes_data() -> Array[Dictionary]:
-	var storage_boxes: Array[Dictionary] = []
-	for node in get_tree().get_nodes_in_group("storage_boxes"):
-		if not is_instance_valid(node):
-			continue
-		if node.has_method("get_save_data"):
-			storage_boxes.append(Dictionary(node.call("get_save_data")))
-	return storage_boxes
+	return _get_collector().get_storage_boxes_data()
 
 
 func _get_building_data(building_kind: String, building: Node2D) -> Dictionary:
-	var building_state := BUILDING_STATE_SCRIPT.new()
-	building_state.kind = building_kind
-	building_state.position = building.global_position
-	if building.has_method("get_building_state"):
-		building_state.load_from_save_data(Dictionary(building.call("get_building_state")))
-	else:
-		building_state.capture_from_building(building)
-	return building_state.for_kind(building_kind)
+	return _get_collector().get_building_data(building_kind, building)
 
 
 func _restore_save_data(data: Dictionary) -> void:
-	var scene := get_tree().current_scene
-	var player := scene.get_node("Player")
-	var world := scene.get_node("World")
-	var day_night_system := scene.get_node("DayNightSystem")
-	var evolution_director := scene.get_node("EvolutionDirector")
-	var ecosystem_director := scene.get_node("EcosystemDirector")
-	var game_session := get_node_or_null("/root/GameSession")
-	var world_data := Dictionary(data.get("world", {}))
-	if world and world.has_method("begin_save_restore"):
-		world.begin_save_restore()
-
-	if not world_data.is_empty():
-		await world.restore_landmarks(Array(world_data.get("landmarks", [])), int(world_data.get("world_seed", 0)))
-		if game_session and game_session.has_method("set_bootstrap_world_state"):
-			game_session.set_bootstrap_world_state(int(world_data.get("world_seed", 0)), Array(world_data.get("landmarks", [])))
-	var world_generation_data := Dictionary(data.get("world_generation", {}))
-	var save_has_world_generation_layout := world_generation_data.has("layout") and not Dictionary(world_generation_data.get("layout", {})).is_empty()
-	var restore_mode := "legacy"
-	if save_has_world_generation_layout:
-		restore_mode = "full_layout"
-	elif world_generation_data.has("version") or world_generation_data.has("seed"):
-		restore_mode = "seed_fallback"
-	if world.has_method("set_procedural_world_restore_mode"):
-		world.call("set_procedural_world_restore_mode", restore_mode)
-	if save_has_world_generation_layout and world.has_method("generate_new_world"):
-		var layout := Dictionary(world_generation_data.get("layout", {}))
-		if not layout.is_empty() and world.has_method("_apply_world_layout"):
-			world.call("_apply_world_layout", layout)
-	elif world.has_method("set_procedural_world_restore_mode") and restore_mode == "legacy":
-		world.call("set_procedural_world_restore_mode", "legacy")
-	_restore_player_data(player, Dictionary(data.get("player", {})))
-	evolution_director.restore_from_data(Dictionary(data.get("evolution", {})))
-	ecosystem_director.load_save_data(Dictionary(data.get("ecosystem", {})))
-	day_night_system.restore_from_data(Dictionary(data.get("day_night", {})))
-	await world.restore_resources(Array(data.get("resources", [])))
-	var has_storage_boxes := data.has("storage_boxes")
-	await _restore_buildings(Array(data.get("buildings", [])), has_storage_boxes)
-	await _restore_storage_boxes(data)
-	await world.restore_varnaks(Array(data.get("varnaks", [])))
-	if data.has("small_prey"):
-		await world.restore_small_prey(Array(data.get("small_prey", [])))
-	if data.has("grazers"):
-		await world.restore_grazers(Array(data.get("grazers", [])))
-	if world and world.has_method("end_save_restore"):
-		world.end_save_restore()
-	if world and world.has_method("rebuild_runtime_indexes_after_load"):
-		world.rebuild_runtime_indexes_after_load()
+	await _get_restorer().restore(SAVE_SERIALIZER_SCRIPT.deserialize(data))
 
 
 func _restore_player_data(player: Node, data: Dictionary) -> void:
-	player.global_position = _data_to_vector(data.get("position", {}))
-	player.stats.restore_from_data(Dictionary(data.get("stats", {})))
-	if data.has("inventory"):
-		player.inventory.load_from_save_data(Dictionary(data.get("inventory", {})))
-	else:
-		player.inventory.clear()
-		player.inventory.add_item("wood", int(data.get("wood", 0)))
-		player.inventory.add_item("stone", int(data.get("stone", 0)))
-		player.inventory.add_item("fiber", int(data.get("fiber", 0)))
-		player.inventory.add_item("meat", int(data.get("meat", 0)))
-		player.inventory.add_item("bone", int(data.get("bone", 0)))
-	if data.has("hotbar") and player.get("hotbar_state") != null and player.hotbar_state.has_method("load_from_save_data"):
-		player.hotbar_state.load_from_save_data(Dictionary(data.get("hotbar", {})))
-	player.has_spear = data.get("has_spear", player.has_spear) == true
-	player.has_bow = data.get("has_bow", player.has_bow) == true
-	player.torch_active = data.get("torch_active", player.torch_active) == true
-	player.torch_remaining_seconds = float(data.get("torch_remaining_seconds", player.torch_remaining_seconds))
-	if player.torch_active and player.torch_remaining_seconds <= 0.0:
-		player.clear_inactive_torch_state()
+	_get_restorer().player = player
+	_get_restorer().restore_player_data(data)
 
 
 func _restore_buildings(buildings: Array, skip_storage_boxes: bool = false) -> void:
-	var scene := get_tree().current_scene
-	var world := scene.get_node_or_null("World") if scene else null
-	if world and world.has_method("get_registered_buildings"):
-		for building in world.get_registered_buildings():
-			if is_instance_valid(building):
-				building.queue_free()
-	else:
-		for group_name in BUILDING_GROUPS.values():
-			for building in get_tree().get_nodes_in_group(String(group_name)):
-				if is_instance_valid(building):
-					building.queue_free()
-	await get_tree().process_frame
-
-	for building_data in buildings:
-		if typeof(building_data) != TYPE_DICTIONARY:
-			continue
-		var data := Dictionary(building_data)
-		var building_kind := str(data.get("kind", ""))
-		if skip_storage_boxes and building_kind == "storage_box":
-			continue
-		if not BUILDING_SCENES.has(building_kind):
-			continue
-		var building: Node2D = BUILDING_SCENES[building_kind].instantiate()
-		scene.add_child(building)
-		building.global_position = _data_to_vector(data.get("position", {}))
-		if world and world.has_method("register_building_node"):
-			world.register_building_node(building, building_kind)
-		_restore_building_state(building_kind, building, data)
+	_get_restorer().restore_buildings(buildings, skip_storage_boxes)
 
 
 func _restore_storage_boxes(save_data: Dictionary) -> void:
-	var scene := get_tree().current_scene
-	if scene == null:
-		return
-	var storage_boxes_data: Array = []
-	if save_data.has("storage_boxes"):
-		storage_boxes_data = Array(save_data.get("storage_boxes", []))
-	elif save_data.has("buildings"):
-		for building_data in Array(save_data.get("buildings", [])):
-			if typeof(building_data) != TYPE_DICTIONARY:
-				continue
-			var building_dict := Dictionary(building_data)
-			if str(building_dict.get("kind", "")) == "storage_box":
-				storage_boxes_data.append(building_dict)
-	if storage_boxes_data.is_empty():
-		return
-	_clear_existing_storage_boxes()
-	await get_tree().process_frame
-	for box_data_variant in storage_boxes_data:
-		if typeof(box_data_variant) != TYPE_DICTIONARY:
-			continue
-		var box_data := Dictionary(box_data_variant)
-		var box: Node2D = BUILDING_SCENES["storage_box"].instantiate()
-		scene.add_child(box)
-		if box.has_method("restore_from_data"):
-			box.restore_from_data(box_data)
-		else:
-			box.global_position = _data_to_vector(box_data.get("position", {}))
-		var world := scene.get_node_or_null("World")
-		if world and world.has_method("register_building_node"):
-			world.register_building_node(box, "storage_box")
+	_get_restorer().restore_storage_boxes(save_data)
 
 
 func _clear_existing_storage_boxes() -> void:
-	for node in get_tree().get_nodes_in_group("storage_boxes"):
-		if is_instance_valid(node):
-			node.queue_free()
-	await get_tree().process_frame
-
-
-func _restore_building_state(building_kind: String, building: Node, data: Dictionary) -> void:
-	if building.has_method("apply_building_state"):
-		building.call("apply_building_state", data)
-		building.queue_redraw()
-		return
-	if building.has_method("restore_from_data"):
-		building.call("restore_from_data", data)
-		return
-	building.queue_redraw()
+	_get_restorer().clear_existing_storage_boxes()
 
 
 func _vector_to_data(value: Vector2) -> Dictionary:
@@ -295,37 +87,44 @@ func _vector_to_data(value: Vector2) -> Dictionary:
 func _data_to_vector(data: Variant) -> Vector2:
 	if typeof(data) != TYPE_DICTIONARY:
 		return Vector2.ZERO
-	return Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
+	return Vector2(float(Dictionary(data).get("x", 0.0)), float(Dictionary(data).get("y", 0.0)))
 
 
 func _sanitize_save_data(value: Variant) -> Variant:
-	match typeof(value):
-		TYPE_DICTIONARY:
-			var sanitized: Dictionary = {}
-			for key in Dictionary(value).keys():
-				sanitized[key] = _sanitize_save_data(Dictionary(value)[key])
-			return sanitized
-		TYPE_ARRAY:
-			var sanitized_array: Array = []
-			for item in Array(value):
-				sanitized_array.append(_sanitize_save_data(item))
-			return sanitized_array
-		TYPE_FLOAT:
-			var float_value := float(value)
-			if is_nan(float_value) or is_inf(float_value):
-				return null
-			return float_value
-		TYPE_VECTOR2:
-			var vector_value := Vector2(value)
-			return {
-				"x": _sanitize_save_data(vector_value.x),
-				"y": _sanitize_save_data(vector_value.y)
-			}
-		TYPE_VECTOR2I:
-			var vector2i_value := Vector2i(value)
-			return {
-				"x": vector2i_value.x,
-				"y": vector2i_value.y
-			}
-		_:
-			return value
+	return SAVE_SERIALIZER_SCRIPT.sanitize(value)
+
+
+func _get_collector() -> SaveDataCollector:
+	if _collector == null:
+		_collector = SAVE_DATA_COLLECTOR_SCRIPT.new()
+	_update_collector_context()
+	return _collector
+
+
+func _get_restorer() -> SaveDataRestorer:
+	if _restorer == null:
+		_restorer = SAVE_DATA_RESTORER_SCRIPT.new()
+	_update_restorer_context()
+	return _restorer
+
+
+func _update_collector_context() -> void:
+	if _collector == null:
+		return
+	_collector.scene = get_tree().current_scene
+	_collector.world = _collector.scene.get_node_or_null("World") if _collector.scene else null
+	_collector.player = _collector.scene.get_node_or_null("Player") if _collector.scene else null
+	_collector.day_night_system = _collector.scene.get_node_or_null("DayNightSystem") if _collector.scene else null
+	_collector.evolution_director = _collector.scene.get_node_or_null("EvolutionDirector") if _collector.scene else null
+	_collector.ecosystem_director = _collector.scene.get_node_or_null("EcosystemDirector") if _collector.scene else null
+
+
+func _update_restorer_context() -> void:
+	if _restorer == null:
+		return
+	_restorer.scene = get_tree().current_scene
+	_restorer.world = _restorer.scene.get_node_or_null("World") if _restorer.scene else null
+	_restorer.day_night_system = _restorer.scene.get_node_or_null("DayNightSystem") if _restorer.scene else null
+	_restorer.evolution_director = _restorer.scene.get_node_or_null("EvolutionDirector") if _restorer.scene else null
+	_restorer.ecosystem_director = _restorer.scene.get_node_or_null("EcosystemDirector") if _restorer.scene else null
+	_restorer.game_session = get_node_or_null("/root/GameSession")

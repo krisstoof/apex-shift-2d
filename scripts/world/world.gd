@@ -235,6 +235,7 @@ var runtime_terrain_surface_refined_texture_size := int(SURFACE_BLEND_TEXTURE_SI
 var runtime_terrain_surface_max_chunks_built_per_frame := 2
 var runtime_terrain_surface_max_build_ms_per_frame := 3.0
 var runtime_terrain_surface_hard_budget_ms := 3.0
+var runtime_use_terrain_surface_chunk_renderer := true
 var runtime_debug_overlays_enabled := false
 var graphics_settings: Node = GRAPHICS_SETTINGS_SCRIPT.new()
 var group_nodes_cache: Dictionary = {}
@@ -400,7 +401,8 @@ func _run_initial_world_boot() -> void:
 	_ensure_render_performance_governor()
 	_ensure_terrain_cell_map()
 	_ensure_terrain_chunk_renderer()
-	_ensure_terrain_surface_chunk_renderer()
+	if runtime_use_terrain_surface_chunk_renderer:
+		_ensure_terrain_surface_chunk_renderer()
 	_ensure_biome_shape_map()
 	_ensure_biome_shape_renderer()
 	_initialize_biome_query_service()
@@ -442,7 +444,8 @@ func _run_initial_world_boot() -> void:
 	_rebuild_chunk_assignments()
 	decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
 	_sync_biome_shape_renderer(true)
-	_sync_terrain_surface_chunk_renderer(true)
+	if runtime_use_terrain_surface_chunk_renderer:
+		_sync_terrain_surface_chunk_renderer(true)
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)):
 		_queue_boot_biome_shape_map_build()
 	if is_instance_valid(terrain_chunk_renderer):
@@ -511,13 +514,13 @@ func _process(delta: float) -> void:
 	terrain_surface_renderer_update_timer -= delta
 	if terrain_surface_renderer_update_timer <= 0.0:
 		terrain_surface_renderer_update_timer = TERRAIN_SURFACE_RENDERER_UPDATE_INTERVAL
-		if is_instance_valid(terrain_surface_chunk_renderer):
+		if runtime_use_terrain_surface_chunk_renderer and is_instance_valid(terrain_surface_chunk_renderer):
 			if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 				RUNTIME_PROFILER.begin_scope("terrain_surface_chunk_visibility_ms")
 			terrain_surface_chunk_renderer.process_visibility(delta)
 			if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 				RUNTIME_PROFILER.end_scope("terrain_surface_chunk_visibility_ms")
-	if is_instance_valid(terrain_surface_chunk_renderer):
+	if runtime_use_terrain_surface_chunk_renderer and is_instance_valid(terrain_surface_chunk_renderer):
 		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 			RUNTIME_PROFILER.begin_scope("terrain_surface_chunk_build_ms")
 		terrain_surface_chunk_renderer.process_build_queue()
@@ -595,7 +598,7 @@ func _process(delta: float) -> void:
 	if resource_activation_timer <= 0.0:
 		resource_activation_timer = runtime_activation_update_interval
 		_update_resource_interactions()
-	var use_surface_renderer := bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
+	var use_surface_renderer := runtime_use_terrain_surface_chunk_renderer
 	var allow_legacy_overlay := bool(GAME_BALANCE.BIOME_TEXTURES.get("legacy_biome_detail_overlay_enabled_with_surface_renderer", false))
 	if not use_surface_renderer or allow_legacy_overlay:
 		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
@@ -641,6 +644,7 @@ func _apply_graphics_settings_defaults() -> void:
 	runtime_terrain_surface_max_chunks_built_per_frame = int(runtime_config.get("terrain_surface_max_chunks_built_per_frame", runtime_terrain_surface_max_chunks_built_per_frame))
 	runtime_terrain_surface_max_build_ms_per_frame = float(runtime_config.get("terrain_surface_max_build_ms_per_frame", runtime_terrain_surface_max_build_ms_per_frame))
 	runtime_terrain_surface_hard_budget_ms = float(runtime_config.get("terrain_surface_hard_budget_ms", runtime_terrain_surface_hard_budget_ms))
+	runtime_use_terrain_surface_chunk_renderer = bool(runtime_config.get("use_terrain_surface_chunk_renderer", GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)))
 	runtime_debug_overlays_enabled = bool(runtime_config.get("debug_overlays_enabled", runtime_debug_overlays_enabled))
 	biome_detail_overlay_enabled = true
 	if _is_low_end_static_surface_mode_enabled():
@@ -705,7 +709,8 @@ func _update_decorative_vegetation_visible_rect() -> void:
 			minimap_node.call("apply_graphics_preset_config", {
 				"minimap_redraw_interval": runtime_minimap_redraw_interval,
 				"minimap_marker_rebuild_interval": runtime_minimap_marker_rebuild_interval,
-				"minimap_player_redraw_interval": runtime_minimap_player_redraw_interval
+				"minimap_player_redraw_interval": runtime_minimap_player_redraw_interval,
+				"minimap_static_work_enabled": runtime_use_terrain_surface_chunk_renderer and biome_textures_enabled
 			})
 
 

@@ -865,3 +865,52 @@ func _get_event_bus() -> Node:
 	if not is_inside_tree():
 		return null
 	return get_node_or_null("/root/EventBus")
+func _apply_daily_population_recovery() -> void:
+	for biome_id_value in biome_states.keys():
+		var biome_id := str(biome_id_value)
+		var state := Dictionary(biome_states.get(biome_id, {}))
+		if state.is_empty():
+			continue
+		var biomass_percent := float(state.get("plant_biomass_percent", 100.0))
+		var recovery_multiplier := _get_biomass_recovery_multiplier(biomass_percent)
+		var has_day_context := is_inside_tree() and get_tree() != null and get_tree().current_scene != null and get_tree().current_scene.get_node_or_null("DayNightSystem") != null
+		var day := _get_current_day()
+		var small_recovery := _population_recovery_value("small_prey_recovery_per_day")
+		var grazer_recovery := _population_recovery_value("grazer_recovery_per_day") * recovery_multiplier
+		if not has_day_context:
+			small_recovery *= recovery_multiplier
+		elif day <= 7:
+			var first_week_progress: float = clamp(float(day - 1) / 6.0, 0.0, 1.0)
+			small_recovery *= lerpf(0.5, 1.0, first_week_progress)
+			grazer_recovery *= lerpf(0.2, 1.0, first_week_progress)
+		state["small_prey_daily_recovery"] = small_recovery
+		state["grazer_daily_recovery"] = grazer_recovery
+		var small_before := float(state.get("small_prey_population", 0.0))
+		var grazer_before := float(state.get("grazer_population", 0.0))
+		state["small_prey_population"] = minf(
+			small_before + small_recovery,
+			_population_recovery_value("small_prey_target_population")
+		)
+		state["grazer_population"] = minf(
+			grazer_before + grazer_recovery,
+			_population_recovery_value("grazer_target_population")
+		)
+		state["small_prey_population_trend"] = "growing" if float(state.get("small_prey_population", 0.0)) > small_before else "stable"
+		state["grazer_population_trend"] = "growing" if float(state.get("grazer_population", 0.0)) > grazer_before else "stable"
+		if has_method("_refresh_biome_derived_state"):
+			_refresh_biome_derived_state(state)
+		biome_states[biome_id] = state
+
+
+func _get_biomass_recovery_multiplier(biomass_percent: float) -> float:
+	if biomass_percent >= 80.0:
+		return _population_recovery_value("healthy_biomass_recovery_multiplier")
+	if biomass_percent <= 35.0:
+		return _population_recovery_value("depleted_biomass_recovery_multiplier")
+	return 1.0
+
+
+func _get_critical_predation_multiplier(prey_population: float, critical_population: float) -> float:
+	if prey_population < critical_population:
+		return _population_recovery_value("critical_population_predation_multiplier")
+	return 1.0

@@ -109,6 +109,7 @@ var _minimap_texture_build_key := ""
 var _minimap_texture_build_next_y := 0
 var runtime_graphics_config: Dictionary = {}
 var benchmark_disabled := false
+var minimap_static_work_enabled := true
 var startup_time_sec := 0.0  # Tracks time since minimap initialization for boot optimization
 const BOOT_OPTIMIZATION_DURATION_SEC := 8.0  # Skip marker updates for first 8 seconds to accelerate terrain load
 var _minimap_process_gate_timer := 0.0  # Frame-skip gate: only process minimap expensive ops every 2.0s to prevent hitches
@@ -197,8 +198,12 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	_request_player_redraw()
 
 
-func set_test_biome_zones(p_biome_zones: Array[Dictionary]) -> void:
-	biome_zones = p_biome_zones.duplicate(true)
+func set_test_biome_zones(p_biome_zones: Array) -> void:
+	var normalized: Array[Dictionary] = []
+	for biome_value in p_biome_zones:
+		if typeof(biome_value) == TYPE_DICTIONARY:
+			normalized.append(Dictionary(biome_value).duplicate(true))
+	biome_zones = normalized
 
 
 func apply_graphics_preset_config(config: Dictionary) -> void:
@@ -206,6 +211,12 @@ func apply_graphics_preset_config(config: Dictionary) -> void:
 	minimap_redraw_interval = float(config.get("minimap_redraw_interval", minimap_redraw_interval))
 	minimap_marker_rebuild_interval = float(config.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval))
 	minimap_player_redraw_interval = float(config.get("minimap_player_redraw_interval", minimap_player_redraw_interval))
+	minimap_static_work_enabled = bool(config.get("minimap_static_work_enabled", minimap_static_work_enabled))
+	if not minimap_static_work_enabled:
+		_minimap_texture_build_queued = false
+		_minimap_texture_build_image = null
+		minimap_biome_texture_dirty = false
+		minimap_shoreline_cache_dirty = false
 	queue_redraw()
 
 
@@ -228,30 +239,31 @@ func _process(delta: float) -> void:
 		"last_build_ms": snappedf(minimap_texture_last_build_ms, 0.01)
 	})
 	
-	_texture_sync_timer += delta
-	if _texture_sync_timer >= TEXTURE_SYNC_INTERVAL_SEC and startup_time_sec >= BOOT_OPTIMIZATION_DURATION_SEC:
-		_texture_sync_timer = 0.0
-		if minimap_biome_texture_dirty or biome_blend_texture == null or _minimap_texture_build_queued:
-			_sync_biome_texture()
-	
-	# Shoreline syncs: every 1.8s (offset from texture syncs)
-	_shoreline_sync_timer += delta
-	if _shoreline_sync_timer >= SHORELINE_SYNC_INTERVAL_SEC and startup_time_sec >= BOOT_OPTIMIZATION_DURATION_SEC:
-		_shoreline_sync_timer = 0.0
-		if minimap_shoreline_cache_dirty or not shoreline_segments_cache_valid:
-			_sync_shoreline_overlay_cache()
-	
-	# Texture build and budget fetch: every 2.0s
-	_minimap_process_gate_timer += delta
-	if _minimap_process_gate_timer >= MINIMAP_PROCESS_GATE_INTERVAL_SEC:
-		_minimap_process_gate_timer = 0.0
-		_process_biome_texture_build()
-		var budget := Dictionary(_get_world_render_budget())
-		minimap_redraw_interval = float(budget.get("minimap_redraw_interval", minimap_redraw_interval))
-		# Hard minimum 30.0s for marker rebuilds - prevent render governor from reducing it
-		minimap_marker_rebuild_interval = maxf(30.0, float(budget.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval)))
-		minimap_player_redraw_interval = float(budget.get("minimap_player_redraw_interval", minimap_player_redraw_interval))
-		minimap_marker_view_recenter_distance = float(budget.get("minimap_marker_view_recenter_distance", minimap_marker_view_recenter_distance))
+	if minimap_static_work_enabled:
+		_texture_sync_timer += delta
+		if _texture_sync_timer >= TEXTURE_SYNC_INTERVAL_SEC and startup_time_sec >= BOOT_OPTIMIZATION_DURATION_SEC:
+			_texture_sync_timer = 0.0
+			if minimap_biome_texture_dirty or biome_blend_texture == null or _minimap_texture_build_queued:
+				_sync_biome_texture()
+
+		# Shoreline syncs: every 1.8s (offset from texture syncs)
+		_shoreline_sync_timer += delta
+		if _shoreline_sync_timer >= SHORELINE_SYNC_INTERVAL_SEC and startup_time_sec >= BOOT_OPTIMIZATION_DURATION_SEC:
+			_shoreline_sync_timer = 0.0
+			if minimap_shoreline_cache_dirty or not shoreline_segments_cache_valid:
+				_sync_shoreline_overlay_cache()
+
+		# Texture build and budget fetch: every 2.0s
+		_minimap_process_gate_timer += delta
+		if _minimap_process_gate_timer >= MINIMAP_PROCESS_GATE_INTERVAL_SEC:
+			_minimap_process_gate_timer = 0.0
+			_process_biome_texture_build()
+			var budget := Dictionary(_get_world_render_budget())
+			minimap_redraw_interval = float(budget.get("minimap_redraw_interval", minimap_redraw_interval))
+			# Hard minimum 30.0s for marker rebuilds - prevent render governor from reducing it
+			minimap_marker_rebuild_interval = maxf(30.0, float(budget.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval)))
+			minimap_player_redraw_interval = float(budget.get("minimap_player_redraw_interval", minimap_player_redraw_interval))
+			minimap_marker_view_recenter_distance = float(budget.get("minimap_marker_view_recenter_distance", minimap_marker_view_recenter_distance))
 	
 	var current_player_position := _get_player_position()
 	var current_biome_id := _get_player_biome_id()
@@ -318,14 +330,7 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	if benchmark_disabled:
-		return
-	RUNTIME_PROFILER.begin_scope("minimap_draw_ms")
-	RUNTIME_PROFILER.begin_scope("minimap_total_cpu_ms")
-	_draw_static_layer(self)
-	_draw_dynamic_layer(self)
-	RUNTIME_PROFILER.end_scope("minimap_total_cpu_ms")
-	RUNTIME_PROFILER.end_scope("minimap_draw_ms")
+	return
 
 
 func _draw_static_layer(target: CanvasItem) -> void:
@@ -1724,6 +1729,7 @@ func get_minimap_performance_debug() -> Dictionary:
 		"minimap_biome_texture_sync_check_count": minimap_biome_texture_sync_check_count,
 		"minimap_biome_texture_sync_skipped_count": minimap_biome_texture_sync_skipped_count,
 		"minimap_biome_texture_dirty_count": minimap_biome_texture_dirty_count,
+		"minimap_static_work_enabled": minimap_static_work_enabled,
 		"minimap_player_marker_redraw_count": player_marker_redraw_count
 	}
 

@@ -14,6 +14,8 @@ var game_over_active := false
 
 
 func _post_event_message(message: String) -> void:
+	if not is_inside_tree():
+		return
 	var tree := get_tree()
 	if tree == null:
 		return
