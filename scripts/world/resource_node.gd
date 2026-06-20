@@ -284,6 +284,10 @@ func setup(kind: String) -> void:
 
 func interact(player: Node) -> void:
 	_sync_state_from_node()
+	if not interaction_active and not is_visibility_culled and not render_only and player_harvestable and can_be_harvested:
+		interaction_active = true
+		_sync_collision_state()
+		_sync_runtime_process_state()
 	var player_inventory: Variant = player.get("inventory")
 	var result := RESOURCE_HARVEST_RULES.harvest(resource_state, player_inventory)
 	if not result.success:

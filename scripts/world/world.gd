@@ -4409,24 +4409,24 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	if is_resource_position_blocked_by_water("meat_drop", safe_position):
 		push_warning("Meat drop for %s spawning in water at %s after fallback" % [animal_kind, safe_position])
 	var node: Node = _spawn_pooled_resource_at("meat_drop", safe_position, amount)
-	if node == null:
+	if node == null or not is_instance_valid(node):
 		return null
-	if node is Node2D:
-		(node as Node2D).visible = true
 	_finalize_spawned_pickup_drop(node)
 	if visibility_culling_enabled:
 		_update_world_object_visibility()
 	var event_bus := _get_event_bus()
-	if event_bus:
+	if event_bus != null and is_instance_valid(node) and node is Node2D:
 		event_bus.emit_game_event("animal_dropped_meat", {
 			"animal_kind": animal_kind,
 			"amount": amount,
-			"position": node.global_position
+			"position": (node as Node2D).global_position
 		})
 	return node
 
 
 func _spawn_meat_drop_for_animal_deferred(animal_kind: String, drop_position: Vector2) -> void:
+	if not is_inside_tree():
+		return
 	spawn_meat_drop_for_animal(animal_kind, drop_position)
 
 

@@ -46,7 +46,7 @@ func test_get_buildings_near_returns_empty_when_no_buildings() -> void:
 	var registry = WORLD_REGISTRY_SCRIPT.new()
 	var position := Vector2(100.0, 100.0)
 	var result := registry.get_buildings_near(position, 50.0)
-	expect_equal(result.size(), 0, "Should return empty array when no buildings registered")
+	expect_equal.call(result.size(), 0, "Should return empty array when no buildings registered")
 
 
 func test_get_buildings_near_filters_by_distance() -> void:
@@ -64,7 +64,7 @@ func test_get_buildings_near_filters_by_distance() -> void:
 	registry.register_building(far_wall, "wall")
 	
 	var result := registry.get_buildings_near(position, 50.0, "wall")
-	expect_equal(result.size(), 1, "Should return 1 nearby building")
+	expect_equal.call(result.size(), 1, "Should return 1 nearby building")
 	expect.call(result.has(nearby_wall), "Should include nearby wall")
 
 
@@ -82,11 +82,11 @@ func test_get_buildings_near_filters_by_type() -> void:
 	registry.register_building(trap, "trap")
 	
 	var walls := registry.get_buildings_near(position, 50.0, "wall")
-	expect_equal(walls.size(), 1, "Should return only walls")
+	expect_equal.call(walls.size(), 1, "Should return only walls")
 	expect.call(walls.has(wall), "Should include wall")
 	
 	var traps := registry.get_buildings_near(position, 50.0, "trap")
-	expect_equal(traps.size(), 1, "Should return only traps")
+	expect_equal.call(traps.size(), 1, "Should return only traps")
 	expect.call(traps.has(trap), "Should include trap")
 
 
@@ -104,7 +104,7 @@ func test_get_buildings_near_returns_all_types_without_filter() -> void:
 	registry.register_building(trap, "trap")
 	
 	var result := registry.get_buildings_near(position, 50.0)
-	expect_equal(result.size(), 2, "Should return all building types when no filter")
+	expect_equal.call(result.size(), 2, "Should return all building types when no filter")
 
 
 func test_get_buildings_near_uses_distance_squared_optimization() -> void:
@@ -123,7 +123,7 @@ func test_get_buildings_near_uses_distance_squared_optimization() -> void:
 	registry.register_building(beyond_radius, "wall")
 	
 	var result := registry.get_buildings_near(position, radius, "wall")
-	expect_equal(result.size(), 1, "Should include building at exact radius")
+	expect_equal.call(result.size(), 1, "Should include building at exact radius")
 	expect.call(result.has(at_radius), "Should include building at boundary")
 
 
@@ -145,7 +145,7 @@ func test_get_buildings_near_ignores_invalid_nodes() -> void:
 	await TEST_UTILS.wait_frames(1)
 	
 	var result := registry.get_buildings_near(position, 50.0, "wall")
-	expect_equal(result.size(), 1, "Should skip invalid nodes")
+	expect_equal.call(result.size(), 1, "Should skip invalid nodes")
 	expect.call(result.has(valid_wall), "Should include valid wall")
 
 
@@ -178,16 +178,16 @@ func test_get_buildings_near_with_multiple_types_and_distances() -> void:
 	
 	# All nearby buildings
 	var all_nearby := registry.get_buildings_near(position, radius)
-	expect_equal(all_nearby.size(), 3, "Should return 3 buildings within 40px")
+	expect_equal.call(all_nearby.size(), 3, "Should return 3 buildings within 40px")
 	
 	# Only walls nearby
 	var nearby_walls := registry.get_buildings_near(position, radius, "wall")
-	expect_equal(nearby_walls.size(), 1, "Should return 1 wall within 40px")
+	expect_equal.call(nearby_walls.size(), 1, "Should return 1 wall within 40px")
 	expect.call(nearby_walls.has(close_wall), "Should include close_wall")
 	
 	# Only traps nearby
 	var nearby_traps := registry.get_buildings_near(position, radius, "trap")
-	expect_equal(nearby_traps.size(), 1, "Should return 1 trap within 40px")
+	expect_equal.call(nearby_traps.size(), 1, "Should return 1 trap within 40px")
 	expect.call(nearby_traps.has(close_trap), "Should include close_trap")
 
 
@@ -204,8 +204,8 @@ func test_get_buildings_near_returns_array_copy() -> void:
 	var result2 := registry.get_buildings_near(position, 50.0, "wall")
 	
 	# Both should contain the same building, but be different array objects
-	expect_equal(result1.size(), 1, "First query should return 1 building")
-	expect_equal(result2.size(), 1, "Second query should return 1 building")
+	expect_equal.call(result1.size(), 1, "First query should return 1 building")
+	expect_equal.call(result2.size(), 1, "Second query should return 1 building")
 	expect.call(result1 != result2 or result1 == result2, "Arrays can be same object or different")
 
 
@@ -223,5 +223,5 @@ func test_get_buildings_near_with_zero_radius() -> void:
 	registry.register_building(one_px_away, "wall")
 	
 	var result := registry.get_buildings_near(position, 0.0, "wall")
-	expect_equal(result.size(), 1, "Should return only building at exact position with 0 radius")
+	expect_equal.call(result.size(), 1, "Should return only building at exact position with 0 radius")
 	expect.call(result.has(at_position), "Should include building at position")
