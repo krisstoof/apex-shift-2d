@@ -24,6 +24,7 @@ const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settin
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
 const WORLD_VISIBILITY_CONTROLLER_SCRIPT := preload("res://scripts/world/world_visibility_controller.gd")
 const RENDER_PERFORMANCE_GOVERNOR_SCRIPT := preload("res://scripts/world/render_performance_governor.gd")
+const WORLD_SYSTEMS_COORDINATOR_SCRIPT := preload("res://scripts/world/world_systems_coordinator.gd")
 const TERRAIN_CELL_MAP_SCRIPT := preload("res://scripts/world/terrain_cell_map.gd")
 const TERRAIN_CHUNK_RENDERER_SCRIPT := preload("res://scripts/world/terrain_chunk_renderer.gd")
 const TERRAIN_SURFACE_CHUNK_RENDERER_SCRIPT := preload("res://scripts/world/terrain_surface_chunk_renderer.gd")
@@ -238,6 +239,7 @@ var runtime_terrain_surface_hard_budget_ms := 3.0
 var runtime_use_terrain_surface_chunk_renderer := true
 var runtime_debug_overlays_enabled := false
 var graphics_settings: Node = GRAPHICS_SETTINGS_SCRIPT.new()
+var systems_coordinator: WorldSystemsCoordinator
 var group_nodes_cache: Dictionary = {}
 var group_nodes_cache_timestamps: Dictionary = {}
 var pending_biome_vegetation_syncs: Dictionary = {}
@@ -396,6 +398,14 @@ func _await_next_frame_safe() -> void:
 	await scene_tree.process_frame
 
 
+func _ensure_systems_coordinator() -> WorldSystemsCoordinator:
+	if systems_coordinator == null:
+		systems_coordinator = WORLD_SYSTEMS_COORDINATOR_SCRIPT.new()
+	if systems_coordinator.world != self:
+		systems_coordinator.bind(self)
+	return systems_coordinator
+
+
 func _run_initial_world_boot() -> void:
 	_ensure_render_controller()
 	_ensure_render_performance_governor()
@@ -503,120 +513,22 @@ func _process(delta: float) -> void:
 		"hidden_creatures": get_visibility_culling_debug().get("hidden_creatures", 0)
 	})
 	if is_restoring_save:
+		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
+			RUNTIME_PROFILER.end_scope("world_process_render_sync_ms")
 		RUNTIME_PROFILER.end_scope("world_process_total_ms")
 		return
-	var current_fps := float(Engine.get_frames_per_second())
-	if render_performance_governor != null and render_performance_governor.has_method("update"):
-		render_performance_governor.update(delta, current_fps)
-		var governor_budget: Dictionary = Dictionary(render_performance_governor.get_budget())
-		if is_instance_valid(terrain_surface_chunk_renderer) and terrain_surface_chunk_renderer.has_method("apply_render_budget"):
-			terrain_surface_chunk_renderer.apply_render_budget(governor_budget)
-	terrain_surface_renderer_update_timer -= delta
-	if terrain_surface_renderer_update_timer <= 0.0:
-		terrain_surface_renderer_update_timer = TERRAIN_SURFACE_RENDERER_UPDATE_INTERVAL
-		if runtime_use_terrain_surface_chunk_renderer and is_instance_valid(terrain_surface_chunk_renderer):
-			if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
-				RUNTIME_PROFILER.begin_scope("terrain_surface_chunk_visibility_ms")
-			terrain_surface_chunk_renderer.process_visibility(delta)
-			if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
-				RUNTIME_PROFILER.end_scope("terrain_surface_chunk_visibility_ms")
-	if runtime_use_terrain_surface_chunk_renderer and is_instance_valid(terrain_surface_chunk_renderer):
-		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
-			RUNTIME_PROFILER.begin_scope("terrain_surface_chunk_build_ms")
-		terrain_surface_chunk_renderer.process_build_queue()
-		if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
-			RUNTIME_PROFILER.end_scope("terrain_surface_chunk_build_ms")
-	biome_shape_renderer_update_timer -= delta
-	if biome_shape_renderer_update_timer <= 0.0:
-		biome_shape_renderer_update_timer = BIOME_SHAPE_RENDERER_UPDATE_INTERVAL
-		if is_instance_valid(biome_shape_renderer):
-			if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
-				RUNTIME_PROFILER.begin_scope("biome_shape_renderer_visibility_ms")
-			biome_shape_renderer.process_visibility(delta)
-			if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
-				RUNTIME_PROFILER.end_scope("biome_shape_renderer_visibility_ms")
-	_update_terrain_renderer(delta)
-	_update_spatial_index_debug_cache(delta)
-	if small_prey_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
-		small_prey_failed_spawn_retry_timer = maxf(0.0, small_prey_failed_spawn_retry_timer - delta)
-	if varnak_failed_spawn_retry_timer > 0.0 and not integration_test_mode:
-		varnak_failed_spawn_retry_timer = maxf(0.0, varnak_failed_spawn_retry_timer - delta)
-	small_prey_spawn_timer += delta
-	if small_prey_spawn_timer >= SMALL_PREY_SPAWN_TICK_SECONDS:
-		small_prey_spawn_timer = 0.0
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.begin_scope("world_sync_visible_small_prey_ms")
-		_sync_visible_small_prey()
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.end_scope("world_sync_visible_small_prey_ms")
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.begin_scope("world_sync_visible_grazers_ms")
-		_sync_visible_grazers()
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.end_scope("world_sync_visible_grazers_ms")
-	varnak_spawn_timer += delta
-	if varnak_spawn_timer >= _get_varnak_spawn_check_interval():
-		varnak_spawn_timer = 0.0
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.begin_scope("world_sync_visible_varnaks_ms")
-		_sync_visible_varnaks()
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.end_scope("world_sync_visible_varnaks_ms")
-	rock_spawn_timer += delta
-	if rock_spawn_timer >= ROCK_SPAWN_TICK_SECONDS:
-		rock_spawn_timer = 0.0
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.begin_scope("world_sync_periodic_rock_spawn_ms")
-		_sync_periodic_rock_spawn()
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.end_scope("world_sync_periodic_rock_spawn_ms")
-	var current_night_amount := _get_night_amount()
-	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-		RUNTIME_PROFILER.begin_scope("world_render_controller_process_ms")
-	var should_redraw_background: bool = _ensure_render_controller().process(delta, current_night_amount)
-	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-		RUNTIME_PROFILER.end_scope("world_render_controller_process_ms")
-	if should_redraw_background:
-		queue_redraw()
-	if boot_ready and visibility_controller != null:
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.begin_scope("visibility_cull_ms")
-		visibility_controller.process(delta)
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.end_scope("visibility_cull_ms")
+	var coordinator := _ensure_systems_coordinator()
+	coordinator.process_render_sync(delta, float(Engine.get_frames_per_second()))
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.end_scope("world_process_render_sync_ms")
-	decorative_vegetation_visibility_timer -= delta
-	if decorative_vegetation_visibility_timer <= 0.0:
-		decorative_vegetation_visibility_timer = DECORATIVE_VEGETATION_VISIBILITY_UPDATE_INTERVAL_SECONDS
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.begin_scope("world_decorative_visible_rect_ms")
-		_update_decorative_vegetation_visible_rect()
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.end_scope("world_decorative_visible_rect_ms")
-	resource_activation_timer -= delta
-	if resource_activation_timer <= 0.0:
-		resource_activation_timer = runtime_activation_update_interval
-		_update_resource_interactions()
-	var use_surface_renderer := runtime_use_terrain_surface_chunk_renderer
-	var allow_legacy_overlay := bool(GAME_BALANCE.BIOME_TEXTURES.get("legacy_biome_detail_overlay_enabled_with_surface_renderer", false))
-	if not use_surface_renderer or allow_legacy_overlay:
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.begin_scope("world_biome_detail_overlay_ms")
-		_update_biome_detail_overlay(delta)
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.end_scope("world_biome_detail_overlay_ms")
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.begin_scope("world_biome_detail_overlay_build_pending_chunks_ms")
-		_build_pending_biome_detail_overlay_chunks()
-		if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-			RUNTIME_PROFILER.end_scope("world_biome_detail_overlay_build_pending_chunks_ms")
-	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-		RUNTIME_PROFILER.begin_scope("world_night_overlay_ms")
-	_update_night_overlay(current_night_amount)
-	if bool(GAME_BALANCE.DEBUG_HITCH_BREAKDOWN_PROFILING):
-		RUNTIME_PROFILER.end_scope("world_night_overlay_ms")
+	coordinator.process_creature_spawn_sync(delta, integration_test_mode)
+	var current_night_amount := _get_night_amount()
+	coordinator.process_render_controller(delta, current_night_amount)
+	coordinator.process_visibility_controller(delta, boot_ready)
+	coordinator.process_decorative_and_activation(delta)
+	coordinator.process_biome_detail_and_night(delta, current_night_amount)
 	RUNTIME_PROFILER.end_scope("world_process_total_ms")
+	return
 
 
 func _apply_graphics_settings_defaults() -> void:
