@@ -57,13 +57,20 @@ func apply_building_state(data: Dictionary) -> void:
 func _sync_state_from_node() -> void:
 	building_state.kind = "campfire"
 	building_state.position = global_position
-	building_state.active = active
-	building_state.fear_radius = fear_radius
+	building_state.custom_data = {
+		"active": active,
+		"fear_radius": fear_radius
+	}
 
 
 func _sync_node_from_state() -> void:
-	active = building_state.active
-	fear_radius = building_state.fear_radius
+	var data := Dictionary(building_state.custom_data)
+	active = bool(data.get("active", active))
+	fear_radius = float(data.get("fear_radius", fear_radius))
+	if campfire_light != null:
+		campfire_light.visible = active
+		campfire_light.enabled = active
+	queue_redraw()
 
 
 func _draw_fire_light() -> void:

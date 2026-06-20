@@ -95,12 +95,19 @@ func apply_building_state(data: Dictionary) -> void:
 func _sync_state_from_node() -> void:
 	building_state.kind = "storage_box"
 	building_state.position = global_position
-	building_state.inventory = storage_state.get_inventory_save_data()
+	building_state.custom_data = {
+		"inventory": storage_state.get_inventory_save_data()
+	}
 
 
 func _sync_node_from_state() -> void:
 	if building_state.position != Vector2.ZERO:
 		global_position = building_state.position
+	var data := Dictionary(building_state.custom_data)
+	if data.has("inventory"):
+		storage_state.load_from_save_data({"inventory": data.get("inventory")})
+		inventory = storage_state.get_inventory_state()
+	queue_redraw()
 
 
 func _draw() -> void:

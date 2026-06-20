@@ -45,8 +45,12 @@ func apply_building_state(data: Dictionary) -> void:
 func _sync_state_from_node() -> void:
 	building_state.kind = "wall"
 	building_state.position = global_position
-	building_state.health = health
+	building_state.custom_data = {
+		"health": health
+	}
 
 
 func _sync_node_from_state() -> void:
-	health = building_state.health
+	var data := Dictionary(building_state.custom_data)
+	health = float(data.get("health", health))
+	queue_redraw()

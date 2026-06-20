@@ -52,10 +52,14 @@ func apply_building_state(data: Dictionary) -> void:
 func _sync_state_from_node() -> void:
 	building_state.kind = "trap"
 	building_state.position = global_position
-	building_state.armed = armed
-	building_state.damage = damage
+	building_state.custom_data = {
+		"armed": armed,
+		"damage": damage
+	}
 
 
 func _sync_node_from_state() -> void:
-	armed = building_state.armed
-	damage = building_state.damage
+	var data := Dictionary(building_state.custom_data)
+	armed = bool(data.get("armed", armed))
+	damage = float(data.get("damage", damage))
+	queue_redraw()

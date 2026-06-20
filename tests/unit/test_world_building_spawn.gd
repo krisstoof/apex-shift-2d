@@ -19,14 +19,14 @@ func run() -> Array[String]:
 
 
 func _test_world_exposes_spawn_building_for_tests(failures: Array[String]) -> void:
-	var world_script := preload("res://scripts/world/world.gd")
-	var world := world_script.new()
-	var tree := Engine.get_main_loop() as SceneTree
-	var scene := Node2D.new()
+	var world_script: Script = preload("res://scripts/world/world.gd")
+	var world: Node = world_script.new()
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	var scene: Node2D = Node2D.new()
 	scene.name = "TestScene"
 	tree.root.add_child(scene)
 	scene.add_child(world)
-	var building := world.call("spawn_building_for_tests", "campfire", Vector2(72.0, 88.0))
+	var building: Node = world.call("spawn_building_for_tests", "campfire", Vector2(72.0, 88.0)) as Node
 	TEST_UTILS.expect(building != null, failures, "World should expose spawn_building_for_tests")
 	if building != null:
 		TEST_UTILS.expect_equal((building as Node2D).global_position, Vector2(72.0, 88.0), failures, "World test helper should place the building at the requested position")

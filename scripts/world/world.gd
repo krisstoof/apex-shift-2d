@@ -1977,7 +1977,8 @@ func _is_valid_edible_vegetation_target(node: Node) -> bool:
 		return false
 	if node.has_method("is_depleted") and bool(node.call("is_depleted")):
 		return false
-	if node.get("is_depleted") == true:
+	var depleted_value: Variant = node.get("is_depleted")
+	if typeof(depleted_value) == TYPE_BOOL and bool(depleted_value):
 		return false
 	if VEGETATION_CATALOG.is_edible_node_kind(kind):
 		return true
