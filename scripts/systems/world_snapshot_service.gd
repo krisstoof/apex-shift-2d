@@ -468,8 +468,25 @@ func _get_current_biome_name(position: Vector2, biome_zones: Array[Dictionary]) 
 		if not biome_name.is_empty():
 			return biome_name
 		if world.has_method("get_biome_lookup_debug") and bool(Dictionary(world.get_biome_lookup_debug(position)).get("world_rect_has_point", false)) == true:
+			var zone_fallback := _get_biome_name_from_zones(position, biome_zones)
+			if not zone_fallback.is_empty():
+				return zone_fallback
 			return "unknown (lookup error)"
+	var zone_name := _get_biome_name_from_zones(position, biome_zones)
+	if not zone_name.is_empty():
+		return zone_name
 	return "outside world"
+
+
+func _get_biome_name_from_zones(position: Vector2, biome_zones: Array[Dictionary]) -> String:
+	for biome_zone_value in biome_zones:
+		var biome_zone := Dictionary(biome_zone_value)
+		var points := PackedVector2Array(biome_zone.get("points", []))
+		if points.size() < 3:
+			continue
+		if Geometry2D.is_point_in_polygon(position, points):
+			return str(biome_zone.get("name", ""))
+	return ""
 
 
 func _get_phase_label(time_label: String) -> String:

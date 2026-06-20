@@ -267,6 +267,7 @@ func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_snapshot_service_builds_ui_snapshot_and_filters_markers(failures)
 	_test_snapshot_service_refresh_hud_is_lightweight(failures)
+	_test_snapshot_service_falls_back_to_biome_zones_for_current_biome_name(failures)
 	return failures
 
 
@@ -338,6 +339,16 @@ func _test_snapshot_service_refresh_hud_is_lightweight(failures: Array[String]) 
 	TEST_UTILS.expect(not hud_snapshot.has("markers"), failures, "HUD snapshot should not rebuild marker data")
 	TEST_UTILS.expect_equal(world_reads_before, world_reads_after, failures, "HUD snapshot refresh should not reread world geometry or landmarks")
 	TEST_UTILS.expect_equal(str(Dictionary(full_snapshot.get("time", {})).get("clock_time", "")), "13:48", failures, "Full snapshot should still be available for world data consumers")
+
+
+func _test_snapshot_service_falls_back_to_biome_zones_for_current_biome_name(failures: Array[String]) -> void:
+	var service = SNAPSHOT_SERVICE_SCRIPT.new()
+	var player := MockPlayer.new()
+	player.global_position = Vector2(-320.0, 0.0)
+	var world := MockWorld.new()
+	service.bind(player, MockEvolutionDirector.new(), MockDayNightSystem.new(), MockEcosystemDirector.new(), world)
+	var world_snapshot: Dictionary = Dictionary(service.refresh(true).get("world", {}))
+	TEST_UTILS.expect_equal(str(world_snapshot.get("current_biome_name", "")), "Westwood", failures, "Snapshot service should fall back to biome zone names when world biome lookup is unavailable")
 
 
 func _make_resource(kind: String, item_name: String, position: Vector2, harvestable: bool) -> MockResource:

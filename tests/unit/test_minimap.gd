@@ -1,6 +1,8 @@
 extends RefCounted
 
 const MINIMAP_SCRIPT := preload("res://scripts/ui/minimap.gd")
+const MAP_SCREEN_SCRIPT := preload("res://scripts/ui/map_screen.gd")
+const RESOURCE_MARKER_ICONS := preload("res://scripts/ui/resource_marker_icons.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -130,6 +132,14 @@ class ShapeMapNoUnderlayStub:
 		return {"biome_id": "test_biome", "terrain_id": "land"}
 
 
+class GraphicsSettingsStub:
+	extends Node
+	var enabled := false
+
+	func should_show_resource_markers_on_maps() -> bool:
+		return enabled
+
+
 func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_minimap_view_rect_follows_player_and_stays_larger_than_camera(failures)
@@ -146,6 +156,10 @@ func run() -> Array[String]:
 	_test_minimap_marker_cache_only_redraws_dynamic_layer(failures)
 	_test_minimap_static_cache_stays_quiet_when_signatures_do_not_change(failures)
 	_test_minimap_cached_view_rect_stays_stable_until_recentering(failures)
+	_test_minimap_resource_markers_follow_graphics_setting(failures)
+	_test_minimap_resource_marker_specs_are_icon_like_and_subtle(failures)
+	_test_minimap_resource_marker_specs_share_common_icon_family(failures)
+	_test_minimap_and_map_screen_share_resource_marker_contract(failures)
 	return failures
 
 
@@ -384,6 +398,72 @@ func _test_minimap_cached_view_rect_stays_stable_until_recentering(failures: Arr
 	TEST_UTILS.expect(recentered_rect.position.distance_to(player.global_position - recentered_rect.size * 0.5) < 0.01, failures, "Minimap cached view rect should recenter on the current player position")
 	minimap.free()
 	player.free()
+
+
+func _test_minimap_resource_markers_follow_graphics_setting(failures: Array[String]) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var previous_settings := tree.root.get_node_or_null("GraphicsSettings")
+	if previous_settings != null:
+		previous_settings.name = "LiveGraphicsSettings"
+	var settings := GraphicsSettingsStub.new()
+	settings.name = "GraphicsSettings"
+	tree.root.add_child(settings)
+	var minimap := _make_minimap()
+	TEST_UTILS.expect_equal(minimap.call("_should_show_resource_markers"), false, failures, "Minimap should hide resource markers by default")
+	settings.enabled = true
+	TEST_UTILS.expect_equal(minimap.call("_should_show_resource_markers"), true, failures, "Minimap should respect the graphics toggle for resource markers")
+	minimap.free()
+	settings.queue_free()
+	if previous_settings != null:
+		previous_settings.name = "GraphicsSettings"
+
+
+func _test_minimap_resource_marker_specs_are_icon_like_and_subtle(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	var wood_spec: Dictionary = minimap.call("_get_resource_marker_render_spec", {"item_name": "wood"})
+	var stone_spec: Dictionary = minimap.call("_get_resource_marker_render_spec", {"item_name": "stone"})
+	var berry_spec: Dictionary = minimap.call("_get_resource_marker_render_spec", {"item_name": "berries"})
+	TEST_UTILS.expect(float(wood_spec.get("radius", 0.0)) <= 2.5, failures, "Wood markers should stay icon-sized")
+	TEST_UTILS.expect(float(stone_spec.get("radius", 0.0)) <= 2.5, failures, "Stone markers should stay icon-sized")
+	TEST_UTILS.expect(float(berry_spec.get("radius", 0.0)) <= 2.5, failures, "Berry markers should stay icon-sized")
+	TEST_UTILS.expect(float(wood_spec.get("fill_color", Color()).a) < 0.9, failures, "Resource markers should remain visually subdued")
+	TEST_UTILS.expect(float(stone_spec.get("fill_color", Color()).a) < 0.9, failures, "Resource markers should remain visually subdued")
+	TEST_UTILS.expect(float(berry_spec.get("fill_color", Color()).a) < 0.9, failures, "Resource markers should remain visually subdued")
+	TEST_UTILS.expect(float(wood_spec.get("inner_radius", 0.0)) > 0.0, failures, "Wood markers should use a filled icon detail")
+	TEST_UTILS.expect(float(stone_spec.get("cross_size", 0.0)) > 0.0, failures, "Stone markers should use a cross-like icon detail")
+	TEST_UTILS.expect(float(berry_spec.get("inner_radius", 0.0)) > 0.0, failures, "Berry markers should use a compact inner dot")
+	minimap.free()
+
+
+func _test_minimap_resource_marker_specs_share_common_icon_family(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	var specs: Array[Dictionary] = [
+		minimap.call("_get_resource_marker_render_spec", {"item_name": "wood"}),
+		minimap.call("_get_resource_marker_render_spec", {"item_name": "stone"}),
+		minimap.call("_get_resource_marker_render_spec", {"item_name": "berries"}),
+		minimap.call("_get_resource_marker_render_spec", {"item_name": "meat"}),
+		minimap.call("_get_resource_marker_render_spec", {"item_name": "fiber"})
+	]
+	for spec in specs:
+		TEST_UTILS.expect(float(spec.get("radius", 0.0)) >= 2.0 and float(spec.get("radius", 0.0)) <= 2.3, failures, "Resource markers should stay within the same compact icon family")
+		TEST_UTILS.expect(float(Color(spec.get("fill_color")).a) <= 0.82, failures, "Resource markers should remain subdued across the family")
+		TEST_UTILS.expect(float(Color(spec.get("outline_color")).a) >= 0.48, failures, "Resource markers should keep a consistent outline treatment")
+	minimap.free()
+
+
+func _test_minimap_and_map_screen_share_resource_marker_contract(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	var map_screen := MAP_SCREEN_SCRIPT.new()
+	var minimap_spec: Dictionary = minimap.call("_get_resource_marker_render_spec", {"item_name": "wood"})
+	var map_spec: Dictionary = map_screen.call("_get_resource_marker_render_spec", {"item_name": "wood"})
+	var helper_spec: Dictionary = RESOURCE_MARKER_ICONS.get_render_spec("wood")
+	TEST_UTILS.expect_equal(float(minimap_spec.get("radius", 0.0)), float(map_spec.get("radius", 0.0)), failures, "Map panels should share the same resource marker radius")
+	TEST_UTILS.expect_equal(float(minimap_spec.get("inner_radius", 0.0)), float(map_spec.get("inner_radius", 0.0)), failures, "Map panels should share the same resource marker inner detail")
+	TEST_UTILS.expect_equal(float(Color(minimap_spec.get("fill_color")).a), float(Color(map_spec.get("fill_color")).a), failures, "Map panels should share the same resource marker alpha")
+	TEST_UTILS.expect_equal(float(helper_spec.get("radius", 0.0)), float(minimap_spec.get("radius", 0.0)), failures, "Shared helper should match minimap icon radius")
+	TEST_UTILS.expect_equal(float(helper_spec.get("radius", 0.0)), float(map_spec.get("radius", 0.0)), failures, "Shared helper should match map screen icon radius")
+	minimap.free()
+	map_screen.free()
 
 
 func _make_minimap() -> Control:

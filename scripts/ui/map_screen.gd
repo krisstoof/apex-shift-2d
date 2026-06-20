@@ -3,6 +3,7 @@ extends Control
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
+const RESOURCE_MARKER_ICONS := preload("res://scripts/ui/resource_marker_icons.gd")
 const PADDING := 24.0
 const PANEL_GAP := 20.0
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(192, 118)
@@ -450,7 +451,16 @@ func _draw_resources(map_rect: Rect2) -> void:
 		RUNTIME_PROFILER.begin_scope("map_screen_resources_draw_ms")
 	for resource_marker_value in cached_resources:
 		var resource_marker := Dictionary(resource_marker_value)
-		draw_circle(_world_to_map(Vector2(resource_marker.get("position", Vector2.ZERO)), map_rect), 3.0, _get_resource_color(resource_marker))
+		var spec := _get_resource_marker_render_spec(resource_marker)
+		var center := _world_to_map(Vector2(resource_marker.get("position", Vector2.ZERO)), map_rect)
+		draw_circle(center, spec.radius + 1.0, spec.outline_color)
+		draw_circle(center, spec.radius, spec.fill_color)
+		if spec.inner_radius > 0.0:
+			draw_circle(center, spec.inner_radius, spec.inner_color)
+		elif spec.cross_size > 0.0:
+			var half_cross: float = float(spec.cross_size) * 0.5
+			draw_line(center + Vector2(-half_cross, 0.0), center + Vector2(half_cross, 0.0), spec.inner_color, spec.cross_width)
+			draw_line(center + Vector2(0.0, -half_cross), center + Vector2(0.0, half_cross), spec.inner_color, spec.cross_width)
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.end_scope("map_screen_resources_draw_ms")
 
@@ -1221,8 +1231,25 @@ func _get_player_zone_name() -> String:
 		if not biome_name.is_empty():
 			return biome_name
 		if active_world.has_method("get_biome_lookup_debug") and bool(Dictionary(active_world.get_biome_lookup_debug(player.global_position)).get("world_rect_has_point", false)) == true:
+			var zone_fallback := _get_biome_name_from_zones(player.global_position)
+			if not zone_fallback.is_empty():
+				return zone_fallback
 			return "unknown (lookup error)"
+	var zone_name := _get_biome_name_from_zones(player.global_position)
+	if not zone_name.is_empty():
+		return zone_name
 	return "Wilderness"
+
+
+func _get_biome_name_from_zones(position: Vector2) -> String:
+	for biome_zone_value in biome_zones:
+		var biome_zone := Dictionary(biome_zone_value)
+		var points := PackedVector2Array(biome_zone.get("points", []))
+		if points.size() < 3:
+			continue
+		if Geometry2D.is_point_in_polygon(position, points):
+			return str(biome_zone.get("name", ""))
+	return ""
 
 
 func _get_landmark_count(landmark_type: String) -> int:
@@ -1247,22 +1274,8 @@ func _get_clock_time() -> String:
 	return "--:--"
 
 
-func _get_resource_color(resource_marker: Dictionary) -> Color:
-	match str(resource_marker.get("item_name", "")):
-		"wood":
-			return Color(0.18, 0.72, 0.24)
-		"stone":
-			return Color(0.62, 0.63, 0.68)
-		"fiber":
-			return Color(0.67, 0.95, 0.34)
-		"grass":
-			return Color(0.36, 0.78, 0.24)
-		"berries":
-			return Color(0.88, 0.18, 0.24)
-		"meat":
-			return Color(0.88, 0.20, 0.16)
-		_:
-			return Color(0.86, 0.78, 0.45)
+func _get_resource_marker_render_spec(resource_marker: Dictionary) -> Dictionary:
+	return RESOURCE_MARKER_ICONS.get_render_spec(str(resource_marker.get("item_name", "")))
 
 
 func _update_marker_cache() -> bool:
