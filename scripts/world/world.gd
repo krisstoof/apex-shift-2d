@@ -3431,6 +3431,7 @@ func _spawn_resources() -> void:
 		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.78,
 		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.4, 320)
 	)
+	await _ensure_minimum_initial_tree_presence(used_positions, player_position)
 	await _yield_initial_boot_step()
 
 	_set_boot_progress("Growing vegetation: rocks and bushes...", 0.50)
@@ -3490,6 +3491,53 @@ func _spawn_resource_kind_across_biomes(
 		if target_count <= 0:
 			continue
 		await _spawn_resource_kind_in_biome(resource_kind, target_count, biome_id, used_positions, player_position, min_distance, spawn_attempts)
+
+
+func _ensure_minimum_initial_tree_presence(used_positions: Array[Vector2], player_position: Vector2) -> void:
+	var tree_count := WORLD_CONFIG.get_tree_count()
+	var targets: Array[Dictionary] = [
+		{
+			"kind": "conifer_tree",
+			"biome_id": "westwood",
+			"minimum": maxi(18, int(round(float(tree_count) * 0.28))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.68,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.6, 360)
+		},
+		{
+			"kind": "leafy_tree",
+			"biome_id": "hearth_meadow",
+			"minimum": maxi(10, int(round(float(tree_count) * 0.16))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.68,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.6, 360)
+		},
+		{
+			"kind": "leafy_tree",
+			"biome_id": "south_thicket",
+			"minimum": maxi(8, int(round(float(tree_count) * 0.12))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.66,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.6, 360)
+		}
+	]
+	for target_value in targets:
+		var target: Dictionary = Dictionary(target_value)
+		var kind := str(target.get("kind", ""))
+		var biome_id := str(target.get("biome_id", ""))
+		var minimum := int(target.get("minimum", 0))
+		if kind.is_empty() or biome_id.is_empty() or minimum <= 0:
+			continue
+		var current_count := _get_plant_resources_in_biome(biome_id, kind).size()
+		var missing := maxi(minimum - current_count, 0)
+		if missing <= 0:
+			continue
+		await _spawn_resource_kind_in_biome(
+			kind,
+			missing,
+			biome_id,
+			used_positions,
+			player_position,
+			float(target.get("min_distance", WORLD_CONFIG.RESOURCE_MIN_DISTANCE)),
+			int(target.get("attempts", WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS))
+		)
 
 
 func _spawn_grass_kind_mixed(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -5334,6 +5382,8 @@ func _get_base_resource_count(resource_kind: String) -> int:
 
 func _get_biome_biomass_factor(biome_id: String) -> float:
 	if not ecosystem_director or not ecosystem_director.has_method("get_biome_state"):
+		return 1.0
+	if not boot_ready:
 		return 1.0
 	var biome_state: Dictionary = ecosystem_director.get_biome_state(biome_id)
 	if biome_state.is_empty():

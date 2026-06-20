@@ -51,6 +51,8 @@ func run() -> Array[String]:
 	TEST_UTILS.expect(int(resource_debug.get("conifer_tree_node_count", 0)) > 0, failures, "Fresh world should contain conifer_tree nodes")
 	TEST_UTILS.expect(int(resource_debug.get("leafy_tree_node_count", 0)) > 0, failures, "Fresh world should contain leafy_tree nodes")
 	TEST_UTILS.expect(int(resource_debug.get("dry_tree_node_count", 0)) > 0, failures, "Fresh world should contain dry_tree nodes")
+	TEST_UTILS.expect(int(resource_debug.get("conifer_tree_node_count", 0)) >= 18, failures, "Fresh world should contain a healthy conifer_tree baseline")
+	TEST_UTILS.expect(int(resource_debug.get("leafy_tree_node_count", 0)) >= 18, failures, "Fresh world should contain a healthy leafy_tree baseline")
 	TEST_UTILS.expect(int(resource_counts.get("conifer_tree", 0)) > 0, failures, "Fresh world should report conifer_tree by kind")
 	TEST_UTILS.expect(int(resource_counts.get("leafy_tree", 0)) > 0, failures, "Fresh world should report leafy_tree by kind")
 	TEST_UTILS.expect(int(resource_counts.get("dry_tree", 0)) > 0, failures, "Fresh world should report dry_tree by kind")
