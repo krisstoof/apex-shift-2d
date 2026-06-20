@@ -9,6 +9,7 @@ func run() -> Array[String]:
 	_test_biomass_recovers_without_scene(failures)
 	_test_prey_and_grazer_populations_grow_with_food(failures)
 	_test_varnak_pressure_reduces_prey_and_grazers(failures)
+	_test_biome_state_round_trip_preserves_new_fields(failures)
 	_test_tick_is_deterministic_for_same_input(failures)
 	_test_daily_changes_recover_low_populations(failures)
 	return failures
@@ -79,6 +80,19 @@ func _test_varnak_pressure_reduces_prey_and_grazers(failures: Array[String]) -> 
 	_expect(biome.grazer_population < 10.0, failures, "Varnak pressure should reduce grazer population")
 	_expect(biome.small_prey_predation_pressure > 0.0, failures, "Varnak pressure should produce small prey predation pressure")
 	_expect(biome.grazer_predation_pressure > 0.0, failures, "Varnak pressure should produce grazer predation pressure")
+
+
+func _test_biome_state_round_trip_preserves_new_fields(failures: Array[String]) -> void:
+	var biome := _make_biome_state({
+		"current_niche": "OMNIVORE",
+		"generations_under_food_stress": 3,
+		"grazer_non_plant_food_events": 2
+	})
+	var restored := BIOME_STATE.from_dictionary(biome.to_dictionary())
+	_expect(str(restored.current_niche) == "OMNIVORE", failures, "Biome state should preserve current_niche")
+	_expect(int(restored.generations_under_food_stress) == 3, failures, "Biome state should preserve generations_under_food_stress")
+	_expect(int(restored.grazer_non_plant_food_events) == 2, failures, "Biome state should preserve grazer_non_plant_food_events")
+
 
 func _test_tick_is_deterministic_for_same_input(failures: Array[String]) -> void:
 	var sim := ECOSYSTEM_SIMULATION.new()

@@ -353,10 +353,7 @@ func _debug_adjust_population(position: Vector2, key: String, delta: float, max_
 
 
 func _refresh_biome_derived_state(state: Dictionary) -> void:
-	var core_state := core_ecosystem_simulation.tick_biome_from_dictionary(state, {
-		"ecosystem_balance": GAME_BALANCE.ECOSYSTEM,
-		"population_recovery": GAME_BALANCE.POPULATION_RECOVERY
-	})
+	var core_state: Dictionary = core_ecosystem_simulation.derive_biome_from_dictionary(state)
 	state["plant_biomass_percent"] = core_state.get("plant_biomass_percent", state.get("plant_biomass_percent"))
 	state["food_stress"] = core_state.get("food_stress", state.get("food_stress"))
 	state["status"] = core_state.get("status", state.get("status"))

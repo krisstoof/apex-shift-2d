@@ -44,13 +44,10 @@ static func tick_biome(state: BiomeEcosystemState, ecosystem_balance: Dictionary
 		"grazer_starvation_pressure": grazer_starvation_pressure
 	}
 
-static func apply_daily_recovery(state: BiomeEcosystemState, population_recovery: Dictionary) -> Dictionary:
+static func apply_daily_recovery(state: BiomeEcosystemState, population_recovery: Dictionary, ecosystem_balance: Dictionary = {}) -> Dictionary:
 	if state == null:
 		return {}
-	var biomass_factor: float = clamp(state.plant_biomass_percent / 100.0, 0.0, 1.0)
-	var biomass_multiplier: float = _recovery_value(population_recovery, "depleted_biomass_recovery_multiplier", 0.45)
-	if biomass_factor >= 0.70:
-		biomass_multiplier = _recovery_value(population_recovery, "healthy_biomass_recovery_multiplier", 1.25)
+	var biomass_multiplier: float = get_biomass_recovery_multiplier(state.plant_biomass_percent, population_recovery, ecosystem_balance)
 	var small_recovery: float = _recover_population(state.small_prey_population, _recovery_value(population_recovery, "small_prey_min_population", 12.0), _recovery_value(population_recovery, "small_prey_target_population", 25.0), _recovery_value(population_recovery, "small_prey_recovery_per_day", 4.0), biomass_multiplier)
 	var grazer_recovery: float = _recover_population(state.grazer_population, _recovery_value(population_recovery, "grazer_min_population", 6.0), _recovery_value(population_recovery, "grazer_target_population", 14.0), _recovery_value(population_recovery, "grazer_recovery_per_day", 2.0), biomass_multiplier)
 	state.small_prey_population += small_recovery
@@ -61,6 +58,21 @@ static func apply_daily_recovery(state: BiomeEcosystemState, population_recovery
 	state.grazer_population_trend = get_population_trend(grazer_recovery)
 	state.refresh_derived_state()
 	return {"small_prey_daily_recovery": small_recovery, "grazer_daily_recovery": grazer_recovery}
+
+static func get_biomass_recovery_multiplier(biomass_percent: float, population_recovery: Dictionary, ecosystem_balance: Dictionary = {}) -> float:
+	var depleted_threshold: float = float(ecosystem_balance.get("depleted_threshold", 30.0))
+	var healthy_threshold: float = float(ecosystem_balance.get("stressed_threshold", 70.0))
+	var depleted_multiplier: float = _recovery_value(population_recovery, "depleted_biomass_recovery_multiplier", 0.45)
+	var healthy_multiplier: float = _recovery_value(population_recovery, "healthy_biomass_recovery_multiplier", 1.25)
+	if biomass_percent <= depleted_threshold:
+		return depleted_multiplier
+	if biomass_percent >= healthy_threshold:
+		return healthy_multiplier
+	var blend: float = inverse_lerp(depleted_threshold, healthy_threshold, biomass_percent)
+	return lerpf(depleted_multiplier, healthy_multiplier, blend)
+
+static func get_critical_predation_multiplier(population: float, minimum_population: float, population_recovery: Dictionary) -> float:
+	return _critical_predation_multiplier(population, minimum_population, population_recovery)
 
 static func get_population_trend(delta: float) -> String:
 	if delta > 0.05:

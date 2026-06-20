@@ -1,0 +1,337 @@
+diff --git a/scripts/core/ecosystem/biome_ecosystem_state.gd b/scripts/core/ecosystem/biome_ecosystem_state.gd
+index c157114..b9c2641 100644
+--- a/scripts/core/ecosystem/biome_ecosystem_state.gd
++++ b/scripts/core/ecosystem/biome_ecosystem_state.gd
+@@ -57,6 +57,9 @@ var grazer_starvation_pressure := 0.0
+ var small_prey_population_trend := "stable"
+ var grazer_population_trend := "stable"
+ var status := STATUS_HEALTHY
++var current_niche := "HERBIVORE"
++var generations_under_food_stress := 0
++var grazer_non_plant_food_events := 0
+ 
+ func load_from_dictionary(data: Dictionary) -> void:
+ 	biome_id = str(data.get("biome_id", biome_id))
+@@ -110,6 +113,9 @@ func load_from_dictionary(data: Dictionary) -> void:
+ 	grazer_starvation_pressure = float(data.get("grazer_starvation_pressure", grazer_starvation_pressure))
+ 	small_prey_population_trend = str(data.get("small_prey_population_trend", small_prey_population_trend))
+ 	grazer_population_trend = str(data.get("grazer_population_trend", grazer_population_trend))
++	current_niche = str(data.get("current_niche", current_niche))
++	generations_under_food_stress = int(data.get("generations_under_food_stress", generations_under_food_stress))
++	grazer_non_plant_food_events = int(data.get("grazer_non_plant_food_events", grazer_non_plant_food_events))
+ 	status = str(data.get("status", status))
+ 	refresh_derived_state()
+ 
+@@ -163,6 +169,9 @@ func to_dictionary() -> Dictionary:
+ 		"grazer_starvation_pressure": grazer_starvation_pressure,
+ 		"small_prey_population_trend": small_prey_population_trend,
+ 		"grazer_population_trend": grazer_population_trend,
++		"current_niche": current_niche,
++		"generations_under_food_stress": generations_under_food_stress,
++		"grazer_non_plant_food_events": grazer_non_plant_food_events,
+ 		"status": status
+ 	}
+diff --git a/scripts/core/ecosystem/ecosystem_simulation.gd b/scripts/core/ecosystem/ecosystem_simulation.gd
+index 6dcf28b..c8b2641 100644
+--- a/scripts/core/ecosystem/ecosystem_simulation.gd
++++ b/scripts/core/ecosystem/ecosystem_simulation.gd
+@@ -6,8 +6,6 @@ class_name EcosystemSimulation
+ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+ const ECOSYSTEM_STATE := preload("res://scripts/core/ecosystem/ecosystem_state.gd")
+ const BIOME_STATE := preload("res://scripts/core/ecosystem/biome_ecosystem_state.gd")
+-const BIOMASS_MODEL := preload("res://scripts/core/ecosystem/biomass_model.gd")
+-const POPULATION_MODEL := preload("res://scripts/core/ecosystem/population_model.gd")
+ 
+ func tick(state: EcosystemState, options: Dictionary = {}) -> EcosystemState:
+ 	if state == null:
+@@ -19,21 +17,41 @@ func tick(state: EcosystemState, options: Dictionary = {}) -> EcosystemState:
+ 		var biome_state: BiomeEcosystemState = result.get_biome_state(biome_id)
+ 		if biome_state == null:
+ 			continue
+-		tick_biome(biome_state, ecosystem_balance, population_recovery)
+-		result.set_biome_state(biome_state)
++		var ticked_biome_state: BiomeEcosystemState = tick_biome(biome_state, ecosystem_balance, population_recovery)
++		result.set_biome_state(ticked_biome_state)
+ 	return result
+ 
+ func tick_biome(state: BiomeEcosystemState, ecosystem_balance: Dictionary = {}, population_recovery: Dictionary = {}) -> BiomeEcosystemState:
++	if state == null:
++		return BIOME_STATE.new()
+ 	var result: BiomeEcosystemState = state.duplicate_state()
+ 	var effective_ecosystem: Dictionary = GAME_BALANCE.ECOSYSTEM if ecosystem_balance.is_empty() else ecosystem_balance
+ 	var effective_recovery: Dictionary = GAME_BALANCE.POPULATION_RECOVERY if population_recovery.is_empty() else population_recovery
+-	BIOMASS_MODEL.tick_biome(result, effective_ecosystem)
+-	POPULATION_MODEL.tick_biome(result, effective_ecosystem, effective_recovery)
++	BiomassModel.tick_biome(result, effective_ecosystem)
++	PopulationModel.tick_biome(result, effective_ecosystem, effective_recovery)
+ 	result.refresh_derived_state()
+ 	return result
+ 
++func tick_biomass_from_dictionary(state: Dictionary, options: Dictionary = {}) -> Dictionary:
++	var biome_state: BiomeEcosystemState = BIOME_STATE.from_dictionary(state)
++	BiomassModel.tick_biome(biome_state, _get_ecosystem_balance(options))
++	return biome_state.to_dictionary()
++
++func tick_population_from_dictionary(state: Dictionary, options: Dictionary = {}) -> Dictionary:
++	var biome_state: BiomeEcosystemState = BIOME_STATE.from_dictionary(state)
++	PopulationModel.tick_biome(
++		biome_state,
++		_get_ecosystem_balance(options),
++		_get_population_recovery(options)
++	)
++	return biome_state.to_dictionary()
++
+ func tick_biome_from_dictionary(state: Dictionary, options: Dictionary = {}) -> Dictionary:
+ 	var biome_state: BiomeEcosystemState = BIOME_STATE.from_dictionary(state)
+ 	var ticked: BiomeEcosystemState = tick_biome(biome_state, _get_ecosystem_balance(options), _get_population_recovery(options))
+ 	return ticked.to_dictionary()
+ 
++func derive_biome_from_dictionary(state: Dictionary) -> Dictionary:
++	var biome_state: BiomeEcosystemState = BIOME_STATE.from_dictionary(state)
++	biome_state.refresh_derived_state()
++	return biome_state.to_dictionary()
++
+ func apply_daily_changes(state: EcosystemState, options: Dictionary = {}) -> EcosystemState:
+ 	if state == null:
+ 		return ECOSYSTEM_STATE.new()
+@@ -48,8 +66,8 @@ func apply_daily_changes(state: EcosystemState, options: Dictionary = {}) -> Eco
+ 		var biome_state: BiomeEcosystemState = result.get_biome_state(biome_id)
+ 		if biome_state == null:
+ 			continue
+-		BIOMASS_MODEL.apply_recovery_day(biome_state, ecosystem_balance, biomass_multiplier)
+-		POPULATION_MODEL.apply_daily_recovery(biome_state, population_recovery)
++		BiomassModel.apply_recovery_day(biome_state, ecosystem_balance, biomass_multiplier)
++		PopulationModel.apply_daily_recovery(biome_state, population_recovery, ecosystem_balance)
+ 		result.set_biome_state(biome_state)
+ 	result.day += 1
+ 	return result
+diff --git a/scripts/core/ecosystem/population_model.gd b/scripts/core/ecosystem/population_model.gd
+index 7f7d62e..d7b2641 100644
+--- a/scripts/core/ecosystem/population_model.gd
++++ b/scripts/core/ecosystem/population_model.gd
+@@ -27,8 +27,8 @@ static func tick_biome(state: BiomeEcosystemState, ecosystem_balance: Dictionary
+ 	grazer_delta -= grazer_predation_pressure
+ 	state.small_prey_population = clamp(state.small_prey_population + small_prey_delta, 0.0, _recovery_value(population_recovery, "small_prey_max_population", 40.0))
+ 	state.grazer_population = clamp(state.grazer_population + grazer_delta, 0.0, _recovery_value(population_recovery, "grazer_max_population", 25.0))
+-	var actual_small_delta := state.small_prey_population - small_prey_before
+-	var actual_grazer_delta := state.grazer_population - grazer_before
++	var actual_small_delta: float = state.small_prey_population - small_prey_before
++	var actual_grazer_delta: float = state.grazer_population - grazer_before
+ 	state.population_count = state.small_prey_population + state.grazer_population + state.varnak_population
+ 	state.birth_rate = maxf(actual_small_delta + actual_grazer_delta, 0.0)
+ 	state.death_rate = maxf(-(actual_small_delta + actual_grazer_delta), 0.0)
+@@ -46,11 +46,9 @@ static func tick_biome(state: BiomeEcosystemState, ecosystem_balance: Dictionary
+ 		"grazer_starvation_pressure": grazer_starvation_pressure
+ 	}
+ 
+-static func apply_daily_recovery(state: BiomeEcosystemState, population_recovery: Dictionary) -> Dictionary:
++static func apply_daily_recovery(state: BiomeEcosystemState, population_recovery: Dictionary, ecosystem_balance: Dictionary = {}) -> Dictionary:
+ 	if state == null:
+ 		return {}
+-	var biomass_factor: float = clamp(state.plant_biomass_percent / 100.0, 0.0, 1.0)
+-	var biomass_multiplier: float = _recovery_value(population_recovery, "depleted_biomass_recovery_multiplier", 0.45)
+-	if biomass_factor >= 0.70:
+-		biomass_multiplier = _recovery_value(population_recovery, "healthy_biomass_recovery_multiplier", 1.25)
++	var biomass_multiplier: float = get_biomass_recovery_multiplier(state.plant_biomass_percent, population_recovery, ecosystem_balance)
+ 	var small_recovery: float = _recover_population(state.small_prey_population, _recovery_value(population_recovery, "small_prey_min_population", 12.0), _recovery_value(population_recovery, "small_prey_target_population", 25.0), _recovery_value(population_recovery, "small_prey_recovery_per_day", 4.0), biomass_multiplier)
+ 	var grazer_recovery: float = _recover_population(state.grazer_population, _recovery_value(population_recovery, "grazer_min_population", 6.0), _recovery_value(population_recovery, "grazer_target_population", 14.0), _recovery_value(population_recovery, "grazer_recovery_per_day", 2.0), biomass_multiplier)
+ 	state.small_prey_population += small_recovery
+@@ -64,6 +62,19 @@ static func apply_daily_recovery(state: BiomeEcosystemState, population_recovery
+ 	state.refresh_derived_state()
+ 	return {"small_prey_daily_recovery": small_recovery, "grazer_daily_recovery": grazer_recovery}
+ 
++static func get_biomass_recovery_multiplier(biomass_percent: float, population_recovery: Dictionary, ecosystem_balance: Dictionary = {}) -> float:
++	var depleted_threshold: float = float(ecosystem_balance.get("depleted_threshold", 30.0))
++	var healthy_threshold: float = float(ecosystem_balance.get("stressed_threshold", 70.0))
++	var depleted_multiplier: float = _recovery_value(population_recovery, "depleted_biomass_recovery_multiplier", 0.45)
++	var healthy_multiplier: float = _recovery_value(population_recovery, "healthy_biomass_recovery_multiplier", 1.25)
++	if biomass_percent <= depleted_threshold:
++		return depleted_multiplier
++	if biomass_percent >= healthy_threshold:
++		return healthy_multiplier
++	var blend: float = inverse_lerp(depleted_threshold, healthy_threshold, biomass_percent)
++	return lerpf(depleted_multiplier, healthy_multiplier, blend)
++
++static func get_critical_predation_multiplier(population: float, minimum_population: float, population_recovery: Dictionary) -> float:
++	return _critical_predation_multiplier(population, minimum_population, population_recovery)
++
+ static func get_population_trend(delta: float) -> String:
+ 	if delta > 0.05:
+ 		return "growing"
+@@ -74,7 +85,7 @@ static func get_population_trend(delta: float) -> String:
+ static func _recover_population(population: float, minimum: float, target: float, per_day: float, biomass_multiplier: float) -> float:
+ 	if population >= target:
+ 		return 0.0
+-	var recovery := per_day * biomass_multiplier
++	var recovery: float = per_day * biomass_multiplier
+ 	if population < minimum:
+ 		recovery *= 1.35
+ 	return min(recovery, target - population)
+diff --git a/scripts/systems/ecosystem_director.gd b/scripts/systems/ecosystem_director.gd
+index 70e065c..e5b2641 100644
+--- a/scripts/systems/ecosystem_director.gd
++++ b/scripts/systems/ecosystem_director.gd
+@@ -7,14 +7,13 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+ const ECOSYSTEM_COMMAND := preload("res://scripts/systems/ecosystem_command.gd")
+ const ECOSYSTEM_DELTA := preload("res://scripts/systems/ecosystem_delta.gd")
+ const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
+-const CORE_ECOSYSTEM_SIMULATION := preload("res://scripts/core/ecosystem/ecosystem_simulation.gd")
+ 
+ var biome_states: Dictionary = {}
+ var tick_timer := 0.0
+ var initialized := false
+ var pending_tick_biome_ids: Array[String] = []
+ var ecosystem_state_source := "generated"
+-var core_ecosystem_simulation := CORE_ECOSYSTEM_SIMULATION.new()
++var core_ecosystem_simulation: EcosystemSimulation = EcosystemSimulation.new()
+@@ -355,11 +354,8 @@ func _debug_adjust_population(position: Vector2, key: String, delta: float, max_
+ 	_post_debug_message(message, biome_id)
+ 
+ func _refresh_biome_derived_state(state: Dictionary) -> void:
+-	var core_state := core_ecosystem_simulation.tick_biome_from_dictionary(state, {
+-		"ecosystem_balance": GAME_BALANCE.ECOSYSTEM,
+-		"population_recovery": GAME_BALANCE.POPULATION_RECOVERY
+-	})
+-	state["plant_biomass_percent"] = core_state.get("plant_biomass_percent", state.get("plant_biomass_percent"))
++	var core_state: Dictionary = core_ecosystem_simulation.derive_biome_from_dictionary(state)
++	state["plant_biomass_percent"] = core_state.get("plant_biomass_percent", state.get("plant_biomass_percent", 0.0))
+ 	state["food_stress"] = core_state.get("food_stress", state.get("food_stress"))
+ 	state["status"] = core_state.get("status", state.get("status"))
+@@ -459,20 +455,86 @@ func _update_ecosystem_biome(biome_id: String) -> void:
+ 	_emit_status_event_if_needed(previous_status, state)
+ 
+ func _apply_core_daily_ecosystem_recovery() -> void:
++	_apply_daily_population_recovery()
++
++
++func _update_biome_biomass(state: Dictionary) -> void:
++	var core_state: Dictionary = core_ecosystem_simulation.tick_biomass_from_dictionary(state, {
++		"ecosystem_balance": GAME_BALANCE.ECOSYSTEM
++	})
++	for key in [
++		"plant_biomass",
++		"plant_biomass_percent",
++		"plant_consumption_pressure",
++		"overgrazing_pressure",
++		"overgrazing_level",
++		"food_stress",
++		"starvation_pressure"
++	]:
++		state[key] = core_state.get(key, state.get(key))
++
++
++func _update_biome_populations(state: Dictionary) -> void:
++	var previous_small_prey: float = float(state.get("small_prey_population", 0.0))
++	var previous_grazers: float = float(state.get("grazer_population", 0.0))
++	var core_state: Dictionary = core_ecosystem_simulation.tick_population_from_dictionary(state, {
++		"ecosystem_balance": GAME_BALANCE.ECOSYSTEM,
++		"population_recovery": GAME_BALANCE.POPULATION_RECOVERY
++	})
++	for key in [
++		"small_prey_population",
++		"grazer_population",
++		"population_count",
++		"birth_rate",
++		"death_rate",
++		"starvation_pressure",
++		"small_prey_predation_pressure",
++		"grazer_predation_pressure",
++		"grazer_starvation_pressure",
++		"small_prey_population_trend",
++		"grazer_population_trend"
++	]:
++		state[key] = core_state.get(key, state.get(key))
++	_emit_population_decline_events_if_needed(state, previous_small_prey, previous_grazers)
++
++
++func _get_critical_predation_multiplier(population: float, minimum_population: float) -> float:
++	return PopulationModel.get_critical_predation_multiplier(
++		population,
++		minimum_population,
++		GAME_BALANCE.POPULATION_RECOVERY
++	)
++
++
++func _get_population_trend(delta: float) -> String:
++	return PopulationModel.get_population_trend(delta)
++
++
++func _apply_daily_population_recovery() -> void:
+ 	for biome_id_value in biome_states.keys():
+ 		var biome_id := str(biome_id_value)
+ 		var state: Dictionary = biome_states[biome_id]
+-		var previous_status := str(state.get("status", "healthy"))
+-		state = core_ecosystem_simulation.tick_biome_from_dictionary(state, {
+-			"ecosystem_balance": GAME_BALANCE.ECOSYSTEM,
+-			"population_recovery": GAME_BALANCE.POPULATION_RECOVERY
+-		})
++		var small_prey_recovery: float = _recover_population_for_day(state, "small_prey")
++		var grazer_recovery: float = _recover_population_for_day(state, "grazer")
++		state["small_prey_daily_recovery"] = small_prey_recovery
++		state["grazer_daily_recovery"] = grazer_recovery
++		state["small_prey_population_trend"] = _get_population_trend(small_prey_recovery)
++		state["grazer_population_trend"] = _get_population_trend(grazer_recovery)
++		state["population_count"] = (
++			float(state.get("small_prey_population", 0.0))
++			+ float(state.get("grazer_population", 0.0))
++			+ float(state.get("varnak_population", 0.0))
++		)
+ 		biome_states[biome_id] = state
+-		_emit_vegetation_changed(state)
+-		_emit_status_event_if_needed(previous_status, state)
+-
+-
+-func _update_biome_biomass(state: Dictionary) -> void:
+-	var core_state := core_ecosystem_simulation.tick_biome_from_dictionary(state, {
+-		"ecosystem_balance": GAME_BALANCE.ECOSYSTEM,
+-		"population_recovery": GAME_BALANCE.POPULATION_RECOVERY
+-	})
+-	for key in [
+-		"plant_biomass",
+-		"plant_biomass_percent",
+-		"plant_consumption_pressure",
+-		"overgrazing_pressure",
+-		"overgrazing_level",
+-		"food_stress",
+-		"starvation_pressure"
+-	]:
+-		state[key] = core_state.get(key, state.get(key))
++
++
++func _recover_population_for_day(state: Dictionary, species: String) -> float:
++	var population_key: String = "%s_population" % species
++	var current_population: float = float(state.get(population_key, 0.0))
++	var target_population: float = _population_recovery_value("%s_target_population" % species)
++	var max_population: float = _population_recovery_value("%s_max_population" % species)
++	var difficulty := _get_first_week_difficulty()
++	var population_multiplier_key := "%s_population_multiplier" % species
++	var has_first_week_adjustment := _get_current_day() <= 7 and difficulty.has(population_multiplier_key)
++	if has_first_week_adjustment:
++		target_population *= float(difficulty.get(population_multiplier_key, 1.0))
++		max_population *= float(difficulty.get(population_multiplier_key, 1.0))
++	if current_population >= target_population or current_population >= max_population:
++		return 0.0
++	var biomass_multiplier: float = _get_biomass_recovery_multiplier(float(state.get("plant_biomass_percent", 0.0)))
++	var recovery_per_day: float = _population_recovery_value("%s_recovery_per_day" % species)
++	if has_first_week_adjustment:
++		recovery_per_day *= float(difficulty.get(population_multiplier_key, 1.0))
++	var recovery: float = minf(recovery_per_day * biomass_multiplier, target_population - current_population)
++	var recovered_population: float = clampf(current_population + recovery, 0.0, max_population)
++	state[population_key] = recovered_population
++	return recovered_population - current_population
++
++
++func _get_biomass_recovery_multiplier(biomass_percent: float) -> float:
++	return PopulationModel.get_biomass_recovery_multiplier(
++		biomass_percent,
++		GAME_BALANCE.POPULATION_RECOVERY,
++		GAME_BALANCE.ECOSYSTEM
++	)
+@@ -620,7 +682,7 @@ func _on_game_event(event_name: String, payload: Dictionary) -> void:
+ 	match event_name:
+ 		"day_ended":
+-			_apply_core_daily_ecosystem_recovery()
++			_apply_daily_population_recovery()
+ 		"small_prey_killed_by_player", "small_prey_killed_by_varnak", "small_prey_killed_by_grazer":
+ 			_apply_small_prey_death(payload)
+ 		"small_prey_consumed_plants":

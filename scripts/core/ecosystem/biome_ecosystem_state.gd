@@ -56,6 +56,9 @@ var grazer_starvation_pressure := 0.0
 var small_prey_population_trend := "stable"
 var grazer_population_trend := "stable"
 var status := STATUS_HEALTHY
+var current_niche := "HERBIVORE"
+var generations_under_food_stress := 0
+var grazer_non_plant_food_events := 0
 
 func load_from_dictionary(data: Dictionary) -> void:
 	biome_id = str(data.get("biome_id", biome_id))
@@ -107,6 +110,9 @@ func load_from_dictionary(data: Dictionary) -> void:
 	grazer_starvation_pressure = float(data.get("grazer_starvation_pressure", grazer_starvation_pressure))
 	small_prey_population_trend = str(data.get("small_prey_population_trend", small_prey_population_trend))
 	grazer_population_trend = str(data.get("grazer_population_trend", grazer_population_trend))
+	current_niche = str(data.get("current_niche", current_niche))
+	generations_under_food_stress = int(data.get("generations_under_food_stress", generations_under_food_stress))
+	grazer_non_plant_food_events = int(data.get("grazer_non_plant_food_events", grazer_non_plant_food_events))
 	status = str(data.get("status", status))
 	refresh_derived_state()
 
@@ -161,6 +167,9 @@ func to_dictionary() -> Dictionary:
 		"grazer_starvation_pressure": grazer_starvation_pressure,
 		"small_prey_population_trend": small_prey_population_trend,
 		"grazer_population_trend": grazer_population_trend,
+		"current_niche": current_niche,
+		"generations_under_food_stress": generations_under_food_stress,
+		"grazer_non_plant_food_events": grazer_non_plant_food_events,
 		"status": status
 	}
 

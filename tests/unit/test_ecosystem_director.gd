@@ -40,7 +40,9 @@ func _test_grazer_traits_use_state_and_balance_defaults(failures: Array[String])
 			"average_scavenger_diet": 0.10,
 			"average_aggression": 0.28,
 			"average_grazer_reproduction": 0.41,
-			"current_niche": "OMNIVORE"
+			"current_niche": "OMNIVORE",
+			"generations_under_food_stress": 5,
+			"grazer_non_plant_food_events": 2
 		}
 	}
 	var traits: Dictionary = director.get_grazer_traits("hearth_meadow")
@@ -58,6 +60,8 @@ func _test_grazer_traits_use_state_and_balance_defaults(failures: Array[String])
 		failures,
 		"Missing biome status should fall back to unknown"
 	)
+	TEST_UTILS.expect_equal(int(director.biome_states["hearth_meadow"].get("generations_under_food_stress", 0)), 5, failures, "Grazer state should preserve generations_under_food_stress")
+	TEST_UTILS.expect_equal(int(director.biome_states["hearth_meadow"].get("grazer_non_plant_food_events", 0)), 2, failures, "Grazer state should preserve grazer_non_plant_food_events")
 	director.free()
 
 
