@@ -4,6 +4,10 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const VEGETATION_CATALOG := preload("res://scripts/world/vegetation_catalog.gd")
 const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
+const RESOURCE_STATE_SCRIPT := preload("res://scripts/core/resources/resource_state.gd")
+const RESOURCE_HARVEST_RULES := preload("res://scripts/core/resources/resource_harvest_rules.gd")
+const RESOURCE_REGROWTH_SYSTEM := preload("res://scripts/core/resources/resource_regrowth_system.gd")
+const RESOURCE_DROP_TABLE := preload("res://scripts/core/resources/resource_drop_table.gd")
 const RESOURCE_ATLAS_PATH := "res://assets/textures/resources/resource_atlas.svg"
 const RESOURCE_ATLAS_CELL_SIZE := Vector2(80.0, 80.0)
 const RESOURCE_ATLAS_COLUMNS := {
@@ -51,6 +55,7 @@ var biome_id := ""
 var is_visibility_culled := false
 var is_inventory_drop := false
 var inventory_drop_item_id := ""
+var resource_state: ResourceState
 # Pool state stays set while the node lives in the pool so release/acquire can reuse it safely.
 var is_pooled := false
 var pool_key := ""
@@ -66,6 +71,59 @@ func _get_event_bus() -> Node:
 		return null
 
 	return tree.root.get_node_or_null("EventBus")
+
+
+func _ensure_resource_state() -> ResourceState:
+	if resource_state == null:
+		resource_state = RESOURCE_STATE_SCRIPT.new()
+	return resource_state
+
+
+func _sync_state_from_node() -> void:
+	var state := _ensure_resource_state()
+	state.resource_kind = resource_kind
+	state.item_id = item_id
+	state.amount = amount
+	state.mature_amount = mature_amount
+	state.growth_stage = growth_stage
+	state.max_growth_stage = max_growth_stage
+	state.growth_progress = growth_progress
+	state.days_to_next_stage = days_to_next_stage
+	state.days_since_harvested = days_since_harvested
+	state.is_harvested = is_harvested
+	state.can_be_harvested = can_be_harvested
+	state.player_harvestable = player_harvestable
+	state.render_only = render_only
+	state.is_inventory_drop = is_inventory_drop
+	state.inventory_drop_item_id = inventory_drop_item_id
+	state.biome_id = biome_id
+	state.pond_id = pond_id
+	state.food_value = food_value
+	state.is_edible_by_herbivores = is_edible_by_herbivores
+
+
+func _sync_node_from_state() -> void:
+	if resource_state == null:
+		return
+	resource_kind = resource_state.resource_kind
+	item_id = resource_state.item_id
+	amount = resource_state.amount
+	mature_amount = resource_state.mature_amount
+	growth_stage = resource_state.growth_stage
+	max_growth_stage = resource_state.max_growth_stage
+	growth_progress = resource_state.growth_progress
+	days_to_next_stage = resource_state.days_to_next_stage
+	days_since_harvested = resource_state.days_since_harvested
+	is_harvested = resource_state.is_harvested
+	can_be_harvested = resource_state.can_be_harvested
+	player_harvestable = resource_state.player_harvestable
+	render_only = resource_state.render_only
+	is_inventory_drop = resource_state.is_inventory_drop
+	inventory_drop_item_id = resource_state.inventory_drop_item_id
+	biome_id = resource_state.biome_id
+	pond_id = resource_state.pond_id
+	food_value = resource_state.food_value
+	is_edible_by_herbivores = resource_state.is_edible_by_herbivores
 
 
 func _post_event_message(message: String) -> void:
@@ -97,6 +155,7 @@ func _ready() -> void:
 
 func setup(kind: String) -> void:
 	resource_kind = "conifer_tree" if kind == "tree" else kind
+	_sync_state_from_node()
 	biome_id = _get_biome_id_for_position(global_position)
 	player_harvestable = true
 	render_only = false
@@ -188,69 +247,36 @@ func setup(kind: String) -> void:
 			mature_radius = 12.0
 			food_value = float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2)) * 1.5
 	days_to_next_stage = _get_days_to_next_stage()
+	_sync_state_from_node()
 	_apply_growth_stage()
 	_sync_resource_groups()
 	queue_redraw()
 
 
 func interact(player: Node) -> void:
-	if is_inventory_drop:
-		_interact_inventory_drop(player)
-		return
-	if resource_kind == "item_drop":
-		_interact_item_drop(player)
-		return
-	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
-		_interact_full_stack_drop(player)
-		return
-	if not player_harvestable:
-		_post_event_message("%s cannot be gathered" % _get_resource_label())
-		return
-	if not can_be_harvested:
-		_post_event_message("%s is still regrowing" % _get_resource_label())
-		return
-	if amount <= 0:
-		_post_event_message("%s is empty" % _get_resource_label())
-		return
-	var collected_amount := amount
+	_sync_state_from_node()
 	var player_inventory: Variant = player.get("inventory")
-	if player_inventory == null or not player_inventory.has_method("add_item"):
+	var result := RESOURCE_HARVEST_RULES.harvest(resource_state, player_inventory)
+	if not result.success:
+		_post_event_message(result.message)
 		return
-	var leftover: int = int(player_inventory.call("add_item", item_name, collected_amount))
-	var added_amount: int = collected_amount - leftover
-	if added_amount <= 0:
-		_post_event_message("Inventory full")
-		return
-	_post_event_message("Collected %s x%d" % [item_name, added_amount])
-	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
-		var event_name := "bone_collected" if resource_kind == "bone_drop" else "meat_collected"
-		_emit_game_event(event_name, {
-			"amount": added_amount,
-			"position": global_position
-		})
-	if leftover > 0:
-		amount = leftover
-		queue_redraw()
-		return
-	_emit_plant_resource_harvested()
-	if _uses_regrowth():
+	_sync_node_from_state()
+	_post_event_message(result.message)
+	if not result.emitted_event_name.is_empty():
+		var payload := result.emitted_event_payload.duplicate(true)
+		payload["position"] = global_position
+		_emit_game_event(result.emitted_event_name, payload)
+	if result.should_start_regrowth:
 		_mark_harvested()
-	else:
+	elif result.should_remove_node:
 		_release_or_free()
+	else:
+		queue_redraw()
 
 
 func get_prompt() -> String:
-	if is_inventory_drop:
-		return "E: pick up %s x%d" % [ITEM_DATABASE.get_display_name(item_name), amount]
-	if resource_kind == "meat_drop" or resource_kind == "bone_drop":
-		return "E: pick up %s x%d" % [ITEM_DATABASE.get_display_name(_get_drop_item_id()), amount]
-	if resource_kind == "item_drop":
-		return "E: pick up %s x%d" % [ITEM_DATABASE.get_display_name(_get_drop_item_id()), amount]
-	if not player_harvestable:
-		return ""
-	if not can_be_harvested:
-		return "Regrowing: %s" % get_growth_debug_text()
-	return "E: gather %s x%s" % [item_name, amount]
+	_sync_state_from_node()
+	return RESOURCE_HARVEST_RULES.get_prompt(resource_state)
 
 
 func is_player_interactable() -> bool:
@@ -283,103 +309,55 @@ func get_pickup_priority() -> int:
 
 
 func get_save_data() -> Dictionary:
-	return {
-		"kind": resource_kind,
-		"position": _vector_to_data(global_position),
-		"biome_id": biome_id,
-		"amount": amount,
-		"mature_amount": mature_amount,
-		"growth_stage": growth_stage,
-		"max_growth_stage": max_growth_stage,
-		"growth_progress": growth_progress,
-		"days_to_next_stage": days_to_next_stage,
-		"days_since_harvested": days_since_harvested,
-		"is_harvested": is_harvested,
-		"can_be_harvested": can_be_harvested,
-		"player_harvestable": player_harvestable,
-		"is_edible_by_herbivores": is_edible_by_herbivores,
-		"food_value": food_value,
-		"render_only": render_only,
-		"is_pond_vegetation": is_pond_vegetation,
-		"pond_id": pond_id,
-		"food_bonus_multiplier": food_bonus_multiplier,
-		"pond_visual_multiplier": pond_visual_multiplier,
-		"item_id": item_id,
-		"is_inventory_drop": is_inventory_drop,
-		"inventory_drop_item_id": inventory_drop_item_id,
-		"item_name": item_name
-	}
+	_sync_state_from_node()
+	var data := resource_state.to_save_data()
+	data["position"] = _vector_to_data(global_position)
+	data["food_bonus_multiplier"] = food_bonus_multiplier
+	data["pond_visual_multiplier"] = pond_visual_multiplier
+	data["item_name"] = item_name
+	data["kind"] = resource_kind
+	data["render_only"] = render_only
+	return data
 
 
 func restore_from_data(data: Dictionary) -> void:
-	biome_id = str(data.get("biome_id", _get_biome_id_for_position(global_position)))
-	is_inventory_drop = data.get("is_inventory_drop", false) == true
-	if is_inventory_drop:
-		var saved_item_id: String = ITEM_DATABASE.normalize_item_id(str(data.get("inventory_drop_item_id", data.get("item_name", item_name))))
-		var saved_amount: int = maxi(int(data.get("amount", amount)), 1)
-		global_position = _data_to_vector(data.get("position", _vector_to_data(global_position)))
-		setup_dropped_item(saved_item_id, saved_amount)
-		return
-	if str(data.get("kind", resource_kind)) == "item_drop":
-		resource_kind = "item_drop"
-		item_id = str(data.get("item_id", data.get("item_name", item_id)))
-		item_name = item_id
-		player_harvestable = true
-		render_only = false
-		amount = max(int(data.get("amount", 1)), 1)
-		mature_amount = amount
-		can_be_harvested = true
-		is_edible_by_herbivores = false
-		food_value = 0.0
-		is_pond_vegetation = false
-		pond_id = ""
-		_sync_resource_groups()
-		_sync_visual_sprite()
-		queue_redraw()
-		return
-	mature_amount = max(int(data.get("mature_amount", mature_amount)), 0)
-	amount = max(int(data.get("amount", mature_amount)), 0)
-	growth_stage = clamp(int(data.get("growth_stage", max_growth_stage)), 0, max_growth_stage)
-	growth_progress = max(float(data.get("growth_progress", 0.0)), 0.0)
-	days_to_next_stage = max(float(data.get("days_to_next_stage", _get_days_to_next_stage())), 0.1)
-	days_since_harvested = max(float(data.get("days_since_harvested", 0.0)), 0.0)
-	is_harvested = data.get("is_harvested", growth_stage <= 0) == true
-	can_be_harvested = data.get("can_be_harvested", growth_stage > 0) == true
-	food_value = max(float(data.get("food_value", food_value)), 0.0)
-	render_only = data.get("render_only", _is_render_only_kind()) == true
-	if food_value <= 0.0:
-		food_value = _get_default_herbivore_food_value()
-	is_pond_vegetation = data.get("is_pond_vegetation", false) == true
-	pond_id = str(data.get("pond_id", pond_id))
-	food_bonus_multiplier = max(float(data.get("food_bonus_multiplier", food_bonus_multiplier)), 1.0)
-	pond_visual_multiplier = max(float(data.get("pond_visual_multiplier", pond_visual_multiplier)), 1.0)
-	item_id = str(data.get("item_id", item_id))
+	resource_state = RESOURCE_STATE_SCRIPT.from_save_data(data)
+	resource_kind = resource_state.resource_kind
+	item_id = resource_state.item_id
+	amount = resource_state.amount
+	mature_amount = resource_state.mature_amount
+	growth_stage = resource_state.growth_stage
+	max_growth_stage = resource_state.max_growth_stage
+	growth_progress = resource_state.growth_progress
+	days_to_next_stage = resource_state.days_to_next_stage
+	days_since_harvested = resource_state.days_since_harvested
+	is_harvested = resource_state.is_harvested
+	can_be_harvested = resource_state.can_be_harvested
+	player_harvestable = resource_state.player_harvestable
+	render_only = resource_state.render_only
+	is_inventory_drop = resource_state.is_inventory_drop
+	inventory_drop_item_id = resource_state.inventory_drop_item_id
+	biome_id = resource_state.biome_id
+	pond_id = resource_state.pond_id
+	food_value = resource_state.food_value
+	is_edible_by_herbivores = resource_state.is_edible_by_herbivores
 	_apply_pond_visual_bonus()
 	_sync_resource_groups()
 	_apply_growth_stage()
 
 
 func advance_growth_days(days: float) -> bool:
-	if not _uses_regrowth() or growth_stage >= max_growth_stage:
-		return false
-	var changed := false
-	growth_progress += max(days, 0.0)
-	days_since_harvested += max(days, 0.0)
-	while growth_stage < max_growth_stage and growth_progress >= days_to_next_stage:
-		growth_progress -= days_to_next_stage
-		growth_stage += 1
-		changed = true
-		days_to_next_stage = _get_days_to_next_stage()
-	is_harvested = growth_stage <= 0
+	_sync_state_from_node()
+	var changed := RESOURCE_REGROWTH_SYSTEM.advance_days(resource_state, days)
+	_sync_node_from_state()
 	_apply_growth_stage()
 	return changed
 
 
 func force_full_regrowth() -> void:
-	growth_stage = max_growth_stage
-	growth_progress = 0.0
-	days_since_harvested = 0.0
-	is_harvested = false
+	_sync_state_from_node()
+	RESOURCE_REGROWTH_SYSTEM.force_full_regrowth(resource_state)
+	_sync_node_from_state()
 	_apply_growth_stage()
 
 
@@ -415,14 +393,8 @@ func _apply_pond_visual_bonus() -> void:
 
 
 func get_growth_debug_text() -> String:
-	return "%s %d/%d progress %.1f/%.1f days %.1f" % [
-		_get_growth_stage_name(),
-		growth_stage,
-		max_growth_stage,
-		growth_progress,
-		days_to_next_stage,
-		days_since_harvested
-	]
+	_sync_state_from_node()
+	return RESOURCE_REGROWTH_SYSTEM.get_growth_debug_text(resource_state)
 
 
 func _mark_harvested() -> void:
