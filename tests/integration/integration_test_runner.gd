@@ -138,7 +138,9 @@ func _run_suite(name: String, suite_script: GDScript, failures: Array[String]) -
 		return
 	print("[IntegrationTests] %s: %d failure(s)" % [name, suite_failures.size()])
 	for failure in suite_failures:
-		failures.append("%s: %s" % [name, failure])
+		var formatted := "%s: %s" % [name, failure]
+		print("[IntegrationTests] %s" % formatted)
+		failures.append(formatted)
 	await _cleanup_after_suite(name, failures)
 
 

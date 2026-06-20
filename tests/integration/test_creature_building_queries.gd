@@ -7,42 +7,55 @@ const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 var expect: Callable
 var expect_equal: Callable
 var expect_close: Callable
+var _failures: Array[String] = []
 
 
 func _init() -> void:
-	expect = TEST_UTILS.expect
-	expect_equal = TEST_UTILS.expect_equal
-	expect_close = TEST_UTILS.expect_close
+	expect = Callable(self, "_expect")
+	expect_equal = Callable(self, "_expect_equal")
+	expect_close = Callable(self, "_expect_close")
+
+
+func _expect(condition: bool, message: String) -> void:
+	TEST_UTILS.expect(condition, _failures, message)
+
+
+func _expect_equal(actual: Variant, expected: Variant, message: String) -> void:
+	TEST_UTILS.expect_equal(actual, expected, _failures, message)
+
+
+func _expect_close(actual: float, expected: float, message: String, epsilon: float = 0.0001) -> void:
+	TEST_UTILS.expect_close(actual, expected, _failures, message, epsilon)
 
 
 func run() -> Array:
-	var failures: Array[String] = []
+	_failures.clear()
 	
 	if await _test_small_prey_uses_wall_avoidance_with_building_query():
-		failures.append("_test_small_prey_uses_wall_avoidance_with_building_query")
+		_failures.append("_test_small_prey_uses_wall_avoidance_with_building_query")
 	
 	if await _test_grazer_uses_wall_avoidance_with_building_query():
-		failures.append("_test_grazer_uses_wall_avoidance_with_building_query")
+		_failures.append("_test_grazer_uses_wall_avoidance_with_building_query")
 	
 	if await _test_varnak_uses_trap_avoidance_with_building_query():
-		failures.append("_test_varnak_uses_trap_avoidance_with_building_query")
+		_failures.append("_test_varnak_uses_trap_avoidance_with_building_query")
 	
 	if await _test_varnak_uses_campfire_fear_with_building_query():
-		failures.append("_test_varnak_uses_campfire_fear_with_building_query")
+		_failures.append("_test_varnak_uses_campfire_fear_with_building_query")
 	
 	if await _test_creature_building_query_finds_nearby_only():
-		failures.append("_test_creature_building_query_finds_nearby_only")
+		_failures.append("_test_creature_building_query_finds_nearby_only")
 	
 	if await _test_building_queries_filter_by_type():
-		failures.append("_test_building_queries_filter_by_type")
+		_failures.append("_test_building_queries_filter_by_type")
 	
 	if await _test_multiple_creatures_can_query_same_buildings():
-		failures.append("_test_multiple_creatures_can_query_same_buildings")
+		_failures.append("_test_multiple_creatures_can_query_same_buildings")
 	
 	if await _test_creature_building_query_with_moved_target():
-		failures.append("_test_creature_building_query_with_moved_target")
+		_failures.append("_test_creature_building_query_with_moved_target")
 	
-	return failures
+	return _failures
 
 
 func _test_small_prey_uses_wall_avoidance_with_building_query() -> bool:

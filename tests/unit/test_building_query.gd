@@ -7,12 +7,39 @@ const WORLD_REGISTRY_SCRIPT := preload("res://scripts/world/world_registry.gd")
 var expect: Callable
 var expect_equal: Callable
 var expect_close: Callable
+var _failures: Array[String] = []
 
 
 func _init() -> void:
-	expect = TEST_UTILS.expect
-	expect_equal = TEST_UTILS.expect_equal
-	expect_close = TEST_UTILS.expect_close
+	expect = Callable(self, "_expect")
+	expect_equal = Callable(self, "_expect_equal")
+	expect_close = Callable(self, "_expect_close")
+
+
+func run() -> Array[String]:
+	_failures.clear()
+	test_get_buildings_near_returns_empty_when_no_buildings()
+	test_get_buildings_near_filters_by_distance()
+	test_get_buildings_near_filters_by_type()
+	test_get_buildings_near_returns_all_types_without_filter()
+	test_get_buildings_near_uses_distance_squared_optimization()
+	await test_get_buildings_near_ignores_invalid_nodes()
+	test_get_buildings_near_with_multiple_types_and_distances()
+	test_get_buildings_near_returns_array_copy()
+	test_get_buildings_near_with_zero_radius()
+	return _failures
+
+
+func _expect(condition: bool, message: String) -> void:
+	TEST_UTILS.expect(condition, _failures, message)
+
+
+func _expect_equal(actual: Variant, expected: Variant, message: String) -> void:
+	TEST_UTILS.expect_equal(actual, expected, _failures, message)
+
+
+func _expect_close(actual: float, expected: float, message: String, epsilon: float = 0.0001) -> void:
+	TEST_UTILS.expect_close(actual, expected, _failures, message, epsilon)
 
 
 func test_get_buildings_near_returns_empty_when_no_buildings() -> void:

@@ -12,6 +12,7 @@ func run() -> Array[String]:
 	_test_resource_spawn_config_is_valid(failures)
 	_test_biome_config_is_valid(failures)
 	_test_landmark_config_is_valid(failures)
+	_test_topography_debug_seeds(failures)
 	_test_generated_landmarks_stay_on_land(failures)
 	_test_biome_landmark_weights_follow_design(failures)
 	_test_randomized_landmarks_are_seeded_and_spaced(failures)
@@ -65,6 +66,27 @@ func _test_landmark_config_is_valid(failures: Array[String]) -> void:
 	TEST_UTILS.expect(int(topo_counts.get("highland", 0)) > 0, failures, "Topography should generate highland features")
 	TEST_UTILS.expect(int(topo_counts.get("rocky_patch", 0)) > 0, failures, "Topography should generate rocky patch features")
 	topo = null
+
+
+func _test_topography_debug_seeds(failures: Array[String]) -> void:
+	for seed in [1, 42, 97, 12345]:
+		var topo := WORLD_TOPOGRAPHY.new()
+		topo.setup(
+			seed,
+			Callable(self, "_get_test_biome_id"),
+			Callable(self, "_get_test_base_terrain_zone")
+		)
+		var counts := Dictionary(topo.get_topography_feature_counts_debug())
+		TEST_UTILS.expect(int(counts.get("pond", 0)) > 0, failures, "DEBUG seed %d should generate pond features, counts=%s" % [seed, JSON.stringify(counts)])
+		TEST_UTILS.expect(int(counts.get("highland", 0)) > 0, failures, "DEBUG seed %d should generate highland features, counts=%s" % [seed, JSON.stringify(counts)])
+		TEST_UTILS.expect(int(counts.get("rocky_patch", 0)) > 0, failures, "DEBUG seed %d should generate rocky patch features, counts=%s" % [seed, JSON.stringify(counts)])
+		var pond_features := topo.get_topography_features_by_type("pond")
+		var highland_features := topo.get_topography_features_by_type("highland")
+		var rocky_features := topo.get_topography_features_by_type("rocky_patch")
+		TEST_UTILS.expect_equal(pond_features, topo.get_topography_features_by_type("pond"), failures, "DEBUG seed %d should return stable pond feature snapshots" % seed)
+		TEST_UTILS.expect_equal(highland_features, topo.get_topography_features_by_type("highland"), failures, "DEBUG seed %d should return stable highland feature snapshots" % seed)
+		TEST_UTILS.expect_equal(rocky_features, topo.get_topography_features_by_type("rocky_patch"), failures, "DEBUG seed %d should return stable rocky feature snapshots" % seed)
+		topo = null
 
 
 func _test_biome_landmark_weights_follow_design(failures: Array[String]) -> void:

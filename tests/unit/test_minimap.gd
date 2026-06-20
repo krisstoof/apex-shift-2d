@@ -281,7 +281,7 @@ func _test_minimap_builds_texture_outside_draw_path(failures: Array[String]) -> 
 
 	var draw_spy := CountingMinimap.new()
 	draw_spy.world_rect = Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0))
-	draw_spy.set("biome_zones", biome_zones)
+	draw_spy.call("set_test_biome_zones", biome_zones)
 	draw_spy.set("biome_blend_texture", ImageTexture.create_from_image(Image.create(2, 2, false, Image.FORMAT_RGBA8)))
 	draw_spy.set("biome_blend_colors_key", "test")
 	var ensure_calls_before := draw_spy.ensure_calls
@@ -295,7 +295,7 @@ func _test_minimap_shape_map_skips_sample_grid_underlay_when_polygons_exist(fail
 	var shape_map := ShapeMapNoUnderlayStub.new()
 	minimap.set("biome_shape_map", shape_map)
 	minimap.set("terrain_cell_map", null)
-	minimap.set("biome_zones", [])
+	minimap.call("set_test_biome_zones", [])
 	TEST_UTILS.expect_equal(str(minimap.call("_get_biome_render_source")), "shape_map", failures, "Minimap should prefer renderable shape maps when polygons exist")
 	TEST_UTILS.expect_equal(shape_map.sample_grid_size_calls, 0, failures, "Minimap should not draw the sample grid underlay when renderable polygons already exist")
 	TEST_UTILS.expect_equal(shape_map.sample_grid_cell_world_rect_calls, 0, failures, "Minimap should not probe sample grid cells when renderable polygons already exist")
@@ -308,7 +308,7 @@ func _test_minimap_reuses_world_surface_texture_when_available(failures: Array[S
 	var fake_world := MockWorld.new()
 	minimap.set("player", player)
 	minimap.set("world", fake_world)
-	minimap.set("biome_zones", [{"name": "Test Biome", "points": PackedVector2Array([Vector2.ZERO, Vector2.RIGHT, Vector2.ONE]), "color": Color(0.2, 0.4, 0.2)}])
+	minimap.call("set_test_biome_zones", [{"name": "Test Biome", "points": PackedVector2Array([Vector2.ZERO, Vector2.RIGHT, Vector2.ONE]), "color": Color(0.2, 0.4, 0.2)}])
 	minimap.call("_sync_biome_texture")
 	TEST_UTILS.expect_equal(minimap.get("biome_blend_texture"), fake_world.surface_texture, failures, "Minimap should reuse the shared world surface texture when it exists")
 	TEST_UTILS.expect_equal(str(minimap.get("biome_blend_colors_key")), fake_world.surface_texture_key, failures, "Minimap should mirror the shared world surface texture key")
