@@ -2120,6 +2120,9 @@ func _is_resource_collision_enabled(resource: Node) -> bool:
 
 
 func _get_player_node() -> Node2D:
+	if not is_inside_tree():
+		return null
+
 	var tree := get_tree()
 	if tree == null:
 		return null
