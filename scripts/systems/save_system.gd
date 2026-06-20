@@ -15,10 +15,7 @@ const BUILDING_GROUPS := {
 	"storage_box": "storage_boxes",
 	"tent": "tents"
 }
-const CAMPFIRE_BUILDING_STATE_SCRIPT := preload("res://scripts/core/buildings/campfire_building_state.gd")
-const TRAP_BUILDING_STATE_SCRIPT := preload("res://scripts/core/buildings/trap_building_state.gd")
-const WALL_BUILDING_STATE_SCRIPT := preload("res://scripts/core/buildings/wall_building_state.gd")
-const STORAGE_BOX_BUILDING_STATE_SCRIPT := preload("res://scripts/core/buildings/storage_box_building_state.gd")
+const BUILDING_STATE_SCRIPT := preload("res://scripts/core/buildings/building_state.gd")
 
 
 func _post_event_message(message: String) -> void:
@@ -127,24 +124,13 @@ func _get_storage_boxes_data() -> Array[Dictionary]:
 
 
 func _get_building_data(building_kind: String, building: Node2D) -> Dictionary:
-	var building_state: BuildingState = null
-	match building_kind:
-		"campfire":
-			building_state = CAMPFIRE_BUILDING_STATE_SCRIPT.new()
-		"trap":
-			building_state = TRAP_BUILDING_STATE_SCRIPT.new()
-		"wall":
-			building_state = WALL_BUILDING_STATE_SCRIPT.new()
-		"storage_box":
-			building_state = STORAGE_BOX_BUILDING_STATE_SCRIPT.new()
-		_:
-			push_warning("Unknown building kind for save data: %s" % building_kind)
-			return {
-				"kind": building_kind,
-				"position": _vector_to_data(building.global_position)
-			}
+	var building_state := BUILDING_STATE_SCRIPT.new()
+	building_state.kind = building_kind
 	building_state.position = building.global_position
-	building_state.capture_from_building(building)
+	if building.has_method("get_building_state"):
+		building_state.load_from_save_data(Dictionary(building.call("get_building_state")))
+	else:
+		building_state.capture_from_building(building)
 	return building_state.for_kind(building_kind)
 
 
@@ -296,22 +282,9 @@ func _restore_building_state(building_kind: String, building: Node, data: Dictio
 		building.call("apply_building_state", data)
 		building.queue_redraw()
 		return
-	match building_kind:
-		"campfire":
-			var campfire_state := Dictionary(data.get("campfire_state", {}))
-			building.active = bool(campfire_state.get("active", building.active))
-			building.fear_radius = float(campfire_state.get("fear_radius", building.fear_radius))
-		"trap":
-			var trap_state := Dictionary(data.get("trap_state", {}))
-			building.armed = bool(trap_state.get("armed", building.armed))
-			building.damage = float(trap_state.get("damage", building.damage))
-		"wall":
-			var wall_state := Dictionary(data.get("wall_state", {}))
-			building.health = float(wall_state.get("health", building.health))
-		"storage_box":
-			if building.has_method("restore_from_data"):
-				var storage_box_state := Dictionary(data.get("storage_box_state", {}))
-				building.restore_from_data(storage_box_state)
+	if building.has_method("restore_from_data"):
+		building.call("restore_from_data", data)
+		return
 	building.queue_redraw()
 
 

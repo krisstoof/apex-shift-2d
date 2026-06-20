@@ -6,6 +6,7 @@ const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
 const MOVEMENT_SPIKE_TRACKER := preload("res://scripts/core/common/movement_spike_tracker.gd")
 const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
+const CREATURE_STATE := preload("res://scripts/core/creatures/creature_state.gd")
 const SPECIES_PATH := "res://data/species/small_prey.json"
 const AI_DECISION_INTERVAL_SECONDS := 0.14
 const SPATIAL_UPDATE_INTERVAL_SECONDS := 0.20
@@ -79,6 +80,7 @@ var ai_decision_count := 0
 var spatial_update_timer := 0.0
 var rng := RandomNumberGenerator.new()
 var hunger_diet := HUNGER_DIET.new()
+var creature_state: CreatureState = CREATURE_STATE.new()
 var is_visibility_culled := false
 var stored_collision_layer := 0
 var stored_collision_mask := 0
@@ -237,71 +239,46 @@ func get_debug_ai_state() -> String:
 
 
 func get_save_data() -> Dictionary:
-	return {
-		"species_id": species_id,
-		"species_name": species_name,
-		"generation": generation,
-		"position": _vector_to_data(global_position),
-		"facing_angle": facing_angle,
-		"facing_side": facing_side,
-		"health": health,
-		"max_health": max_health,
-		"speed": speed,
-		"fear": fear,
-		"hunger": hunger,
-		"max_hunger": max_hunger,
-		"hunger_growth_rate": hunger_growth_rate,
-		"energy": energy,
-		"age_seconds": age_seconds,
-		"plant_diet": plant_diet,
-		"meat_diet": meat_diet,
-		"scavenger_diet": scavenger_diet,
-		"plant_consumption_rate": plant_consumption_rate,
-		"reproduction_value": reproduction_value,
-		"state": int(state),
-		"biome_id": biome_id,
-		"home_biome_id": home_biome_id,
-		"population_biome_id": population_biome_id,
-		"wander_target": _vector_to_data(wander_target),
-		"state_time": state_time,
-		"eat_cooldown": eat_cooldown,
-		"last_food_source": last_food_source,
-		"dropped_meat": dropped_meat
-	}
+	var data := creature_state.to_save_data()
+	data["plant_consumption_rate"] = plant_consumption_rate
+	return data
 
 
 func restore_from_data(data: Dictionary) -> void:
-	species_id = str(data.get("species_id", species_id))
-	species_name = str(data.get("species_name", species_name))
-	generation = max(_safe_int(data, "generation", generation), 1)
-	global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
-	facing_angle = _safe_float(data, "facing_angle", facing_angle)
-	facing_side = _safe_float(data, "facing_side", facing_side)
-	max_health = max(_safe_float(data, "max_health", max_health), 1.0)
-	health = clamp(_safe_float(data, "health", health), 0.0, max_health)
-	speed = _safe_float(data, "speed", speed)
-	fear = _safe_float(data, "fear", fear)
-	max_hunger = max(_safe_float(data, "max_hunger", max_hunger), 0.01)
-	hunger = clamp(_safe_float(data, "hunger", hunger), 0.0, max_hunger)
-	hunger_growth_rate = _safe_float(data, "hunger_growth_rate", hunger_growth_rate)
-	energy = clamp(_safe_float(data, "energy", energy), 0.0, 1.0)
-	age_seconds = max(_safe_float(data, "age_seconds", age_seconds), 0.0)
-	plant_diet = _safe_float(data, "plant_diet", plant_diet)
-	meat_diet = _safe_float(data, "meat_diet", meat_diet)
-	scavenger_diet = _safe_float(data, "scavenger_diet", scavenger_diet)
+	if data.has("creature_state"):
+		apply_creature_state_data(Dictionary(data.get("creature_state", {})))
+	else:
+		species_id = str(data.get("species_id", species_id))
+		species_name = str(data.get("species_name", species_name))
+		generation = max(_safe_int(data, "generation", generation), 1)
+		global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
+		facing_angle = _safe_float(data, "facing_angle", facing_angle)
+		facing_side = _safe_float(data, "facing_side", facing_side)
+		max_health = max(_safe_float(data, "max_health", max_health), 1.0)
+		health = clamp(_safe_float(data, "health", health), 0.0, max_health)
+		speed = _safe_float(data, "speed", speed)
+		fear = _safe_float(data, "fear", fear)
+		max_hunger = max(_safe_float(data, "max_hunger", max_hunger), 0.01)
+		hunger = clamp(_safe_float(data, "hunger", hunger), 0.0, max_hunger)
+		hunger_growth_rate = _safe_float(data, "hunger_growth_rate", hunger_growth_rate)
+		energy = clamp(_safe_float(data, "energy", energy), 0.0, 1.0)
+		age_seconds = max(_safe_float(data, "age_seconds", age_seconds), 0.0)
+		plant_diet = _safe_float(data, "plant_diet", plant_diet)
+		meat_diet = _safe_float(data, "meat_diet", meat_diet)
+		scavenger_diet = _safe_float(data, "scavenger_diet", scavenger_diet)
+		reproduction_value = _safe_float(data, "reproduction_value", reproduction_value)
+		state = _safe_int(data, "state", State.WANDER) as State
+		if state == State.DEAD:
+			state = State.WANDER
+		biome_id = str(data.get("biome_id", biome_id))
+		home_biome_id = str(data.get("home_biome_id", home_biome_id))
+		population_biome_id = str(data.get("population_biome_id", population_biome_id))
+		wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
+		state_time = max(_safe_float(data, "state_time", state_time), 0.0)
+		eat_cooldown = max(_safe_float(data, "eat_cooldown", eat_cooldown), 0.0)
+		last_food_source = str(data.get("last_food_source", last_food_source))
+		dropped_meat = _safe_bool(data, "dropped_meat", dropped_meat)
 	plant_consumption_rate = _safe_float(data, "plant_consumption_rate", plant_consumption_rate)
-	reproduction_value = _safe_float(data, "reproduction_value", reproduction_value)
-	state = _safe_int(data, "state", State.WANDER) as State
-	if state == State.DEAD:
-		state = State.WANDER
-	biome_id = str(data.get("biome_id", biome_id))
-	home_biome_id = str(data.get("home_biome_id", home_biome_id))
-	population_biome_id = str(data.get("population_biome_id", population_biome_id))
-	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
-	state_time = max(_safe_float(data, "state_time", state_time), 0.0)
-	eat_cooldown = max(_safe_float(data, "eat_cooldown", eat_cooldown), 0.0)
-	last_food_source = str(data.get("last_food_source", last_food_source))
-	dropped_meat = _safe_bool(data, "dropped_meat", dropped_meat)
 	velocity = Vector2.ZERO
 	simulation_level = SIMULATION_LOD.Level.NEAR
 	simulation_level_name = "near"
@@ -317,6 +294,150 @@ func restore_from_data(data: Dictionary) -> void:
 	})
 	_sync_hunger_fields()
 	_request_visual_redraw(true)
+
+
+func sync_creature_state_from_node() -> CreatureState:
+	creature_state.entity_id = get_instance_id()
+	creature_state.creature_type = "small_prey"
+	creature_state.species_id = species_id
+	creature_state.species_name = species_name
+	creature_state.generation = generation
+	creature_state.position = global_position
+	creature_state.facing_angle = facing_angle
+	creature_state.facing_side = facing_side
+	creature_state.velocity = velocity
+	creature_state.stats.max_health = max_health
+	creature_state.stats.health = health
+	creature_state.stats.speed = speed
+	creature_state.stats.fear = fear
+	creature_state.stats.aggression = 0.0
+	creature_state.stats.plant_diet = plant_diet
+	creature_state.stats.meat_diet = meat_diet
+	creature_state.stats.scavenger_diet = scavenger_diet
+	creature_state.stats.reproduction_value = reproduction_value
+	creature_state.needs.hunger = hunger
+	creature_state.needs.max_hunger = max_hunger
+	creature_state.needs.hunger_growth_rate = hunger_growth_rate
+	creature_state.needs.energy = energy
+	creature_state.memory.current_behavior = _small_prey_state_to_behavior_name(state)
+	creature_state.memory.decision_reason = decision_reason
+	creature_state.memory.last_food_source = last_food_source
+	creature_state.memory.home_biome = home_biome_id
+	creature_state.memory.current_biome = biome_id
+	creature_state.memory.population_biome = population_biome_id
+	creature_state.memory.state_time = state_time
+	creature_state.memory.target_lock_time = target_lock_time
+	creature_state.memory.eat_cooldown = eat_cooldown
+	creature_state.memory.age_seconds = age_seconds
+	if is_instance_valid(plant_target):
+		creature_state.memory.set_target(plant_target.get_instance_id(), plant_target.global_position, "plant")
+	else:
+		creature_state.memory.clear_target()
+	creature_state.lod_state = simulation_level_name
+	creature_state.is_visibility_culled = is_visibility_culled
+	creature_state.is_background_simulated = is_background_simulated
+	creature_state.is_dead = state == State.DEAD
+	creature_state.custom_data = {
+		"wander_target": _vector_to_data(wander_target),
+		"eat_cooldown": eat_cooldown,
+		"dropped_meat": dropped_meat,
+		"plant_consumption_rate": plant_consumption_rate
+	}
+	return creature_state
+
+
+func get_creature_state_data() -> Dictionary:
+	return sync_creature_state_from_node().to_save_data()
+
+
+func apply_creature_state_data(data: Dictionary) -> void:
+	var restored := CREATURE_STATE.new()
+	restored.load_from_save_data(data)
+	apply_creature_state_to_node(restored)
+
+
+func apply_creature_state_to_node(state_data: CreatureState) -> void:
+	if state_data == null:
+		return
+	creature_state = state_data.duplicate_state()
+	species_id = creature_state.species_id
+	species_name = creature_state.species_name
+	generation = max(creature_state.generation, 1)
+	global_position = _clamp_to_world(creature_state.position)
+	facing_angle = creature_state.facing_angle
+	facing_side = creature_state.facing_side
+	velocity = Vector2.ZERO
+	max_health = maxf(creature_state.stats.max_health, 1.0)
+	health = clampf(creature_state.stats.health, 0.0, max_health)
+	speed = creature_state.stats.speed
+	fear = creature_state.stats.fear
+	plant_diet = creature_state.stats.plant_diet
+	meat_diet = creature_state.stats.meat_diet
+	scavenger_diet = creature_state.stats.scavenger_diet
+	reproduction_value = creature_state.stats.reproduction_value
+	max_hunger = maxf(creature_state.needs.max_hunger, 0.01)
+	hunger = clampf(creature_state.needs.hunger, 0.0, max_hunger)
+	hunger_growth_rate = creature_state.needs.hunger_growth_rate
+	energy = clampf(creature_state.needs.energy, 0.0, 1.0)
+	biome_id = creature_state.memory.current_biome
+	home_biome_id = creature_state.memory.home_biome
+	population_biome_id = creature_state.memory.population_biome
+	decision_reason = creature_state.memory.decision_reason
+	last_food_source = creature_state.memory.last_food_source
+	state_time = creature_state.memory.state_time
+	target_lock_time = creature_state.memory.target_lock_time
+	eat_cooldown = creature_state.memory.eat_cooldown
+	age_seconds = creature_state.memory.age_seconds
+	var custom := Dictionary(creature_state.custom_data)
+	wander_target = _clamp_to_world(_data_to_vector(custom.get("wander_target", _vector_to_data(wander_target))))
+	dropped_meat = bool(custom.get("dropped_meat", dropped_meat))
+	plant_consumption_rate = float(custom.get("plant_consumption_rate", plant_consumption_rate))
+	state = _behavior_name_to_small_prey_state(creature_state.memory.current_behavior)
+	hunger_diet.configure({
+		"hunger": hunger,
+		"max_hunger": max_hunger,
+		"hunger_growth_rate": hunger_growth_rate,
+		"energy": energy,
+		"plant_diet": plant_diet,
+		"meat_diet": meat_diet,
+		"scavenger_diet": scavenger_diet
+	})
+	_sync_hunger_fields()
+	_request_visual_redraw(true)
+
+
+func _small_prey_state_to_behavior_name(next_state: State) -> String:
+	match next_state:
+		State.IDLE:
+			return "idle"
+		State.WANDER:
+			return "wander"
+		State.SEEK_FOOD:
+			return "seek_food"
+		State.EAT:
+			return "eat"
+		State.FLEE:
+			return "flee"
+		State.DEAD:
+			return "dead"
+	return "wander"
+
+
+func _behavior_name_to_small_prey_state(behavior: String) -> State:
+	match behavior:
+		"idle":
+			return State.IDLE
+		"wander":
+			return State.WANDER
+		"seek_food":
+			return State.SEEK_FOOD
+		"eat", "eat_plants":
+			return State.EAT
+		"flee":
+			return State.FLEE
+		"dead":
+			return State.DEAD
+	return State.WANDER
 
 
 func _safe_float(data: Dictionary, key: String, fallback: float) -> float:

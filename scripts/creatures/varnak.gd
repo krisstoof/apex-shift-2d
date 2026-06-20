@@ -4,6 +4,7 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
+const CREATURE_STATE := preload("res://scripts/core/creatures/creature_state.gd")
 
 enum State { IDLE, WANDER, STALK, CHASE, ATTACK, FLEE, HUNT_ECOSYSTEM, EAT_MEAT }
 
@@ -78,6 +79,7 @@ var spatial_update_timer := 0.0
 var is_dead := false
 var meat_diet := 1.0
 var scavenger_diet := 0.45
+var creature_state: CreatureState = CREATURE_STATE.new()
 var is_visibility_culled := false
 var stored_collision_layer := 0
 var stored_collision_mask := 0
@@ -195,30 +197,10 @@ func apply_profile(profile: Dictionary) -> void:
 
 
 func get_save_data() -> Dictionary:
-	return {
-		"species_id": species_id,
-		"species_name": species_name,
-		"generation": generation,
-		"population_biome_id": _get_current_biome_id(),
-		"position": _vector_to_data(global_position),
-		"facing_angle": facing_angle,
-		"facing_side": facing_side,
-		"health": health,
-		"max_health": max_health,
-		"hunger": hunger,
-		"energy": energy,
-		"fatigue": 1.0 - energy,
-		"rest": energy,
-		"age_seconds": age_seconds,
-		"night_health_bonus_active": night_health_bonus_active,
-		"state": int(state),
-		"wander_target": _vector_to_data(wander_target),
-		"attack_cooldown": attack_cooldown,
-		"last_food_source": last_food_source,
-		"meat_diet": meat_diet,
-		"scavenger_diet": scavenger_diet,
-		"dropped_meat": dropped_meat
-	}
+	var data := creature_state.to_save_data()
+	data["night_health_bonus_active"] = night_health_bonus_active
+	data["attack_cooldown"] = attack_cooldown
+	return data
 
 
 func get_debug_data() -> Dictionary:
@@ -278,31 +260,184 @@ func get_debug_ai_state() -> String:
 
 
 func restore_from_data(data: Dictionary) -> void:
-	species_id = str(data.get("species_id", species_id))
-	species_name = str(data.get("species_name", species_name))
-	generation = max(_safe_int(data, "generation", generation), 1)
-	population_biome_id = str(data.get("population_biome_id", population_biome_id))
-	global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
-	facing_angle = _safe_float(data, "facing_angle", _safe_float(data, "rotation", facing_angle))
-	facing_side = _safe_float(data, "facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0)
-	max_health = max(_safe_float(data, "max_health", max_health), 1.0)
-	health = clamp(_safe_float(data, "health", health), 0.0, max_health)
-	hunger = clamp(_safe_float(data, "hunger", hunger), 0.0, 1.0)
-	energy = clamp(_safe_float(data, "energy", energy), 0.0, 1.0)
-	age_seconds = max(_safe_float(data, "age_seconds", age_seconds), 0.0)
-	night_health_bonus_active = _safe_bool(data, "night_health_bonus_active", night_health_bonus_active)
-	state = _safe_int(data, "state", State.WANDER) as State
-	wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
-	attack_cooldown = _safe_float(data, "attack_cooldown", attack_cooldown)
-	last_food_source = str(data.get("last_food_source", last_food_source))
-	meat_diet = _safe_float(data, "meat_diet", meat_diet)
-	scavenger_diet = _safe_float(data, "scavenger_diet", scavenger_diet)
-	dropped_meat = _safe_bool(data, "dropped_meat", dropped_meat)
+	if data.has("creature_state"):
+		apply_creature_state_data(Dictionary(data.get("creature_state", {})))
+	else:
+		species_id = str(data.get("species_id", species_id))
+		species_name = str(data.get("species_name", species_name))
+		generation = max(_safe_int(data, "generation", generation), 1)
+		population_biome_id = str(data.get("population_biome_id", population_biome_id))
+		global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
+		facing_angle = _safe_float(data, "facing_angle", _safe_float(data, "rotation", facing_angle))
+		facing_side = _safe_float(data, "facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0)
+		max_health = max(_safe_float(data, "max_health", max_health), 1.0)
+		health = clamp(_safe_float(data, "health", health), 0.0, max_health)
+		hunger = clamp(_safe_float(data, "hunger", hunger), 0.0, 1.0)
+		energy = clamp(_safe_float(data, "energy", energy), 0.0, 1.0)
+		age_seconds = max(_safe_float(data, "age_seconds", age_seconds), 0.0)
+		night_health_bonus_active = _safe_bool(data, "night_health_bonus_active", night_health_bonus_active)
+		state = _safe_int(data, "state", State.WANDER) as State
+		wander_target = _clamp_to_world(_data_to_vector(data.get("wander_target", _vector_to_data(wander_target))))
+		attack_cooldown = _safe_float(data, "attack_cooldown", attack_cooldown)
+		last_food_source = str(data.get("last_food_source", last_food_source))
+		meat_diet = _safe_float(data, "meat_diet", meat_diet)
+		scavenger_diet = _safe_float(data, "scavenger_diet", scavenger_diet)
+		dropped_meat = _safe_bool(data, "dropped_meat", dropped_meat)
 	velocity = Vector2.ZERO
 	simulation_level = SIMULATION_LOD.Level.NEAR
 	simulation_level_name = "near"
 	far_simulation_timer = 0.0
 	_request_visual_redraw(true)
+
+
+func sync_creature_state_from_node() -> CreatureState:
+	creature_state.entity_id = get_instance_id()
+	creature_state.creature_type = "varnak"
+	creature_state.species_id = species_id
+	creature_state.species_name = species_name
+	creature_state.generation = generation
+	creature_state.position = global_position
+	creature_state.facing_angle = facing_angle
+	creature_state.facing_side = facing_side
+	creature_state.velocity = velocity
+	creature_state.stats.max_health = max_health
+	creature_state.stats.health = health
+	creature_state.stats.speed = speed
+	creature_state.stats.fear = fire_fear
+	creature_state.stats.aggression = aggression
+	creature_state.stats.plant_diet = 0.0
+	creature_state.stats.meat_diet = meat_diet
+	creature_state.stats.scavenger_diet = scavenger_diet
+	creature_state.stats.fire_fear = fire_fear
+	creature_state.stats.trap_awareness = trap_awareness
+	creature_state.stats.pack_coordination = pack_coordination
+	creature_state.stats.night_activity = night_activity
+	creature_state.needs.hunger = hunger
+	creature_state.needs.max_hunger = 1.0
+	creature_state.needs.hunger_growth_rate = HUNGER_GROWTH_RATE
+	creature_state.needs.energy = energy
+	creature_state.memory.current_behavior = _varnak_state_to_behavior_name(state)
+	creature_state.memory.decision_reason = decision_reason
+	creature_state.memory.last_food_source = last_food_source
+	creature_state.memory.population_biome = population_biome_id
+	creature_state.memory.target_lock_time = target_lock_time
+	creature_state.memory.age_seconds = age_seconds
+	if is_instance_valid(ecosystem_target):
+		creature_state.memory.set_target(ecosystem_target.get_instance_id(), ecosystem_target.global_position, ecosystem_target_kind)
+	elif is_instance_valid(meat_target):
+		creature_state.memory.set_target(meat_target.get_instance_id(), meat_target.global_position, "meat")
+	elif is_instance_valid(scared_fire):
+		creature_state.memory.set_target(scared_fire.get_instance_id(), scared_fire.global_position, "campfire")
+	else:
+		creature_state.memory.clear_target()
+	creature_state.lod_state = simulation_level_name
+	creature_state.is_visibility_culled = is_visibility_culled
+	creature_state.is_background_simulated = is_background_simulated
+	creature_state.is_dead = is_dead
+	creature_state.custom_data = {
+		"wander_target": _vector_to_data(wander_target),
+		"ecosystem_target_kind": ecosystem_target_kind,
+		"attack_cooldown": attack_cooldown,
+		"night_health_bonus_active": night_health_bonus_active,
+		"dropped_meat": dropped_meat,
+		"base_curiosity": base_curiosity,
+		"stalk_tendency": stalk_tendency
+	}
+	return creature_state
+
+
+func get_creature_state_data() -> Dictionary:
+	return sync_creature_state_from_node().to_save_data()
+
+
+func apply_creature_state_data(data: Dictionary) -> void:
+	var restored := CREATURE_STATE.new()
+	restored.load_from_save_data(data)
+	apply_creature_state_to_node(restored)
+
+
+func apply_creature_state_to_node(state_data: CreatureState) -> void:
+	if state_data == null:
+		return
+	creature_state = state_data.duplicate_state()
+	species_id = creature_state.species_id
+	species_name = creature_state.species_name
+	generation = max(creature_state.generation, 1)
+	global_position = _clamp_to_world(creature_state.position)
+	facing_angle = creature_state.facing_angle
+	facing_side = creature_state.facing_side
+	velocity = Vector2.ZERO
+	max_health = maxf(creature_state.stats.max_health, 1.0)
+	health = clampf(creature_state.stats.health, 0.0, max_health)
+	speed = creature_state.stats.speed
+	aggression = creature_state.stats.aggression
+	fire_fear = creature_state.stats.fire_fear
+	trap_awareness = creature_state.stats.trap_awareness
+	pack_coordination = creature_state.stats.pack_coordination
+	night_activity = creature_state.stats.night_activity
+	meat_diet = creature_state.stats.meat_diet
+	scavenger_diet = creature_state.stats.scavenger_diet
+	hunger = clampf(creature_state.needs.hunger, 0.0, 1.0)
+	energy = clampf(creature_state.needs.energy, 0.0, 1.0)
+	population_biome_id = creature_state.memory.population_biome
+	decision_reason = creature_state.memory.decision_reason
+	last_food_source = creature_state.memory.last_food_source
+	age_seconds = creature_state.memory.age_seconds
+	target_lock_time = creature_state.memory.target_lock_time
+	night_health_bonus_active = creature_state.is_dead and night_health_bonus_active
+	var custom := Dictionary(creature_state.custom_data)
+	wander_target = _clamp_to_world(_data_to_vector(custom.get("wander_target", _vector_to_data(wander_target))))
+	ecosystem_target_kind = str(custom.get("ecosystem_target_kind", ecosystem_target_kind))
+	attack_cooldown = float(custom.get("attack_cooldown", attack_cooldown))
+	night_health_bonus_active = bool(custom.get("night_health_bonus_active", night_health_bonus_active))
+	dropped_meat = bool(custom.get("dropped_meat", dropped_meat))
+	base_curiosity = float(custom.get("base_curiosity", base_curiosity))
+	stalk_tendency = float(custom.get("stalk_tendency", stalk_tendency))
+	state = _varnak_behavior_name_to_state(creature_state.memory.current_behavior)
+	is_dead = creature_state.is_dead
+	_request_visual_redraw(true)
+
+
+func _varnak_state_to_behavior_name(next_state: State) -> String:
+	match next_state:
+		State.IDLE:
+			return "idle"
+		State.WANDER:
+			return "wander"
+		State.STALK:
+			return "stalk"
+		State.CHASE:
+			return "chase"
+		State.ATTACK:
+			return "attack"
+		State.FLEE:
+			return "flee"
+		State.HUNT_ECOSYSTEM:
+			return "hunt_ecosystem"
+		State.EAT_MEAT:
+			return "eat_meat"
+	return "wander"
+
+
+func _varnak_behavior_name_to_state(behavior: String) -> State:
+	match behavior:
+		"idle":
+			return State.IDLE
+		"wander":
+			return State.WANDER
+		"stalk":
+			return State.STALK
+		"chase", "hunt":
+			return State.CHASE
+		"attack":
+			return State.ATTACK
+		"flee":
+			return State.FLEE
+		"hunt_ecosystem":
+			return State.HUNT_ECOSYSTEM
+		"eat_meat", "scavenge":
+			return State.EAT_MEAT
+	return State.WANDER
 
 
 func _safe_float(data: Dictionary, key: String, fallback: float) -> float:

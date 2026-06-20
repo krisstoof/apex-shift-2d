@@ -65,9 +65,13 @@ func generate_world(p_seed: int = 0) -> Dictionary:
 	layout["biomes"] = _generate_biome_regions(Dictionary(layout["maps"]))
 	if biome_map != null and biome_map.has_method("get_regions"):
 		layout["biomes"] = Array(biome_map.get_regions())
+	layout["biomes"] = _sort_region_array_by_id(Array(layout["biomes"]))
 	layout["landmarks"] = _generate_landmarks(layout)
 	layout["resource_zones"] = _generate_resource_zones(layout)
+	layout["resource_zones"] = _sort_region_array_by_id(Array(layout["resource_zones"]), "biome_id")
 	layout["creature_spawn_zones"] = _generate_creature_spawn_zones(layout)
+	layout["creature_spawn_zones"] = _sort_region_array_by_id(Array(layout["creature_spawn_zones"]))
+	layout["player_spawn_position"] = WORLD_CONFIG.get_safe_player_start_position(Array(layout["landmarks"]))
 	layout["debug"] = _build_generation_debug(layout)
 	layout["generation_hash"] = get_world_generation_hash(layout)
 	return layout
@@ -539,6 +543,7 @@ func _generate_biome_regions(maps: Dictionary) -> Array[Dictionary]:
 			"sample_count": counts[biome_id],
 			"resource_rules": _get_biome_resource_rules(biome_id)
 		})
+	result = _sort_region_array_by_id(result)
 	return result
 
 
@@ -716,6 +721,16 @@ func _get_biome_resource_rules(biome_id: String) -> Dictionary:
 			return {"trees": 0.5, "bushes": 1.25, "rocks": 0.7, "grass": 0.75, "berries": 0.25}
 		_:
 			return {"trees": 0.9, "bushes": 0.9, "rocks": 0.65, "grass": 1.0, "berries": 0.45}
+
+
+func _sort_region_array_by_id(items: Array, key_name: String = "id") -> Array[Dictionary]:
+	var sorted: Array[Dictionary] = []
+	for item in items:
+		sorted.append(Dictionary(item).duplicate(true))
+	sorted.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return str(a.get(key_name, "")) < str(b.get(key_name, ""))
+	)
+	return sorted
 
 
 func _get_resource_density_for_biome(_biome_id: String) -> float:

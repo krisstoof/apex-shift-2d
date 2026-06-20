@@ -11,9 +11,7 @@ func for_kind(building_kind: String) -> Dictionary:
 	var data := to_save_data()
 	var state_key := _get_state_key_for_kind(building_kind)
 	if state_key != "":
-		data[state_key] = custom_data.duplicate(true)
-		for key in custom_data.keys():
-			data[key] = custom_data[key]
+		data[state_key] = _build_kind_state_payload(building_kind)
 	return data
 
 
@@ -32,17 +30,10 @@ func load_from_save_data(data: Dictionary) -> void:
 	var state_key := _get_state_key_for_kind(kind)
 	if state_key != "" and data.has(state_key):
 		custom_data.merge(Dictionary(data.get(state_key, {})), true)
-	for key in ["active", "fear_radius", "armed", "damage", "health", "inventory"]:
-		if data.has(key):
-			custom_data[key] = data[key]
-	if data.has("campfire_state"):
-		custom_data.merge(Dictionary(data.get("campfire_state", {})), true)
-	if data.has("trap_state"):
-		custom_data.merge(Dictionary(data.get("trap_state", {})), true)
-	if data.has("wall_state"):
-		custom_data.merge(Dictionary(data.get("wall_state", {})), true)
-	if data.has("storage_box_state"):
-		custom_data.merge(Dictionary(data.get("storage_box_state", {})), true)
+	_merge_legacy_kind_state(data, "campfire_state")
+	_merge_legacy_kind_state(data, "trap_state")
+	_merge_legacy_kind_state(data, "wall_state")
+	_merge_legacy_kind_state(data, "storage_box_state")
 
 
 func capture_from_building(building: Node) -> void:
@@ -52,13 +43,7 @@ func capture_from_building(building: Node) -> void:
 		var state := Dictionary(building.call("get_building_state"))
 		load_from_save_data(state)
 		return
-	custom_data = {}
-	for key in ["active", "fear_radius", "armed", "damage", "health", "inventory"]:
-		var value = building.get(key)
-		if value != null:
-			custom_data[key] = value
-	if building.has_method("get") and building.get("storage_state") != null:
-		custom_data["inventory"] = building.get("storage_state").get_inventory_save_data()
+	custom_data = _capture_kind_state_from_building(building)
 
 
 func apply_to_building(building: Node) -> void:
@@ -87,3 +72,35 @@ static func _get_state_key_for_kind(building_kind: String) -> String:
 			return "storage_box_state"
 		_:
 			return ""
+
+
+func _build_kind_state_payload(building_kind: String) -> Dictionary:
+	var payload := custom_data.duplicate(true)
+	payload["kind"] = building_kind
+	payload["position"] = {"x": position.x, "y": position.y}
+	return payload
+
+
+func _merge_legacy_kind_state(data: Dictionary, legacy_key: String) -> void:
+	if not data.has(legacy_key):
+		return
+	custom_data.merge(Dictionary(data.get(legacy_key, {})), true)
+
+
+func _capture_kind_state_from_building(building: Node) -> Dictionary:
+	var state: Dictionary = {}
+	match kind:
+		"campfire":
+			state["active"] = bool(building.get("active")) if building.get("active") != null else true
+			state["fear_radius"] = float(building.get("fear_radius")) if building.get("fear_radius") != null else 0.0
+		"trap":
+			state["armed"] = bool(building.get("armed")) if building.get("armed") != null else true
+			state["damage"] = float(building.get("damage")) if building.get("damage") != null else 0.0
+		"wall":
+			state["health"] = float(building.get("health")) if building.get("health") != null else 0.0
+		"storage_box":
+			if building.has_method("get") and building.get("storage_state") != null:
+				state["inventory"] = building.get("storage_state").get_inventory_save_data()
+			elif building.has_method("get_save_data"):
+				state["inventory"] = Dictionary(building.call("get_save_data")).get("inventory", {})
+	return state
