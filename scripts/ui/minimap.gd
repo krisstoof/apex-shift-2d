@@ -75,6 +75,10 @@ var minimap_player_redraw_interval := 0.10
 var minimap_marker_view_recenter_distance := 96.0
 var _marker_view_redraw_timer := 0.0
 var _player_redraw_timer := 0.0
+var minimap_static_rebuild_count := 0
+var minimap_dynamic_rebuild_count := 0
+var minimap_skipped_unchanged_count := 0
+var minimap_last_process_ms := 0.0
 var _last_marker_view_player_position := Vector2.INF
 var _last_player_marker_position := Vector2.INF
 var _last_player_marker_biome_id := ""
@@ -203,6 +207,7 @@ func apply_graphics_preset_config(config: Dictionary) -> void:
 func _process(delta: float) -> void:
 	if benchmark_disabled:
 		return
+	var process_start_usec := Time.get_ticks_usec()
 	RUNTIME_PROFILER.begin_scope("minimap_process_ms")
 	RUNTIME_PROFILER.begin_scope("minimap_total_cpu_ms")
 	if not is_visible_in_tree():
@@ -296,12 +301,13 @@ func _process(delta: float) -> void:
 	if startup_time_sec >= BOOT_OPTIMIZATION_DURATION_SEC:
 		if _marker_rebuild_timer >= minimap_marker_rebuild_interval:
 			_marker_rebuild_timer = 0.0
-			_refresh_static_caches()
+			_refresh_marker_cache()
 	else:
 		# During boot, cap timer to prevent burst rebuild after boot ends
 		_marker_rebuild_timer = minf(_marker_rebuild_timer, minimap_marker_rebuild_interval - 0.5)
 	
 	startup_time_sec += delta
+	minimap_last_process_ms = float(Time.get_ticks_usec() - process_start_usec) / 1000.0
 	RUNTIME_PROFILER.end_scope("minimap_total_cpu_ms")
 	RUNTIME_PROFILER.end_scope("minimap_process_ms")
 
@@ -425,38 +431,16 @@ func _draw_shoreline_overlay(target: CanvasItem, content_rect: Rect2, view_world
 		)
 
 
-func _refresh_static_caches() -> void:
+func _refresh_marker_cache() -> void:
 	minimap_marker_cache_check_count += 1
-	var previous_signature := landmarks_signature
-	var landmarks_changed := _refresh_landmarks_from_world()
 	var marker_cache_changed := _update_marker_cache()
-	var shoreline_changed := false
-	var current_shoreline_key := _get_shoreline_cache_key()
-	minimap_shoreline_check_count += 1
-	if not shoreline_segments_cache_valid or shoreline_segments_key != current_shoreline_key or previous_signature != landmarks_signature:
-		shoreline_changed = true
-	if landmarks_changed:
-		minimap_landmark_cache_rebuild_count += 1
 	if marker_cache_changed:
+		minimap_dynamic_rebuild_count += 1
 		minimap_marker_cache_rebuild_count += 1
-	else:
-		minimap_marker_cache_skipped_unchanged_count += 1
-	if shoreline_changed:
-		shoreline_segments = _build_shoreline_segments(_get_world())
-		shoreline_segments_key = current_shoreline_key
-		shoreline_segments_cache_valid = true
-		minimap_shoreline_cache_dirty = false
-		shoreline_segments_build_count += 1
-		shoreline_segments_last_build_ms = shoreline_segments_last_build_ms
-	if landmarks_changed or shoreline_changed:
-		static_cache_rebuild_count += 1
-		_needs_redraw_due_to_data_change = true
-		minimap_static_map_dirty = true
-		_mark_static_layer_dirty()
-	if marker_cache_changed:
 		minimap_marker_cache_dirty = true
 		_request_dynamic_redraw()
-	elif not marker_cache_changed:
+	else:
+		minimap_skipped_unchanged_count += 1
 		minimap_marker_cache_skipped_unchanged_count += 1
 		minimap_marker_cache_dirty = false
 
@@ -522,6 +506,10 @@ func _sync_shoreline_overlay_cache() -> void:
 	_needs_redraw_due_to_data_change = true
 	shoreline_segments_build_count += 1
 	shoreline_segments_last_build_ms = float(Time.get_ticks_msec() - start_ms)
+	static_cache_rebuild_count += 1
+	minimap_static_rebuild_count += 1
+	minimap_static_map_dirty = true
+	_mark_static_layer_dirty()
 
 
 func _ensure_biome_texture() -> void:
