@@ -429,9 +429,10 @@ func _refresh_resource_panel() -> void:
 func _get_player_inventory() -> Variant:
 	if player == null:
 		return null
-	var direct_inventory: Variant = player.inventory
-	if direct_inventory != null:
-		return direct_inventory
+	if player.has_method("get_inventory"):
+		var method_inventory: Variant = player.call("get_inventory")
+		if method_inventory != null:
+			return method_inventory
 	var fallback_inventory: Variant = player.get("inventory")
 	if fallback_inventory != null:
 		return fallback_inventory

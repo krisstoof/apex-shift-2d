@@ -447,9 +447,17 @@ func _capture_sample() -> Dictionary:
 
 
 func _get_active_graphics_preset() -> String:
-	var graphics_settings := get_node_or_null("/root/GraphicsSettings")
+	if not is_inside_tree():
+		return "normal"
+
+	var tree := get_tree()
+	if tree == null or tree.root == null:
+		return "normal"
+
+	var graphics_settings := tree.root.get_node_or_null("GraphicsSettings")
 	if graphics_settings != null and graphics_settings.has_method("get_graphics_preset_name"):
 		return str(graphics_settings.get_graphics_preset_name())
+
 	return "normal"
 
 

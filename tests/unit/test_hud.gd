@@ -249,14 +249,14 @@ func _test_hud_inventory_screen_lists_inventory_items(failures: Array[String]) -
 		TEST_UTILS.expect_equal((slot8.get_node("Content/CountLabel") as Label).text, "", failures, "The last slot should remain empty")
 		TEST_UTILS.expect(slot0.get_node_or_null("Content/Icon") != null, failures, "Inventory slot should expose Content/Icon")
 		TEST_UTILS.expect(slot0.get_node_or_null("Content/CountLabel") != null, failures, "Inventory slot should expose Content/CountLabel")
-		TEST_UTILS.expect_equal((slot0.get_node("NameLabel") as Label).text, "Wood", failures, "Inventory slot should show the item name")
-		TEST_UTILS.expect_equal((slot7.get_node("NameLabel") as Label).text, "Torch", failures, "Inventory slot should show single-item names too")
+		TEST_UTILS.expect_equal((slot0.get_node("Content/NameLabel") as Label).text, "Wood", failures, "Inventory slot should show the item name")
+		TEST_UTILS.expect_equal((slot7.get_node("Content/NameLabel") as Label).text, "Torch", failures, "Inventory slot should show single-item names too")
 	TEST_UTILS.expect_equal(info_label.visible, false, failures, "Inventory screen should hide the overflow label when everything fits in 9 slots")
 	player.inventory.add_item("wood", 200)
 	inventory_screen.call("refresh")
 	TEST_UTILS.expect_equal(info_label.visible, true, failures, "Inventory screen should show overflow information when more than 9 stacks exist")
 	TEST_UTILS.expect(info_label.text.contains("not shown"), failures, "Inventory screen should explain that extra stacks are not shown")
-	TEST_UTILS.expect((slot_nodes[0].get_node("Icon") as TextureRect).texture != null, failures, "Inventory screen should render an item icon in the first slot")
+	TEST_UTILS.expect((slot_nodes[0].get_node("Content/Icon") as TextureRect).texture != null, failures, "Inventory screen should render an item icon in the first slot")
 	hud.queue_free()
 
 

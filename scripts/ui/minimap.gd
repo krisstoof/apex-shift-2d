@@ -1425,7 +1425,11 @@ func _get_minimap_view_world_size(content_rect: Rect2) -> Vector2:
 func _get_player_camera_world_size() -> Vector2:
 	if camera_world_size_override != Vector2.ZERO:
 		return camera_world_size_override
-	var viewport_size: Vector2 = get_viewport_rect().size
+	var viewport_size: Vector2
+	if is_inside_tree():
+		viewport_size = get_viewport_rect().size
+	else:
+		viewport_size = Vector2(DisplayServer.window_get_size())
 	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
 		return MINIMAP_FALLBACK_VIEW_WORLD_SIZE
 	var camera: Camera2D = _get_player_camera()

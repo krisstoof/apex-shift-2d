@@ -371,12 +371,18 @@ func _ready() -> void:
 	day_night_system = _get_sibling_node("DayNightSystem")
 	ecosystem_director = _get_sibling_node("EcosystemDirector")
 	var event_bus := _get_event_bus()
-	if event_bus and event_bus.has_signal("game_event") and not event_bus.game_event.is_connected(_on_game_event):
-		event_bus.game_event.connect(_on_game_event)
+	if event_bus != null and event_bus.has_signal("game_event"):
+		var game_event_callback := Callable(self, "_on_game_event")
+		if not event_bus.is_connected("game_event", game_event_callback):
+			event_bus.connect("game_event", game_event_callback)
 	if day_night_system and day_night_system.has_signal("day_changed"):
-		day_night_system.day_changed.connect(_on_day_changed)
+		var day_changed_callback := Callable(self, "_on_day_changed")
+		if not day_night_system.is_connected("day_changed", day_changed_callback):
+			day_night_system.connect("day_changed", day_changed_callback)
 	if evolution_director and evolution_director.has_method("connect") and evolution_director.has_signal("profile_changed"):
-		evolution_director.profile_changed.connect(_on_profile_changed)
+		var profile_changed_callback := Callable(self, "_on_profile_changed")
+		if not evolution_director.is_connected("profile_changed", profile_changed_callback):
+			evolution_director.connect("profile_changed", profile_changed_callback)
 
 
 func _await_next_frame_safe() -> void:
@@ -963,10 +969,30 @@ func _setup_topography() -> void:
 	world_topography = WORLD_TOPOGRAPHY.new()
 	world_topography.setup(
 		world_seed if world_seed != 0 else int(world_layout.get("seed", 1)),
-		Callable(self, "get_biome_id_at"),
+		Callable(self, "_get_base_biome_id_for_topography"),
 		Callable(self, "get_generator_base_terrain_zone_at")
 	)
 	_invalidate_surface_texture_cache()
+
+
+func _get_base_biome_id_for_topography(position: Vector2) -> String:
+	if world_generator != null and world_generator.has_method("get_biome_id_at"):
+		var generator_biome := str(world_generator.get_biome_id_at(position))
+		if not generator_biome.is_empty():
+			return generator_biome
+
+	if biome_query_service != null and biome_query_service.has_method("get_biome_id_for_position_exact"):
+		var queried_biome := str(biome_query_service.get_biome_id_for_position_exact(position))
+		if not queried_biome.is_empty():
+			return queried_biome
+
+	for biome_value in get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var points := PackedVector2Array(biome.get("points", []))
+		if points.size() >= 3 and Geometry2D.is_point_in_polygon(position, points):
+			return _get_biome_id(biome)
+
+	return ""
 
 
 func get_terrain_zone_at(position: Vector2) -> String:

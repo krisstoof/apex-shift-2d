@@ -346,6 +346,7 @@ func run() -> Array[String]:
 	_test_biome_shape_map_builds_connected_regions(failures)
 	_test_world_biome_texture_cache_status_reports_visual_settings(failures)
 	_test_world_biome_texture_cache_status_reports_visual_feature_count(failures)
+	_test_world_biome_and_surface_queries_do_not_recursively_call_topography(failures)
 	_test_world_draw_biomes_uses_existing_background_texture(failures)
 	_test_world_process_only_syncs_biome_background_when_redraw_is_requested(failures)
 	_test_world_terrain_renderer_rebuilds_cell_map_only_when_dirty(failures)
@@ -1130,6 +1131,16 @@ func _test_world_biome_texture_cache_status_reports_visual_feature_count(failure
 	var status: Dictionary = world.get_biome_texture_cache_status()
 	TEST_UTILS.expect(status.has("visual_biome_feature_count"), failures, "Biome texture cache status should expose the visual biome feature count")
 	TEST_UTILS.expect(int(status.get("visual_biome_feature_count", 0)) > 0, failures, "Visual biome feature count should be populated after world generation")
+	world.free()
+
+
+func _test_world_biome_and_surface_queries_do_not_recursively_call_topography(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	world._set_world_generator_seed(1234)
+	var biome_id := world.get_biome_id_at(Vector2.ZERO)
+	var surface_zone := world.get_surface_terrain_zone_at(Vector2.ZERO)
+	TEST_UTILS.expect(biome_id != null, failures, "World biome query should return a valid value after topography setup")
+	TEST_UTILS.expect(surface_zone != null, failures, "World surface terrain query should return a valid value after topography setup")
 	world.free()
 
 

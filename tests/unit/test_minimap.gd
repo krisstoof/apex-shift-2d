@@ -236,9 +236,9 @@ func _test_minimap_reads_registry_resources_and_varnaks(failures: Array[String])
 		}
 	}
 	minimap.snapshot_service = snapshot_service
-	minimap.call("_update_resources_cache")
+	minimap.call("_update_marker_cache")
 	var cached_resources: Array = minimap.get("cached_resources")
-	var registered_varnaks: Array = minimap.call("_get_registered_varnaks")
+	var registered_varnaks: Array = minimap.get("cached_varnaks")
 	TEST_UTILS.expect_equal(cached_resources.size(), 1, failures, "Minimap should cache resource markers from WorldRegistry")
 	TEST_UTILS.expect_equal(registered_varnaks.size(), 1, failures, "Minimap should read varnak markers from WorldRegistry")
 	minimap.free()
@@ -270,7 +270,7 @@ func _test_minimap_builds_texture_outside_draw_path(failures: Array[String]) -> 
 	draw_spy.set("biome_blend_texture", ImageTexture.create_from_image(Image.create(2, 2, false, Image.FORMAT_RGBA8)))
 	draw_spy.set("biome_blend_colors_key", "test")
 	var ensure_calls_before := draw_spy.ensure_calls
-	draw_spy.call("_draw_biomes", Rect2(Vector2.ZERO, Vector2(160.0, 100.0)), Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0)))
+	draw_spy.call("_draw_biomes", draw_spy, Rect2(Vector2.ZERO, Vector2(160.0, 100.0)), Rect2(Vector2(-200.0, -120.0), Vector2(400.0, 240.0)))
 	TEST_UTILS.expect_equal(draw_spy.ensure_calls, ensure_calls_before, failures, "Minimap draw path should reuse the cached biome texture instead of rebuilding it")
 	draw_spy.free()
 
@@ -281,7 +281,7 @@ func _test_minimap_shape_map_skips_sample_grid_underlay_when_polygons_exist(fail
 	minimap.set("biome_shape_map", shape_map)
 	minimap.set("terrain_cell_map", null)
 	minimap.set("biome_zones", [])
-	minimap.call("_draw_shape_map", Rect2(Vector2.ZERO, Vector2(160.0, 100.0)), Rect2(Vector2.ZERO, Vector2(160.0, 100.0)))
+	minimap.call("_draw_shape_map", minimap, Rect2(Vector2.ZERO, Vector2(160.0, 100.0)), Rect2(Vector2.ZERO, Vector2(160.0, 100.0)))
 	TEST_UTILS.expect_equal(shape_map.sample_grid_size_calls, 0, failures, "Minimap should not draw the sample grid underlay when renderable polygons already exist")
 	TEST_UTILS.expect_equal(shape_map.sample_grid_cell_world_rect_calls, 0, failures, "Minimap should not probe sample grid cells when renderable polygons already exist")
 	minimap.free()
