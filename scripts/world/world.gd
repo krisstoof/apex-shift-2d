@@ -383,6 +383,7 @@ func _ready() -> void:
 		var profile_changed_callback := Callable(self, "_on_profile_changed")
 		if not evolution_director.is_connected("profile_changed", profile_changed_callback):
 			evolution_director.connect("profile_changed", profile_changed_callback)
+	await _run_initial_world_boot()
 
 
 func _await_next_frame_safe() -> void:
@@ -390,6 +391,9 @@ func _await_next_frame_safe() -> void:
 	if scene_tree == null:
 		return
 	await scene_tree.process_frame
+
+
+func _run_initial_world_boot() -> void:
 	_ensure_render_controller()
 	_ensure_render_performance_governor()
 	_ensure_terrain_cell_map()
