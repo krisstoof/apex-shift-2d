@@ -55,7 +55,11 @@ func _test_landmark_config_is_valid(failures: Array[String]) -> void:
 	var landmarks: Array[Dictionary] = WORLD_CONFIG.get_landmarks()
 	TEST_UTILS.expect(landmarks.is_empty(), failures, "WorldConfig should no longer generate pond/hill landmark POIs")
 	var topo := WORLD_TOPOGRAPHY.new()
-	topo.setup(12345)
+	topo.setup(
+		12345,
+		Callable(self, "_get_test_biome_id"),
+		Callable(self, "_get_test_base_terrain_zone")
+	)
 	var topo_counts := Dictionary(topo.get_topography_feature_counts_debug())
 	TEST_UTILS.expect(int(topo_counts.get("pond", 0)) > 0, failures, "Topography should generate pond features")
 	TEST_UTILS.expect(int(topo_counts.get("highland", 0)) > 0, failures, "Topography should generate highland features")
@@ -89,9 +93,9 @@ func _test_randomized_landmarks_are_seeded_and_spaced(failures: Array[String]) -
 	var topo_a := WORLD_TOPOGRAPHY.new()
 	var topo_b := WORLD_TOPOGRAPHY.new()
 	var topo_c := WORLD_TOPOGRAPHY.new()
-	topo_a.setup(101)
-	topo_b.setup(101)
-	topo_c.setup(202)
+	topo_a.setup(101, Callable(self, "_get_test_biome_id"), Callable(self, "_get_test_base_terrain_zone"))
+	topo_b.setup(101, Callable(self, "_get_test_biome_id"), Callable(self, "_get_test_base_terrain_zone"))
+	topo_c.setup(202, Callable(self, "_get_test_biome_id"), Callable(self, "_get_test_base_terrain_zone"))
 	var first_counts := Dictionary(topo_a.get_topography_feature_counts_debug())
 	var second_counts := Dictionary(topo_b.get_topography_feature_counts_debug())
 	var third_counts := Dictionary(topo_c.get_topography_feature_counts_debug())
@@ -113,7 +117,7 @@ func _test_randomized_landmarks_are_seeded_and_spaced(failures: Array[String]) -
 func _test_generated_landmarks_stay_on_land(failures: Array[String]) -> void:
 	for seed in [1, 42, 97]:
 		var topo := WORLD_TOPOGRAPHY.new()
-		topo.setup(seed)
+		topo.setup(seed, Callable(self, "_get_test_biome_id"), Callable(self, "_get_test_base_terrain_zone"))
 		for feature_type in ["pond", "highland", "rocky_patch"]:
 			for feature_value in topo.get_topography_features_by_type(feature_type):
 				var feature := Dictionary(feature_value)
@@ -132,7 +136,7 @@ func _test_weighted_landmark_selection_matches_biome_character(failures: Array[S
 	var selected_counts := {"pond": 0, "highland": 0, "rocky_patch": 0}
 	for seed in range(1, 97):
 		var topo := WORLD_TOPOGRAPHY.new()
-		topo.setup(seed)
+		topo.setup(seed, Callable(self, "_get_test_biome_id"), Callable(self, "_get_test_base_terrain_zone"))
 		for feature_type in selected_counts.keys():
 			selected_counts[feature_type] = int(selected_counts.get(feature_type, 0)) + topo.get_topography_features_by_type(feature_type).size()
 		topo = null
@@ -148,3 +152,16 @@ func _get_biome_profiles() -> Dictionary:
 		var biome := Dictionary(biome_value)
 		profiles[str(biome.get("name", "")).to_snake_case()] = biome
 	return profiles
+
+
+func _get_test_base_terrain_zone(position: Vector2) -> String:
+	return WORLD_CONFIG.get_terrain_zone(position)
+
+
+func _get_test_biome_id(position: Vector2) -> String:
+	for biome_value in WORLD_CONFIG.get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var points := PackedVector2Array(biome.get("points", []))
+		if points.size() >= 3 and Geometry2D.is_point_in_polygon(position, points):
+			return str(biome.get("name", "")).to_snake_case()
+	return ""

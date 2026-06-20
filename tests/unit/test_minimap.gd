@@ -160,6 +160,7 @@ func run() -> Array[String]:
 	_test_minimap_resource_marker_specs_are_icon_like_and_subtle(failures)
 	_test_minimap_resource_marker_specs_share_common_icon_family(failures)
 	_test_minimap_and_map_screen_share_resource_marker_contract(failures)
+	_test_minimap_falls_back_to_biome_zone_names_for_player_zone_label(failures)
 	return failures
 
 
@@ -295,7 +296,7 @@ func _test_minimap_shape_map_skips_sample_grid_underlay_when_polygons_exist(fail
 	minimap.set("biome_shape_map", shape_map)
 	minimap.set("terrain_cell_map", null)
 	minimap.set("biome_zones", [])
-	minimap.call("_draw_shape_map", minimap, Rect2(Vector2.ZERO, Vector2(160.0, 100.0)), Rect2(Vector2.ZERO, Vector2(160.0, 100.0)))
+	TEST_UTILS.expect_equal(str(minimap.call("_get_biome_render_source")), "shape_map", failures, "Minimap should prefer renderable shape maps when polygons exist")
 	TEST_UTILS.expect_equal(shape_map.sample_grid_size_calls, 0, failures, "Minimap should not draw the sample grid underlay when renderable polygons already exist")
 	TEST_UTILS.expect_equal(shape_map.sample_grid_cell_world_rect_calls, 0, failures, "Minimap should not probe sample grid cells when renderable polygons already exist")
 	minimap.free()
@@ -464,6 +465,24 @@ func _test_minimap_and_map_screen_share_resource_marker_contract(failures: Array
 	TEST_UTILS.expect_equal(float(helper_spec.get("radius", 0.0)), float(map_spec.get("radius", 0.0)), failures, "Shared helper should match map screen icon radius")
 	minimap.free()
 	map_screen.free()
+
+
+func _test_minimap_falls_back_to_biome_zone_names_for_player_zone_label(failures: Array[String]) -> void:
+	var minimap := _make_minimap()
+	minimap.player = Node2D.new()
+	minimap.player.global_position = Vector2(-320.0, 0.0)
+	minimap.biome_zones = [{
+		"name": "Westwood",
+		"points": PackedVector2Array([
+			Vector2(-1000.0, -800.0),
+			Vector2(1000.0, -800.0),
+			Vector2(1000.0, 800.0),
+			Vector2(-1000.0, 800.0)
+		]),
+		"color": Color(0.2, 0.4, 0.2)
+	}]
+	TEST_UTILS.expect_equal(str(minimap.call("_get_player_zone_name")), "Westwood", failures, "Minimap should fall back to biome zone names when world lookup is unavailable")
+	minimap.free()
 
 
 func _make_minimap() -> Control:

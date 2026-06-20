@@ -1252,6 +1252,18 @@ func _get_biome_name_from_zones(position: Vector2) -> String:
 	return ""
 
 
+func _get_biome_render_source() -> String:
+	if biome_blend_texture != null:
+		return "biome_blend_texture"
+	if terrain_cell_map != null:
+		return "terrain_cell_map"
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)) and _has_renderable_biome_shape_map():
+		return "shape_map"
+	if biome_shape_map != null and biome_shape_map.has_method("get_sample_grid_size"):
+		return "shape_map_sample_grid"
+	return "none"
+
+
 func _get_landmark_count(landmark_type: String) -> int:
 	var count := 0
 	for landmark in landmarks:

@@ -187,6 +187,7 @@ func run() -> Array[String]:
 	_test_map_screen_skips_updates_while_hidden(failures)
 	_test_map_screen_static_cache_stays_quiet_when_signatures_do_not_change(failures)
 	_test_map_screen_reads_registry_resources_and_varnaks(failures)
+	_test_map_screen_falls_back_to_biome_zone_names_for_player_zone_label(failures)
 	_test_map_screen_builds_texture_outside_draw_path(failures)
 	_test_map_screen_shape_map_skips_sample_grid_underlay_when_polygons_exist(failures)
 	_test_map_screen_reuses_world_surface_texture_when_available(failures)
@@ -344,6 +345,24 @@ func _test_map_screen_reads_registry_resources_and_varnaks(failures: Array[Strin
 	map_screen.free()
 
 
+func _test_map_screen_falls_back_to_biome_zone_names_for_player_zone_label(failures: Array[String]) -> void:
+	var map_screen: Object = _make_map_screen()
+	map_screen.player = MockPlayer.new()
+	map_screen.player.global_position = Vector2(-320.0, 0.0)
+	map_screen.biome_zones = [{
+		"name": "Westwood",
+		"points": PackedVector2Array([
+			Vector2(-1000.0, -800.0),
+			Vector2(1000.0, -800.0),
+			Vector2(1000.0, 800.0),
+			Vector2(-1000.0, 800.0)
+		]),
+		"color": Color(0.2, 0.4, 0.2)
+	}]
+	TEST_UTILS.expect_equal(str(map_screen.call("_get_player_zone_name")), "Westwood", failures, "Map screen should fall back to biome zone names when world lookup is unavailable")
+	map_screen.free()
+
+
 func _test_map_screen_builds_texture_outside_draw_path(failures: Array[String]) -> void:
 	var map_screen := _make_map_screen()
 	var biome_zones_config: Array[Dictionary] = [{
@@ -388,7 +407,7 @@ func _test_map_screen_shape_map_skips_sample_grid_underlay_when_polygons_exist(f
 	map_screen.set("biome_shape_map", shape_map)
 	map_screen.set("terrain_cell_map", null)
 	map_screen.set("biome_zones", [])
-	map_screen.call("_draw_shape_map", Rect2(Vector2.ZERO, Vector2(160.0, 100.0)))
+	TEST_UTILS.expect_equal(str(map_screen.call("_get_biome_render_source")), "shape_map", failures, "Map screen should prefer renderable shape maps when polygons exist")
 	TEST_UTILS.expect_equal(shape_map.sample_grid_size_calls, 0, failures, "Map screen should not draw the sample grid underlay when renderable polygons already exist")
 	TEST_UTILS.expect_equal(shape_map.sample_grid_cell_world_rect_calls, 0, failures, "Map screen should not probe sample grid cells when renderable polygons already exist")
 	map_screen.free()

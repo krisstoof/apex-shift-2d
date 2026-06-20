@@ -936,7 +936,12 @@ func _get_cell_map_color(cell: Dictionary) -> Color:
 
 
 func _should_show_resource_markers() -> bool:
-	var graphics_settings := get_node_or_null("/root/GraphicsSettings")
+	if not is_inside_tree():
+		return false
+	var tree := get_tree()
+	if tree == null or tree.root == null:
+		return false
+	var graphics_settings := tree.root.get_node_or_null("GraphicsSettings")
 	if graphics_settings != null and graphics_settings.has_method("should_show_resource_markers_on_maps"):
 		return graphics_settings.should_show_resource_markers_on_maps() == true
 	return false
@@ -1344,6 +1349,18 @@ func _get_biome_name_from_zones(position: Vector2) -> String:
 	return ""
 
 
+func _get_biome_render_source() -> String:
+	if biome_blend_texture != null:
+		return "biome_blend_texture"
+	if terrain_cell_map != null:
+		return "terrain_cell_map"
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)) and _has_renderable_biome_shape_map():
+		return "shape_map"
+	if biome_shape_map != null and biome_shape_map.has_method("get_sample_grid_size"):
+		return "shape_map_sample_grid"
+	return "none"
+
+
 func _world_to_map(world_position: Vector2, content_rect: Rect2, view_world_rect: Rect2) -> Vector2:
 	var normalized := Vector2(
 		inverse_lerp(view_world_rect.position.x, view_world_rect.end.x, world_position.x),
@@ -1537,6 +1554,19 @@ func _update_marker_cache() -> bool:
 	cached_campfires_signature = campfire_signature
 	cached_varnaks_signature = varnak_signature
 	cached_grazers_signature = grazer_signature
+	return changed
+
+
+func _refresh_static_caches() -> bool:
+	var changed := false
+	var previous_texture_key := biome_blend_colors_key
+	_sync_biome_texture()
+	if biome_blend_colors_key != previous_texture_key:
+		changed = true
+	var previous_shoreline_key := shoreline_segments_key
+	_sync_shoreline_overlay_cache()
+	if shoreline_segments_key != previous_shoreline_key:
+		changed = true
 	return changed
 
 
