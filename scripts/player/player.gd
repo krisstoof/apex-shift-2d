@@ -9,6 +9,7 @@ const MOVEMENT_PROFILE := preload("res://scripts/core/common/movement_profile.gd
 const HOTBAR_STATE := preload("res://scripts/core/inventory/hotbar_state.gd")
 const CRAFTING_CATALOG := preload("res://scripts/core/crafting/crafting_catalog.gd")
 const CRAFTING_SYSTEM := preload("res://scripts/core/crafting/crafting_system.gd")
+const BUILDING_PLACEMENT_SERVICE := preload("res://scripts/systems/building_placement_service.gd")
 
 signal died(reason: String)
 
@@ -25,6 +26,7 @@ var inventory := INVENTORY.new()
 var hotbar_state := HOTBAR_STATE.new(9)
 var crafting_catalog = CRAFTING_CATALOG.new()
 var crafting_system = CRAFTING_SYSTEM.new()
+var building_placement_service := BUILDING_PLACEMENT_SERVICE.new()
 var has_spear := false
 var has_bow := false
 var torch_active := false
@@ -1026,23 +1028,18 @@ func _apply_crafting_result(item_name: String, result) -> void:
 
 
 func _place_crafted_building(building_id: String) -> void:
-	var scene_map := {
-		"campfire": CAMPFIRE_SCENE,
-		"trap": TRAP_SCENE,
-		"wall": WALL_SCENE,
-		"storage_box": STORAGE_BOX_SCENE,
-		"tent": TENT_SCENE
-	}
-	if not scene_map.has(building_id):
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
 		return
-	var scene: PackedScene = scene_map[building_id]
-	var building := scene.instantiate()
-	building.global_position = global_position + _get_aim_vector() * 56.0
-	get_tree().current_scene.add_child(building)
-	var world := get_tree().current_scene.get_node_or_null("World")
-	if world and world.has_method("register_building_node"):
-		world.register_building_node(building, building_id)
-	_emit_game_event("player_crafted_%s" % building_id, {"position": building.global_position})
+	var world := tree.current_scene.get_node_or_null("World")
+	var building := building_placement_service.place_building(
+		building_id,
+		global_position + _get_aim_vector() * 56.0,
+		tree.current_scene,
+		world
+	)
+	if building != null and building is Node2D:
+		_emit_game_event("player_crafted_%s" % building_id, {"position": (building as Node2D).global_position})
 
 
 func _face_mouse() -> void:

@@ -129,7 +129,7 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	day_night_system = p_day_night_system
 	ecosystem_director = p_ecosystem_director
 	skill_icon_bar.bind(player)
-	var world := get_tree().current_scene.get_node_or_null("World")
+	var world := _get_world_node()
 	snapshot_service = WORLD_SNAPSHOT_SERVICE.new()
 	snapshot_service.bind(player, evolution_director, day_night_system, ecosystem_director, world)
 	var bind_snapshot_start_ms: int = Time.get_ticks_msec()
@@ -585,13 +585,25 @@ func _set_critical_health_active(active: bool) -> void:
 func _get_player_for_hud() -> Node:
 	if player != null:
 		return player
-	var player_node := get_tree().get_first_node_in_group("player")
+	var tree := get_tree()
+	if tree == null:
+		return null
+	var player_node := tree.get_first_node_in_group("player")
 	if player_node != null:
 		return player_node
-	var main := get_tree().current_scene
+	var main := tree.current_scene
 	if main != null:
 		return main.get_node_or_null("Player")
 	return null
+
+
+func _get_world_node() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	if tree.current_scene == null:
+		return null
+	return tree.current_scene.get_node_or_null("World")
 
 
 func _get_player_health_value(player_node: Node) -> float:

@@ -495,5 +495,10 @@ func _test_hud_survival_warning_debug_exists(failures: Array[String]) -> void:
 func _make_hud() -> Node:
 	var tree := Engine.get_main_loop() as SceneTree
 	var hud := HUD_SCENE.instantiate()
-	tree.current_scene.add_child(hud)
+	if tree == null:
+		return hud
+	if tree.current_scene != null:
+		tree.current_scene.add_child(hud)
+	else:
+		tree.root.add_child(hud)
 	return hud

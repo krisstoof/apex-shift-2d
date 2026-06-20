@@ -2,6 +2,7 @@ extends Node2D
 class_name World
 
 const RESOURCE_SCENE := preload("res://scenes/world/resource_node.tscn")
+const BUILDING_PLACEMENT_SERVICE := preload("res://scripts/systems/building_placement_service.gd")
 const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
@@ -213,6 +214,7 @@ var biome_terrain_accents_enabled: bool = false
 var visibility_culling_enabled: bool = true
 var benchmark_preset_name: String = ""
 var pool_manager: PoolManager
+var building_placement_service := BUILDING_PLACEMENT_SERVICE.new()
 var chunk_manager: Node
 var vegetation_visual_layer: VegetationVisualLayer
 var edible_grass_node_spawn_count := 0
@@ -2333,6 +2335,14 @@ func register_creature_node(node: Node, creature_type: String) -> void:
 
 func register_building_node(node: Node, building_type: String) -> void:
 	_ensure_registry().register_building(node, building_type)
+
+
+func spawn_building_for_tests(building_type: String, position: Vector2) -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	var parent := tree.current_scene if tree.current_scene != null else self
+	return building_placement_service.place_building(building_type, position, parent, self)
 
 
 func _filter_valid_cached_group_nodes(nodes: Array) -> Array:

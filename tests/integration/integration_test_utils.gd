@@ -226,26 +226,9 @@ static func spawn_creature(world: Node, creature_type: String, position: Vector2
 static func spawn_building(world: Node, building_type: String, position: Vector2) -> Node:
 	if world == null:
 		return null
-	var scene: PackedScene = null
-	match building_type:
-		"wall":
-			scene = WALL_SCENE
-		"trap":
-			scene = TRAP_SCENE
-		"tent":
-			scene = TENT_SCENE
-		"storage_box":
-			scene = STORAGE_BOX_SCENE
-		"campfire":
-			scene = CAMPFIRE_SCENE
-	if scene == null:
-		return null
-	var building := scene.instantiate() as Node
-	if building == null:
-		return null
-	if building is Node2D:
-		(building as Node2D).global_position = position
-	world.add_child(building)
+	var building: Node = null
+	if world.has_method("spawn_building_for_tests"):
+		building = world.call("spawn_building_for_tests", building_type, position)
 	refresh_world_cache(world)
 	return building
 

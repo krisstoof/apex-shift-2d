@@ -2,9 +2,11 @@ extends StaticBody2D
 
 const INVENTORY := preload("res://scripts/player/inventory.gd")
 const STORAGE_STATE := preload("res://scripts/core/inventory/storage_state.gd")
+const BUILDING_STATE := preload("res://scripts/core/buildings/building_state.gd")
 
 var storage_state := STORAGE_STATE.new(12, INVENTORY.new(12))
 var inventory: Variant = storage_state.get_inventory_state()
+var building_state := BUILDING_STATE.new()
 
 
 func _post_event_message(message: String) -> void:
@@ -20,6 +22,7 @@ func _post_event_message(message: String) -> void:
 
 func _ready() -> void:
 	add_to_group("storage_boxes")
+	_sync_state_from_node()
 	queue_redraw()
 
 
@@ -37,17 +40,20 @@ func get_prompt() -> String:
 
 
 func get_save_data() -> Dictionary:
-	return {
-		"position": _vector_to_data(global_position),
-		"inventory": storage_state.get_inventory_save_data()
-	}
+	_sync_state_from_node()
+	var data := building_state.to_save_data()
+	data["position"] = _vector_to_data(global_position)
+	data["inventory"] = storage_state.get_inventory_save_data()
+	return data
 
 
 func restore_from_data(data: Dictionary) -> void:
 	if data.has("position"):
 		global_position = _data_to_vector(Dictionary(data.get("position", {})), global_position)
+	building_state.load_from_save_data(data)
 	storage_state.load_from_save_data(data)
 	inventory = storage_state.get_inventory_state()
+	_sync_node_from_state()
 
 
 func _vector_to_data(value: Vector2) -> Dictionary:
@@ -76,6 +82,25 @@ func _get_hud() -> Node:
 	if tree.current_scene != null:
 		return tree.current_scene.get_node_or_null("HUD")
 	return null
+
+
+func get_building_state() -> Dictionary:
+	return get_save_data()
+
+
+func apply_building_state(data: Dictionary) -> void:
+	restore_from_data(data)
+
+
+func _sync_state_from_node() -> void:
+	building_state.kind = "storage_box"
+	building_state.position = global_position
+	building_state.inventory = storage_state.get_inventory_save_data()
+
+
+func _sync_node_from_state() -> void:
+	if building_state.position != Vector2.ZERO:
+		global_position = building_state.position
 
 
 func _draw() -> void:

@@ -1,12 +1,14 @@
 extends Area2D
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
+const BUILDING_STATE := preload("res://scripts/core/buildings/building_state.gd")
 
 @export var fear_radius := GAME_BALANCE.CAMPFIRE_SAFE_RADIUS
 @export var light_radius := GAME_BALANCE.CAMPFIRE_LIGHT_RADIUS
 @export var stamina_regen_radius := GAME_BALANCE.CAMPFIRE_STAMINA_REGEN_RADIUS
 
 var active := true
+var building_state := BUILDING_STATE.new()
 var day_night_system: Node
 var campfire_light: PointLight2D
 var campfire_flicker_time := 0.0
@@ -14,6 +16,7 @@ static var cached_light_texture: Texture2D
 
 func _ready() -> void:
 	add_to_group("campfires")
+	_sync_state_from_node()
 	var scene := get_tree().current_scene
 	if scene:
 		day_night_system = scene.get_node_or_null("DayNightSystem")
@@ -39,6 +42,28 @@ func _draw() -> void:
 		draw_arc(Vector2.ZERO, fear_radius, 0.0, TAU, 48, Color(1.0, 0.55, 0.1, 0.18), 2.0)
 	else:
 		draw_circle(Vector2.ZERO, 9.0, Color(0.08, 0.07, 0.06))
+
+
+func get_building_state() -> Dictionary:
+	_sync_state_from_node()
+	return building_state.to_save_data()
+
+
+func apply_building_state(data: Dictionary) -> void:
+	building_state.load_from_save_data(data)
+	_sync_node_from_state()
+
+
+func _sync_state_from_node() -> void:
+	building_state.kind = "campfire"
+	building_state.position = global_position
+	building_state.active = active
+	building_state.fear_radius = fear_radius
+
+
+func _sync_node_from_state() -> void:
+	active = building_state.active
+	fear_radius = building_state.fear_radius
 
 
 func _draw_fire_light() -> void:

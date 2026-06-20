@@ -48,6 +48,7 @@ const RUNTIME_PROFILER_TESTS := preload("res://tests/unit/test_runtime_profiler.
 const WORLD_GENERATION_STABILITY_TESTS := preload("res://tests/unit/test_world_generation_stability.gd")
 const BIOME_GENERATION_RULES_TESTS := preload("res://tests/unit/test_biome_generation_rules.gd")
 const BUILDING_QUERY_TESTS := preload("res://tests/unit/test_building_query.gd")
+const WORLD_BUILDING_SPAWN_TESTS := preload("res://tests/unit/test_world_building_spawn.gd")
 const CORE_RESOURCES_TESTS := preload("res://tests/unit/test_core_resources.gd")
 const ERROR_DRAIN_MAX_FRAMES := 8
 const ERROR_DRAIN_STABLE_FRAMES := 2
@@ -181,6 +182,7 @@ func _run_tests() -> void:
 	await _run_suite("WorldGenerationStability", WORLD_GENERATION_STABILITY_TESTS.new(), failures)
 	await _run_suite("BiomeGenerationRules", BIOME_GENERATION_RULES_TESTS.new(), failures)
 	await _run_suite("BuildingQuery", BUILDING_QUERY_TESTS.new(), failures)
+	await _run_suite("WorldBuildingSpawn", WORLD_BUILDING_SPAWN_TESTS.new(), failures)
 	await _run_suite("CoreResources", CORE_RESOURCES_TESTS.new(), failures)
 	await _drain_runtime_errors()
 	_append_logged_errors(failures, "", _unit_test_error_cursor)

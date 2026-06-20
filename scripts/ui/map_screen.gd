@@ -140,6 +140,10 @@ func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node
 	mark_map_cache_dirty()
 
 
+func set_test_biome_zones(p_biome_zones: Array[Dictionary]) -> void:
+	biome_zones = p_biome_zones.duplicate(true)
+
+
 func _process(_delta: float) -> void:
 	RUNTIME_PROFILER.begin_scope("map_screen_total_ms")
 	if not is_visible_in_tree():

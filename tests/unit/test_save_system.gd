@@ -400,6 +400,12 @@ func _test_get_building_data_contains_expected_fields(failures: Array[String]) -
 	TEST_UTILS.expect_equal(trap_data.get("kind", ""), "trap", failures, "Trap save data should contain the kind")
 	TEST_UTILS.expect_equal(wall_data.get("kind", ""), "wall", failures, "Wall save data should contain the kind")
 	TEST_UTILS.expect(campfire_data.has("position"), failures, "Campfire save data should contain position")
+	TEST_UTILS.expect(campfire_data.has("campfire_state"), failures, "Campfire save data should use campfire_state")
+	TEST_UTILS.expect(trap_data.has("trap_state"), failures, "Trap save data should use trap_state")
+	TEST_UTILS.expect(wall_data.has("wall_state"), failures, "Wall save data should use wall_state")
+	TEST_UTILS.expect(not campfire_data.has("active"), failures, "Campfire save data should no longer expose flat active fields")
+	TEST_UTILS.expect(not trap_data.has("armed"), failures, "Trap save data should no longer expose flat armed fields")
+	TEST_UTILS.expect(not wall_data.has("health"), failures, "Wall save data should no longer expose flat health fields")
 
 
 func _test_get_storage_boxes_data_contains_positions_and_inventories(failures: Array[String]) -> void:
@@ -453,9 +459,9 @@ func _test_restore_building_state_restores_building_fields(failures: Array[Strin
 	var campfire := TestCampfire.new()
 	var trap := TestTrap.new()
 	var wall := TestWall.new()
-	save_system.call("_restore_building_state", "campfire", campfire, {"active": false, "fear_radius": 260.0})
-	save_system.call("_restore_building_state", "trap", trap, {"armed": false, "damage": 24.0})
-	save_system.call("_restore_building_state", "wall", wall, {"health": 65.0})
+	save_system.call("_restore_building_state", "campfire", campfire, {"campfire_state": {"active": false, "fear_radius": 260.0}})
+	save_system.call("_restore_building_state", "trap", trap, {"trap_state": {"armed": false, "damage": 24.0}})
+	save_system.call("_restore_building_state", "wall", wall, {"wall_state": {"health": 65.0}})
 	TEST_UTILS.expect(not campfire.active, failures, "Campfire active state should be restored")
 	TEST_UTILS.expect_close(campfire.fear_radius, 260.0, failures, "Campfire fear radius should be restored")
 	TEST_UTILS.expect(not trap.armed, failures, "Trap armed state should be restored")

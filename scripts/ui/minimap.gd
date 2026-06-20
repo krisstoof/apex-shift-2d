@@ -197,6 +197,10 @@ func bind(p_player: Node2D, p_world_rect: Rect2, p_biome_zones: Array[Dictionary
 	_request_player_redraw()
 
 
+func set_test_biome_zones(p_biome_zones: Array[Dictionary]) -> void:
+	biome_zones = p_biome_zones.duplicate(true)
+
+
 func apply_graphics_preset_config(config: Dictionary) -> void:
 	runtime_graphics_config = config.duplicate(true)
 	minimap_redraw_interval = float(config.get("minimap_redraw_interval", minimap_redraw_interval))

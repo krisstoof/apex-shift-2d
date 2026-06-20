@@ -471,7 +471,7 @@ func _test_minimap_falls_back_to_biome_zone_names_for_player_zone_label(failures
 	var minimap := _make_minimap()
 	minimap.player = Node2D.new()
 	minimap.player.global_position = Vector2(-320.0, 0.0)
-	minimap.biome_zones = [{
+	minimap.call("set_test_biome_zones", [{
 		"name": "Westwood",
 		"points": PackedVector2Array([
 			Vector2(-1000.0, -800.0),
@@ -480,7 +480,7 @@ func _test_minimap_falls_back_to_biome_zone_names_for_player_zone_label(failures
 			Vector2(-1000.0, 800.0)
 		]),
 		"color": Color(0.2, 0.4, 0.2)
-	}]
+	}])
 	TEST_UTILS.expect_equal(str(minimap.call("_get_player_zone_name")), "Westwood", failures, "Minimap should fall back to biome zone names when world lookup is unavailable")
 	minimap.free()
 

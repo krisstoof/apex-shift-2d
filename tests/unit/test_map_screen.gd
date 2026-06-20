@@ -349,7 +349,7 @@ func _test_map_screen_falls_back_to_biome_zone_names_for_player_zone_label(failu
 	var map_screen: Object = _make_map_screen()
 	map_screen.player = MockPlayer.new()
 	map_screen.player.global_position = Vector2(-320.0, 0.0)
-	map_screen.biome_zones = [{
+	map_screen.call("set_test_biome_zones", [{
 		"name": "Westwood",
 		"points": PackedVector2Array([
 			Vector2(-1000.0, -800.0),
@@ -358,7 +358,7 @@ func _test_map_screen_falls_back_to_biome_zone_names_for_player_zone_label(failu
 			Vector2(-1000.0, 800.0)
 		]),
 		"color": Color(0.2, 0.4, 0.2)
-	}]
+	}])
 	TEST_UTILS.expect_equal(str(map_screen.call("_get_player_zone_name")), "Westwood", failures, "Map screen should fall back to biome zone names when world lookup is unavailable")
 	map_screen.free()
 
