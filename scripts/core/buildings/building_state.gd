@@ -12,6 +12,8 @@ func for_kind(building_kind: String) -> Dictionary:
 	var state_key := _get_state_key_for_kind(building_kind)
 	if state_key != "":
 		data[state_key] = custom_data.duplicate(true)
+		for key in custom_data.keys():
+			data[key] = custom_data[key]
 	return data
 
 
@@ -33,6 +35,14 @@ func load_from_save_data(data: Dictionary) -> void:
 	for key in ["active", "fear_radius", "armed", "damage", "health", "inventory"]:
 		if data.has(key):
 			custom_data[key] = data[key]
+	if data.has("campfire_state"):
+		custom_data.merge(Dictionary(data.get("campfire_state", {})), true)
+	if data.has("trap_state"):
+		custom_data.merge(Dictionary(data.get("trap_state", {})), true)
+	if data.has("wall_state"):
+		custom_data.merge(Dictionary(data.get("wall_state", {})), true)
+	if data.has("storage_box_state"):
+		custom_data.merge(Dictionary(data.get("storage_box_state", {})), true)
 
 
 func capture_from_building(building: Node) -> void:
@@ -43,6 +53,12 @@ func capture_from_building(building: Node) -> void:
 		load_from_save_data(state)
 		return
 	custom_data = {}
+	for key in ["active", "fear_radius", "armed", "damage", "health", "inventory"]:
+		var value = building.get(key)
+		if value != null:
+			custom_data[key] = value
+	if building.has_method("get") and building.get("storage_state") != null:
+		custom_data["inventory"] = building.get("storage_state").get_inventory_save_data()
 
 
 func apply_to_building(building: Node) -> void:

@@ -4394,6 +4394,9 @@ func _release_pooled_resource_node(node: Node) -> void:
 
 
 func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
+	if Engine.is_in_physics_frame():
+		call_deferred("_spawn_meat_drop_for_animal_deferred", animal_kind, drop_position)
+		return null
 	var amount: int = _get_meat_drop_amount(animal_kind)
 	if amount <= 0:
 		return null
@@ -4423,6 +4426,10 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 	return node
 
 
+func _spawn_meat_drop_for_animal_deferred(animal_kind: String, drop_position: Vector2) -> void:
+	spawn_meat_drop_for_animal(animal_kind, drop_position)
+
+
 func _finalize_spawned_pickup_drop(drop: Node) -> void:
 	if drop == null or not is_instance_valid(drop):
 		return
@@ -4445,6 +4452,9 @@ func _finalize_spawned_pickup_drop(drop: Node) -> void:
 
 
 func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
+	if Engine.is_in_physics_frame():
+		call_deferred("_spawn_bone_drop_for_animal_deferred", animal_kind, drop_position)
+		return null
 	var amount: int = _get_bone_drop_amount(animal_kind)
 	if amount <= 0:
 		return null
@@ -4470,6 +4480,10 @@ func spawn_bone_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 			"position": node.global_position
 		})
 	return node
+
+
+func _spawn_bone_drop_for_animal_deferred(animal_kind: String, drop_position: Vector2) -> void:
+	spawn_bone_drop_for_animal(animal_kind, drop_position)
 
 
 func _get_meat_drop_amount(animal_kind: String) -> int:
