@@ -58,9 +58,13 @@ var pool_release_callback := Callable()
 
 
 func _get_event_bus() -> Node:
-	var tree := get_tree()
-	if tree == null:
+	if not is_inside_tree():
 		return null
+
+	var tree := get_tree()
+	if tree == null or tree.root == null:
+		return null
+
 	return tree.root.get_node_or_null("EventBus")
 
 

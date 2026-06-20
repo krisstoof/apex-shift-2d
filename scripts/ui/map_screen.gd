@@ -1165,7 +1165,14 @@ func _get_cell_map_color(cell: Dictionary) -> Color:
 
 
 func _should_show_resource_markers() -> bool:
-	var graphics_settings := get_node_or_null("/root/GraphicsSettings")
+	if not is_inside_tree():
+		return false
+
+	var tree := get_tree()
+	if tree == null or tree.root == null:
+		return false
+
+	var graphics_settings := tree.root.get_node_or_null("GraphicsSettings")
 	if graphics_settings != null and graphics_settings.has_method("should_show_resource_markers_on_maps"):
 		return graphics_settings.should_show_resource_markers_on_maps() == true
 	return false
