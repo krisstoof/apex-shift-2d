@@ -5,12 +5,14 @@ const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const ECOSYSTEM_COMMAND := preload("res://scripts/systems/ecosystem_command.gd")
 const ECOSYSTEM_DELTA := preload("res://scripts/systems/ecosystem_delta.gd")
 const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
+const CORE_ECOSYSTEM_SIMULATION := preload("res://scripts/core/ecosystem/ecosystem_simulation.gd")
 
 var biome_states: Dictionary = {}
 var tick_timer := 0.0
 var initialized := false
 var pending_tick_biome_ids: Array[String] = []
 var ecosystem_state_source := "generated"
+var core_ecosystem_simulation := CORE_ECOSYSTEM_SIMULATION.new()
 
 
 func _ecosystem_value(key: String) -> float:
@@ -271,7 +273,7 @@ func _initialize_biomes() -> void:
 			"generations_under_food_stress": 0,
 			"grazer_non_plant_food_events": 0,
 			"predator_pressure": 0.0,
-			"status": _get_biomass_status(default_plant_biomass, max_plant_biomass)
+			"status": "healthy"
 	}
 	initialized = true
 
@@ -286,13 +288,7 @@ func _restore_biome_states(saved_states: Dictionary) -> void:
 			state[key] = saved_state[key]
 		state["biome_id"] = biome_id
 		_ensure_biome_state_defaults(state)
-		state["plant_biomass_percent"] = _get_state_biomass_percent(state)
-		state["status"] = _get_biomass_status(
-			float(state.get("plant_biomass", 0.0)),
-			float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
-		)
-		var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
-		state["food_stress"] = 1.0 if max_biomass <= 0.0 else 1.0 - clamp(float(state.get("plant_biomass", 0.0)) / max_biomass, 0.0, 1.0)
+		_refresh_biome_derived_state(state)
 		biome_states[biome_id] = state
 
 
@@ -357,10 +353,13 @@ func _debug_adjust_population(position: Vector2, key: String, delta: float, max_
 
 
 func _refresh_biome_derived_state(state: Dictionary) -> void:
-	var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
-	state["plant_biomass_percent"] = _get_state_biomass_percent(state)
-	state["food_stress"] = 1.0 if max_biomass <= 0.0 else 1.0 - clamp(float(state.get("plant_biomass", 0.0)) / max_biomass, 0.0, 1.0)
-	state["status"] = _get_biomass_status(float(state.get("plant_biomass", 0.0)), max_biomass)
+	var core_state := core_ecosystem_simulation.tick_biome_from_dictionary(state, {
+		"ecosystem_balance": GAME_BALANCE.ECOSYSTEM,
+		"population_recovery": GAME_BALANCE.POPULATION_RECOVERY
+	})
+	state["plant_biomass_percent"] = core_state.get("plant_biomass_percent", state.get("plant_biomass_percent"))
+	state["food_stress"] = core_state.get("food_stress", state.get("food_stress"))
+	state["status"] = core_state.get("status", state.get("status"))
 
 
 func _post_debug_message(message: String, biome_id: String) -> void:
@@ -403,14 +402,12 @@ func _update_ecosystem_biome(biome_id: String) -> void:
 		return
 	var state: Dictionary = biome_states[biome_id]
 	var previous_status := str(state.get("status", "healthy"))
-	_update_biome_biomass(state)
 	_update_predator_pressure(state, biome_id)
 	_update_visible_creature_aggregates(state, biome_id)
-	_update_biome_populations(state)
-	state["status"] = _get_biomass_status(
-		float(state.get("plant_biomass", 0.0)),
-		float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
-	)
+	state = core_ecosystem_simulation.tick_biome_from_dictionary(state, {
+		"ecosystem_balance": GAME_BALANCE.ECOSYSTEM,
+		"population_recovery": GAME_BALANCE.POPULATION_RECOVERY
+	})
 	_update_grazer_niche_shift(state)
 	_update_species_generations(state)
 	biome_states[biome_id] = state
@@ -418,25 +415,35 @@ func _update_ecosystem_biome(biome_id: String) -> void:
 	_emit_status_event_if_needed(previous_status, state)
 
 
+func _apply_core_daily_ecosystem_recovery() -> void:
+	for biome_id_value in biome_states.keys():
+		var biome_id := str(biome_id_value)
+		var state: Dictionary = biome_states[biome_id]
+		var previous_status := str(state.get("status", "healthy"))
+		state = core_ecosystem_simulation.tick_biome_from_dictionary(state, {
+			"ecosystem_balance": GAME_BALANCE.ECOSYSTEM,
+			"population_recovery": GAME_BALANCE.POPULATION_RECOVERY
+		})
+		biome_states[biome_id] = state
+		_emit_vegetation_changed(state)
+		_emit_status_event_if_needed(previous_status, state)
+
+
 func _update_biome_biomass(state: Dictionary) -> void:
-	var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
-	var plant_biomass := float(state.get("plant_biomass", _ecosystem_value("default_plant_biomass")))
-	var regrowth_rate := float(state.get("plant_regrowth_rate", _ecosystem_value("plant_regrowth_rate")))
-	var small_prey_population := float(state.get("small_prey_population", 0.0))
-	var grazer_population := float(state.get("grazer_population", 0.0))
-	var consumption_pressure := (
-		small_prey_population * _ecosystem_value("small_prey_plant_consumption")
-		+ grazer_population * _ecosystem_value("grazer_plant_consumption")
-	)
-	var regrowth := regrowth_rate if plant_biomass < max_biomass else 0.0
-	plant_biomass = clamp(plant_biomass + regrowth - consumption_pressure, 0.0, max_biomass)
-	state["plant_biomass"] = plant_biomass
-	state["plant_biomass_percent"] = _get_state_biomass_percent(state)
-	state["plant_consumption_pressure"] = consumption_pressure
-	state["overgrazing_pressure"] = consumption_pressure
-	state["overgrazing_level"] = clamp(consumption_pressure / _ecosystem_value("overgrazing_pressure_scale"), 0.0, 1.0)
-	state["food_stress"] = 1.0 - clamp(plant_biomass / max_biomass, 0.0, 1.0)
-	state["starvation_pressure"] = state["food_stress"]
+	var core_state := core_ecosystem_simulation.tick_biome_from_dictionary(state, {
+		"ecosystem_balance": GAME_BALANCE.ECOSYSTEM,
+		"population_recovery": GAME_BALANCE.POPULATION_RECOVERY
+	})
+	for key in [
+		"plant_biomass",
+		"plant_biomass_percent",
+		"plant_consumption_pressure",
+		"overgrazing_pressure",
+		"overgrazing_level",
+		"food_stress",
+		"starvation_pressure"
+	]:
+		state[key] = core_state.get(key, state.get(key))
 
 
 func _update_predator_pressure(state: Dictionary, biome_id: String) -> void:
@@ -560,138 +567,6 @@ func _get_creature_nodes(group_name: String) -> Array:
 	return tree.get_nodes_in_group(group_name)
 
 
-func _update_biome_populations(state: Dictionary) -> void:
-	var biomass_factor: float = clamp(float(state.get("plant_biomass_percent", 0.0)) / 100.0, 0.0, 1.0)
-	var predator_pressure := float(state.get("varnak_ecosystem_pressure", 0.0))
-	var food_stress := float(state.get("food_stress", 0.0))
-	var small_prey_population := float(state.get("small_prey_population", 0.0))
-	var grazer_population := float(state.get("grazer_population", 0.0))
-	var varnak_population := float(state.get("varnak_population", 0.0))
-	var omnivore_resilience := (
-		float(state.get("average_meat_diet", _ecosystem_value("initial_average_meat_diet")))
-		+ float(state.get("average_scavenger_diet", _ecosystem_value("initial_average_scavenger_diet")))
-	)
-	var small_prey_predation_multiplier := _get_critical_predation_multiplier(
-		small_prey_population,
-		_population_recovery_value("small_prey_min_population")
-	)
-	var grazer_predation_multiplier := _get_critical_predation_multiplier(
-		grazer_population,
-		_population_recovery_value("grazer_min_population")
-	)
-	var small_prey_predation_pressure: float = predator_pressure * _ecosystem_value("small_prey_predation_rate") * small_prey_predation_multiplier
-	var grazer_predation_pressure: float = predator_pressure * _ecosystem_value("grazer_predation_rate") * grazer_predation_multiplier
-	var grazer_starvation_pressure: float = food_stress * _ecosystem_value("grazer_starvation_rate") * (1.0 - clamp(omnivore_resilience, 0.0, _ecosystem_value("max_omnivore_resilience")))
-	var small_prey_delta: float = biomass_factor * _ecosystem_value("small_prey_growth_rate")
-	small_prey_delta -= small_prey_predation_pressure
-	if biomass_factor < _ecosystem_value("small_prey_collapse_biomass_factor"):
-		small_prey_delta -= _ecosystem_value("small_prey_collapse_loss_rate")
-
-	var grazer_delta: float = biomass_factor * _ecosystem_value("grazer_growth_rate")
-	grazer_delta -= grazer_starvation_pressure
-	grazer_delta -= grazer_predation_pressure
-
-	state["small_prey_population"] = clamp(
-		small_prey_population + small_prey_delta,
-		0.0,
-		_population_recovery_value("small_prey_max_population")
-	)
-
-	state["grazer_population"] = clamp(
-		grazer_population + grazer_delta,
-		0.0,
-		_population_recovery_value("grazer_max_population")
-	)
-	var actual_small_prey_delta := float(state.get("small_prey_population", 0.0)) - small_prey_population
-	var actual_grazer_delta := float(state.get("grazer_population", 0.0)) - grazer_population
-	var total_delta := small_prey_delta + grazer_delta
-	state["population_count"] = float(state.get("small_prey_population", 0.0)) + float(state.get("grazer_population", 0.0)) + varnak_population
-	state["birth_rate"] = max(total_delta, 0.0)
-	state["death_rate"] = max(-total_delta, 0.0)
-	state["starvation_pressure"] = food_stress
-	state["small_prey_predation_pressure"] = small_prey_predation_pressure
-	state["grazer_predation_pressure"] = grazer_predation_pressure
-	state["grazer_starvation_pressure"] = grazer_starvation_pressure
-	state["small_prey_population_trend"] = _get_population_trend(actual_small_prey_delta)
-	state["grazer_population_trend"] = _get_population_trend(actual_grazer_delta)
-	_emit_population_decline_events_if_needed(state, small_prey_population, grazer_population)
-
-
-func _get_critical_predation_multiplier(population: float, minimum_population: float) -> float:
-	if population >= minimum_population:
-		return 1.0
-	return _population_recovery_value("critical_population_predation_multiplier")
-
-
-func _get_population_trend(delta: float) -> String:
-	if delta > 0.05:
-		return "growing"
-	if delta < -0.05:
-		return "declining"
-	return "stable"
-
-
-func _apply_daily_population_recovery() -> void:
-	for biome_id_value in biome_states.keys():
-		var biome_id := str(biome_id_value)
-		var state: Dictionary = biome_states[biome_id]
-		var small_prey_recovery := _recover_population_for_day(state, "small_prey")
-		var grazer_recovery := _recover_population_for_day(state, "grazer")
-		state["small_prey_daily_recovery"] = small_prey_recovery
-		state["grazer_daily_recovery"] = grazer_recovery
-		state["small_prey_population_trend"] = _get_population_trend(small_prey_recovery)
-		state["grazer_population_trend"] = _get_population_trend(grazer_recovery)
-		state["population_count"] = (
-			float(state.get("small_prey_population", 0.0))
-			+ float(state.get("grazer_population", 0.0))
-			+ float(state.get("varnak_population", 0.0))
-		)
-		biome_states[biome_id] = state
-
-
-func _recover_population_for_day(state: Dictionary, species: String) -> float:
-	var population_key: String = "%s_population" % species
-	var current_population: float = float(state.get(population_key, 0.0))
-	var target_population: float = _population_recovery_value("%s_target_population" % species)
-	var max_population: float = _population_recovery_value("%s_max_population" % species)
-	var difficulty := _get_first_week_difficulty()
-	var population_multiplier_key := "%s_population_multiplier" % species
-	var has_first_week_adjustment := _get_current_day() <= 7 and difficulty.has(population_multiplier_key)
-	if has_first_week_adjustment:
-		target_population *= float(difficulty.get(population_multiplier_key, 1.0))
-		max_population *= float(difficulty.get(population_multiplier_key, 1.0))
-	if current_population >= target_population or current_population >= max_population:
-		return 0.0
-	var biomass_multiplier: float = _get_biomass_recovery_multiplier(float(state.get("plant_biomass_percent", 0.0)))
-	var recovery_per_day: float = _population_recovery_value("%s_recovery_per_day" % species)
-	if has_first_week_adjustment:
-		recovery_per_day *= float(difficulty.get(population_multiplier_key, 1.0))
-	var recovery: float = minf(recovery_per_day * biomass_multiplier, target_population - current_population)
-	var recovered_population: float = clampf(current_population + recovery, 0.0, max_population)
-	state[population_key] = recovered_population
-	return recovered_population - current_population
-
-
-func _get_biomass_recovery_multiplier(biomass_percent: float) -> float:
-	var depleted_threshold := _ecosystem_value("depleted_threshold")
-	var healthy_threshold := _ecosystem_value("stressed_threshold")
-	var depleted_multiplier := _population_recovery_value("depleted_biomass_recovery_multiplier")
-	var healthy_multiplier := _population_recovery_value("healthy_biomass_recovery_multiplier")
-	if biomass_percent <= depleted_threshold:
-		return depleted_multiplier
-	if biomass_percent >= healthy_threshold:
-		return healthy_multiplier
-	var blend := inverse_lerp(depleted_threshold, healthy_threshold, biomass_percent)
-	return lerpf(depleted_multiplier, healthy_multiplier, blend)
-
-
-func _get_state_biomass_percent(state: Dictionary) -> float:
-	var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
-	if max_biomass <= 0.0:
-		return 0.0
-	return float(state.get("plant_biomass", 0.0)) / max_biomass * 100.0
-
-
 func _emit_status_event_if_needed(previous_status: String, state: Dictionary) -> void:
 	var status := str(state.get("status", "healthy"))
 	if status == previous_status or status == "healthy":
@@ -743,7 +618,7 @@ func _emit_population_decline_events_if_needed(state: Dictionary, previous_small
 func _on_game_event(event_name: String, payload: Dictionary) -> void:
 	match event_name:
 		"day_ended":
-			_apply_daily_population_recovery()
+			_apply_core_daily_ecosystem_recovery()
 		"small_prey_killed_by_player", "small_prey_killed_by_varnak", "small_prey_killed_by_grazer":
 			_apply_small_prey_death(payload)
 		"small_prey_consumed_plants":
@@ -955,16 +830,11 @@ func _apply_plant_biomass_loss(biome_id: String, biomass_loss: float, payload: D
 		return {}
 	var state: Dictionary = biome_states[biome_id]
 	var previous_status := str(state.get("status", "healthy"))
-	var previous_biomass_percent := float(state.get("plant_biomass_percent", _get_state_biomass_percent(state)))
+	var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
+	var previous_biomass_percent := 0.0 if max_biomass <= 0.0 else float(state.get("plant_biomass", 0.0)) / max_biomass * 100.0
 	var plant_biomass := float(state.get("plant_biomass", 0.0))
 	state["plant_biomass"] = max(plant_biomass - biomass_loss, 0.0)
-	state["plant_biomass_percent"] = _get_state_biomass_percent(state)
-	var max_biomass := float(state.get("max_plant_biomass", _ecosystem_value("max_plant_biomass")))
-	state["food_stress"] = 1.0 if max_biomass <= 0.0 else 1.0 - clamp(float(state.get("plant_biomass", 0.0)) / max_biomass, 0.0, 1.0)
-	state["status"] = _get_biomass_status(
-		float(state.get("plant_biomass", 0.0)),
-		max_biomass
-	)
+	_refresh_biome_derived_state(state)
 	biome_states[biome_id] = state
 	var delta = ECOSYSTEM_DELTA.new_with(
 		biome_id,
@@ -981,18 +851,6 @@ func _apply_plant_biomass_loss(biome_id: String, biomass_loss: float, payload: D
 	if event_bus:
 		event_bus.emit_game_event("ecosystem_delta_applied", delta.to_dict())
 	return delta.to_dict()
-
-
-func _get_biomass_status(plant_biomass: float, max_plant_biomass: float) -> String:
-	var percent := 0.0 if max_plant_biomass <= 0.0 else plant_biomass / max_plant_biomass * 100.0
-	var healthy_threshold := minf(_ecosystem_value("stressed_threshold"), 60.0)
-	if percent < _ecosystem_value("collapsing_threshold"):
-		return "collapsing"
-	if percent < _ecosystem_value("depleted_threshold"):
-		return "depleted"
-	if percent < healthy_threshold:
-		return "stressed"
-	return "healthy"
 
 
 func _get_biome_id(biome: Dictionary) -> String:

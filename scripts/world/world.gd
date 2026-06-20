@@ -1808,8 +1808,31 @@ func get_pool_debug_text() -> String:
 
 
 func get_resource_activation_debug() -> Dictionary:
+	var resource_node_count_by_kind := {}
+	var tree_node_count := 0
+	var conifer_tree_node_count := 0
+	var leafy_tree_node_count := 0
+	var dry_tree_node_count := 0
+	for resource in get_cached_group_nodes("resources"):
+		if not is_instance_valid(resource) or not resource.has_method("get_resource_kind"):
+			continue
+		var resource_kind := str(resource.call("get_resource_kind"))
+		resource_node_count_by_kind[resource_kind] = int(resource_node_count_by_kind.get(resource_kind, 0)) + 1
+		if resource_kind in ["tree", "conifer_tree", "leafy_tree", "dry_tree"]:
+			tree_node_count += 1
+		if resource_kind == "conifer_tree":
+			conifer_tree_node_count += 1
+		elif resource_kind == "leafy_tree":
+			leafy_tree_node_count += 1
+		elif resource_kind == "dry_tree":
+			dry_tree_node_count += 1
 	return {
 		"total_resource_node_count": get_cached_group_nodes("resources").size(),
+		"resource_node_count_by_kind": resource_node_count_by_kind,
+		"tree_node_count": tree_node_count,
+		"conifer_tree_node_count": conifer_tree_node_count,
+		"leafy_tree_node_count": leafy_tree_node_count,
+		"dry_tree_node_count": dry_tree_node_count,
 		"interaction_active_resource_count": interactive_resource_node_count,
 		"render_only_visual_resource_count": render_only_resource_count,
 		"collision_active_resource_count": active_resource_collisions,
@@ -3370,9 +3393,6 @@ func _create_landmark_area(landmark: Dictionary, group_name: String) -> void:
 func _spawn_resources() -> void:
 	var used_positions: Array[Vector2] = []
 	var player_position := _get_player_position()
-	var tree_count := WORLD_CONFIG.get_tree_count()
-	var conifer_count := int(ceil(float(tree_count) * 0.6))
-	var leafy_count := tree_count - conifer_count
 	var bush_count := WORLD_CONFIG.get_bush_count()
 	var dry_bush_count := int(ceil(float(bush_count) * 0.35))
 	var green_bush_count := bush_count - dry_bush_count
@@ -3390,7 +3410,7 @@ func _spawn_resources() -> void:
 	await _yield_initial_boot_step()
 
 	_set_boot_progress("Growing vegetation: trees...", 0.46)
-	await _spawn_resource_kind("conifer_tree", conifer_count, used_positions, player_position)
+	await _spawn_resource_kind_across_biomes("conifer_tree", used_positions, player_position)
 	await _spawn_resource_kind_in_biome(
 		"conifer_tree",
 		WORLD_CONFIG.get_westwood_extra_conifer_count(),
@@ -3400,8 +3420,8 @@ func _spawn_resources() -> void:
 		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
 		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.5, 320)
 	)
-	await _spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
-	await _spawn_resource_kind("dry_tree", int(ceil(float(tree_count) * 0.12)), used_positions, player_position)
+	await _spawn_resource_kind_across_biomes("leafy_tree", used_positions, player_position)
+	await _spawn_resource_kind_across_biomes("dry_tree", used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.78, WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.4, 320))
 	await _spawn_resource_kind_in_biome(
 		"dry_tree",
 		WORLD_CONFIG.get_redfang_extra_dry_tree_count(),
@@ -3444,14 +3464,32 @@ func _spawn_resources() -> void:
 
 
 func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
+	_record_resource_spawn_request(resource_kind, "", count)
 	var spawned_since_yield := 0
 	for _i in count:
 		if not _try_spawn_resource(resource_kind, used_positions, player_position):
+			_record_resource_spawn_failure(resource_kind, "", 1)
 			_count_resource_spawn_rejection(resource_kind, "no_valid_position")
 		spawned_since_yield += 1
 		if spawned_since_yield >= INITIAL_SPAWN_BATCH_SIZE:
 			spawned_since_yield = 0
 			await _await_next_frame_safe()
+
+
+func _spawn_resource_kind_across_biomes(
+	resource_kind: String,
+	used_positions: Array[Vector2],
+	player_position: Vector2,
+	min_distance: float = WORLD_CONFIG.RESOURCE_MIN_DISTANCE,
+	spawn_attempts: int = WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS
+) -> void:
+	for biome_value in get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var biome_id := _get_biome_id(biome)
+		var target_count := _get_biome_resource_target_count(biome, resource_kind)
+		if target_count <= 0:
+			continue
+		await _spawn_resource_kind_in_biome(resource_kind, target_count, biome_id, used_positions, player_position, min_distance, spawn_attempts)
 
 
 func _spawn_grass_kind_mixed(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -5624,14 +5662,19 @@ func _build_resource_spawn_debug_summary() -> Dictionary:
 	var failure_summary := Dictionary(resource_spawn_failure_summary.duplicate(true))
 	var rejection_summary := Dictionary(resource_spawn_rejection_summary.duplicate(true))
 	var total_failed := _sum_resource_spawn_failures(failure_summary)
+	var requested_by_kind := {}
+	var success_by_kind := {}
 	var failed_by_kind := {}
 	var top_failure_key := ""
 	var top_failure_count := 0
 	for key in failure_summary.keys():
 		var entry := Dictionary(failure_summary.get(key, {}))
 		var failed := int(entry.get("failed", 0))
+		var requested := int(entry.get("requested", 0))
 		var kind := str(entry.get("kind", key))
+		requested_by_kind[kind] = int(requested_by_kind.get(kind, 0)) + requested
 		failed_by_kind[kind] = int(failed_by_kind.get(kind, 0)) + failed
+		success_by_kind[kind] = int(success_by_kind.get(kind, 0)) + maxi(requested - failed, 0)
 		if failed > top_failure_count:
 			top_failure_count = failed
 			top_failure_key = str(key)
@@ -5647,6 +5690,8 @@ func _build_resource_spawn_debug_summary() -> Dictionary:
 	return {
 		"summary_count": failure_summary.size(),
 		"total_failed": total_failed,
+		"requested_by_kind": requested_by_kind,
+		"success_by_kind": success_by_kind,
 		"failed_by_kind": failed_by_kind,
 		"resource_spawn_failed_by_key": resource_spawn_failure_detail_summary.duplicate(true),
 		"resource_spawn_rejection_by_key": resource_spawn_rejection_detail_summary.duplicate(true),

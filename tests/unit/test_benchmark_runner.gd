@@ -22,7 +22,12 @@ class FakeWorld extends Node:
 		{"type": "hill"},
 		{"type": "hill"}
 	]
-	var resources: Array[Node] = []
+	var resources: Array[Node] = [
+		FakeResource.new("conifer_tree"),
+		FakeResource.new("leafy_tree"),
+		FakeResource.new("dry_tree"),
+		FakeResource.new("small_bush")
+	]
 
 	func get_world_rect() -> Rect2:
 		return Rect2(Vector2.ZERO, Vector2(100.0, 100.0))
@@ -133,6 +138,33 @@ class FakeWorld extends Node:
 	func get_resource_spawn_rejection_debug() -> Dictionary:
 		return {"tree": {"blocked_by_water": 3, "outside_biome": 2}}
 
+	func get_resource_activation_debug() -> Dictionary:
+		return {
+			"total_resource_node_count": resources.size(),
+			"resource_node_count_by_kind": {
+				"conifer_tree": 1,
+				"leafy_tree": 1,
+				"dry_tree": 1,
+				"small_bush": 1
+			},
+			"tree_node_count": 3,
+			"conifer_tree_node_count": 1,
+			"leafy_tree_node_count": 1,
+			"dry_tree_node_count": 1,
+			"interaction_active_resource_count": 2,
+			"render_only_visual_resource_count": 1,
+			"collision_active_resource_count": 1,
+			"collision_inactive_resource_count": 0,
+			"actual_process_enabled_resource_count": 2,
+			"actual_physics_process_enabled_resource_count": 1,
+			"should_process_resource_count": 2,
+			"edible_vegetation_node_count": 1,
+			"biome_biomass_food_count": 4,
+			"resource_activation_checked_count": 7,
+			"resource_activation_changed_count": 2,
+			"resource_activation_skipped_count": 1
+		}
+
 	func get_cached_group_nodes(group_name: String) -> Array:
 		match group_name:
 			"small_prey":
@@ -163,6 +195,16 @@ class FakeWorld extends Node:
 			if child is Node and child.is_in_group(group_name):
 				result.append(child)
 		return result
+
+
+class FakeResource extends Node:
+	var kind: String = "conifer_tree"
+
+	func _init(resource_kind: String = "conifer_tree") -> void:
+		kind = resource_kind
+
+	func get_resource_kind() -> String:
+		return kind
 
 
 class FakeMinimap extends Node:
@@ -689,6 +731,16 @@ func _test_benchmark_runner_captures_ecosystem_and_spawn_debug(failures: Array[S
 	runner.world = fake_world
 	var stats: Dictionary = runner.call("_capture_world_stats_deep")
 	TEST_UTILS.expect_equal(str(stats.get("ecosystem_state_source", "")), "generated", failures, "Benchmark runner should capture ecosystem state source")
+	var activation_debug: Dictionary = Dictionary(stats.get("resource_activation_debug", {}))
+	TEST_UTILS.expect_equal(int(activation_debug.get("total_resource_node_count", 0)), 4, failures, "Benchmark runner should capture total resource count")
+	TEST_UTILS.expect_equal(int(activation_debug.get("tree_node_count", 0)), 3, failures, "Benchmark runner should capture total tree count")
+	TEST_UTILS.expect_equal(int(activation_debug.get("conifer_tree_node_count", 0)), 1, failures, "Benchmark runner should capture conifer tree count")
+	TEST_UTILS.expect_equal(int(activation_debug.get("leafy_tree_node_count", 0)), 1, failures, "Benchmark runner should capture leafy tree count")
+	TEST_UTILS.expect_equal(int(activation_debug.get("dry_tree_node_count", 0)), 1, failures, "Benchmark runner should capture dry tree count")
+	var resource_counts: Dictionary = Dictionary(activation_debug.get("resource_node_count_by_kind", {}))
+	TEST_UTILS.expect_equal(int(resource_counts.get("conifer_tree", 0)), 1, failures, "Benchmark runner should capture conifer tree resource count by kind")
+	TEST_UTILS.expect_equal(int(resource_counts.get("leafy_tree", 0)), 1, failures, "Benchmark runner should capture leafy tree resource count by kind")
+	TEST_UTILS.expect_equal(int(resource_counts.get("dry_tree", 0)), 1, failures, "Benchmark runner should capture dry tree resource count by kind")
 	var spawn_debug: Dictionary = Dictionary(stats.get("resource_spawn_rejection_debug", {}))
 	TEST_UTILS.expect_equal(int(Dictionary(spawn_debug.get("tree", {})).get("blocked_by_water", 0)), 3, failures, "Benchmark runner should capture resource spawn rejection debug")
 

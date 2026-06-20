@@ -1047,7 +1047,7 @@ func _draw() -> void:
 	var visual_scale := _get_visual_scale()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(visual_scale, visual_scale))
 	match resource_kind:
-		"conifer_tree":
+		"conifer_tree", "dry_tree":
 			_draw_conifer_tree()
 		"leafy_tree":
 			_draw_leafy_tree()
