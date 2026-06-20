@@ -4329,6 +4329,15 @@ func _spawn_resource_at(resource_kind: String, pos: Vector2) -> Node:
 		RUNTIME_PROFILER.end_scope("resource_spawn_ms")
 		return pooled
 	var node := RESOURCE_SCENE.instantiate()
+	if node == null:
+		RUNTIME_PROFILER.end_scope("resource_spawn_ms")
+		return null
+	if not node.has_method("setup"):
+		push_warning("Spawned resource has no setup(): %s" % [node])
+		if node is Node:
+			node.queue_free()
+		RUNTIME_PROFILER.end_scope("resource_spawn_ms")
+		return null
 	node.position = pos
 	node.setup(resource_kind)
 	add_child(node)

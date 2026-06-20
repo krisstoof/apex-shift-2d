@@ -233,6 +233,11 @@ class FakeCreature extends Node:
 
 func _make_resource(kind: String) -> Node:
 	var resource := RESOURCE_NODE_SCENE.instantiate() as Node
+	if resource == null:
+		return Node.new()
+	if not resource.has_method("setup"):
+		push_warning("Benchmark resource scene has no setup(): %s" % [resource])
+		return resource
 	resource.call("setup", kind)
 	return resource
 
