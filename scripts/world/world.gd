@@ -2577,7 +2577,7 @@ func _ensure_terrain_surface_chunk_renderer() -> TerrainSurfaceChunkRenderer:
 	terrain_surface_chunk_renderer = TERRAIN_SURFACE_CHUNK_RENDERER_SCRIPT.new()
 	terrain_surface_chunk_renderer.name = "TerrainSurfaceChunkRenderer"
 	terrain_surface_chunk_renderer.z_index = -120
-	terrain_surface_chunk_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
+	terrain_surface_chunk_renderer.visible = _is_runtime_terrain_surface_renderer_enabled()
 	add_child(terrain_surface_chunk_renderer)
 	return terrain_surface_chunk_renderer
 
@@ -2717,7 +2717,7 @@ func _sync_terrain_renderer(force_rebuild_cell_map := false) -> void:
 
 
 func _sync_terrain_surface_chunk_renderer(force_rebuild := false) -> void:
-	if not bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+	if not _is_runtime_terrain_surface_renderer_enabled():
 		if is_instance_valid(terrain_surface_chunk_renderer):
 			terrain_surface_chunk_renderer.visible = false
 		return
@@ -2794,7 +2794,7 @@ func _prepare_boot_render_cache() -> void:
 	if is_instance_valid(biome_blend_background):
 		biome_blend_background.visible = false
 		biome_blend_background.texture = null
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+	if _is_runtime_terrain_surface_renderer_enabled():
 		world_surface_texture = null
 		world_surface_texture_key = ""
 	if is_instance_valid(biome_shape_renderer):
@@ -2802,7 +2802,7 @@ func _prepare_boot_render_cache() -> void:
 	if is_instance_valid(terrain_chunk_renderer):
 		terrain_chunk_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_cell_terrain_renderer", false))
 	if is_instance_valid(terrain_surface_chunk_renderer):
-		terrain_surface_chunk_renderer.visible = bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
+		terrain_surface_chunk_renderer.visible = _is_runtime_terrain_surface_renderer_enabled()
 	queue_redraw()
 
 
@@ -2817,7 +2817,7 @@ func _get_world_biome_blend_texture_size() -> Vector2i:
 
 
 func _sync_biome_blend_background() -> void:
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+	if _is_runtime_terrain_surface_renderer_enabled():
 		if is_instance_valid(biome_blend_background):
 			biome_blend_background.visible = false
 			biome_blend_background.texture = null
@@ -6690,9 +6690,13 @@ func _draw() -> void:
 		and is_instance_valid(terrain_surface_chunk_renderer)
 		and terrain_surface_chunk_renderer.visible
 	)
+	var has_static_surface_texture := false
 	if not has_biome_blend_background and not has_chunk_surface_renderer:
+		has_static_surface_texture = _draw_static_world_surface_texture()
+	if not has_biome_blend_background and not has_chunk_surface_renderer and not has_static_surface_texture:
 		draw_rect(WORLD_CONFIG.WORLD_RECT, WORLD_CONFIG.OCEAN_COLOR, true)
-	_draw_biomes()
+	if not has_static_surface_texture:
+		_draw_biomes()
 	_draw_biome_detail_overlay()
 	_draw_world_debug_overlay()
 	_draw_landmarks()
@@ -6707,6 +6711,18 @@ func _get_night_amount() -> float:
 	if not day_night_system:
 		return 0.0
 	return clamp(float(day_night_system.night_amount), 0.0, 1.0)
+
+
+func _draw_static_world_surface_texture() -> bool:
+	if _is_runtime_terrain_surface_renderer_enabled():
+		return false
+	if not _is_low_end_static_surface_mode_enabled():
+		return false
+	var surface_texture := _ensure_surface_texture()
+	if surface_texture == null:
+		return false
+	draw_texture_rect(surface_texture, WORLD_CONFIG.WORLD_RECT, false)
+	return true
 
 
 func _draw_biomes() -> void:
