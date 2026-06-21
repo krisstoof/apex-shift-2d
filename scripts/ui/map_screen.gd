@@ -149,11 +149,10 @@ func set_test_biome_zones(p_biome_zones: Array) -> void:
 
 
 func _process(_delta: float) -> void:
-	RUNTIME_PROFILER.begin_scope("map_screen_total_ms")
 	if not is_visible_in_tree():
 		map_screen_skipped_update_hidden_count += 1
-		RUNTIME_PROFILER.end_scope("map_screen_total_ms")
 		return
+	RUNTIME_PROFILER.begin_scope("map_screen_total_ms")
 	_log_hitch(_delta, "MapScreen", {
 		"texture_cached": biome_blend_texture != null,
 		"build_count": map_screen_texture_build_count,
@@ -197,10 +196,13 @@ func _process(_delta: float) -> void:
 		last_map_zoom = current_map_zoom
 		last_visible_render_state_key = _build_visible_render_state_key(current_player_position, current_map_zoom)
 		map_cache_dirty = false
-		queue_redraw()
+		if is_visible_in_tree():
+			queue_redraw()
 
 
 func _draw() -> void:
+	if not is_visible_in_tree():
+		return
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.begin_scope("map_screen_draw_ms")
 	map_screen_redraw_count += 1

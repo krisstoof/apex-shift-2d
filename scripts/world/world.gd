@@ -203,6 +203,7 @@ var resource_spawn_rejection_summary: Dictionary = {}
 var resource_spawn_failure_detail_summary: Dictionary = {}
 var resource_spawn_rejection_detail_summary: Dictionary = {}
 var resource_spawn_prepass_debug: Dictionary = {}
+var resource_spawn_source_summary: Dictionary = {}
 var biome_spawn_point_cache: Dictionary = {}
 var world_seed := 0
 var world_layout: Dictionary = {}
@@ -2172,6 +2173,7 @@ func begin_save_restore() -> void:
 	resource_spawn_failure_detail_summary.clear()
 	resource_spawn_rejection_detail_summary.clear()
 	resource_spawn_prepass_debug.clear()
+	resource_spawn_source_summary.clear()
 
 
 func end_save_restore() -> void:
@@ -3234,6 +3236,7 @@ func debug_regenerate_world(p_seed: int = 0) -> void:
 	resource_spawn_failure_detail_summary.clear()
 	resource_spawn_rejection_detail_summary.clear()
 	resource_spawn_prepass_debug.clear()
+	resource_spawn_source_summary.clear()
 	_update_world_object_visibility()
 	queue_redraw()
 
@@ -4502,6 +4505,8 @@ func _release_pooled_resource_node(node: Node) -> void:
 
 
 func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> Node:
+	if not is_inside_tree() or is_queued_for_deletion():
+		return null
 	if Engine.is_in_physics_frame():
 		call_deferred("_spawn_meat_drop_for_animal_deferred", animal_kind, drop_position)
 		return null
@@ -4533,7 +4538,7 @@ func spawn_meat_drop_for_animal(animal_kind: String, drop_position: Vector2) -> 
 
 
 func _spawn_meat_drop_for_animal_deferred(animal_kind: String, drop_position: Vector2) -> void:
-	if not is_inside_tree():
+	if not is_inside_tree() or is_queued_for_deletion():
 		return
 	spawn_meat_drop_for_animal(animal_kind, drop_position)
 
@@ -5470,6 +5475,17 @@ func _try_spawn_resource_in_biome_optimized(
 		_record_resource_spawn_rejection_detail(resource_kind, Vector2.ZERO, biome, "prepass_skipped")
 		return false
 	_record_resource_spawn_request(resource_kind, biome_id, attempts)
+	if bool(GAME_BALANCE.RESOURCE_SPAWN_OPTIMIZATION.get("precomputed_biome_spawn_points_enabled", true)):
+		for candidate in _get_precomputed_biome_spawn_points(biome_id, resource_kind):
+			var precomputed_reason := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE)
+			if not precomputed_reason.is_empty():
+				_record_resource_spawn_rejection(resource_kind, biome_id, precomputed_reason)
+				_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, precomputed_reason)
+				continue
+			used_positions.append(candidate)
+			_record_resource_spawn_source(resource_kind, biome_id, "precomputed")
+			_spawn_resource_at(resource_kind, candidate)
+			return true
 	for attempt_index in range(attempts):
 		var candidate := _get_direct_resource_candidate_in_biome(resource_kind, biome, attempt_index)
 		var reason := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE)
@@ -5478,18 +5494,9 @@ func _try_spawn_resource_in_biome_optimized(
 			_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, reason)
 			continue
 		used_positions.append(candidate)
+		_record_resource_spawn_source(resource_kind, biome_id, "random")
 		_spawn_resource_at(resource_kind, candidate)
 		return true
-	if bool(GAME_BALANCE.RESOURCE_SPAWN_OPTIMIZATION.get("precomputed_biome_spawn_points_enabled", true)):
-		for candidate in _get_precomputed_biome_spawn_points(biome_id, resource_kind):
-			var reason2 := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE)
-			if not reason2.is_empty():
-				_record_resource_spawn_rejection(resource_kind, biome_id, reason2)
-				_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, reason2)
-				continue
-			used_positions.append(candidate)
-			_spawn_resource_at(resource_kind, candidate)
-			return true
 	return false
 
 
@@ -5587,6 +5594,12 @@ func _get_precomputed_biome_spawn_points(biome_id: String, resource_kind: String
 		return []
 	var points: Array[Vector2] = []
 	var count := int(GAME_BALANCE.RESOURCE_SPAWN_OPTIMIZATION.get("precomputed_biome_spawn_points_per_biome", 96))
+	if resource_kind in TREE_RESOURCE_KINDS:
+		count = maxi(count, 192)
+	elif resource_kind in ["bush", "dry_bush", "small_bush", "berry_bush"]:
+		count = maxi(count, 160)
+	elif resource_kind in ["grass_patch", "dense_grass"]:
+		count = maxi(count, 128)
 	for i in range(count):
 		var candidate: Vector2 = _get_deterministic_biome_spawn_slot(resource_kind, biome, i)
 		if candidate == Vector2.INF:
@@ -5602,6 +5615,30 @@ func _get_precomputed_biome_spawn_points(biome_id: String, resource_kind: String
 		if _get_biome_id_for_position(candidate) != biome_id:
 			continue
 		points.append(candidate)
+	if points.is_empty():
+		var bounds := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+		if bounds.size.x > 0.0 and bounds.size.y > 0.0:
+			for x in range(4):
+				for y in range(4):
+					var fx := float(x + 1) / 5.0
+					var fy := float(y + 1) / 5.0
+					var candidate := Vector2(
+						lerpf(bounds.position.x, bounds.end.x, fx),
+						lerpf(bounds.position.y, bounds.end.y, fy)
+					)
+					if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
+						continue
+					if not _is_valid_resource_terrain(resource_kind, candidate):
+						continue
+					if is_resource_position_blocked_by_water(resource_kind, candidate):
+						continue
+					if _is_resource_blocked_by_hill(resource_kind, candidate):
+						continue
+					if get_biome_id_at(candidate) != biome_id:
+						continue
+					if not _is_point_in_biome(candidate, biome):
+						continue
+					points.append(candidate)
 	biome_spawn_point_cache[key] = points
 	return points
 
@@ -5734,6 +5771,15 @@ func _record_resource_spawn_request(resource_kind: String, biome_id: String, req
 	entry["requested"] = int(entry.get("requested", 0)) + requested
 	resource_spawn_failure_summary[key] = entry
 
+
+func _record_resource_spawn_source(resource_kind: String, biome_id: String, source: String) -> void:
+	var key := "%s|%s" % [resource_kind, biome_id]
+	if not resource_spawn_source_summary.has(key):
+		resource_spawn_source_summary[key] = {"kind": resource_kind, "biome_id": biome_id, "precomputed": 0, "random": 0}
+	var entry := Dictionary(resource_spawn_source_summary[key])
+	entry[source] = int(entry.get(source, 0)) + 1
+	resource_spawn_source_summary[key] = entry
+
 func get_resource_spawn_debug() -> Dictionary:
 	return {
 		"failure_summary": resource_spawn_failure_summary.duplicate(true),
@@ -5741,6 +5787,7 @@ func get_resource_spawn_debug() -> Dictionary:
 		"resource_spawn_failed_by_key": resource_spawn_failure_detail_summary.duplicate(true),
 		"resource_spawn_rejection_by_key": resource_spawn_rejection_detail_summary.duplicate(true),
 		"resource_spawn_prepass_debug": resource_spawn_prepass_debug.duplicate(true),
+		"resource_spawn_source_summary": resource_spawn_source_summary.duplicate(true),
 		"biome_spawn_point_cache_count": biome_spawn_point_cache.size()
 	}
 
@@ -5786,6 +5833,7 @@ func _build_resource_spawn_debug_summary() -> Dictionary:
 		"resource_spawn_failed_by_key": resource_spawn_failure_detail_summary.duplicate(true),
 		"resource_spawn_rejection_by_key": resource_spawn_rejection_detail_summary.duplicate(true),
 		"resource_spawn_prepass_debug": resource_spawn_prepass_debug.duplicate(true),
+		"resource_spawn_source_summary": resource_spawn_source_summary.duplicate(true),
 		"top_failure_key": top_failure_key,
 		"top_failure_count": top_failure_count,
 		"top_rejection_reason": top_reason_key,
