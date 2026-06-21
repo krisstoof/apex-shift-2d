@@ -27,7 +27,7 @@ script = ExtResource("7")
 [node name="World" parent="." unique_id=1675684577 instance=ExtResource("2")]
 
 [node name="Player" parent="." unique_id=68669524 instance=ExtResource("1")]
-position = Vector2(-2450, 1450)
+position = Vector2(-260, 40)
 
 [node name="HUD" parent="." unique_id=438087853 instance=ExtResource("3")]
 

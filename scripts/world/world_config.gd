@@ -15,6 +15,7 @@ const ROCK_DENSITY_MULTIPLIER := 1.35
 const FOOD_BUSH_DENSITY_MULTIPLIER := 1.35
 const CREATURE_DENSITY_MULTIPLIER := 1.35
 const VARNAK_DENSITY_MULTIPLIER := 1.25
+const TREE_DENSITY_MULTIPLIER := 2.65
 const ISLAND_RADIUS_X_RATIO := 0.82
 const ISLAND_RADIUS_Y_RATIO := 0.74
 const ISLAND_EDGE_FALLOFF_POWER := 1.45
@@ -27,6 +28,7 @@ const HIGHLAND_THRESHOLD := 0.72
 const INNER_POND_CHANCE_MULTIPLIER := 0.35
 const PLAYER_EDGE_PADDING := 40.0
 const PLAYER_START_POSITION := Vector2(-260.0, 40.0)
+const PLAYER_START_BIOME_ID := "hearth_meadow"
 const PLAYER_LANDMARK_SAFE_DISTANCE := 760.0
 const PLAYER_POND_SAFE_DISTANCE := 900.0
 const PLAYER_HILL_SAFE_DISTANCE := 520.0
@@ -43,17 +45,17 @@ const GRASS_PATCH_COUNT := 72
 const DENSE_GRASS_COUNT := 34
 const REDFANG_EXTRA_DRY_TREE_COUNT := 18
 const REDFANG_EXTRA_DRY_BUSH_COUNT := 24
-const REDFANG_EXTRA_DRY_TREE_COUNT_MAX := 42
+const REDFANG_EXTRA_DRY_TREE_COUNT_MAX := 90
 const REDFANG_EXTRA_DRY_BUSH_COUNT_MAX := 55
-const TREE_COUNT_MAX := 170
-const WESTWOOD_EXTRA_CONIFER_COUNT_MAX := 130
+const TREE_COUNT_MAX := 260
+const WESTWOOD_EXTRA_CONIFER_COUNT_MAX := 220
 const ROCK_COUNT_MAX := 85
 const BUSH_COUNT_MAX := 120
 const SMALL_BUSH_COUNT_MAX := 110
 const BERRY_BUSH_COUNT_MAX := 55
 const GRASS_PATCH_COUNT_MAX := 260
 const DENSE_GRASS_COUNT_MAX := 180
-const RESOURCE_SPAWN_ATTEMPTS_MAX := 360
+const RESOURCE_SPAWN_ATTEMPTS_MAX := 520
 
 const RESOURCE_SPAWN_MARGIN := 95.0
 const RESOURCE_MIN_DISTANCE := 90.0
@@ -630,8 +632,16 @@ static func generate_landmarks(world_seed: int) -> Array[Dictionary]:
 
 
 static func get_safe_player_start_position(landmarks: Array[Dictionary]) -> Vector2:
-	if is_safe_player_start_position(PLAYER_START_POSITION, landmarks):
+	if is_safe_player_start_position(PLAYER_START_POSITION, landmarks) and is_player_start_biome_position(PLAYER_START_POSITION):
 		return PLAYER_START_POSITION
+	for ring in range(1, PLAYER_SPAWN_SEARCH_RINGS + 1):
+		var ring_distance := float(ring) * PLAYER_SPAWN_SEARCH_STEP
+		var candidate_count: int = max(12, int(TAU * ring_distance / maxf(PLAYER_SPAWN_SEARCH_STEP * 0.75, 1.0)))
+		for index in range(candidate_count):
+			var angle := TAU * float(index) / float(candidate_count)
+			var candidate := PLAYER_START_POSITION + Vector2.RIGHT.rotated(angle) * ring_distance
+			if is_safe_player_start_position(candidate, landmarks) and is_player_start_biome_position(candidate):
+				return candidate
 	for ring in range(1, PLAYER_SPAWN_SEARCH_RINGS + 1):
 		var ring_distance := float(ring) * PLAYER_SPAWN_SEARCH_STEP
 		var candidate_count: int = max(12, int(TAU * ring_distance / maxf(PLAYER_SPAWN_SEARCH_STEP * 0.75, 1.0)))
@@ -644,6 +654,10 @@ static func get_safe_player_start_position(landmarks: Array[Dictionary]) -> Vect
 	if is_safe_player_start_position(world_center, landmarks):
 		return world_center
 	return PLAYER_START_POSITION
+
+
+static func is_player_start_biome_position(position: Vector2) -> bool:
+	return _get_biome_by_id(PLAYER_START_BIOME_ID, get_biome_zones()).has("id")
 
 
 static func is_safe_player_start_position(position: Vector2, landmarks: Array[Dictionary]) -> bool:

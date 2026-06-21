@@ -16,7 +16,7 @@ const TERRAIN_ZONE_COLORS := {
 	"land": Color(0.31, 0.40, 0.22),
 	"highland": Color(0.28, 0.25, 0.16)
 }
-const MINIMAP_REDRAW_INTERVAL := 0.5
+const MINIMAP_REDRAW_INTERVAL := 0.75
 const MINIMAP_VIEW_MARGIN_FACTOR := 1.22
 const MINIMAP_FALLBACK_VIEW_WORLD_SIZE := Vector2(1280.0, 760.0)
 const MINIMAP_MARKER_CACHE_INTERVAL := 1.0
@@ -45,7 +45,7 @@ var minimap_texture_last_build_ms: float = 0.0
 var _is_drawing_biomes := false
 var minimap_redraw_timer := 0.0
 var minimap_static_redraw_timer := 0.0
-var minimap_redraw_interval := 0.15
+var minimap_redraw_interval := 0.75
 var minimap_marker_rebuild_interval := 30.0  # Keep marker cache rebuilds rare so benchmark runs do not hitch on repeated refreshes
 var _marker_rebuild_timer := 0.0
 var _redraw_timer := 0.0
@@ -73,7 +73,7 @@ var dynamic_layer_redraw_count := 0
 var player_marker_redraw_count := 0
 var static_cache_rebuild_count := 0
 var minimap_player_redraw_interval := 0.10
-var minimap_marker_view_recenter_distance := 96.0
+var minimap_marker_view_recenter_distance := 384.0
 var _marker_view_redraw_timer := 0.0
 var _player_redraw_timer := 0.0
 var minimap_static_rebuild_count := 0
@@ -113,11 +113,11 @@ var minimap_static_work_enabled := true
 var startup_time_sec := 0.0  # Tracks time since minimap initialization for boot optimization
 const BOOT_OPTIMIZATION_DURATION_SEC := 8.0  # Skip marker updates for first 8 seconds to accelerate terrain load
 var _minimap_process_gate_timer := 0.0  # Frame-skip gate: only process minimap expensive ops every 2.0s to prevent hitches
-const MINIMAP_PROCESS_GATE_INTERVAL_SEC := 2.0  # Process minimap expensive ops only every 2000ms - reduces hitch frequency to ~30/60s runtime
+const MINIMAP_PROCESS_GATE_INTERVAL_SEC := 8.0  # Process expensive ops rarely; static map is cached.
 var _texture_sync_timer := 0.0  # Separate gate for texture syncs every 2.5s to further spread load
-const TEXTURE_SYNC_INTERVAL_SEC := 2.5
+const TEXTURE_SYNC_INTERVAL_SEC := 12.0
 var _shoreline_sync_timer := 0.0  # Separate gate for shoreline cache every 1.8s (offset from texture syncs)
-const SHORELINE_SYNC_INTERVAL_SEC := 1.8
+const SHORELINE_SYNC_INTERVAL_SEC := 18.0
 
 
 func _ready() -> void:
@@ -250,7 +250,7 @@ func _process(delta: float) -> void:
 		_shoreline_sync_timer += delta
 		if _shoreline_sync_timer >= SHORELINE_SYNC_INTERVAL_SEC and startup_time_sec >= BOOT_OPTIMIZATION_DURATION_SEC:
 			_shoreline_sync_timer = 0.0
-			if minimap_shoreline_cache_dirty or not shoreline_segments_cache_valid:
+			if biome_blend_texture == null and (minimap_shoreline_cache_dirty or not shoreline_segments_cache_valid):
 				_sync_shoreline_overlay_cache()
 
 		# Texture build and budget fetch: every 2.0s
@@ -263,7 +263,7 @@ func _process(delta: float) -> void:
 			# Hard minimum 30.0s for marker rebuilds - prevent render governor from reducing it
 			minimap_marker_rebuild_interval = maxf(30.0, float(budget.get("minimap_marker_rebuild_interval", minimap_marker_rebuild_interval)))
 			minimap_player_redraw_interval = float(budget.get("minimap_player_redraw_interval", minimap_player_redraw_interval))
-			minimap_marker_view_recenter_distance = float(budget.get("minimap_marker_view_recenter_distance", minimap_marker_view_recenter_distance))
+			minimap_marker_view_recenter_distance = maxf(384.0, float(budget.get("minimap_marker_view_recenter_distance", minimap_marker_view_recenter_distance)))
 	
 	var current_player_position := _get_player_position()
 	var current_biome_id := _get_player_biome_id()
@@ -279,7 +279,7 @@ func _process(delta: float) -> void:
 			marker_view_moved = true
 		elif current_player_position.distance_to(_last_marker_view_player_position) >= minimap_marker_view_recenter_distance:
 			marker_view_moved = true
-	if marker_view_moved and _marker_view_redraw_timer >= maxf(minimap_redraw_interval, 0.10):
+	if marker_view_moved and _marker_view_redraw_timer >= maxf(minimap_redraw_interval, 0.75):
 		_marker_view_redraw_timer = 0.0
 		_last_marker_view_player_position = current_player_position
 		_force_minimap_view_recenter(content_rect)
@@ -301,7 +301,7 @@ func _process(delta: float) -> void:
 		_request_player_redraw()
 	if _needs_redraw_due_to_data_change:
 		minimap_static_redraw_timer += delta
-		if minimap_static_redraw_timer >= maxf(minimap_redraw_interval, 0.1):
+		if minimap_static_redraw_timer >= maxf(minimap_redraw_interval, 1.0):
 			minimap_static_redraw_timer = 0.0
 			minimap_redraw_timer = 0.0
 			_needs_redraw_due_to_data_change = false
@@ -394,7 +394,8 @@ func _draw_static_contents(target: CanvasItem, content_rect: Rect2, view_world_r
 	_is_drawing_biomes = true
 	_draw_biomes(target, content_rect, view_world_rect)
 	_is_drawing_biomes = false
-	_draw_shoreline_overlay(target, content_rect, view_world_rect)
+	if biome_blend_texture == null:
+		_draw_shoreline_overlay(target, content_rect, view_world_rect)
 	_draw_landmarks(target, content_rect, view_world_rect)
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_grid_overlay", false)):
 		_draw_grid(target, content_rect, view_world_rect)
@@ -402,9 +403,6 @@ func _draw_static_contents(target: CanvasItem, content_rect: Rect2, view_world_r
 
 func _draw_biomes(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if not _is_drawing_biomes:
-		return
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)) and _has_renderable_biome_shape_map():
-		_draw_shape_map(target, content_rect, view_world_rect)
 		return
 	if biome_blend_texture:
 		var visible_world_rect := world_rect.intersection(view_world_rect)
@@ -415,6 +413,9 @@ func _draw_biomes(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect
 		if destination_rect.size.x <= 0.0 or destination_rect.size.y <= 0.0:
 			return
 		target.draw_texture_rect_region(biome_blend_texture, destination_rect, source_rect)
+		return
+	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_biome_shape_map_for_maps", true)) and _has_renderable_biome_shape_map():
+		_draw_shape_map(target, content_rect, view_world_rect)
 		return
 	if terrain_cell_map != null and bool(GAME_BALANCE.BIOME_TEXTURES.get("minimap_draw_cell_map_fallback", true)):
 		_draw_cell_map(target, content_rect, view_world_rect)
@@ -465,6 +466,21 @@ func _sync_biome_texture() -> void:
 		biome_blend_colors_key = ""
 		minimap_biome_texture_dirty = false
 		return
+	if active_world.has_method("get_minimap_surface_texture") and active_world.has_method("get_minimap_surface_texture_key"):
+		var minimap_surface_key := str(active_world.get_minimap_surface_texture_key())
+		if not minimap_surface_key.is_empty() and biome_blend_texture != null and biome_blend_colors_key == minimap_surface_key:
+			minimap_biome_texture_sync_skipped_count += 1
+			minimap_biome_texture_dirty = false
+			return
+		var minimap_surface_texture: ImageTexture = active_world.get_minimap_surface_texture()
+		if minimap_surface_texture != null and not minimap_surface_key.is_empty():
+			biome_blend_texture = minimap_surface_texture
+			biome_blend_colors_key = minimap_surface_key
+			_minimap_texture_build_queued = false
+			minimap_biome_texture_dirty = false
+			minimap_static_map_dirty = true
+			_mark_static_layer_dirty()
+			return
 	if active_world.has_method("get_surface_texture") and active_world.has_method("get_surface_texture_key"):
 		var current_surface_key := str(active_world.get_surface_texture_key())
 		if not current_surface_key.is_empty() and biome_blend_texture != null and biome_blend_colors_key == current_surface_key:
@@ -495,6 +511,12 @@ func _sync_biome_texture() -> void:
 
 func _sync_shoreline_overlay_cache() -> void:
 	minimap_shoreline_check_count += 1
+	if biome_blend_texture != null:
+		shoreline_segments.clear()
+		shoreline_segments_key = biome_blend_colors_key
+		shoreline_segments_cache_valid = true
+		minimap_shoreline_cache_dirty = false
+		return
 	var active_world := _get_world()
 	if active_world == null:
 		shoreline_segments.clear()
@@ -1242,6 +1264,8 @@ func _draw_filled_ellipse(target: CanvasItem, rect: Rect2, ellipse_color: Color)
 func _draw_resources(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
 	if not _should_show_resource_markers():
 		return
+	if cached_resources.is_empty():
+		return
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("benchmark_collect_render_attribution", true)):
 		RUNTIME_PROFILER.begin_scope("minimap_resources_draw_ms")
 	for resource_marker_value in cached_resources:
@@ -1264,6 +1288,8 @@ func _draw_resources(target: CanvasItem, content_rect: Rect2, view_world_rect: R
 
 
 func _draw_campfires(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
+	if cached_campfires.is_empty():
+		return
 	for campfire_marker_value in cached_campfires:
 		var campfire_marker := Dictionary(campfire_marker_value)
 		var marker_position := Vector2(campfire_marker.get("position", Vector2.ZERO))
@@ -1278,6 +1304,8 @@ func _draw_campfires(target: CanvasItem, content_rect: Rect2, view_world_rect: R
 
 
 func _draw_varnaks(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
+	if cached_varnaks.is_empty():
+		return
 	for varnak_marker_value in cached_varnaks:
 		var varnak_marker := Dictionary(varnak_marker_value)
 		var marker_position := Vector2(varnak_marker.get("position", Vector2.ZERO))
@@ -1289,6 +1317,8 @@ func _draw_varnaks(target: CanvasItem, content_rect: Rect2, view_world_rect: Rec
 
 
 func _draw_grazers(target: CanvasItem, content_rect: Rect2, view_world_rect: Rect2) -> void:
+	if cached_grazers.is_empty():
+		return
 	for grazer_marker_value in cached_grazers:
 		var grazer_marker := Dictionary(grazer_marker_value)
 		var marker_position := Vector2(grazer_marker.get("position", Vector2.ZERO))

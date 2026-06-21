@@ -1,6 +1,7 @@
 extends RefCounted
 
 const Utils := preload("res://tests/regression/regression_test_utils.gd")
+const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 const MAIN_SCENE_PATH := "res://scenes/main.tscn"
 const SAVE_PATH := "user://savegame.json"
 

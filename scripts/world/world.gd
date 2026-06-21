@@ -7,6 +7,7 @@ const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const TREE_RESOURCE_KINDS := ["conifer_tree", "leafy_tree", "dry_tree"]
 const WORLD_GENERATOR_PATH := "res://scripts/world/world_generator.gd"
 const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
@@ -2862,6 +2863,19 @@ func get_surface_texture() -> ImageTexture:
 	return _ensure_surface_texture()
 
 
+func get_minimap_surface_texture() -> ImageTexture:
+	# Minimap can safely reuse the already-built static world surface texture
+	# even when the main world is rendered by TerrainSurfaceChunkRenderer.
+	# Do not force-build here: minimap has its own incremental fallback builder.
+	return world_surface_texture
+
+
+func get_minimap_surface_texture_key() -> String:
+	if world_surface_texture == null:
+		return ""
+	return world_surface_texture_key
+
+
 func get_surface_texture_key() -> String:
 	if _is_runtime_terrain_surface_renderer_enabled():
 		return ""
@@ -3331,26 +3345,26 @@ func _spawn_resources() -> void:
 	await _yield_initial_boot_step()
 
 	_set_boot_progress("Growing vegetation: trees...", 0.46)
-	await _spawn_resource_kind_across_biomes("conifer_tree", used_positions, player_position)
+	await _spawn_resource_kind_across_biomes("conifer_tree", used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70, WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.2, 520))
 	await _spawn_resource_kind_in_biome(
 		"conifer_tree",
 		WORLD_CONFIG.get_westwood_extra_conifer_count(),
 		"westwood",
 		used_positions,
 		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.5, 320)
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.68,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
 	)
-	await _spawn_resource_kind_across_biomes("leafy_tree", used_positions, player_position)
-	await _spawn_resource_kind_across_biomes("dry_tree", used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.78, WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.4, 320))
+	await _spawn_resource_kind_across_biomes("leafy_tree", used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.68, WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.2, 520))
+	await _spawn_resource_kind_across_biomes("dry_tree", used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70, WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.2, 520))
 	await _spawn_resource_kind_in_biome(
 		"dry_tree",
 		WORLD_CONFIG.get_redfang_extra_dry_tree_count(),
 		"redfang_wilds",
 		used_positions,
 		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.78,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.4, 320)
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
 	)
 	await _ensure_minimum_initial_tree_presence(used_positions, player_position)
 	await _yield_initial_boot_step()
@@ -3420,23 +3434,30 @@ func _ensure_minimum_initial_tree_presence(used_positions: Array[Vector2], playe
 		{
 			"kind": "conifer_tree",
 			"biome_id": "westwood",
-			"minimum": maxi(18, int(round(float(tree_count) * 0.28))),
-			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.68,
-			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.6, 360)
+			"minimum": maxi(42, int(round(float(tree_count) * 0.42))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.58,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
 		},
 		{
 			"kind": "leafy_tree",
 			"biome_id": "hearth_meadow",
-			"minimum": maxi(10, int(round(float(tree_count) * 0.16))),
-			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.68,
-			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.6, 360)
+			"minimum": maxi(32, int(round(float(tree_count) * 0.30))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.58,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
 		},
 		{
 			"kind": "leafy_tree",
 			"biome_id": "south_thicket",
-			"minimum": maxi(8, int(round(float(tree_count) * 0.12))),
-			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.66,
-			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.6, 360)
+			"minimum": maxi(24, int(round(float(tree_count) * 0.22))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.56,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
+		},
+		{
+			"kind": "dry_tree",
+			"biome_id": "redfang_wilds",
+			"minimum": maxi(26, int(round(float(tree_count) * 0.22))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.58,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
 		}
 	]
 	for target_value in targets:
@@ -5438,7 +5459,7 @@ func _get_max_attempts_for_resource_kind(resource_kind: String) -> int:
 		"small_bush", "berry_bush", "dry_bush":
 			return 48
 		"conifer_tree", "leafy_tree", "dry_tree":
-			return 64
+			return 128
 		"rock":
 			return 64
 		_:
@@ -5526,7 +5547,7 @@ func _validate_resource_spawn_candidate(resource_kind: String, candidate: Vector
 			return "biome_mismatch"
 		if not _is_point_in_biome(candidate, biome):
 			return "outside_biome"
-	if candidate.distance_to(player_position) < player_safe_distance:
+	if candidate.distance_to(player_position) < _get_resource_player_safe_distance(resource_kind, player_safe_distance):
 		return "player_safe_distance"
 	for used_position in used_positions:
 		if candidate.distance_to(used_position) < min_distance:
@@ -5546,6 +5567,12 @@ func _should_skip_resource_spawn_in_biome(resource_kind: String, biome: Dictiona
 	if resource_kind in ["grass_patch", "dense_grass"] and terrain_zone == WATER_ZONE_SHORE:
 		return true
 	return false
+
+
+func _get_resource_player_safe_distance(resource_kind: String, fallback: float) -> float:
+	if resource_kind in TREE_RESOURCE_KINDS:
+		return minf(fallback, 140.0)
+	return fallback
 
 
 func _get_resource_spawn_prepass_estimate(resource_kind: String, biome: Dictionary) -> Dictionary:
@@ -7187,7 +7214,7 @@ func _is_biome_terrain_accent_pending(biome_id: String) -> bool:
 
 func _build_biome_terrain_accent_layout(biome: Dictionary) -> Array:
 	var biome_id := _get_biome_id(biome)
-	var points := PackedVector2Array(biome["points"])
+	var points := _get_runtime_biome_points(biome)
 	var bounds := _get_polygon_bounds(points)
 	var target_count := _get_biome_terrain_accent_target_count(biome)
 	var accents: Array = []
@@ -7215,7 +7242,7 @@ func _build_biome_terrain_accent_layout(biome: Dictionary) -> Array:
 
 func _get_biome_terrain_accent_target_count(biome: Dictionary) -> int:
 	var biome_id := _get_biome_id(biome)
-	var points := PackedVector2Array(biome["points"])
+	var points := _get_runtime_biome_points(biome)
 	var area := _get_polygon_area(points)
 	var area_scale := clampf(area / 900000.0, 0.85, 1.45)
 	var density_multiplier := maxf(float(GAME_BALANCE.BIOME_TEXTURES.get("detail_density_multiplier", 1.0)), 0.1)
