@@ -1380,9 +1380,11 @@ func _get_fixed_creature_state_summary(group_name: String, state_names: Array[St
 	var energy_total := 0.0
 	var count := 0
 	for creature in creatures:
-		if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
+		if not is_instance_valid(creature):
 			continue
-		var data: Dictionary = creature.get_debug_data()
+		var data: Dictionary = _get_creature_debug_payload(creature)
+		if data.is_empty():
+			continue
 		var state_name := str(data.get("state", "unknown")).to_lower()
 		counts[state_name] = int(counts.get(state_name, 0)) + 1
 		satiety_total += _get_debug_satiety_ratio(data)
@@ -1415,9 +1417,11 @@ func _get_average_varnak_health_text(varnaks: Array) -> String:
 	var total := 0.0
 	var count := 0
 	for varnak in varnaks:
-		if not is_instance_valid(varnak) or not varnak.has_method("get_debug_data"):
+		if not is_instance_valid(varnak):
 			continue
-		var data: Dictionary = varnak.get_debug_data()
+		var data: Dictionary = _get_creature_debug_payload(varnak)
+		if data.is_empty():
+			continue
 		total += float(data.get("health", 0.0)) / max(float(data.get("max_health", 1.0)), 1.0)
 		count += 1
 	if count <= 0:
@@ -1432,9 +1436,11 @@ func _get_nearest_varnak_text(varnaks: Array) -> String:
 	var nearest_data: Dictionary = {}
 	var nearest_distance := INF
 	for varnak in varnaks:
-		if not is_instance_valid(varnak) or not varnak.has_method("get_debug_data"):
+		if not is_instance_valid(varnak):
 			continue
-		var data: Dictionary = varnak.get_debug_data()
+		var data: Dictionary = _get_creature_debug_payload(varnak)
+		if data.is_empty():
+			continue
 		var distance := float(data.get("distance_to_player", INF))
 		if distance >= 0.0 and distance < nearest_distance:
 			nearest_distance = distance
@@ -1543,9 +1549,11 @@ func _get_simulation_level_counts(group_name: String) -> Dictionary:
 		"unknown": 0
 	}
 	for creature in _get_cached_group_nodes(group_name):
-		if not is_instance_valid(creature) or not creature.has_method("get_debug_data"):
+		if not is_instance_valid(creature):
 			continue
-		var data: Dictionary = creature.get_debug_data()
+		var data: Dictionary = _get_creature_debug_payload(creature)
+		if data.is_empty():
+			continue
 		var level := str(data.get("simulation_level", "unknown"))
 		if not counts.has(level):
 			level = "unknown"
@@ -1570,6 +1578,35 @@ func _get_debug_text(data: Dictionary, key: String) -> String:
 	if str(value).is_empty():
 		return "0"
 	return str(value).to_lower()
+
+
+func _get_creature_debug_payload(creature: Node) -> Dictionary:
+	var adapter_summary := _get_creature_adapter_summary(creature)
+	if not adapter_summary.is_empty():
+		return _merge_creature_debug_payload(creature, adapter_summary)
+	if creature.has_method("get_debug_data"):
+		return Dictionary(creature.get_debug_data())
+	return {}
+
+
+func _get_creature_adapter_summary(creature: Node) -> Dictionary:
+	if creature == null or not creature.has_method("get"):
+		return {}
+	var adapter_value: Variant = creature.get("creature_adapter")
+	if adapter_value == null:
+		return {}
+	var adapter := adapter_value as RefCounted
+	if adapter == null or not adapter.has_method("get_snapshot_summary"):
+		return {}
+	return Dictionary(adapter.call("get_snapshot_summary"))
+
+
+func _merge_creature_debug_payload(creature: Node, summary: Dictionary) -> Dictionary:
+	var data: Dictionary = {}
+	if creature.has_method("get_debug_data"):
+		data = Dictionary(creature.get_debug_data())
+	data.merge(summary, true)
+	return data
 
 
 func _get_selected_debug_creature(group_name: String) -> Node:

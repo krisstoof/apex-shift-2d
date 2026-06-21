@@ -4,6 +4,8 @@ const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
+const CREATURE_ADAPTER_SUPPORT := preload("res://scripts/creatures/creature_adapter_support.gd")
+const GODOT_CREATURE_ADAPTER := preload("res://scripts/creatures/adapters/godot_creature_adapter.gd")
 const CREATURE_STATE := preload("res://scripts/core/creatures/creature_state.gd")
 const CREATURE_CONTEXT := preload("res://scripts/core/creatures/creature_context.gd")
 
@@ -108,6 +110,7 @@ var world: Node
 var world_query
 var ecosystem: Node
 var debug_panel: Node
+var creature_adapter: GodotCreatureAdapter = GODOT_CREATURE_ADAPTER.new()
 
 
 func _get_event_bus() -> Node:
@@ -130,12 +133,14 @@ func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
 
 func _ready() -> void:
 	add_to_group("varnak")
+	creature_adapter.bind(self)
 	player = get_tree().get_first_node_in_group("player")
 	stored_collision_layer = collision_layer
 	stored_collision_mask = collision_mask
 	ai_decision_timer = fmod(float(get_instance_id()), 7.0) / 7.0 * AI_DECISION_INTERVAL_SECONDS
 	_pick_wander_target()
 	_request_visual_redraw(true)
+	creature_adapter.on_ready()
 
 
 func bind_world_context(world_node: Node, ecosystem_node: Node = null, debug_panel_node: Node = null) -> void:
@@ -145,6 +150,7 @@ func bind_world_context(world_node: Node, ecosystem_node: Node = null, debug_pan
 	world_query = null
 	if is_instance_valid(world) and world.has_method("get_query_service"):
 		world_query = world.get_query_service()
+	creature_adapter.on_world_context_bound(world, ecosystem, debug_panel, world_query)
 
 
 func set_visibility_culled(should_be_visible: bool) -> void:
@@ -205,7 +211,7 @@ func get_save_data() -> Dictionary:
 
 
 func get_debug_data() -> Dictionary:
-	return {
+	var data := {
 		"state": State.keys()[state],
 		"species": species_name,
 		"species_id": species_id,
@@ -254,6 +260,8 @@ func get_debug_data() -> Dictionary:
 		"visual_redraw_count": visual_redraw_count,
 		"visual_redraw_skip_count": visual_redraw_skip_count
 	}
+	data["adapter"] = CREATURE_ADAPTER_SUPPORT.get_debug_data(self)
+	return data
 
 
 func get_debug_ai_state() -> String:
@@ -369,11 +377,14 @@ func build_decision_context() -> CreatureContext:
 		context.set_meat_target(meat_target.global_position, meat_target.get_instance_id(), global_position.distance_to(meat_target.global_position) <= MEAT_CONSUME_RANGE)
 	if is_instance_valid(ecosystem_target):
 		context.set_prey_target(ecosystem_target_kind, ecosystem_target.global_position, ecosystem_target.get_instance_id(), global_position.distance_to(ecosystem_target.global_position) <= ATTACK_RANGE)
+	creature_adapter.capture_decision_context(context)
 	return context
 
 
 func get_creature_state_data() -> Dictionary:
-	return sync_creature_state_from_node().to_save_data()
+	var state := sync_creature_state_from_node()
+	creature_adapter.after_decision_tick(state, decision_reason)
+	return state.to_save_data()
 
 
 func apply_creature_state_data(data: Dictionary) -> void:

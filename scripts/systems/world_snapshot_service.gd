@@ -149,6 +149,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 	var varnak_spawn_sync: Dictionary = {}
 	var varnak_population: Dictionary = {}
 	var creature_ai_state_counts: Dictionary = {}
+	var creature_debug_summaries: Dictionary = {}
 	var visibility_culling: Dictionary = {}
 	var resource_distribution_by_biome: Dictionary = {}
 	var landmark_overlay_enabled := false
@@ -186,6 +187,11 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 			"small_prey": _count_ai_states(_get_world_creatures_from_world(active_world, "small_prey")),
 			"grazer": _count_ai_states(_get_world_creatures_from_world(active_world, "grazer")),
 			"varnak": _count_ai_states(_get_world_creatures_from_world(active_world, "varnak"))
+		}
+		creature_debug_summaries = {
+			"small_prey": _build_creature_debug_summaries(_get_world_creatures_from_world(active_world, "small_prey")),
+			"grazer": _build_creature_debug_summaries(_get_world_creatures_from_world(active_world, "grazer")),
+			"varnak": _build_creature_debug_summaries(_get_world_creatures_from_world(active_world, "varnak"))
 		}
 		if active_world.has_method("get_visibility_culling_debug"):
 			visibility_culling = Dictionary(active_world.get_visibility_culling_debug())
@@ -227,6 +233,7 @@ func _build_world_snapshot(player_snapshot: Dictionary) -> Dictionary:
 		"varnak_spawn_sync": varnak_spawn_sync,
 		"varnak_population": varnak_population,
 		"creature_ai_state_counts": creature_ai_state_counts,
+		"creature_debug_summaries": creature_debug_summaries,
 		"visibility_culling": visibility_culling,
 		"resource_distribution_by_biome": resource_distribution_by_biome,
 		"landmark_overlay_enabled": landmark_overlay_enabled,
@@ -356,7 +363,12 @@ func _count_ai_states(nodes: Array) -> Dictionary:
 		if not is_instance_valid(node):
 			continue
 		var state_name := ""
-		if node.has_method("get_debug_ai_state"):
+		var adapter_data := _get_creature_adapter_debug_data(node)
+		if not adapter_data.is_empty():
+			state_name = str(adapter_data.get("last_decision", {}).get("behavior", ""))
+			if state_name.is_empty():
+				state_name = str(adapter_data.get("last_context", {}).get("current_behavior", ""))
+		elif node.has_method("get_debug_ai_state"):
 			state_name = str(node.get_debug_ai_state())
 		elif node.has_method("get_debug_data"):
 			var data: Dictionary = node.get_debug_data()
@@ -383,6 +395,46 @@ func _normalize_ai_state_label(state_name: String) -> String:
 	if normalized.contains("hungry") or normalized.contains("starv"):
 		return "hungry"
 	return "wandering" if normalized.contains("wander") or normalized.contains("idle") else normalized
+
+
+func _build_creature_debug_summaries(nodes: Array) -> Array[Dictionary]:
+	var summaries: Array[Dictionary] = []
+	for node in nodes:
+		if not is_instance_valid(node):
+			continue
+		var summary := _get_creature_adapter_summary(node)
+		if summary.is_empty():
+			continue
+		summaries.append(summary)
+	return summaries
+
+
+func _get_creature_adapter_summary(node: Node) -> Dictionary:
+	if node == null or not node.has_method("get"):
+		return {}
+	var adapter_value: Variant = node.get("creature_adapter")
+	if adapter_value == null:
+		return {}
+	var adapter := adapter_value as RefCounted
+	if adapter == null or not adapter.has_method("get_snapshot_summary"):
+		return {}
+	return Dictionary(adapter.call("get_snapshot_summary"))
+
+
+func _get_creature_adapter_debug_data(node: Node) -> Dictionary:
+	if node == null:
+		return {}
+	if not node.has_method("get"):
+		return {}
+	var adapter_value: Variant = node.get("creature_adapter")
+	if adapter_value == null:
+		return {}
+	var adapter := adapter_value as RefCounted
+	if adapter == null:
+		return {}
+	if not adapter.has_method("get_debug_data"):
+		return {}
+	return Dictionary(adapter.call("get_debug_data"))
 
 
 func _build_ecosystem_snapshot() -> Dictionary:

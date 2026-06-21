@@ -6,6 +6,8 @@ const HUNGER_DIET := preload("res://scripts/creatures/hunger_diet.gd")
 const MOVEMENT_SPIKE_TRACKER := preload("res://scripts/core/common/movement_spike_tracker.gd")
 const SIMULATION_LOD := preload("res://scripts/creatures/creature_simulation_lod.gd")
 const CREATURE_SHARED := preload("res://scripts/creatures/creature_shared_behavior.gd")
+const CREATURE_ADAPTER_SUPPORT := preload("res://scripts/creatures/creature_adapter_support.gd")
+const GODOT_CREATURE_ADAPTER := preload("res://scripts/creatures/adapters/godot_creature_adapter.gd")
 const CREATURE_STATE := preload("res://scripts/core/creatures/creature_state.gd")
 const CREATURE_CONTEXT := preload("res://scripts/core/creatures/creature_context.gd")
 const SPECIES_PATH := "res://data/species/small_prey.json"
@@ -96,6 +98,7 @@ var last_simulation_level := SIMULATION_LOD.Level.NEAR
 var movement_spike_count := 0
 var max_movement_spike_distance := 0.0
 var movement_spike_tracker := MOVEMENT_SPIKE_TRACKER.new()
+var creature_adapter: GodotCreatureAdapter = GODOT_CREATURE_ADAPTER.new()
 var visual_redraw_move_timer := 0.0
 var visual_redraw_effect_timer := 0.0
 var visual_redraw_count := 0
@@ -133,6 +136,7 @@ func _emit_game_event(event_name: String, payload: Dictionary = {}) -> void:
 
 func _ready() -> void:
 	add_to_group("small_prey")
+	creature_adapter.bind(self)
 	rng.randomize()
 	player = get_tree().get_first_node_in_group("player")
 	stored_collision_layer = collision_layer
@@ -146,6 +150,7 @@ func _ready() -> void:
 	ai_decision_timer = rng.randf_range(0.0, AI_DECISION_INTERVAL_SECONDS)
 	_pick_wander_target()
 	_request_visual_redraw(true)
+	creature_adapter.on_ready()
 
 
 func bind_world_context(world_node: Node, ecosystem_node: Node = null, debug_panel_node: Node = null) -> void:
@@ -155,6 +160,7 @@ func bind_world_context(world_node: Node, ecosystem_node: Node = null, debug_pan
 	world_query = null
 	if is_instance_valid(world) and world.has_method("get_query_service"):
 		world_query = world.get_query_service()
+	creature_adapter.on_world_context_bound(world, ecosystem, debug_panel, world_query)
 
 
 func set_visibility_culled(should_be_visible: bool) -> void:
@@ -232,6 +238,7 @@ func get_debug_data() -> Dictionary:
 		"visual_redraw_skip_count": visual_redraw_skip_count
 	}
 	data.merge(hunger_diet.get_debug_data(), true)
+	data["adapter"] = CREATURE_ADAPTER_SUPPORT.get_debug_data(self)
 	return data
 
 
@@ -369,11 +376,14 @@ func build_decision_context() -> CreatureContext:
 		context.set_predator_threat(_get_flee_origin(), 0, "predator")
 	if _get_flee_origin() == Vector2.INF and not WORLD_CONFIG.WORLD_RECT.has_point(global_position):
 		context.set_water_hazard(_clamp_to_world(global_position))
+	creature_adapter.capture_decision_context(context)
 	return context
 
 
 func get_creature_state_data() -> Dictionary:
-	return sync_creature_state_from_node().to_save_data()
+	var state := sync_creature_state_from_node()
+	creature_adapter.after_decision_tick(state, decision_reason)
+	return state.to_save_data()
 
 
 func apply_creature_state_data(data: Dictionary) -> void:
