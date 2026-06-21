@@ -3527,6 +3527,12 @@ func _spawn_resources_with_core_planner() -> void:
 	vegetation_spawn_debug_summary["seed"] = seed_value
 	vegetation_spawn_debug_summary["total_budget"] = total_budget
 	vegetation_spawn_debug_summary["plan_size"] = spawn_plan.size()
+	vegetation_spawn_debug_summary["core_spawn_plan_size"] = spawn_plan.size()
+	vegetation_spawn_debug_summary["core_spawn_apply_spawned"] = int(apply_result.get("spawned", 0))
+	vegetation_spawn_debug_summary["core_spawn_apply_failed"] = int(apply_result.get("failed", 0))
+	vegetation_spawn_debug_summary["core_spawn_apply_decorative"] = int(apply_result.get("decorative", 0))
+	vegetation_spawn_debug_summary["core_spawn_plan_by_biome_and_kind"] = planner.get_debug_summary().get("distribution_by_biome", {})
+	vegetation_spawn_debug_summary["core_spawn_plan_by_kind"] = planner.get_debug_summary().get("distribution_by_kind", {})
 	_ensure_profiled_vegetation_fallback(planner)
 	await _spawn_pond_vegetation([], player_position)
 	call_deferred("_sync_all_biome_vegetation")
@@ -3557,6 +3563,33 @@ func _ensure_profiled_vegetation_fallback(planner: Variant) -> void:
 		var used_positions := _get_existing_resource_positions()
 		var fallback_player_position := _get_player_position()
 		await _spawn_profiled_biome_vegetation_world(used_positions, fallback_player_position)
+		vegetation_spawn_debug_summary["core_spawn_fallback_applied"] = true
+	else:
+		vegetation_spawn_debug_summary["core_spawn_fallback_applied"] = false
+	await _ensure_minimum_biome_profile_presence()
+
+
+func _ensure_minimum_biome_profile_presence() -> void:
+	var distribution := get_vegetation_distribution_by_biome_and_kind()
+	var expectations := {
+		"westwood": {"conifer_tree": 10},
+		"south_thicket": {"leafy_tree": 8},
+		"redfang_wilds": {"dry_tree": 4, "dry_bush": 6}
+	}
+	for biome_id in expectations.keys():
+		var counts := Dictionary(distribution.get(biome_id, {}))
+		var biome_expectations := Dictionary(expectations.get(biome_id, {}))
+		for kind in biome_expectations.keys():
+			if int(counts.get(kind, 0)) >= int(biome_expectations.get(kind, 0)):
+				continue
+			var missing := int(biome_expectations.get(kind, 0)) - int(counts.get(kind, 0))
+			var biome := _get_biome_for_id(biome_id)
+			if biome.is_empty():
+				continue
+			var used_positions := _get_existing_resource_positions()
+			var player_position := _get_player_position()
+			for _i in range(missing):
+				await _spawn_resource_kind_in_biome(kind, 1, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72, WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS)
 
 
 func _ensure_vegetation_spawn_planner():

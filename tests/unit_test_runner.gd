@@ -68,6 +68,7 @@ const BIOME_SURFACE_SAMPLER_TESTS := preload("res://tests/unit/test_biome_surfac
 const WORLD_RENDER_DATA_BUILDER_TESTS := preload("res://tests/unit/test_world_render_data_builder.gd")
 const DEPENDENCY_REGISTRY_TESTS := preload("res://tests/unit/test_dependency_registry.gd")
 const BIOME_VEGETATION_PROFILES_TESTS := preload("res://tests/unit/test_biome_vegetation_profiles.gd")
+const VEGETATION_SPAWN_PLANNER_TESTS := preload("res://tests/unit/test_vegetation_spawn_planner.gd")
 const ERROR_DRAIN_MAX_FRAMES := 8
 const ERROR_DRAIN_STABLE_FRAMES := 2
 
@@ -215,6 +216,7 @@ func _run_tests() -> void:
 	await _run_suite("WorldRenderDataBuilder", WORLD_RENDER_DATA_BUILDER_TESTS.new(), failures)
 	await _run_suite("DependencyRegistry", DEPENDENCY_REGISTRY_TESTS.new(), failures)
 	await _run_suite("BiomeVegetationProfiles", BIOME_VEGETATION_PROFILES_TESTS.new(), failures)
+	await _run_suite("VegetationSpawnPlanner", VEGETATION_SPAWN_PLANNER_TESTS.new(), failures)
 	await _run_suite("RuntimeContextPaths", RUNTIME_CONTEXT_PATHS_TESTS.new(), failures)
 	await _run_suite("RuntimeContextSmoke", RUNTIME_CONTEXT_SMOKE_TESTS.new(), failures)
 	await _run_suite("RuntimeContextLegacyPathScan", RUNTIME_CONTEXT_LEGACY_PATH_SCAN_TESTS.new(), failures)
