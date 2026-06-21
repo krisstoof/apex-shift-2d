@@ -588,6 +588,8 @@ func _get_ui_root_node() -> Node:
 		if context_ui_root != null:
 			return context_ui_root
 
+	if not is_inside_tree():
+		return null
 	var tree := get_tree()
 	if tree == null:
 		return null
