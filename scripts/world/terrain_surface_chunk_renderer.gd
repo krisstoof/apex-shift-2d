@@ -3,6 +3,7 @@ class_name TerrainSurfaceChunkRenderer
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
+const WORLD_RENDER_DATA := preload("res://scripts/rendering/world/world_render_data.gd")
 
 ## Explicit state for every terrain chunk.
 ## Replaces implicit "figure out state from dict lookups" logic.
@@ -106,6 +107,7 @@ var terrain_surface_old_texture_fallback_drawn_count := 0
 var terrain_surface_preview_time_to_first_chunk_ms := 0.0
 var terrain_surface_preview_time_to_visible_coverage_ms := 0.0
 var terrain_surface_first_preview_started_ms := 0
+var world_render_data: WorldRenderData
 var use_shape_map_sampling_override := false
 var has_use_shape_map_sampling_override := false
 # Debug counters for refine pipeline tracking
@@ -186,6 +188,13 @@ func bind(p_world: Node, p_player: Node2D, p_camera: Camera2D) -> void:
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	if world_changed:
 		mark_dirty("bind_world_changed")
+
+
+func set_world_render_data(p_render_data) -> void:
+	if p_render_data is WorldRenderData:
+		world_render_data = p_render_data
+		if world_render_data.has_visible_rect():
+			world_rect = world_render_data.world_rect
 
 
 func set_terrain_surface_refine_enabled(enabled: bool) -> void:

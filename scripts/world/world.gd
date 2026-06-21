@@ -28,6 +28,8 @@ const WORLD_BIOME_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_bio
 const POOL_MANAGER_SCRIPT := preload("res://scripts/systems/pool_manager.gd")
 const GRAPHICS_SETTINGS_SCRIPT := preload("res://scripts/systems/graphics_settings.gd")
 const WORLD_RENDER_CONTROLLER_SCRIPT := preload("res://scripts/world/world_render_controller.gd")
+const WORLD_RENDERER_ADAPTER_SCRIPT := preload("res://scripts/rendering/world/world_renderer_adapter.gd")
+const WORLD_RENDER_DATA_SCRIPT := preload("res://scripts/rendering/world/world_render_data.gd")
 const WORLD_VISIBILITY_CONTROLLER_SCRIPT := preload("res://scripts/world/world_visibility_controller.gd")
 const RENDER_PERFORMANCE_GOVERNOR_SCRIPT := preload("res://scripts/world/render_performance_governor.gd")
 const WORLD_SYSTEMS_COORDINATOR_SCRIPT := preload("res://scripts/world/world_systems_coordinator.gd")
@@ -333,6 +335,7 @@ var query_service = WORLD_QUERY_SERVICE_SCRIPT.new()
 var landmark_service = LANDMARK_SERVICE_SCRIPT.new()
 var resource_service = RESOURCE_SERVICE_SCRIPT.new()
 var render_controller = WORLD_RENDER_CONTROLLER_SCRIPT.new()
+var world_renderer_adapter = WORLD_RENDERER_ADAPTER_SCRIPT.new()
 var terrain_cell_map: TerrainCellMap
 var terrain_chunk_renderer: TerrainChunkRenderer
 var terrain_surface_chunk_renderer: TerrainSurfaceChunkRenderer
@@ -374,6 +377,7 @@ func _ready() -> void:
 	_ensure_pool_manager()
 	_ensure_vegetation_visual_layer()
 	_ensure_chunk_manager()
+	_ensure_world_renderer_adapter()
 	resource_rng.randomize()
 	varnak_rng.randomize()
 	small_prey_rng.randomize()
@@ -497,6 +501,7 @@ func _exit_tree() -> void:
 	biome_sample_images.clear()
 	biome_terrain_accent_cache.clear()
 	render_controller = null
+	world_renderer_adapter = null
 
 
 func _process(delta: float) -> void:
@@ -2472,6 +2477,13 @@ func _ensure_render_controller():
 	return render_controller
 
 
+func _ensure_world_renderer_adapter() -> WorldRendererAdapter:
+	if world_renderer_adapter == null:
+		world_renderer_adapter = WORLD_RENDERER_ADAPTER_SCRIPT.new()
+		world_renderer_adapter.bind_world(self)
+	return world_renderer_adapter
+
+
 func _ensure_render_performance_governor():
 	if render_performance_governor == null:
 		render_performance_governor = RENDER_PERFORMANCE_GOVERNOR_SCRIPT.new()
@@ -2897,6 +2909,19 @@ func get_terrain_surface_debug() -> Dictionary:
 	return {
 		"terrain_surface_chunk_renderer_enabled": false
 	}
+
+
+func get_world_render_data(visible_rect: Rect2) -> WorldRenderData:
+	var player_node := _get_player_node()
+	var camera_node := _get_active_camera(player_node)
+	return _ensure_world_renderer_adapter().build_render_data(player_node, camera_node, visible_rect)
+
+
+func get_world_renderer_debug_data() -> Dictionary:
+	var adapter_debug := _ensure_world_renderer_adapter().get_debug_data()
+	adapter_debug["terrain_surface_renderer_update_timer"] = terrain_surface_renderer_update_timer
+	adapter_debug["runtime_use_terrain_surface_chunk_renderer"] = runtime_use_terrain_surface_chunk_renderer
+	return adapter_debug
 
 
 func get_terrain_renderer_debug() -> Dictionary:
