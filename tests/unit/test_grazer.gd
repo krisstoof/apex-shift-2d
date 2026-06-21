@@ -196,11 +196,12 @@ func _test_grazer_builds_decision_context(failures: Array[String]) -> void:
 	grazer.hunger_diet.hunger = 0.78
 	grazer.call("_sync_hunger_fields")
 	var context = grazer.call("build_decision_context")
+	var context_data := context.to_dictionary() if context != null and context.has_method("to_dictionary") else Dictionary(context)
 	TEST_UTILS.expect(context != null, failures, "Grazer should expose a decision context helper")
-	TEST_UTILS.expect_equal(str(context.get("current_biome", "")), "hearth_meadow", failures, "Grazer decision context should include the current biome")
-	TEST_UTILS.expect_equal(str(context.get("hunger_stage", "")), "starving", failures, "Grazer decision context should include hunger stage")
-	TEST_UTILS.expect_equal(str(context.get("current_behavior", "")), "wander", failures, "Grazer decision context should expose behavior")
-	TEST_UTILS.expect_equal(bool(context.get("is_inside_home_biome", false)), true, failures, "Grazer decision context should reflect home biome membership")
+	TEST_UTILS.expect_equal(str(context_data.get("current_biome", "")), "hearth_meadow", failures, "Grazer decision context should include the current biome")
+	TEST_UTILS.expect_equal(str(context_data.get("hunger_stage", "")), "starving", failures, "Grazer decision context should include hunger stage")
+	TEST_UTILS.expect_equal(str(context_data.get("current_behavior", "")), "wander", failures, "Grazer decision context should expose behavior")
+	TEST_UTILS.expect_equal(bool(context_data.get("is_inside_home_biome", false)), true, failures, "Grazer decision context should reflect home biome membership")
 	grazer.queue_free()
 
 

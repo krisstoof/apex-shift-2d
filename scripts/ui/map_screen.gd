@@ -140,8 +140,12 @@ func bind(p_player: Node2D, p_evolution_director: Node, p_day_night_system: Node
 	mark_map_cache_dirty()
 
 
-func set_test_biome_zones(p_biome_zones: Array[Dictionary]) -> void:
-	biome_zones = p_biome_zones.duplicate(true)
+func set_test_biome_zones(p_biome_zones: Array) -> void:
+	var normalized: Array[Dictionary] = []
+	for biome_value in p_biome_zones:
+		if typeof(biome_value) == TYPE_DICTIONARY:
+			normalized.append(Dictionary(biome_value).duplicate(true))
+	biome_zones = normalized
 
 
 func _process(_delta: float) -> void:

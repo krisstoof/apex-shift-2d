@@ -45,6 +45,7 @@ var max_health := BASE_HEALTH
 var species_id := "varnak"
 var species_name := "Varnak"
 var generation := 1
+var biome_id := ""
 var population_biome_id := ""
 var hunger := 0.0
 var energy := 1.0
@@ -275,7 +276,8 @@ func restore_from_data(data: Dictionary) -> void:
 		species_id = str(data.get("species_id", species_id))
 		species_name = str(data.get("species_name", species_name))
 		generation = max(_safe_int(data, "generation", generation), 1)
-		population_biome_id = str(data.get("population_biome_id", population_biome_id))
+		population_biome_id = str(data.get("population_biome_id", data.get("biome_id", population_biome_id)))
+		biome_id = str(data.get("biome_id", population_biome_id))
 		global_position = _clamp_to_world(_data_to_vector(data.get("position", {})))
 		facing_angle = _safe_float(data, "facing_angle", _safe_float(data, "rotation", facing_angle))
 		facing_side = _safe_float(data, "facing_side", 1.0 if cos(facing_angle) >= 0.0 else -1.0)
@@ -328,6 +330,7 @@ func sync_creature_state_from_node() -> CreatureState:
 	creature_state.memory.current_behavior = _varnak_state_to_behavior_name(state)
 	creature_state.memory.decision_reason = decision_reason
 	creature_state.memory.last_food_source = last_food_source
+	creature_state.memory.current_biome = _get_current_biome_id()
 	creature_state.memory.population_biome = population_biome_id
 	creature_state.memory.target_lock_time = target_lock_time
 	creature_state.memory.age_seconds = age_seconds
@@ -570,6 +573,7 @@ func _process(delta: float) -> void:
 
 func force_ai_decision_for_tests() -> void:
 	ai_decision_timer = 0.0
+	target_lock_time = 0.0
 	_update_state()
 
 
@@ -1027,7 +1031,7 @@ func _find_ecosystem_target() -> Node2D:
 			continue
 		var candidates := _get_nearby_creatures(detect_range, group_name)
 		for creature in candidates:
-			if not is_instance_valid(creature):
+			if not is_instance_valid(creature) or creature.is_queued_for_deletion():
 				continue
 			if not _get_world_rect().has_point(creature.global_position):
 				continue
@@ -1186,8 +1190,9 @@ func _has_valid_ecosystem_target(detect_range: float) -> bool:
 func _get_current_biome_id() -> String:
 	var current_biome_id := _get_biome_id_for_position(global_position)
 	if not current_biome_id.is_empty():
+		biome_id = current_biome_id
 		population_biome_id = current_biome_id
-	return population_biome_id
+	return biome_id if not biome_id.is_empty() else population_biome_id
 
 
 func _get_biome_prey_pressure() -> float:

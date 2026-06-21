@@ -27,6 +27,7 @@ var is_edible_by_herbivores := false
 func to_save_data() -> Dictionary:
 	return {
 		"kind": resource_kind,
+		"resource_kind": resource_kind,
 		"item_id": item_id,
 		"amount": amount,
 		"mature_amount": mature_amount,

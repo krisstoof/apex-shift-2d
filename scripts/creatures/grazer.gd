@@ -606,6 +606,8 @@ func _process(delta: float) -> void:
 
 func force_ai_decision_for_tests() -> void:
 	ai_decision_timer = 0.0
+	target_lock_time = 0.0
+	plant_target = null
 	_update_state()
 
 
@@ -1060,12 +1062,20 @@ func _try_update_plant_target() -> bool:
 
 
 func _set_nearest_plant_target(search_range: float = vegetation_eat_range) -> bool:
+	var nearest := _find_nearest_edible_vegetation(search_range)
 	if target_lock_time > 0.0 and is_instance_valid(plant_target) and _is_edible_vegetation_target(plant_target):
-		wander_target = _clamp_to_world(plant_target.global_position)
-		return true
-	plant_target = _find_nearest_edible_vegetation(search_range)
-	if not is_instance_valid(plant_target):
+		if not is_instance_valid(nearest):
+			wander_target = _clamp_to_world(plant_target.global_position)
+			return true
+		var current_distance := global_position.distance_to(plant_target.global_position)
+		var nearest_distance := global_position.distance_to(nearest.global_position)
+		if plant_target == nearest or current_distance <= nearest_distance * 1.05:
+			wander_target = _clamp_to_world(plant_target.global_position)
+			return true
+	if not is_instance_valid(nearest):
+		plant_target = null
 		return false
+	plant_target = nearest
 	wander_target = _clamp_to_world(plant_target.global_position)
 	target_lock_time = _get_target_lock_seconds()
 	return true
@@ -1134,7 +1144,7 @@ func _find_nearest_consumable_vegetation() -> Node2D:
 
 
 func _is_edible_vegetation_target(vegetation: Node) -> bool:
-	return is_instance_valid(vegetation) and vegetation is Node2D and vegetation.get("is_edible_by_herbivores") == true
+	return is_instance_valid(vegetation) and not vegetation.is_queued_for_deletion() and vegetation is Node2D and vegetation.get("is_edible_by_herbivores") == true
 
 
 func _get_vegetation_consume_distance(vegetation: Node2D) -> float:
