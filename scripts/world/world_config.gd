@@ -15,7 +15,7 @@ const ROCK_DENSITY_MULTIPLIER := 1.35
 const FOOD_BUSH_DENSITY_MULTIPLIER := 1.35
 const CREATURE_DENSITY_MULTIPLIER := 1.35
 const VARNAK_DENSITY_MULTIPLIER := 1.25
-const TREE_DENSITY_MULTIPLIER := 2.65
+const TREE_DENSITY_MULTIPLIER := 1.75
 const ISLAND_RADIUS_X_RATIO := 0.82
 const ISLAND_RADIUS_Y_RATIO := 0.74
 const ISLAND_EDGE_FALLOFF_POWER := 1.45
@@ -45,10 +45,10 @@ const GRASS_PATCH_COUNT := 72
 const DENSE_GRASS_COUNT := 34
 const REDFANG_EXTRA_DRY_TREE_COUNT := 18
 const REDFANG_EXTRA_DRY_BUSH_COUNT := 24
-const REDFANG_EXTRA_DRY_TREE_COUNT_MAX := 90
+const REDFANG_EXTRA_DRY_TREE_COUNT_MAX := 72
 const REDFANG_EXTRA_DRY_BUSH_COUNT_MAX := 55
-const TREE_COUNT_MAX := 260
-const WESTWOOD_EXTRA_CONIFER_COUNT_MAX := 220
+const TREE_COUNT_MAX := 190
+const WESTWOOD_EXTRA_CONIFER_COUNT_MAX := 150
 const ROCK_COUNT_MAX := 85
 const BUSH_COUNT_MAX := 120
 const SMALL_BUSH_COUNT_MAX := 110
@@ -243,9 +243,9 @@ const BIOME_ZONES := [
 		],
 		"color": Color(0.10, 0.24, 0.13),
 		"tree_weight": 18.0,
-		"conifer_tree_weight": 22.0,
-		"leafy_tree_weight": 2.0,
-		"dry_tree_weight": 0.4,
+		"conifer_tree_weight": 32.0,
+		"leafy_tree_weight": 1.0,
+		"dry_tree_weight": 0.0,
 		"rock_weight": 1.2,
 		"bush_weight": 5.0,
 		"berry_bush_weight": 7.5,
@@ -276,8 +276,8 @@ const BIOME_ZONES := [
 		"color": Color(0.22, 0.25, 0.23),
 		"tree_weight": 2.4,
 		"conifer_tree_weight": 2.8,
-		"leafy_tree_weight": 0.6,
-		"dry_tree_weight": 0.4,
+		"leafy_tree_weight": 0.0,
+		"dry_tree_weight": 0.8,
 		"rock_weight": 11.0,
 		"bush_weight": 1.0,
 		"dry_bush_weight": 6.0,
@@ -309,9 +309,9 @@ const BIOME_ZONES := [
 		],
 		"color": Color(0.16, 0.30, 0.14),
 		"tree_weight": 7.0,
-		"conifer_tree_weight": 2.0,
+		"conifer_tree_weight": 0.0,
 		"leafy_tree_weight": 12.0,
-		"dry_tree_weight": 0.8,
+		"dry_tree_weight": 0.0,
 		"rock_weight": 2.3,
 		"bush_weight": 5.0,
 		"dry_bush_weight": 1.4,
@@ -338,9 +338,9 @@ const BIOME_ZONES := [
 		],
 		"color": Color(0.20, 0.34, 0.12),
 		"tree_weight": 3.2,
-		"conifer_tree_weight": 0.6,
-		"leafy_tree_weight": 5.3,
-		"dry_tree_weight": 0.4,
+		"conifer_tree_weight": 0.0,
+		"leafy_tree_weight": 8.0,
+		"dry_tree_weight": 0.0,
 		"rock_weight": 1.1,
 		"bush_weight": 7.5,
 		"small_bush_weight": 6.2,
@@ -373,9 +373,9 @@ const BIOME_ZONES := [
 		],
 		"color": Color(0.26, 0.18, 0.13),
 		"tree_weight": 7.0,
-		"conifer_tree_weight": 0.8,
-		"leafy_tree_weight": 0.4,
-		"dry_tree_weight": 24.0,
+		"conifer_tree_weight": 0.0,
+		"leafy_tree_weight": 0.0,
+		"dry_tree_weight": 32.0,
 		"rock_weight": 6.0,
 		"bush_weight": 2.5,
 		"dry_bush_weight": 13.0,

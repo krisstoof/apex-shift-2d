@@ -8,6 +8,11 @@ const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const TREE_RESOURCE_KINDS := ["conifer_tree", "leafy_tree", "dry_tree"]
+const STRICT_TREE_BIOME_RULES := {
+	"conifer_tree": ["westwood", "stoneback_ridge"],
+	"leafy_tree": ["hearth_meadow", "south_thicket", "westwood"],
+	"dry_tree": ["redfang_wilds", "stoneback_ridge"]
+}
 const WORLD_GENERATOR_PATH := "res://scripts/world/world_generator.gd"
 const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
@@ -3345,26 +3350,69 @@ func _spawn_resources() -> void:
 	await _yield_initial_boot_step()
 
 	_set_boot_progress("Growing vegetation: trees...", 0.46)
-	await _spawn_resource_kind_across_biomes("conifer_tree", used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70, WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.2, 520))
+	var tree_count := WORLD_CONFIG.get_tree_count()
 	await _spawn_resource_kind_in_biome(
 		"conifer_tree",
 		WORLD_CONFIG.get_westwood_extra_conifer_count(),
 		"westwood",
 		used_positions,
 		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.68,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
 	)
-	await _spawn_resource_kind_across_biomes("leafy_tree", used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.68, WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.2, 520))
-	await _spawn_resource_kind_across_biomes("dry_tree", used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70, WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.2, 520))
+	await _spawn_resource_kind_in_biome(
+		"conifer_tree",
+		maxi(6, int(round(float(tree_count) * 0.10))),
+		"stoneback_ridge",
+		used_positions,
+		player_position,
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.82,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.5, 360)
+	)
+	await _spawn_resource_kind_in_biome(
+		"leafy_tree",
+		maxi(16, int(round(float(tree_count) * 0.22))),
+		"hearth_meadow",
+		used_positions,
+		player_position,
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
+	)
+	await _spawn_resource_kind_in_biome(
+		"leafy_tree",
+		maxi(22, int(round(float(tree_count) * 0.28))),
+		"south_thicket",
+		used_positions,
+		player_position,
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
+	)
+	await _spawn_resource_kind_in_biome(
+		"leafy_tree",
+		maxi(4, int(round(float(tree_count) * 0.06))),
+		"westwood",
+		used_positions,
+		player_position,
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.82,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.4, 320)
+	)
 	await _spawn_resource_kind_in_biome(
 		"dry_tree",
 		WORLD_CONFIG.get_redfang_extra_dry_tree_count(),
 		"redfang_wilds",
 		used_positions,
 		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
+	)
+	await _spawn_resource_kind_in_biome(
+		"dry_tree",
+		maxi(4, int(round(float(tree_count) * 0.06))),
+		"stoneback_ridge",
+		used_positions,
+		player_position,
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.86,
+		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.3, 280)
 	)
 	await _ensure_minimum_initial_tree_presence(used_positions, player_position)
 	await _yield_initial_boot_step()
@@ -3434,30 +3482,37 @@ func _ensure_minimum_initial_tree_presence(used_positions: Array[Vector2], playe
 		{
 			"kind": "conifer_tree",
 			"biome_id": "westwood",
-			"minimum": maxi(42, int(round(float(tree_count) * 0.42))),
-			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.58,
-			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
+			"minimum": maxi(34, int(round(float(tree_count) * 0.40))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
+		},
+		{
+			"kind": "conifer_tree",
+			"biome_id": "stoneback_ridge",
+			"minimum": maxi(5, int(round(float(tree_count) * 0.08))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.84,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.4, 320)
 		},
 		{
 			"kind": "leafy_tree",
 			"biome_id": "hearth_meadow",
-			"minimum": maxi(32, int(round(float(tree_count) * 0.30))),
-			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.58,
-			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
+			"minimum": maxi(18, int(round(float(tree_count) * 0.22))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
 		},
 		{
 			"kind": "leafy_tree",
 			"biome_id": "south_thicket",
-			"minimum": maxi(24, int(round(float(tree_count) * 0.22))),
-			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.56,
-			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
+			"minimum": maxi(22, int(round(float(tree_count) * 0.28))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
 		},
 		{
 			"kind": "dry_tree",
 			"biome_id": "redfang_wilds",
-			"minimum": maxi(26, int(round(float(tree_count) * 0.22))),
-			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.58,
-			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 2.4, 520)
+			"minimum": maxi(22, int(round(float(tree_count) * 0.26))),
+			"min_distance": WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
+			"attempts": WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
 		}
 	]
 	for target_value in targets:
@@ -5291,7 +5346,11 @@ func _get_biome_resource_target_count(biome: Dictionary, resource_kind: String) 
 	if total_weight <= 0.0:
 		return 0
 	var biome_id := _get_biome_id(biome)
+	if not _is_resource_kind_allowed_in_biome(resource_kind, biome_id):
+		return 0
 	var weight := _get_biome_resource_weight(biome, resource_kind)
+	if weight <= 0.0:
+		return 0
 	var full_biomass_count := int(round(float(base_count) * weight / total_weight))
 	var biomass_factor := _get_biome_biomass_factor(biome_id)
 	return int(round(float(full_biomass_count) * biomass_factor))
@@ -5375,6 +5434,8 @@ func _try_spawn_resource_in_biome_optimized(
 	spawn_attempts: int = WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS
 ) -> bool:
 	var biome_id := _get_biome_id(biome)
+	if not _is_resource_kind_allowed_in_biome(resource_kind, biome_id):
+		return false
 	var max_attempts := _get_max_attempts_for_resource_kind(resource_kind)
 	var attempts := mini(spawn_attempts, max_attempts)
 	var prepass := _get_resource_spawn_prepass_estimate(resource_kind, biome)
@@ -5459,7 +5520,7 @@ func _get_max_attempts_for_resource_kind(resource_kind: String) -> int:
 		"small_bush", "berry_bush", "dry_bush":
 			return 48
 		"conifer_tree", "leafy_tree", "dry_tree":
-			return 128
+			return 96
 		"rock":
 			return 64
 		_:
@@ -5573,6 +5634,12 @@ func _get_resource_player_safe_distance(resource_kind: String, fallback: float) 
 	if resource_kind in TREE_RESOURCE_KINDS:
 		return minf(fallback, 140.0)
 	return fallback
+
+
+func _is_resource_kind_allowed_in_biome(resource_kind: String, biome_id: String) -> bool:
+	if resource_kind in STRICT_TREE_BIOME_RULES:
+		return biome_id in Array(STRICT_TREE_BIOME_RULES[resource_kind])
+	return true
 
 
 func _get_resource_spawn_prepass_estimate(resource_kind: String, biome: Dictionary) -> Dictionary:
