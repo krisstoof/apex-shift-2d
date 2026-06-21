@@ -3,6 +3,7 @@ extends RefCounted
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const WORLD_SCRIPT := preload("res://scripts/world/world.gd")
 const VEGETATION_SPAWN_PLANNER := preload("res://scripts/core/worldgen/vegetation_spawn_planner.gd")
+const VEGETATION_SPAWN_ADAPTER := preload("res://scripts/godot_adapters/world/godot_vegetation_spawn_adapter.gd")
 const TEST_UTILS := preload("res://tests/unit/test_utils.gd")
 
 
@@ -12,6 +13,8 @@ func run() -> Array[String]:
 	_test_no_water_spawns(failures)
 	_test_non_zero_spawn_requests_for_configured_biomes(failures)
 	_test_world_vegetation_debug_summary_keeps_core_metrics(failures)
+	_test_bounds_only_biome_still_spawns(failures)
+	_test_adapter_only_allows_decorative_kinds(failures)
 	return failures
 
 
@@ -84,11 +87,14 @@ func _test_world_vegetation_debug_summary_keeps_core_metrics(failures: Array[Str
 		"core_spawn_plan_size": 123,
 		"core_spawn_apply_spawned": 117,
 		"core_spawn_apply_failed": 6,
-		"core_spawn_plan_by_biome_and_kind": {
-			"westwood": {"conifer_tree": 18}
-		},
 		"core_spawn_applied_by_biome_and_kind": {
 			"westwood": {"conifer_tree": 16}
+		},
+		"core_spawn_failed_by_biome_and_kind": {
+			"westwood": {"conifer_tree": 2}
+		},
+		"core_spawn_plan_by_biome_and_kind": {
+			"westwood": {"conifer_tree": 18}
 		}
 	}
 	var debug := Dictionary(world.call("get_vegetation_spawn_debug_summary"))
@@ -97,6 +103,34 @@ func _test_world_vegetation_debug_summary_keeps_core_metrics(failures: Array[Str
 	TEST_UTILS.expect_equal(int(debug.get("core_spawn_apply_failed", 0)), 6, failures, "Vegetation debug summary should expose core_spawn_apply_failed")
 	var plan_by_biome := Dictionary(debug.get("core_spawn_plan_by_biome_and_kind", {}))
 	TEST_UTILS.expect(int(Dictionary(plan_by_biome.get("westwood", {})).get("conifer_tree", 0)) > 0, failures, "Vegetation debug summary should preserve core spawn plan breakdown")
+	var applied_by_biome := Dictionary(debug.get("core_spawn_applied_by_biome_and_kind", {}))
+	TEST_UTILS.expect(int(Dictionary(applied_by_biome.get("westwood", {})).get("conifer_tree", 0)) > 0, failures, "Vegetation debug summary should expose applied core spawn breakdown")
+	var failed_by_biome := Dictionary(debug.get("core_spawn_failed_by_biome_and_kind", {}))
+	TEST_UTILS.expect(int(Dictionary(failed_by_biome.get("westwood", {})).get("conifer_tree", 0)) > 0, failures, "Vegetation debug summary should expose failed core spawn breakdown")
+
+
+func _test_bounds_only_biome_still_spawns(failures: Array[String]) -> void:
+	var planner := VEGETATION_SPAWN_PLANNER.new()
+	planner.set_seed(123)
+	var plan := planner.build_spawn_plan(
+		[{"id": "bounds_only", "bounds": Rect2(Vector2(-100, -100), Vector2(200, 200))}],
+		Rect2(Vector2(-500, -500), Vector2(1000, 1000)),
+		Callable(self, "_get_terrain_zone"),
+		Callable(self, "_is_blocked_by_water"),
+		Callable(self, "_is_blocked_by_hill"),
+		12,
+		Vector2.ZERO
+	)
+	TEST_UTILS.expect(not plan.is_empty(), failures, "Bounds-only biome should still produce vegetation spawn items")
+
+
+func _test_adapter_only_allows_decorative_kinds(failures: Array[String]) -> void:
+	var adapter := VEGETATION_SPAWN_ADAPTER.new()
+	var decorative_kinds := ["grass_patch", "dense_grass", "reed", "cattail", "water_lily", "pond_grass", "wetland_grass"]
+	for kind in decorative_kinds:
+		TEST_UTILS.expect(bool(adapter.call("_is_decorative_kind", kind)), failures, "Expected %s to be treated as decorative" % kind)
+	for kind in ["conifer_tree", "leafy_tree", "dry_tree", "bush", "dry_bush", "small_bush", "berry_bush"]:
+		TEST_UTILS.expect(not bool(adapter.call("_is_decorative_kind", kind)), failures, "Expected %s to be treated as interactive" % kind)
 
 
 func _get_terrain_zone(position: Vector2) -> String:

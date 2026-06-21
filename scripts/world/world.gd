@@ -3533,8 +3533,11 @@ func _spawn_resources_with_core_planner() -> void:
 	vegetation_spawn_debug_summary["core_spawn_apply_decorative"] = int(apply_result.get("decorative", 0))
 	vegetation_spawn_debug_summary["core_spawn_plan_by_biome_and_kind"] = planner.get_debug_summary().get("distribution_by_biome", {})
 	vegetation_spawn_debug_summary["core_spawn_plan_by_kind"] = planner.get_debug_summary().get("distribution_by_kind", {})
-	_ensure_profiled_vegetation_fallback(planner)
-	await _spawn_pond_vegetation([], player_position)
+	vegetation_spawn_debug_summary["core_spawn_applied_by_biome_and_kind"] = apply_result.get("applied_by_biome_and_kind", {})
+	vegetation_spawn_debug_summary["core_spawn_failed_by_biome_and_kind"] = apply_result.get("failed_by_biome_and_kind", {})
+	await _ensure_profiled_vegetation_fallback(planner)
+	var used_positions := _get_existing_resource_positions()
+	await _spawn_pond_vegetation(used_positions, player_position)
 	call_deferred("_sync_all_biome_vegetation")
 
 
@@ -6330,7 +6333,7 @@ func _record_resource_spawn_request(resource_kind: String, biome_id: String, req
 func _record_resource_spawn_source(resource_kind: String, biome_id: String, source: String) -> void:
 	var key := "%s|%s" % [resource_kind, biome_id]
 	if not resource_spawn_source_summary.has(key):
-		resource_spawn_source_summary[key] = {"kind": resource_kind, "biome_id": biome_id, "weighted": 0, "profiled": 0, "precomputed": 0, "random": 0}
+		resource_spawn_source_summary[key] = {"kind": resource_kind, "biome_id": biome_id, "weighted": 0, "profiled": 0, "core_plan": 0, "precomputed": 0, "random": 0}
 	var entry := Dictionary(resource_spawn_source_summary[key])
 	entry[source] = int(entry.get(source, 0)) + 1
 	resource_spawn_source_summary[key] = entry
@@ -6344,7 +6347,7 @@ func _get_resource_spawn_distribution_by_kind(resource_kind: String) -> Dictiona
 		if str(entry.get("kind", "")) != resource_kind:
 			continue
 		var biome_id := str(entry.get("biome_id", ""))
-		var count := int(entry.get("weighted", 0)) + int(entry.get("profiled", 0)) + int(entry.get("precomputed", 0)) + int(entry.get("random", 0))
+		var count := int(entry.get("weighted", 0)) + int(entry.get("profiled", 0)) + int(entry.get("core_plan", 0)) + int(entry.get("precomputed", 0)) + int(entry.get("random", 0))
 		if count <= 0:
 			continue
 		totals_by_biome[biome_id] = int(totals_by_biome.get(biome_id, 0)) + count
@@ -6383,6 +6386,7 @@ func get_resource_spawn_debug() -> Dictionary:
 		"resource_spawn_source_summary": resource_spawn_source_summary.duplicate(true),
 		"resource_spawn_requested_by_biome_and_kind": _get_resource_spawn_requests_by_biome_and_kind(),
 		"resource_spawn_distribution_by_kind": {
+			"conifer_tree": _get_resource_spawn_distribution_by_kind("conifer_tree"),
 			"leafy_tree": _get_resource_spawn_distribution_by_kind("leafy_tree"),
 			"dry_tree": _get_resource_spawn_distribution_by_kind("dry_tree"),
 			"dry_bush": _get_resource_spawn_distribution_by_kind("dry_bush"),
@@ -6441,6 +6445,7 @@ func _build_resource_spawn_debug_summary() -> Dictionary:
 		"resource_spawn_prepass_debug": resource_spawn_prepass_debug.duplicate(true),
 		"resource_spawn_source_summary": resource_spawn_source_summary.duplicate(true),
 		"resource_spawn_distribution_by_kind": {
+			"conifer_tree": _get_resource_spawn_distribution_by_kind("conifer_tree"),
 			"leafy_tree": _get_resource_spawn_distribution_by_kind("leafy_tree"),
 			"dry_tree": _get_resource_spawn_distribution_by_kind("dry_tree"),
 			"dry_bush": _get_resource_spawn_distribution_by_kind("dry_bush"),

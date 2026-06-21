@@ -135,7 +135,17 @@ func _get_biome_bounds(biome: Dictionary) -> Rect2:
 
 func _is_point_in_biome(point: Vector2, biome: Dictionary) -> bool:
 	var points := PackedVector2Array(biome.get("points", []))
-	return points.size() >= 3 and Geometry2D.is_point_in_polygon(point, points)
+	if points.size() >= 3:
+		return Geometry2D.is_point_in_polygon(point, points)
+	if biome.has("polygon"):
+		var polygon_points := PackedVector2Array(biome.get("polygon", []))
+		if polygon_points.size() >= 3:
+			return Geometry2D.is_point_in_polygon(point, polygon_points)
+	if biome.has("bounds"):
+		var bounds := Rect2(biome.get("bounds"))
+		if bounds.size.x > 0.0 and bounds.size.y > 0.0:
+			return bounds.has_point(point)
+	return false
 
 
 func _is_terrain_valid_for_kind(kind: String, terrain_zone: String) -> bool:
