@@ -4,12 +4,14 @@ class_name WorldSnapshotService
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const WorldSnapshotBuilder := preload("res://scripts/core/presentation/world_snapshot_builder.gd")
 const GodotSnapshotDataSource := preload("res://scripts/godot_adapters/presentation/godot_snapshot_data_source.gd")
+const GODOT_RUNTIME_CONTEXT := preload("res://scripts/godot_adapters/runtime/godot_runtime_context.gd")
 
 var player: Node
 var evolution_director: Node
 var day_night_system: Node
 var ecosystem_director: Node
 var world: Node
+var runtime_context: GodotRuntimeContext
 var snapshot_builder := WorldSnapshotBuilder.new()
 var godot_snapshot_data_source := GodotSnapshotDataSource.new()
 
@@ -26,6 +28,17 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	day_night_system = p_day_night_system
 	ecosystem_director = p_ecosystem_director
 	world = p_world
+
+
+func bind_runtime_context(context: GodotRuntimeContext) -> void:
+	runtime_context = context
+	if runtime_context == null:
+		return
+	player = runtime_context.get_player()
+	evolution_director = runtime_context.get_evolution_director()
+	day_night_system = runtime_context.get_day_night_system()
+	ecosystem_director = runtime_context.get_ecosystem_director()
+	world = runtime_context.get_world()
 
 
 func refresh(force := false) -> Dictionary:
@@ -534,6 +547,11 @@ func _build_debug_snapshot(
 
 
 func _get_world() -> Node:
+	if runtime_context != null:
+		var context_world := runtime_context.get_world()
+		if context_world != null:
+			world = context_world
+			return world
 	if is_instance_valid(world):
 		return world
 	var tree := Engine.get_main_loop() as SceneTree

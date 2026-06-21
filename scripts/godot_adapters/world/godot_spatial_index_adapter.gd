@@ -83,6 +83,14 @@ func query_nodes_in_rect(rect: Rect2, category: String = "", type_filter: Varian
 	return _resolve_nodes(core_index.query_rect(rect, category, type_filter))
 
 
+func query_circle(position: Vector2, radius: float, category_filter: Variant = null, type_filter: Variant = null) -> Array:
+	return query_nodes_near(position, radius, str(category_filter) if typeof(category_filter) == TYPE_STRING else "", type_filter)
+
+
+func query_rect(rect: Rect2, category_filter: Variant = null, type_filter: Variant = null) -> Array:
+	return query_nodes_in_rect(rect, str(category_filter) if typeof(category_filter) == TYPE_STRING else "", type_filter)
+
+
 func query_resources_near(position: Vector2, radius: float, kind_filter: Variant = null) -> Array:
 	return query_nodes_near(position, radius, "resource", kind_filter)
 

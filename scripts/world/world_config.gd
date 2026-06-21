@@ -18,6 +18,7 @@ const USE_CORE_VEGETATION_SPAWN_PLANNER := true
 const CORE_VEGETATION_TOTAL_BUDGET_MULTIPLIER := 1.0
 const USE_CORE_RESOURCE_GROWTH_SYSTEM := true
 const USE_CORE_RESOURCE_SAVE_DATA := false
+const USE_RUNTIME_CONTEXT := true
 const VARNAK_DENSITY_MULTIPLIER := 1.25
 const TREE_DENSITY_MULTIPLIER := 1.75
 const ISLAND_RADIUS_X_RATIO := 0.82
@@ -418,6 +419,10 @@ static func use_core_resource_growth_system() -> bool:
 
 static func use_core_resource_save_data() -> bool:
 	return USE_CORE_RESOURCE_SAVE_DATA
+
+
+static func use_runtime_context() -> bool:
+	return USE_RUNTIME_CONTEXT
 
 
 static func scale_count(base_count: int, multiplier: float, max_count: int) -> int:

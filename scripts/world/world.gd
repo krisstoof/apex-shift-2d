@@ -7,6 +7,7 @@ const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const GODOT_RUNTIME_CONTEXT := preload("res://scripts/godot_adapters/runtime/godot_runtime_context.gd")
 const TREE_RESOURCE_KINDS := ["conifer_tree", "leafy_tree", "dry_tree"]
 const VEGETATION_PROFILE_BY_BIOME := {
 	"westwood": {
@@ -311,6 +312,7 @@ var pool_manager: PoolManager
 var building_placement_service := BUILDING_PLACEMENT_SERVICE.new()
 var chunk_manager: Node
 var vegetation_visual_layer: VegetationVisualLayer
+var runtime_context: GodotRuntimeContext
 var vegetation_spawn_planner
 var vegetation_spawn_adapter
 var vegetation_spawn_debug_summary: Dictionary = {}
@@ -2218,6 +2220,10 @@ func _is_resource_collision_enabled(resource: Node) -> bool:
 
 
 func _get_player_node() -> Node2D:
+	if runtime_context != null:
+		var context_player := runtime_context.get_player()
+		if context_player != null:
+			return context_player as Node2D
 	if not is_inside_tree():
 		return null
 
@@ -5167,10 +5173,25 @@ func _is_plant_resource_kind(resource_kind: String) -> bool:
 
 
 func _get_player_position() -> Vector2:
-	var player := get_tree().get_first_node_in_group("player")
+	var player := _get_player_node()
 	if player:
 		return player.global_position
 	return Vector2.ZERO
+
+
+func bind_runtime_context(context: GodotRuntimeContext) -> void:
+	runtime_context = context
+	if runtime_context == null:
+		return
+	var context_day_night := runtime_context.get_day_night_system()
+	if context_day_night != null:
+		day_night_system = context_day_night
+	var context_ecosystem := runtime_context.get_ecosystem_director()
+	if context_ecosystem != null:
+		ecosystem_director = context_ecosystem
+	var context_evolution := runtime_context.get_evolution_director()
+	if context_evolution != null:
+		evolution_director = context_evolution
 
 
 func advance_resource_growth_days(days: float) -> void:
@@ -6752,6 +6773,10 @@ func _is_valid_initial_grazer_position(candidate: Vector2, used_positions: Array
 
 
 func _get_world_node() -> Node:
+	if runtime_context != null:
+		var context_world := runtime_context.get_world()
+		if context_world != null:
+			return context_world
 	var scene_tree := get_tree()
 	if scene_tree == null or scene_tree.current_scene == null:
 		return null
@@ -6766,12 +6791,20 @@ func _get_sibling_node(node_name: String) -> Node:
 
 
 func _get_event_bus() -> Node:
+	if runtime_context != null:
+		var context_event_bus := runtime_context.get_event_bus()
+		if context_event_bus != null:
+			return context_event_bus
 	if not is_inside_tree():
 		return null
 	return get_tree().root.get_node_or_null("EventBus")
 
 
 func _get_game_session() -> Node:
+	if runtime_context != null:
+		var context_game_session := runtime_context.get_game_session()
+		if context_game_session != null:
+			return context_game_session
 	return get_node_or_null("/root/GameSession")
 
 

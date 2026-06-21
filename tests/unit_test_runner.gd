@@ -62,6 +62,7 @@ const CORE_PORTABILITY_TESTS := preload("res://tests/unit/test_core_portability.
 const WORLD_SNAPSHOT_BUILDER_TESTS := preload("res://tests/unit/test_world_snapshot_builder.gd")
 const BIOME_SURFACE_SAMPLER_TESTS := preload("res://tests/unit/test_biome_surface_sampler.gd")
 const WORLD_RENDER_DATA_BUILDER_TESTS := preload("res://tests/unit/test_world_render_data_builder.gd")
+const DEPENDENCY_REGISTRY_TESTS := preload("res://tests/unit/test_dependency_registry.gd")
 const ERROR_DRAIN_MAX_FRAMES := 8
 const ERROR_DRAIN_STABLE_FRAMES := 2
 
@@ -207,6 +208,7 @@ func _run_tests() -> void:
 	await _run_suite("WorldSnapshotBuilder", WORLD_SNAPSHOT_BUILDER_TESTS.new(), failures)
 	await _run_suite("BiomeSurfaceSampler", BIOME_SURFACE_SAMPLER_TESTS.new(), failures)
 	await _run_suite("WorldRenderDataBuilder", WORLD_RENDER_DATA_BUILDER_TESTS.new(), failures)
+	await _run_suite("DependencyRegistry", DEPENDENCY_REGISTRY_TESTS.new(), failures)
 	await _run_suite("CorePortability", CORE_PORTABILITY_TESTS.new(), failures)
 	await _drain_runtime_errors()
 	_append_logged_errors(failures, "", _unit_test_error_cursor)
