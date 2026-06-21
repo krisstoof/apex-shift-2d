@@ -3,6 +3,8 @@ class_name WorldRenderController
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const RUNTIME_PROFILER := preload("res://scripts/debug/runtime_profiler.gd")
+const WorldRenderDataBuilder := preload("res://scripts/core/rendering/world_render_data_builder.gd")
+const GodotBiomeTextureRenderer := preload("res://scripts/godot_adapters/rendering/godot_biome_texture_renderer.gd")
 
 const BIOME_BLEND_TEXTURE_SIZE := Vector2i(480, 296)
 
@@ -13,6 +15,9 @@ var world_rect := Rect2()
 var biome_zones_getter: Callable
 var biome_colors_key_getter: Callable
 var biome_surface_color_getter: Callable
+var render_data_builder := WorldRenderDataBuilder.new()
+var godot_biome_texture_renderer := GodotBiomeTextureRenderer.new()
+var last_render_data_sample_count := 0
 var world_redraw_interval := 0.20
 var night_redraw_min_delta := 0.03
 var world_background_redraw_timer := 0.0
@@ -67,6 +72,7 @@ func get_biome_texture_cache_status() -> Dictionary:
 		"rebuild_blocked_count": biome_blend_texture_rebuild_blocked_count,
 		"cache_hit": biome_blend_texture_cache_hit,
 		"rebuild_reason": biome_blend_texture_rebuild_reason,
+		"last_render_data_sample_count": last_render_data_sample_count,
 		"dirty_key_pending": not biome_blend_texture_dirty_key.is_empty(),
 		"freeze_after_first_build": freeze_blend_texture_after_first_build
 	}
@@ -100,17 +106,9 @@ func _rebuild_biome_blend_texture(current_key: String) -> ImageTexture:
 	var biome_zones: Array = []
 	if biome_zones_getter.is_valid():
 		biome_zones = Array(biome_zones_getter.call())
-
-	var image := Image.create(biome_texture_size.x, biome_texture_size.y, false, Image.FORMAT_RGBA8)
-	for y in range(biome_texture_size.y):
-		for x in range(biome_texture_size.x):
-			var sampled_position := world_rect.position + Vector2(
-				(float(x) + 0.5) / float(biome_texture_size.x) * world_rect.size.x,
-				(float(y) + 0.5) / float(biome_texture_size.y) * world_rect.size.y
-			)
-			image.set_pixel(x, y, _get_biome_surface_color_at(sampled_position, biome_zones))
-
-	biome_blend_texture = ImageTexture.create_from_image(image)
+	var render_data := render_data_builder.build_biome_blend_render_data(world_rect, biome_texture_size, biome_zones, Color.BLACK)
+	last_render_data_sample_count = Array(render_data.get("samples", [])).size()
+	biome_blend_texture = godot_biome_texture_renderer.build_texture_from_render_data(render_data)
 	biome_blend_colors_key = current_key
 	biome_blend_texture_dirty_key = ""
 	biome_blend_texture_rebuild_count += 1

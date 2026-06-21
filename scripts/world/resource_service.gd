@@ -1,6 +1,13 @@
 extends RefCounted
 class_name ResourceService
 
+const ResourceState := preload("res://scripts/core/resources/resource_state.gd")
+const ResourceGrowthSystem := preload("res://scripts/core/resources/resource_growth_system.gd")
+const GodotResourceStateAdapter := preload("res://scripts/godot_adapters/resources/godot_resource_state_adapter.gd")
+
+var resource_growth_system := ResourceGrowthSystem.new()
+var resource_state_adapter := GodotResourceStateAdapter.new()
+
 
 func advance_growth_days(resources: Array, days: float) -> int:
 	var changed_count := 0
@@ -10,6 +17,64 @@ func advance_growth_days(resources: Array, days: float) -> int:
 		if resource_value.advance_growth_days(days):
 			changed_count += 1
 	return changed_count
+
+
+func build_resource_states_from_nodes(resources: Array) -> Array:
+	return resource_state_adapter.build_states_from_nodes(resources)
+
+
+func apply_resource_states_to_nodes(states: Array, resources: Array) -> int:
+	return resource_state_adapter.apply_states_to_nodes(states, resources)
+
+
+func advance_growth_days_core(resources: Array, days: float) -> int:
+	var states := build_resource_states_from_nodes(resources)
+	var changed_count := resource_growth_system.advance_growth_days(states, days)
+	if changed_count <= 0:
+		return 0
+	apply_resource_states_to_nodes(states, resources)
+	return changed_count
+
+
+func force_full_regrowth_core(resources: Array) -> int:
+	var states := build_resource_states_from_nodes(resources)
+	var changed_count := resource_growth_system.force_full_regrowth(states)
+	if changed_count <= 0:
+		return 0
+	apply_resource_states_to_nodes(states, resources)
+	return changed_count
+
+
+func reset_growth_core(resources: Array) -> int:
+	var states := build_resource_states_from_nodes(resources)
+	var changed_count := resource_growth_system.reset_growth(states)
+	if changed_count <= 0:
+		return 0
+	apply_resource_states_to_nodes(states, resources)
+	return changed_count
+
+
+func build_save_data_core(resources: Array) -> Array[Dictionary]:
+	var states := build_resource_states_from_nodes(resources)
+	var save_data: Array[Dictionary] = []
+	for state_value in states:
+		var state := state_value as ResourceState
+		if state == null:
+			continue
+		save_data.append(state.to_dictionary())
+	return save_data
+
+
+func normalize_restore_data_core(resource_data: Array) -> Array:
+	var states: Array = []
+	for value in resource_data:
+		if typeof(value) != TYPE_DICTIONARY:
+			continue
+		var state := ResourceState.from_dictionary(Dictionary(value))
+		if state.is_empty():
+			continue
+		states.append(state)
+	return states
 
 
 func build_save_data(resources: Array) -> Array[Dictionary]:

@@ -105,6 +105,8 @@ const RESOURCE_SERVICE_SCRIPT := preload("res://scripts/world/resource_service.g
 const ISLAND_WORLD_VALIDATOR_SCRIPT := preload("res://scripts/world/island_world_validator.gd")
 const CHUNK_MANAGER_SCRIPT := preload("res://scripts/world/chunk_manager.gd")
 const VEGETATION_VISUAL_LAYER_SCRIPT := preload("res://scripts/world/vegetation_visual_layer.gd")
+const VEGETATION_SPAWN_PLANNER_SCRIPT := preload("res://scripts/core/worldgen/vegetation_spawn_planner.gd")
+const GODOT_VEGETATION_SPAWN_ADAPTER_SCRIPT := preload("res://scripts/godot_adapters/world/godot_vegetation_spawn_adapter.gd")
 const VEGETATION_CATALOG := preload("res://scripts/world/vegetation_catalog.gd")
 const WORLD_BIOME_QUERY_SERVICE_SCRIPT := preload("res://scripts/world/world_biome_query_service.gd")
 const POOL_MANAGER_SCRIPT := preload("res://scripts/systems/pool_manager.gd")
@@ -309,6 +311,9 @@ var pool_manager: PoolManager
 var building_placement_service := BUILDING_PLACEMENT_SERVICE.new()
 var chunk_manager: Node
 var vegetation_visual_layer: VegetationVisualLayer
+var vegetation_spawn_planner
+var vegetation_spawn_adapter
+var vegetation_spawn_debug_summary: Dictionary = {}
 var edible_grass_node_spawn_count := 0
 var decorative_grass_visual_spawn_count := 0
 var edible_pond_grass_node_spawn_count := 0
@@ -1068,6 +1073,10 @@ func get_topography_debug_summary() -> Dictionary:
 
 func get_topography_resource_distribution_debug() -> Dictionary:
 	return topography_resource_distribution_debug.duplicate(true)
+
+
+func get_vegetation_spawn_debug_summary() -> Dictionary:
+	return vegetation_spawn_debug_summary.duplicate(true)
 
 
 func get_resource_distribution_by_biome() -> Dictionary:
@@ -3489,35 +3498,102 @@ func _create_landmark_area(landmark: Dictionary, group_name: String) -> void:
 
 
 func _spawn_resources() -> void:
+	if bool(WORLD_CONFIG.USE_CORE_VEGETATION_SPAWN_PLANNER):
+		await _spawn_resources_with_core_planner()
+		return
+	await _spawn_resources_legacy()
+
+
+func _spawn_resources_legacy() -> void:
 	var used_positions: Array[Vector2] = []
 	var player_position := _get_player_position()
+	var tree_count := WORLD_CONFIG.get_tree_count()
+	var conifer_count := int(ceil(float(tree_count) * 0.60))
+	var leafy_count := tree_count - conifer_count
 	var bush_count := WORLD_CONFIG.get_bush_count()
 	var dry_bush_count := int(ceil(float(bush_count) * 0.35))
 	var green_bush_count := bush_count - dry_bush_count
 
-	_set_boot_progress("Growing vegetation: pond aquatic plants...", 0.40)
-	await _spawn_pond_aquatic_vegetation(used_positions, player_position)
-	await _yield_initial_boot_step()
-
-	_set_boot_progress("Growing vegetation: pond shore plants...", 0.42)
+	await _spawn_resource_kind("conifer_tree", conifer_count, used_positions, player_position)
+	await _spawn_resource_kind_in_biome(
+		"conifer_tree",
+		WORLD_CONFIG.get_westwood_extra_conifer_count(),
+		"westwood",
+		used_positions,
+		player_position,
+		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72
+	)
+	await _spawn_resource_kind("leafy_tree", leafy_count, used_positions, player_position)
+	await _spawn_resource_kind("dry_tree", int(ceil(float(WORLD_CONFIG.get_tree_count()) * 0.10)), used_positions, player_position)
+	await _spawn_resource_kind("rock", WORLD_CONFIG.get_rock_count(), used_positions, player_position)
+	await _spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
+	await _spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
+	await _spawn_resource_kind("small_bush", WORLD_CONFIG.get_small_bush_count(), used_positions, player_position)
+	await _spawn_resource_kind("berry_bush", WORLD_CONFIG.get_berry_bush_count(), used_positions, player_position)
+	await _spawn_grass_kind_mixed("grass_patch", WORLD_CONFIG.get_grass_patch_count(), used_positions, player_position)
+	await _spawn_grass_kind_mixed("dense_grass", WORLD_CONFIG.get_dense_grass_count(), used_positions, player_position)
 	await _spawn_pond_vegetation(used_positions, player_position)
-	await _yield_initial_boot_step()
-
-	_set_boot_progress("Growing vegetation: pond edge greenery...", 0.44)
-	await _spawn_pond_edge_greenery(used_positions, player_position)
-	await _yield_initial_boot_step()
-
-	_set_boot_progress("Growing vegetation: biome profiles...", 0.46)
-	await _spawn_profiled_biome_vegetation_world(used_positions, player_position)
-	await _yield_initial_boot_step()
-
-	_set_boot_progress("Growing vegetation: terrain details...", 0.55)
-	await _spawn_highland_rocks(used_positions, player_position)
-	await _spawn_outer_island_vegetation(used_positions, player_position)
-	await _spawn_biome_fill_vegetation(used_positions, player_position)
-	await _spawn_central_meadow_visual_fill(used_positions, player_position)
-	_validate_vegetation_profile_distribution()
 	call_deferred("_sync_all_biome_vegetation")
+
+
+func _spawn_resources_with_core_planner() -> void:
+	var player_position := _get_player_position()
+	var planner = _ensure_vegetation_spawn_planner()
+	var seed_value := world_seed
+	if seed_value == 0:
+		seed_value = int(Time.get_unix_time_from_system())
+	planner.set_seed(seed_value)
+	var total_budget := int(round(float(
+		WORLD_CONFIG.get_tree_count()
+		+ WORLD_CONFIG.get_westwood_extra_conifer_count()
+		+ WORLD_CONFIG.get_bush_count()
+		+ WORLD_CONFIG.get_small_bush_count()
+		+ WORLD_CONFIG.get_berry_bush_count()
+		+ WORLD_CONFIG.get_grass_patch_count()
+		+ WORLD_CONFIG.get_dense_grass_count()
+	) * WORLD_CONFIG.CORE_VEGETATION_TOTAL_BUDGET_MULTIPLIER))
+	var spawn_plan = planner.build_spawn_plan(
+		get_biome_zones(),
+		WORLD_CONFIG.WORLD_RECT,
+		Callable(self, "get_terrain_zone_at"),
+		Callable(self, "is_resource_position_blocked_by_water"),
+		Callable(self, "_is_resource_blocked_by_hill"),
+		total_budget,
+		player_position
+	)
+	var adapter = _ensure_vegetation_spawn_adapter()
+	var apply_result = adapter.apply_spawn_plan(spawn_plan)
+	vegetation_spawn_debug_summary = planner.get_debug_summary()
+	vegetation_spawn_debug_summary["apply_result"] = apply_result
+	vegetation_spawn_debug_summary["seed"] = seed_value
+	vegetation_spawn_debug_summary["total_budget"] = total_budget
+	vegetation_spawn_debug_summary["plan_size"] = spawn_plan.size()
+	await _spawn_pond_vegetation([], player_position)
+	call_deferred("_sync_all_biome_vegetation")
+
+
+func _ensure_vegetation_spawn_planner():
+	if is_instance_valid(vegetation_spawn_planner):
+		return vegetation_spawn_planner
+	vegetation_spawn_planner = VEGETATION_SPAWN_PLANNER_SCRIPT.new()
+	vegetation_spawn_planner.set_seed(world_seed)
+	return vegetation_spawn_planner
+
+
+func _ensure_vegetation_spawn_adapter():
+	if is_instance_valid(vegetation_spawn_adapter):
+		return vegetation_spawn_adapter
+	vegetation_spawn_adapter = GODOT_VEGETATION_SPAWN_ADAPTER_SCRIPT.new()
+	vegetation_spawn_adapter.bind(self, _ensure_vegetation_visual_layer(), Callable(self, "_spawn_resource_at"))
+	return vegetation_spawn_adapter
+
+
+func _is_vegetation_spawn_blocked_by_water(kind: String, position: Vector2) -> bool:
+	return is_resource_position_blocked_by_water(kind, position)
+
+
+func _is_vegetation_spawn_blocked_by_hill(kind: String, position: Vector2) -> bool:
+	return _is_resource_blocked_by_hill(kind, position)
 
 
 func _spawn_resource_kind(resource_kind: String, count: int, used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -5098,7 +5174,11 @@ func _get_player_position() -> Vector2:
 
 
 func advance_resource_growth_days(days: float) -> void:
-	var changed_count := _ensure_resource_service().advance_growth_days(get_registered_resources(), days)
+	var changed_count := 0
+	if WORLD_CONFIG.use_core_resource_growth_system():
+		changed_count = _ensure_resource_service().advance_growth_days_core(get_registered_resources(), days)
+	else:
+		changed_count = _ensure_resource_service().advance_growth_days(get_registered_resources(), days)
 	if changed_count > 0:
 		var event_bus := _get_event_bus()
 		if event_bus:
@@ -5111,11 +5191,14 @@ func debug_advance_resource_growth_day() -> void:
 
 func debug_force_full_vegetation_regrowth() -> void:
 	var changed_count := 0
-	for resource in get_registered_resources():
-		if not is_instance_valid(resource) or not resource.has_method("force_full_regrowth"):
-			continue
-		resource.force_full_regrowth()
-		changed_count += 1
+	if WORLD_CONFIG.use_core_resource_growth_system():
+		changed_count = _ensure_resource_service().force_full_regrowth_core(get_registered_resources())
+	else:
+		for resource in get_registered_resources():
+			if not is_instance_valid(resource) or not resource.has_method("force_full_regrowth"):
+				continue
+			resource.force_full_regrowth()
+			changed_count += 1
 	var event_bus := _get_event_bus()
 	if event_bus:
 		event_bus.post_message("Forced full regrowth on %d resources" % changed_count)
@@ -5123,11 +5206,14 @@ func debug_force_full_vegetation_regrowth() -> void:
 
 func debug_reset_resource_growth() -> void:
 	var changed_count := 0
-	for resource in get_registered_resources():
-		if not is_instance_valid(resource) or not resource.has_method("reset_growth_state"):
-			continue
-		resource.reset_growth_state()
-		changed_count += 1
+	if WORLD_CONFIG.use_core_resource_growth_system():
+		changed_count = _ensure_resource_service().reset_growth_core(get_registered_resources())
+	else:
+		for resource in get_registered_resources():
+			if not is_instance_valid(resource) or not resource.has_method("reset_growth_state"):
+				continue
+			resource.reset_growth_state()
+			changed_count += 1
 	var event_bus := _get_event_bus()
 	if event_bus:
 		event_bus.post_message("Reset growth state on %d resources" % changed_count)

@@ -1,7 +1,7 @@
 class_name WorldEntityRegistry
 extends RefCounted
 
-const WORLD_SPATIAL_INDEX := preload("res://scripts/core/spatial/world_spatial_index.gd")
+const GODOT_SPATIAL_INDEX_ADAPTER := preload("res://scripts/godot_adapters/world/godot_spatial_index_adapter.gd")
 
 const CATEGORY_RESOURCE := "resource"
 const CATEGORY_CREATURE := "creature"
@@ -15,7 +15,7 @@ const SUPPORTED_CATEGORIES := {
 	CATEGORY_MEAT: true
 }
 
-var spatial_index = WORLD_SPATIAL_INDEX.new()
+var spatial_index = GODOT_SPATIAL_INDEX_ADAPTER.new()
 var entity_records: Dictionary = {}
 var entity_ids_by_category: Dictionary = {
 	CATEGORY_RESOURCE: {},
@@ -165,14 +165,14 @@ func get_entities_by_biome(category_filter: Variant, biome_id: String, type_filt
 func query_circle(position: Vector2, radius: float, category_filter: Variant = null, type_filter: Variant = null) -> Array[Dictionary]:
 	if spatial_index == null:
 		return []
-	var spatial_results := spatial_index.query_circle(position, radius, category_filter, type_filter)
+	var spatial_results: Array = spatial_index.query_circle(position, radius, category_filter, type_filter)
 	return _records_from_spatial_results(spatial_results)
 
 
 func query_rect(rect: Rect2, category_filter: Variant = null, type_filter: Variant = null) -> Array[Dictionary]:
 	if spatial_index == null:
 		return []
-	var spatial_results := spatial_index.query_rect(rect, category_filter, type_filter)
+	var spatial_results: Array = spatial_index.query_rect(rect, category_filter, type_filter)
 	return _records_from_spatial_results(spatial_results)
 
 

@@ -1,81 +1,98 @@
 extends RefCounted
 class_name ResourceState
 
-const ITEM_DATABASE := preload("res://scripts/items/item_database.gd")
-const RESOURCE_DROP_TABLE := preload("res://scripts/core/resources/resource_drop_table.gd")
+var id: String = ""
+var kind: String = ""
+var resource_kind: String = ""
+var position: Vector2 = Vector2.ZERO
+var biome_id: String = ""
+var amount: int = 1
+var max_amount: int = 1
+var growth_stage: int = 0
+var max_growth_stage: int = 3
+var depleted: bool = false
+var regrowth_progress_days: float = 0.0
+var days_per_growth_stage: float = 1.0
 
-var resource_kind := "conifer_tree"
-var item_id := ""
-var amount := 2
-var mature_amount := 2
-var growth_stage := 3
-var max_growth_stage := 3
-var growth_progress := 0.0
-var days_to_next_stage := 1.0
-var days_since_harvested := 0.0
-var is_harvested := false
-var can_be_harvested := true
-var player_harvestable := true
-var render_only := false
-var is_inventory_drop := false
-var inventory_drop_item_id := ""
-var biome_id := ""
-var pond_id := ""
-var food_value := 0.0
-var is_edible_by_herbivores := false
 
-func to_save_data() -> Dictionary:
+func is_empty() -> bool:
+	return id.is_empty() and kind.is_empty() and resource_kind.is_empty()
+
+
+func is_fully_grown() -> bool:
+	return growth_stage >= max_growth_stage
+
+
+func can_regrow() -> bool:
+	return max_growth_stage > 0 and growth_stage < max_growth_stage
+
+
+func mark_depleted() -> void:
+	depleted = true
+	amount = 0
+	growth_stage = 0
+	regrowth_progress_days = 0.0
+
+
+func to_dictionary() -> Dictionary:
+	var effective_kind := kind if not kind.is_empty() else resource_kind
 	return {
-		"kind": resource_kind,
-		"resource_kind": resource_kind,
-		"item_id": item_id,
+		"id": id,
+		"kind": effective_kind,
+		"resource_kind": effective_kind,
+		"position": {"x": position.x, "y": position.y},
+		"biome_id": biome_id,
 		"amount": amount,
-		"mature_amount": mature_amount,
+		"max_amount": max_amount,
 		"growth_stage": growth_stage,
 		"max_growth_stage": max_growth_stage,
-		"growth_progress": growth_progress,
-		"days_to_next_stage": days_to_next_stage,
-		"days_since_harvested": days_since_harvested,
-		"is_harvested": is_harvested,
-		"can_be_harvested": can_be_harvested,
-		"player_harvestable": player_harvestable,
-		"render_only": render_only,
-		"is_inventory_drop": is_inventory_drop,
-		"inventory_drop_item_id": inventory_drop_item_id,
-		"biome_id": biome_id,
-		"pond_id": pond_id,
-		"food_value": food_value,
-		"is_edible_by_herbivores": is_edible_by_herbivores
+		"depleted": depleted,
+		"regrowth_progress_days": regrowth_progress_days,
+		"days_per_growth_stage": days_per_growth_stage
 	}
 
-static func from_save_data(data: Dictionary) -> ResourceState:
+
+static func from_dictionary(data: Dictionary) -> ResourceState:
 	var state := ResourceState.new()
-	state.resource_kind = str(data.get("kind", data.get("resource_kind", state.resource_kind)))
-	state.item_id = str(data.get("item_id", state.item_id))
-	state.amount = int(data.get("amount", state.amount))
-	state.mature_amount = int(data.get("mature_amount", state.mature_amount))
-	state.growth_stage = int(data.get("growth_stage", state.growth_stage))
-	state.max_growth_stage = int(data.get("max_growth_stage", state.max_growth_stage))
-	state.growth_progress = float(data.get("growth_progress", state.growth_progress))
-	state.days_to_next_stage = float(data.get("days_to_next_stage", state.days_to_next_stage))
-	state.days_since_harvested = float(data.get("days_since_harvested", state.days_since_harvested))
-	state.is_harvested = bool(data.get("is_harvested", state.is_harvested))
-	state.can_be_harvested = bool(data.get("can_be_harvested", state.can_be_harvested))
-	state.player_harvestable = bool(data.get("player_harvestable", state.player_harvestable))
-	state.render_only = bool(data.get("render_only", state.render_only))
-	state.is_inventory_drop = bool(data.get("is_inventory_drop", state.is_inventory_drop))
-	state.inventory_drop_item_id = ITEM_DATABASE.normalize_item_id(str(data.get("inventory_drop_item_id", state.inventory_drop_item_id)))
-	state.biome_id = str(data.get("biome_id", state.biome_id))
-	state.pond_id = str(data.get("pond_id", state.pond_id))
-	state.food_value = float(data.get("food_value", state.food_value))
-	state.is_edible_by_herbivores = bool(data.get("is_edible_by_herbivores", state.is_edible_by_herbivores))
+	state.id = str(data.get("id", ""))
+	state.kind = str(data.get("kind", data.get("resource_kind", "")))
+	state.resource_kind = state.kind
+	state.biome_id = str(data.get("biome_id", ""))
+	var position_value: Variant = data.get("position", Vector2.ZERO)
+	if position_value is Vector2:
+		state.position = Vector2(position_value)
+	elif typeof(position_value) == TYPE_DICTIONARY:
+		var position_data := Dictionary(position_value)
+		state.position = Vector2(float(position_data.get("x", 0.0)), float(position_data.get("y", 0.0)))
+	state.amount = int(data.get("amount", 1))
+	state.max_amount = int(data.get("max_amount", max(state.amount, 1)))
+	state.growth_stage = int(data.get("growth_stage", 0))
+	state.max_growth_stage = int(data.get("max_growth_stage", 3))
+	state.depleted = bool(data.get("depleted", false))
+	state.regrowth_progress_days = float(data.get("regrowth_progress_days", 0.0))
+	state.days_per_growth_stage = float(data.get("days_per_growth_stage", 1.0))
 	return state
 
-func is_drop() -> bool:
-	return is_inventory_drop or resource_kind in ["meat_drop", "bone_drop", "item_drop"]
 
-func is_depleted() -> bool:
-	return amount <= 0 or (uses_regrowth() and growth_stage <= 0)
+func to_save_data() -> Dictionary:
+	return to_dictionary()
 
-func uses_regrowth() -> bool:
-	return RESOURCE_DROP_TABLE.uses_regrowth(resource_kind)
+
+func load_from_save_data(data: Dictionary) -> void:
+	var other := ResourceState.from_dictionary(data)
+	id = other.id
+	kind = other.kind
+	resource_kind = other.resource_kind
+	position = other.position
+	biome_id = other.biome_id
+	amount = other.amount
+	max_amount = other.max_amount
+	growth_stage = other.growth_stage
+	max_growth_stage = other.max_growth_stage
+	depleted = other.depleted
+	regrowth_progress_days = other.regrowth_progress_days
+	days_per_growth_stage = other.days_per_growth_stage
+
+
+static func from_save_data(data: Dictionary) -> ResourceState:
+	return from_dictionary(data)

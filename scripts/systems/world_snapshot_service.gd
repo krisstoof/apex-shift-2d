@@ -2,12 +2,16 @@ extends RefCounted
 class_name WorldSnapshotService
 
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
+const WorldSnapshotBuilder := preload("res://scripts/core/presentation/world_snapshot_builder.gd")
+const GodotSnapshotDataSource := preload("res://scripts/godot_adapters/presentation/godot_snapshot_data_source.gd")
 
 var player: Node
 var evolution_director: Node
 var day_night_system: Node
 var ecosystem_director: Node
 var world: Node
+var snapshot_builder := WorldSnapshotBuilder.new()
+var godot_snapshot_data_source := GodotSnapshotDataSource.new()
 
 var snapshot: Dictionary = {}
 var hud_snapshot: Dictionary = {}
@@ -40,11 +44,20 @@ func refresh_hud(force := false) -> Dictionary:
 	if not force and not hud_snapshot.is_empty() and current_frame == last_hud_refresh_frame:
 		return hud_snapshot
 	last_hud_refresh_frame = current_frame
-	hud_snapshot = {
-		"player": _build_player_snapshot(),
-		"time": _build_time_snapshot(),
-		"snapshot_version": snapshot_version
-	}
+	if _should_use_snapshot_builder():
+		var player_input := godot_snapshot_data_source.build_player_input(player)
+		var time_input := godot_snapshot_data_source.build_time_input(day_night_system)
+		hud_snapshot = {
+			"player": snapshot_builder.build_player_snapshot(player_input),
+			"time": snapshot_builder.build_time_snapshot(time_input),
+			"snapshot_version": snapshot_version
+		}
+	else:
+		hud_snapshot = {
+			"player": _build_player_snapshot(),
+			"time": _build_time_snapshot(),
+			"snapshot_version": snapshot_version
+		}
 	return hud_snapshot
 
 
@@ -53,6 +66,8 @@ func get_snapshot() -> Dictionary:
 
 
 func _build_snapshot() -> Dictionary:
+	if _should_use_snapshot_builder():
+		return _build_snapshot_with_builder()
 	var player_snapshot := _build_player_snapshot()
 	var world_snapshot := _build_world_snapshot(player_snapshot)
 	var ecosystem_snapshot := _build_ecosystem_snapshot()
@@ -66,6 +81,43 @@ func _build_snapshot() -> Dictionary:
 		"evolution": _build_evolution_snapshot(),
 		"debug": _build_debug_snapshot(player_snapshot, world_snapshot, ecosystem_snapshot, marker_snapshot)
 	}
+
+
+func _build_snapshot_with_builder() -> Dictionary:
+	var player_input := godot_snapshot_data_source.build_player_input(player)
+	var player_snapshot := snapshot_builder.build_player_snapshot(player_input)
+	var time_input := godot_snapshot_data_source.build_time_input(day_night_system)
+	var time_snapshot := snapshot_builder.build_time_snapshot(time_input)
+	var player_position := Vector2(player_snapshot.get("position", Vector2.ZERO))
+	var active_world := _get_world()
+	var world_input := godot_snapshot_data_source.build_world_input(active_world, player_position)
+	var world_snapshot := snapshot_builder.build_world_snapshot(world_input)
+	var marker_input := godot_snapshot_data_source.build_marker_input(active_world)
+	var marker_snapshot := snapshot_builder.build_marker_snapshot(
+		Array(marker_input.get("resources", [])),
+		Array(marker_input.get("campfires", [])),
+		Array(marker_input.get("varnaks", [])),
+		Array(marker_input.get("small_prey", [])),
+		Array(marker_input.get("grazers", []))
+	)
+	var ecosystem_snapshot := _build_ecosystem_snapshot()
+	var evolution_snapshot := _build_evolution_snapshot()
+	var debug_snapshot := snapshot_builder.build_debug_snapshot(
+		_build_debug_snapshot(player_snapshot, world_snapshot, ecosystem_snapshot, marker_snapshot)
+	)
+	return snapshot_builder.build_snapshot({
+		"player": player_snapshot,
+		"time": time_snapshot,
+		"world": world_snapshot,
+		"markers": marker_snapshot,
+		"ecosystem": ecosystem_snapshot,
+		"evolution": evolution_snapshot,
+		"debug": debug_snapshot
+	})
+
+
+func _should_use_snapshot_builder() -> bool:
+	return true
 
 
 func _build_player_snapshot() -> Dictionary:
