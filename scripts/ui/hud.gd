@@ -137,8 +137,8 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	hud_snapshot_build_ms = float(Time.get_ticks_msec() - bind_snapshot_start_ms)
 	var world_snapshot := Dictionary(snapshot.get("world", {}))
 	var world_rect: Rect2 = Rect2(world_snapshot.get("world_rect", WORLD_CONFIG.WORLD_RECT))
-	var biome_zones: Array[Dictionary] = Array(world_snapshot.get("biome_zones", WORLD_CONFIG.get_biome_zones()))
-	var landmarks: Array[Dictionary] = Array(world_snapshot.get("landmarks", WORLD_CONFIG.get_landmarks()))
+	var biome_zones: Array[Dictionary] = _to_dictionary_array(world_snapshot.get("biome_zones", WORLD_CONFIG.get_biome_zones()))
+	var landmarks: Array[Dictionary] = _to_dictionary_array(world_snapshot.get("landmarks", WORLD_CONFIG.get_landmarks()))
 	minimap.bind(player, world_rect, biome_zones, landmarks, snapshot_service)
 	map_screen.bind(player, evolution_director, day_night_system, world_rect, biome_zones, landmarks, snapshot_service)
 	debug_panel.bind(player, evolution_director, day_night_system, ecosystem_director, snapshot_service)
@@ -150,6 +150,13 @@ func bind(p_player: Node, p_evolution_director: Node, p_day_night_system: Node, 
 	_apply_snapshot(snapshot)
 	_refresh_resource_panel()
 	_fix_low_resolution_layout()
+
+
+func _to_dictionary_array(value: Variant) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for entry in Array(value):
+		result.append(Dictionary(entry))
+	return result
 
 
 func _process(delta: float) -> void:

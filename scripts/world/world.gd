@@ -311,6 +311,11 @@ var resource_activation_timer := 0.0
 var resource_activation_checked_count := 0
 var resource_activation_changed_count := 0
 var resource_activation_skipped_count := 0
+var resource_activation_near_scan_count := 0
+var resource_activation_near_resource_count := 0
+var resource_activation_activated_count := 0
+var visibility_resource_candidate_count := 0
+var resource_nodes_still_culled_near_player := 0
 var interactive_resource_node_count := 0
 var render_only_resource_count := 0
 var resources_with_process_enabled := 0
@@ -1876,7 +1881,12 @@ func get_resource_activation_debug() -> Dictionary:
 		"biome_biomass_food_count": biome_biomass_food_count,
 		"resource_activation_checked_count": resource_activation_checked_count,
 		"resource_activation_changed_count": resource_activation_changed_count,
-		"resource_activation_skipped_count": resource_activation_skipped_count
+		"resource_activation_skipped_count": resource_activation_skipped_count,
+		"resource_activation_near_scan_count": resource_activation_near_scan_count,
+		"resource_activation_near_resource_count": resource_activation_near_resource_count,
+		"resource_activation_activated_count": resource_activation_activated_count,
+		"visibility_resource_candidate_count": visibility_resource_candidate_count,
+		"resource_nodes_still_culled_near_player": resource_nodes_still_culled_near_player
 	}
 
 
@@ -2077,6 +2087,8 @@ func _update_resource_interactions() -> void:
 	if resources.is_empty():
 		RUNTIME_PROFILER.end_scope("resource_activation_update_ms")
 		return
+	resource_activation_near_scan_count += 1
+	resource_activation_near_resource_count += resources.size()
 	resource_activation_checked_count += resources.size()
 	interactive_resource_node_count = 0
 	render_only_resource_count = 0
@@ -2111,6 +2123,7 @@ func _update_resource_interactions() -> void:
 		if should_be_active:
 			resources_with_process_enabled += 1
 			resources_with_physics_process_enabled += 1
+			resource_activation_activated_count += 1
 		if resource.has_method("set_interaction_active"):
 			var currently_active := bool(resource.call("is_interaction_active")) if resource.has_method("is_interaction_active") else false
 			if currently_active != should_be_active:
@@ -2144,6 +2157,13 @@ func _update_resource_interactions() -> void:
 	for active_id in nearby_active_ids.keys():
 		resource_activation_active_ids[active_id] = true
 	resource_activation_scan_index = (start_index + scan_count) % scan_count
+	visibility_resource_candidate_count = resources.size()
+	resource_nodes_still_culled_near_player = 0
+	for resource in resources:
+		if resource == null or not is_instance_valid(resource):
+			continue
+		if resource.has_method("is_visibility_culled") and bool(resource.call("is_visibility_culled")):
+			resource_nodes_still_culled_near_player += 1
 	RUNTIME_PROFILER.end_scope("resource_activation_update_ms")
 
 
@@ -3540,6 +3560,7 @@ func _spawn_resources_with_core_planner() -> void:
 	await _ensure_profiled_vegetation_fallback(planner)
 	var used_positions := _get_existing_resource_positions()
 	await _spawn_pond_vegetation(used_positions, player_position)
+	await _refresh_resource_visibility_and_interactions_after_spawn()
 	call_deferred("_sync_all_biome_vegetation")
 
 
@@ -3595,6 +3616,17 @@ func _ensure_minimum_biome_profile_presence() -> void:
 			var player_position := _get_player_position()
 			for _i in range(missing):
 				await _spawn_resource_kind_in_biome(kind, 1, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72, WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS)
+
+
+func _refresh_resource_visibility_and_interactions_after_spawn() -> void:
+	await _await_next_frame_safe()
+	clear_cached_group_nodes()
+	_update_world_object_visibility()
+	_update_resource_interactions()
+	var resource_count := get_world_resource_count()
+	var visible_count := int(get_visibility_culling_debug().get("visible_resources", 0))
+	if resource_count > 0 and visible_count <= 0:
+		push_warning("[World] Resource nodes exist but remain invisible after spawn refresh.")
 
 
 func _ensure_vegetation_spawn_planner():

@@ -15,6 +15,7 @@ func run() -> Array[String]:
 	_test_world_vegetation_debug_summary_keeps_core_metrics(failures)
 	_test_bounds_only_biome_still_spawns(failures)
 	_test_adapter_only_allows_decorative_kinds(failures)
+	_test_world_exposes_spawn_refresh_helper(failures)
 	return failures
 
 
@@ -131,6 +132,11 @@ func _test_adapter_only_allows_decorative_kinds(failures: Array[String]) -> void
 		TEST_UTILS.expect(bool(adapter.call("_is_decorative_kind", kind)), failures, "Expected %s to be treated as decorative" % kind)
 	for kind in ["conifer_tree", "leafy_tree", "dry_tree", "bush", "dry_bush", "small_bush", "berry_bush"]:
 		TEST_UTILS.expect(not bool(adapter.call("_is_decorative_kind", kind)), failures, "Expected %s to be treated as interactive" % kind)
+
+
+func _test_world_exposes_spawn_refresh_helper(failures: Array[String]) -> void:
+	var world := WORLD_SCRIPT.new()
+	TEST_UTILS.expect(world.has_method("_refresh_resource_visibility_and_interactions_after_spawn"), failures, "World should expose a post-spawn resource visibility refresh helper")
 
 
 func _get_terrain_zone(position: Vector2) -> String:
