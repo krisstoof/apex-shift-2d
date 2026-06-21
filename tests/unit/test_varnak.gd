@@ -251,11 +251,12 @@ func _test_varnak_builds_decision_context(failures: Array[String]) -> void:
 	varnak.energy = 0.44
 	varnak.state = varnak.State.WANDER
 	var context = varnak.call("build_decision_context")
+	var context_data := Dictionary(context.to_dictionary()) if context != null and context.has_method("to_dictionary") else {}
 	TEST_UTILS.expect(context != null, failures, "Varnak should expose a decision context helper")
-	TEST_UTILS.expect_equal(str(context.get("current_behavior", "")), "wander", failures, "Varnak decision context should expose behavior")
-	TEST_UTILS.expect_equal(str(context.get("current_biome", "")), "westwood", failures, "Varnak decision context should include biome")
-	TEST_UTILS.expect_equal(str(context.get("hunger_stage", "")), "starving", failures, "Varnak decision context should derive hunger stage")
-	TEST_UTILS.expect_equal(bool(context.get("should_rest", false)), false, failures, "Varnak decision context should not force rest at moderate energy")
+	TEST_UTILS.expect_equal(str(context_data.get("current_behavior", "")), "wander", failures, "Varnak decision context should expose behavior")
+	TEST_UTILS.expect_equal(str(context_data.get("current_biome", "")), "westwood", failures, "Varnak decision context should include biome")
+	TEST_UTILS.expect_equal(str(context_data.get("hunger_stage", "")), "starving", failures, "Varnak decision context should derive hunger stage")
+	TEST_UTILS.expect_equal(bool(context_data.get("should_rest", false)), false, failures, "Varnak decision context should not force rest at moderate energy")
 	varnak.queue_free()
 
 

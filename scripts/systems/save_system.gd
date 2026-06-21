@@ -111,7 +111,8 @@ func _get_restorer() -> SaveDataRestorer:
 func _update_collector_context() -> void:
 	if _collector == null:
 		return
-	_collector.scene = get_tree().current_scene
+	var tree := get_tree()
+	_collector.scene = tree.current_scene if tree != null else null
 	_collector.world = _collector.scene.get_node_or_null("World") if _collector.scene else null
 	_collector.player = _collector.scene.get_node_or_null("Player") if _collector.scene else null
 	_collector.day_night_system = _collector.scene.get_node_or_null("DayNightSystem") if _collector.scene else null
@@ -122,9 +123,10 @@ func _update_collector_context() -> void:
 func _update_restorer_context() -> void:
 	if _restorer == null:
 		return
-	_restorer.scene = get_tree().current_scene
+	var tree := get_tree()
+	_restorer.scene = tree.current_scene if tree != null else null
 	_restorer.world = _restorer.scene.get_node_or_null("World") if _restorer.scene else null
 	_restorer.day_night_system = _restorer.scene.get_node_or_null("DayNightSystem") if _restorer.scene else null
 	_restorer.evolution_director = _restorer.scene.get_node_or_null("EvolutionDirector") if _restorer.scene else null
 	_restorer.ecosystem_director = _restorer.scene.get_node_or_null("EcosystemDirector") if _restorer.scene else null
-	_restorer.game_session = get_node_or_null("/root/GameSession")
+	_restorer.game_session = get_node_or_null("/root/GameSession") if tree != null else null

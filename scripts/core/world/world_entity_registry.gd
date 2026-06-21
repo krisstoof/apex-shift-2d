@@ -249,7 +249,13 @@ func get_visibility_query_provider() -> RefCounted:
 func _records_from_spatial_results(spatial_results: Array) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	for spatial_result in spatial_results:
-		var entity_id: Variant = spatial_result.entity_id
+		var entity_id: Variant = null
+		if spatial_result is Dictionary:
+			entity_id = Dictionary(spatial_result).get("entity_id", null)
+		elif spatial_result != null and spatial_result.has_method("get"):
+			entity_id = spatial_result.get("entity_id")
+		elif spatial_result != null and "entity_id" in spatial_result:
+			entity_id = spatial_result.entity_id
 		if not entity_records.has(entity_id):
 			continue
 		var record := Dictionary(entity_records.get(entity_id, {}))
