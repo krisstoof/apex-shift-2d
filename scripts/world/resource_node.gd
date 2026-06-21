@@ -8,6 +8,7 @@ const RESOURCE_STATE_SCRIPT := preload("res://scripts/core/resources/resource_st
 const RESOURCE_HARVEST_RULES := preload("res://scripts/core/resources/resource_harvest_rules.gd")
 const RESOURCE_REGROWTH_SYSTEM := preload("res://scripts/core/resources/resource_regrowth_system.gd")
 const RESOURCE_DROP_TABLE := preload("res://scripts/core/resources/resource_drop_table.gd")
+const RESOURCE_NODE_ADAPTER_SCRIPT := preload("res://scripts/world/adapters/resource_node_adapter.gd")
 const RESOURCE_ATLAS_PATH := "res://assets/textures/resources/resource_atlas.svg"
 const RESOURCE_ATLAS_CELL_SIZE := Vector2(80.0, 80.0)
 const RESOURCE_ATLAS_COLUMNS := {
@@ -56,6 +57,7 @@ var is_visibility_culled := false
 var is_inventory_drop := false
 var inventory_drop_item_id := ""
 var resource_state: ResourceState
+var resource_adapter: ResourceNodeAdapter
 # Pool state stays set while the node lives in the pool so release/acquire can reuse it safely.
 var is_pooled := false
 var pool_key := ""
@@ -74,56 +76,23 @@ func _get_event_bus() -> Node:
 
 
 func _ensure_resource_state() -> ResourceState:
-	if resource_state == null:
-		resource_state = RESOURCE_STATE_SCRIPT.new()
-	return resource_state
+	return _ensure_resource_adapter().ensure_state()
+
+
+func _ensure_resource_adapter() -> ResourceNodeAdapter:
+	if resource_adapter == null:
+		resource_adapter = RESOURCE_NODE_ADAPTER_SCRIPT.new()
+		resource_adapter.bind_resource_node(self)
+	return resource_adapter
 
 
 func _sync_state_from_node() -> void:
-	var state := _ensure_resource_state()
-	state.resource_kind = resource_kind
-	state.item_id = item_id
-	state.amount = amount
-	state.mature_amount = mature_amount
-	state.growth_stage = growth_stage
-	state.max_growth_stage = max_growth_stage
-	state.growth_progress = growth_progress
-	state.days_to_next_stage = days_to_next_stage
-	state.days_since_harvested = days_since_harvested
-	state.is_harvested = is_harvested
-	state.can_be_harvested = can_be_harvested
-	state.player_harvestable = player_harvestable
-	state.render_only = render_only
-	state.is_inventory_drop = is_inventory_drop
-	state.inventory_drop_item_id = inventory_drop_item_id
-	state.biome_id = biome_id
-	state.pond_id = pond_id
-	state.food_value = food_value
-	state.is_edible_by_herbivores = is_edible_by_herbivores
+	var state := _ensure_resource_adapter().sync_state_from_node()
+	resource_state = state
 
 
 func _sync_node_from_state() -> void:
-	if resource_state == null:
-		return
-	resource_kind = resource_state.resource_kind
-	item_id = resource_state.item_id
-	amount = resource_state.amount
-	mature_amount = resource_state.mature_amount
-	growth_stage = resource_state.growth_stage
-	max_growth_stage = resource_state.max_growth_stage
-	growth_progress = resource_state.growth_progress
-	days_to_next_stage = resource_state.days_to_next_stage
-	days_since_harvested = resource_state.days_since_harvested
-	is_harvested = resource_state.is_harvested
-	can_be_harvested = resource_state.can_be_harvested
-	player_harvestable = resource_state.player_harvestable
-	render_only = resource_state.render_only
-	is_inventory_drop = resource_state.is_inventory_drop
-	inventory_drop_item_id = resource_state.inventory_drop_item_id
-	biome_id = resource_state.biome_id
-	pond_id = resource_state.pond_id
-	food_value = resource_state.food_value
-	is_edible_by_herbivores = resource_state.is_edible_by_herbivores
+	_ensure_resource_adapter().sync_node_from_state()
 
 
 func _configure_resource_state(kind: String) -> void:
