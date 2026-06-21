@@ -158,7 +158,7 @@ func _test_small_prey_builds_decision_context(failures: Array[String]) -> void:
 	prey.hunger_diet.hunger = 0.65
 	prey.call("_sync_hunger_fields")
 	var context = prey.call("build_decision_context")
-	var context_data := context.to_dictionary() if context != null and context.has_method("to_dictionary") else Dictionary(context)
+	var context_data: Dictionary = context.to_dictionary() if context != null and context.has_method("to_dictionary") else {}
 	TEST_UTILS.expect(context != null, failures, "Small prey should expose a decision context helper")
 	TEST_UTILS.expect_equal(str(context_data.get("current_biome", "")), "westwood", failures, "Small prey decision context should include the current biome")
 	TEST_UTILS.expect_equal(bool(context_data.get("is_inside_home_biome", false)), true, failures, "Small prey decision context should reflect home biome membership")

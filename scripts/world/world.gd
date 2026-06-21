@@ -2857,13 +2857,13 @@ func _sync_biome_blend_background() -> void:
 
 
 func get_surface_texture() -> ImageTexture:
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+	if _is_runtime_terrain_surface_renderer_enabled():
 		return null
 	return _ensure_surface_texture()
 
 
 func get_surface_texture_key() -> String:
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+	if _is_runtime_terrain_surface_renderer_enabled():
 		return ""
 	return _ensure_surface_texture_key()
 
@@ -2919,7 +2919,7 @@ func _ensure_surface_texture_key() -> String:
 
 
 func _ensure_surface_texture() -> ImageTexture:
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+	if _is_runtime_terrain_surface_renderer_enabled():
 		return null
 	if bool(GAME_BALANCE.BIOME_TEXTURES.get("disable_global_surface_texture_on_boot", true)) and not boot_ready:
 		return null
@@ -2972,6 +2972,10 @@ func _is_low_end_static_surface_mode_enabled() -> bool:
 	if graphics_settings != null and graphics_settings.has_method("is_low_end_rendering_enabled") and graphics_settings.is_low_end_rendering_enabled():
 		return graphics_settings.get("low_end_static_surface_mode") == true
 	return false
+
+
+func _is_runtime_terrain_surface_renderer_enabled() -> bool:
+	return runtime_use_terrain_surface_chunk_renderer
 
 
 func _yield_initial_boot_step() -> void:
@@ -6682,7 +6686,7 @@ func _draw() -> void:
 		and biome_blend_background.texture != null
 	)
 	var has_chunk_surface_renderer := (
-		bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true))
+		_is_runtime_terrain_surface_renderer_enabled()
 		and is_instance_valid(terrain_surface_chunk_renderer)
 		and terrain_surface_chunk_renderer.visible
 	)
@@ -6706,7 +6710,7 @@ func _get_night_amount() -> float:
 
 
 func _draw_biomes() -> void:
-	if bool(GAME_BALANCE.BIOME_TEXTURES.get("use_terrain_surface_chunk_renderer", true)):
+	if _is_runtime_terrain_surface_renderer_enabled():
 		return
 	if biome_textures_enabled:
 		if is_instance_valid(biome_blend_background) and biome_blend_background.visible and biome_blend_background.texture != null:

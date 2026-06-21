@@ -100,7 +100,7 @@ class MockPlayer:
 
 	var stats := PLAYER_STATS.new()
 	var inventory := INVENTORY.new()
-	var hotbar_state := null
+	var hotbar_state: Variant = null
 	var has_spear := false
 	var has_bow := false
 	var torch_active := false
