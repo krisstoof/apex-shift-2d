@@ -3527,8 +3527,36 @@ func _spawn_resources_with_core_planner() -> void:
 	vegetation_spawn_debug_summary["seed"] = seed_value
 	vegetation_spawn_debug_summary["total_budget"] = total_budget
 	vegetation_spawn_debug_summary["plan_size"] = spawn_plan.size()
+	_ensure_profiled_vegetation_fallback(planner)
 	await _spawn_pond_vegetation([], player_position)
 	call_deferred("_sync_all_biome_vegetation")
+
+
+func _ensure_profiled_vegetation_fallback(planner: Variant) -> void:
+	var summary := Dictionary(vegetation_spawn_debug_summary)
+	var by_kind := Dictionary(summary.get("distribution_by_kind", {}))
+	var tree_total := 0
+	for kind in ["conifer_tree", "leafy_tree", "dry_tree"]:
+		var counts := Dictionary(by_kind.get(kind, {}))
+		tree_total += int(counts.get("total", 0))
+	var by_biome := Dictionary(summary.get("distribution_by_biome", {}))
+	var configured_biomes := ["westwood", "south_thicket", "hearth_meadow", "stoneback_ridge", "redfang_wilds"]
+	var missing_profiled_requests := false
+	for biome_id in configured_biomes:
+		var biome_counts := Dictionary(by_biome.get(biome_id, {}))
+		if int(biome_counts.get("total", 0)) <= 0:
+			missing_profiled_requests = true
+			break
+		if biome_id == "westwood" and int(biome_counts.get("conifer_tree", 0)) <= 0:
+			missing_profiled_requests = true
+			break
+		if biome_id == "south_thicket" and int(biome_counts.get("leafy_tree", 0)) <= 0:
+			missing_profiled_requests = true
+			break
+	if tree_total <= 0 or missing_profiled_requests:
+		var used_positions := _get_existing_resource_positions()
+		var fallback_player_position := _get_player_position()
+		await _spawn_profiled_biome_vegetation_world(used_positions, fallback_player_position)
 
 
 func _ensure_vegetation_spawn_planner():
@@ -6269,7 +6297,7 @@ func _record_resource_spawn_request(resource_kind: String, biome_id: String, req
 func _record_resource_spawn_source(resource_kind: String, biome_id: String, source: String) -> void:
 	var key := "%s|%s" % [resource_kind, biome_id]
 	if not resource_spawn_source_summary.has(key):
-		resource_spawn_source_summary[key] = {"kind": resource_kind, "biome_id": biome_id, "precomputed": 0, "random": 0}
+		resource_spawn_source_summary[key] = {"kind": resource_kind, "biome_id": biome_id, "weighted": 0, "profiled": 0, "precomputed": 0, "random": 0}
 	var entry := Dictionary(resource_spawn_source_summary[key])
 	entry[source] = int(entry.get(source, 0)) + 1
 	resource_spawn_source_summary[key] = entry
@@ -6283,7 +6311,7 @@ func _get_resource_spawn_distribution_by_kind(resource_kind: String) -> Dictiona
 		if str(entry.get("kind", "")) != resource_kind:
 			continue
 		var biome_id := str(entry.get("biome_id", ""))
-		var count := int(entry.get("weighted", 0)) + int(entry.get("precomputed", 0)) + int(entry.get("random", 0))
+		var count := int(entry.get("weighted", 0)) + int(entry.get("profiled", 0)) + int(entry.get("precomputed", 0)) + int(entry.get("random", 0))
 		if count <= 0:
 			continue
 		totals_by_biome[biome_id] = int(totals_by_biome.get(biome_id, 0)) + count
@@ -6298,6 +6326,20 @@ func _get_resource_spawn_distribution_by_kind(resource_kind: String) -> Dictiona
 	distribution["biomes"] = biome_percentages
 	return distribution
 
+
+func _get_resource_spawn_requests_by_biome_and_kind() -> Dictionary:
+	var requests: Dictionary = {}
+	for key in resource_spawn_failure_summary.keys():
+		var entry := Dictionary(resource_spawn_failure_summary.get(key, {}))
+		var kind := str(entry.get("kind", ""))
+		var biome_id := str(entry.get("biome_id", ""))
+		if kind.is_empty() or biome_id.is_empty():
+			continue
+		var biome_requests := Dictionary(requests.get(biome_id, {}))
+		biome_requests[kind] = int(biome_requests.get(kind, 0)) + int(entry.get("requested", 0))
+		requests[biome_id] = biome_requests
+	return requests
+
 func get_resource_spawn_debug() -> Dictionary:
 	return {
 		"failure_summary": resource_spawn_failure_summary.duplicate(true),
@@ -6306,6 +6348,7 @@ func get_resource_spawn_debug() -> Dictionary:
 		"resource_spawn_rejection_by_key": resource_spawn_rejection_detail_summary.duplicate(true),
 		"resource_spawn_prepass_debug": resource_spawn_prepass_debug.duplicate(true),
 		"resource_spawn_source_summary": resource_spawn_source_summary.duplicate(true),
+		"resource_spawn_requested_by_biome_and_kind": _get_resource_spawn_requests_by_biome_and_kind(),
 		"resource_spawn_distribution_by_kind": {
 			"leafy_tree": _get_resource_spawn_distribution_by_kind("leafy_tree"),
 			"dry_tree": _get_resource_spawn_distribution_by_kind("dry_tree"),
