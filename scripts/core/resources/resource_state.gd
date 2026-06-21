@@ -13,6 +13,20 @@ var max_growth_stage: int = 3
 var depleted: bool = false
 var regrowth_progress_days: float = 0.0
 var days_per_growth_stage: float = 1.0
+var item_id: String = ""
+var mature_amount: int = 1
+var growth_progress: float = 0.0
+var days_to_next_stage: float = 1.0
+var days_since_harvested: float = 0.0
+var is_harvested: bool = false
+var can_be_harvested: bool = true
+var player_harvestable: bool = true
+var render_only: bool = false
+var is_inventory_drop: bool = false
+var inventory_drop_item_id: String = ""
+var pond_id: String = ""
+var food_value: float = 0.0
+var is_edible_by_herbivores: bool = false
 
 
 func is_empty() -> bool:
@@ -48,7 +62,21 @@ func to_dictionary() -> Dictionary:
 		"max_growth_stage": max_growth_stage,
 		"depleted": depleted,
 		"regrowth_progress_days": regrowth_progress_days,
-		"days_per_growth_stage": days_per_growth_stage
+		"days_per_growth_stage": days_per_growth_stage,
+		"item_id": item_id,
+		"mature_amount": mature_amount,
+		"growth_progress": growth_progress,
+		"days_to_next_stage": days_to_next_stage,
+		"days_since_harvested": days_since_harvested,
+		"is_harvested": is_harvested,
+		"can_be_harvested": can_be_harvested,
+		"player_harvestable": player_harvestable,
+		"render_only": render_only,
+		"is_inventory_drop": is_inventory_drop,
+		"inventory_drop_item_id": inventory_drop_item_id,
+		"pond_id": pond_id,
+		"food_value": food_value,
+		"is_edible_by_herbivores": is_edible_by_herbivores
 	}
 
 
@@ -71,6 +99,20 @@ static func from_dictionary(data: Dictionary) -> ResourceState:
 	state.depleted = bool(data.get("depleted", false))
 	state.regrowth_progress_days = float(data.get("regrowth_progress_days", 0.0))
 	state.days_per_growth_stage = float(data.get("days_per_growth_stage", 1.0))
+	state.item_id = str(data.get("item_id", ""))
+	state.mature_amount = int(data.get("mature_amount", max(state.amount, 1)))
+	state.growth_progress = float(data.get("growth_progress", 0.0))
+	state.days_to_next_stage = float(data.get("days_to_next_stage", 1.0))
+	state.days_since_harvested = float(data.get("days_since_harvested", 0.0))
+	state.is_harvested = bool(data.get("is_harvested", false))
+	state.can_be_harvested = bool(data.get("can_be_harvested", true))
+	state.player_harvestable = bool(data.get("player_harvestable", true))
+	state.render_only = bool(data.get("render_only", false))
+	state.is_inventory_drop = bool(data.get("is_inventory_drop", false))
+	state.inventory_drop_item_id = str(data.get("inventory_drop_item_id", ""))
+	state.pond_id = str(data.get("pond_id", ""))
+	state.food_value = float(data.get("food_value", 0.0))
+	state.is_edible_by_herbivores = bool(data.get("is_edible_by_herbivores", false))
 	return state
 
 
@@ -92,7 +134,25 @@ func load_from_save_data(data: Dictionary) -> void:
 	depleted = other.depleted
 	regrowth_progress_days = other.regrowth_progress_days
 	days_per_growth_stage = other.days_per_growth_stage
+	item_id = other.item_id
+	mature_amount = other.mature_amount
+	growth_progress = other.growth_progress
+	days_to_next_stage = other.days_to_next_stage
+	days_since_harvested = other.days_since_harvested
+	is_harvested = other.is_harvested
+	can_be_harvested = other.can_be_harvested
+	player_harvestable = other.player_harvestable
+	render_only = other.render_only
+	is_inventory_drop = other.is_inventory_drop
+	inventory_drop_item_id = other.inventory_drop_item_id
+	pond_id = other.pond_id
+	food_value = other.food_value
+	is_edible_by_herbivores = other.is_edible_by_herbivores
 
 
 static func from_save_data(data: Dictionary) -> ResourceState:
 	return from_dictionary(data)
+
+
+func uses_regrowth() -> bool:
+	return resource_kind == "grass_patch" or resource_kind == "dense_grass" or resource_kind == "small_bush" or resource_kind == "berry_bush"

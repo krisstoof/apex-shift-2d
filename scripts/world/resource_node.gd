@@ -98,120 +98,120 @@ func _sync_node_from_state() -> void:
 func _configure_resource_state(kind: String) -> void:
 	var state := _ensure_resource_state()
 	resource_kind = "conifer_tree" if kind == "tree" else kind
+	item_id = ""
 	state.resource_kind = resource_kind
-	state.item_id = ""
 	state.amount = RESOURCE_DROP_TABLE.get_default_yield(resource_kind)
-	state.mature_amount = state.amount
+	amount = state.amount
 	state.growth_stage = 3
 	state.max_growth_stage = 3
-	state.growth_progress = 0.0
-	state.days_to_next_stage = maxf(RESOURCE_DROP_TABLE.get_default_regrowth_days(resource_kind) / float(maxi(state.max_growth_stage, 1)), 0.1)
-	state.days_since_harvested = 0.0
-	state.is_harvested = false
-	state.can_be_harvested = true
-	state.player_harvestable = true
-	state.render_only = false
-	state.is_inventory_drop = false
-	state.inventory_drop_item_id = ""
 	state.biome_id = biome_id
-	state.pond_id = pond_id
-	state.food_value = 0.0
-	state.is_edible_by_herbivores = false
+	growth_stage = state.growth_stage
+	max_growth_stage = state.max_growth_stage
+	days_to_next_stage = maxf(RESOURCE_DROP_TABLE.get_default_regrowth_days(resource_kind) / float(maxi(state.max_growth_stage, 1)), 0.1)
+	days_since_harvested = 0.0
+	is_harvested = false
+	can_be_harvested = true
+	player_harvestable = true
+	render_only = false
+	is_inventory_drop = false
+	inventory_drop_item_id = ""
+	food_value = 0.0
+	is_edible_by_herbivores = false
 	match kind:
 		"tree", "conifer_tree":
-			state.item_id = "wood"
-			state.mature_amount = 4
-			state.amount = state.mature_amount
+			item_id = "wood"
+			mature_amount = 4
+			amount = mature_amount
 			mature_color = Color(0.08, 0.36, 0.16)
 			mature_radius = 24.0
-			state.food_value = float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
 		"leafy_tree":
-			state.item_id = "wood"
-			state.mature_amount = 4
-			state.amount = state.mature_amount
+			item_id = "wood"
+			mature_amount = 4
+			amount = mature_amount
 			mature_color = Color(0.16, 0.52, 0.18)
 			mature_radius = 24.0
-			state.food_value = float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("tree_food_value", 0.10))
 		"dry_tree":
-			state.item_id = "wood"
-			state.mature_amount = 3
-			state.amount = state.mature_amount
+			item_id = "wood"
+			mature_amount = 3
+			amount = mature_amount
 			mature_color = Color(0.60, 0.44, 0.20)
 			mature_radius = 22.0
 		"rock":
-			state.item_id = "stone"
-			state.mature_amount = 2
-			state.amount = state.mature_amount
+			item_id = "stone"
+			mature_amount = 2
+			amount = mature_amount
 			mature_color = Color(0.45, 0.45, 0.5)
 			mature_radius = 15.0
 		"meat_drop":
-			state.item_id = "meat"
-			state.mature_amount = 1
-			state.amount = 1
+			item_id = "meat"
+			mature_amount = 1
+			amount = 1
 			mature_color = Color(0.72, 0.12, 0.10)
 			mature_radius = 10.0
-			state.food_value = float(GAME_BALANCE.ANIMAL_AI.get("meat_food_value", 0.65))
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("meat_food_value", 0.65))
 		"bone_drop":
-			state.item_id = "bone"
-			state.mature_amount = 1
-			state.amount = 1
+			item_id = "bone"
+			mature_amount = 1
+			amount = 1
 			mature_color = Color(0.82, 0.78, 0.70)
 			mature_radius = 9.0
 		"item_drop":
-			state.is_inventory_drop = true
-			state.mature_amount = 1
-			state.amount = 1
+			is_inventory_drop = true
+			mature_amount = 1
+			amount = 1
 			mature_color = Color(0.82, 0.76, 0.42)
 			mature_radius = 10.0
 		"bush":
-			state.item_id = "fiber"
-			state.mature_amount = 2
-			state.amount = state.mature_amount
+			item_id = "fiber"
+			mature_amount = 2
+			amount = mature_amount
 			mature_color = Color(0.45, 0.9, 0.28)
 			mature_radius = 13.0
-			state.food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45))
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45))
 		"dry_bush":
-			state.item_id = "fiber"
-			state.mature_amount = 1
-			state.amount = state.mature_amount
+			item_id = "fiber"
+			mature_amount = 1
+			amount = mature_amount
 			mature_color = Color(0.68, 0.54, 0.26)
 			mature_radius = 14.0
-			state.food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.45
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.45
 		"small_bush":
-			state.item_id = "fiber"
-			state.mature_amount = 1
-			state.amount = state.mature_amount
+			item_id = "fiber"
+			mature_amount = 1
+			amount = mature_amount
 			mature_color = Color(0.34, 0.74, 0.20)
 			mature_radius = 10.0
-			state.food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.65
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.65
 		"berry_bush":
-			state.item_id = "berries"
-			state.mature_amount = 1
-			state.amount = state.mature_amount
-			state.player_harvestable = false
+			item_id = "berries"
+			mature_amount = 1
+			amount = mature_amount
+			player_harvestable = false
 			mature_color = Color(0.25, 0.64, 0.23)
 			mature_radius = 12.0
-			state.food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.9
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("bush_food_value", 0.45)) * 0.9
 		"grass_patch":
-			state.item_id = "grass"
-			state.mature_amount = 1
-			state.amount = state.mature_amount
-			state.player_harvestable = false
-			state.render_only = true
+			item_id = "grass"
+			mature_amount = 1
+			amount = mature_amount
+			player_harvestable = false
+			render_only = true
 			mature_color = Color(0.34, 0.78, 0.27)
 			mature_radius = 8.0
-			state.food_value = float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2))
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2))
 		"dense_grass":
-			state.item_id = "grass"
-			state.mature_amount = 1
-			state.amount = state.mature_amount
-			state.player_harvestable = false
-			state.render_only = true
+			item_id = "grass"
+			mature_amount = 1
+			amount = mature_amount
+			player_harvestable = false
+			render_only = true
 			mature_color = Color(0.25, 0.68, 0.20)
 			mature_radius = 12.0
-			state.food_value = float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2)) * 1.5
-	state.is_edible_by_herbivores = state.resource_kind != "meat_drop" and state.food_value > 0.0
-	state.can_be_harvested = state.player_harvestable
+			food_value = float(GAME_BALANCE.ANIMAL_AI.get("grass_food_value", 0.2)) * 1.5
+	is_edible_by_herbivores = resource_kind != "meat_drop" and food_value > 0.0
+	can_be_harvested = player_harvestable
 
 
 func _post_event_message(message: String) -> void:

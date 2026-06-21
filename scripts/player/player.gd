@@ -32,7 +32,7 @@ var has_bow := false
 var torch_active := false
 var torch_remaining_seconds := 0.0
 var evolution_director: Node
-var runtime_context: GodotRuntimeContext
+var runtime_context: Variant
 var nearby_interactables: Array[Node] = []
 var recipes := {}
 var world_limits := WORLD_CONFIG.get_player_limits()
@@ -116,7 +116,7 @@ func _ready() -> void:
 	queue_redraw()
 
 
-func bind_runtime_context(context: GodotRuntimeContext) -> void:
+func bind_runtime_context(context: Variant) -> void:
 	runtime_context = context
 
 
@@ -366,7 +366,7 @@ func _get_world_query():
 
 func _get_world_node() -> Node:
 	if runtime_context != null:
-		var context_world := runtime_context.get_world()
+		var context_world: Node = runtime_context.get_world()
 		if context_world != null:
 			return context_world
 	var tree := get_tree()

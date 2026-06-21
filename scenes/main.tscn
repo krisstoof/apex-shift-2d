@@ -9,8 +9,12 @@
 [ext_resource type="Script" uid="uid://bk2b0o5evpjst" path="res://scripts/systems/save_system.gd" id="7"]
 [ext_resource type="Script" uid="uid://c5ly03wt1ffk8" path="res://scripts/systems/ecosystem_director.gd" id="8"]
 [ext_resource type="PackedScene" path="res://scenes/ui/loading_overlay.tscn" id="9"]
+[ext_resource type="Script" path="res://scripts/systems/runtime_bootstrapper.gd" id="10"]
 
 [node name="Main" type="Node2D" unique_id=1914046478]
+
+[node name="RuntimeBootstrapper" type="Node" parent="." unique_id=2147483647]
+script = ExtResource("10")
 
 [node name="EvolutionDirector" type="Node" parent="." unique_id=2128018214]
 script = ExtResource("4")

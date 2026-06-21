@@ -1,6 +1,8 @@
 extends RefCounted
 class_name BiomeVegetationProfiles
 
+const DEFAULT_PROFILE_ID := "hearth_meadow"
+
 const DENSITY_MULTIPLIERS := {
 	"very_low": 0.25,
 	"low": 0.45,
@@ -98,9 +100,38 @@ const PROFILES := {
 	}
 }
 
+static var unknown_profile_request_counts: Dictionary = {}
+
 
 static func get_profile(biome_id: String) -> Dictionary:
-	return Dictionary(PROFILES.get(biome_id, {})).duplicate(true)
+	var normalized_biome_id := biome_id.strip_edges()
+	if PROFILES.has(normalized_biome_id):
+		return Dictionary(PROFILES.get(normalized_biome_id, {})).duplicate(true)
+	_record_unknown_profile_request(normalized_biome_id)
+	return Dictionary(PROFILES.get(DEFAULT_PROFILE_ID, {})).duplicate(true)
+
+
+static func has_profile(biome_id: String) -> bool:
+	return PROFILES.has(biome_id.strip_edges())
+
+
+static func get_default_profile_id() -> String:
+	return DEFAULT_PROFILE_ID
+
+
+static func get_unknown_profile_request_counts() -> Dictionary:
+	return unknown_profile_request_counts.duplicate(true)
+
+
+static func clear_unknown_profile_request_counts() -> void:
+	unknown_profile_request_counts.clear()
+
+
+static func _record_unknown_profile_request(biome_id: String) -> void:
+	var key := biome_id
+	if key.is_empty():
+		key = "<empty>"
+	unknown_profile_request_counts[key] = int(unknown_profile_request_counts.get(key, 0)) + 1
 
 
 static func get_density_multiplier(biome_id: String) -> float:
@@ -117,19 +148,22 @@ static func get_mix(biome_id: String) -> Dictionary:
 static func pick_kind_for_biome(biome_id: String, rng: RandomNumberGenerator) -> String:
 	var mix := get_mix(biome_id)
 	if mix.is_empty():
-		return ""
+		var fallback_mix := get_mix(DEFAULT_PROFILE_ID)
+		if fallback_mix.is_empty():
+			return "grass_patch"
+		mix = fallback_mix
 	var total := 0.0
 	for value in mix.values():
 		total += maxf(float(value), 0.0)
 	if total <= 0.0:
-		return ""
+		return "grass_patch"
 	var roll := rng.randf_range(0.0, total)
 	var cursor := 0.0
 	for kind in mix.keys():
 		cursor += maxf(float(mix[kind]), 0.0)
 		if roll <= cursor:
 			return str(kind)
-	return str(mix.keys()[0])
+	return "grass_patch"
 
 
 static func get_expected_dominant_kind(biome_id: String) -> String:
