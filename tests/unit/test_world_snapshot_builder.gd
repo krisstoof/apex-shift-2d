@@ -8,6 +8,7 @@ func run() -> Dictionary:
 	_test_build_player_snapshot(failures)
 	_test_build_marker_snapshot(failures)
 	_test_build_full_snapshot(failures)
+	_test_build_world_snapshot_includes_runtime_context(failures)
 	return {"passed": failures.is_empty(), "failures": failures}
 
 
@@ -63,3 +64,22 @@ func _test_build_full_snapshot(failures: Array[String]) -> void:
 		failures.append("Expected full snapshot to have world section")
 	if int(Dictionary(snapshot.get("time", {})).get("day", 0)) != 2:
 		failures.append("Expected day to be preserved")
+
+
+func _test_build_world_snapshot_includes_runtime_context(failures: Array[String]) -> void:
+	var builder := WorldSnapshotBuilder.new()
+	var snapshot := builder.build_world_snapshot({
+		"runtime_context": {
+			"bound": true,
+			"world": true,
+			"player": true,
+			"event_bus": true
+		}
+	})
+	var runtime_context := Dictionary(snapshot.get("runtime_context", {}))
+	if runtime_context.is_empty():
+		failures.append("Expected world snapshot to include runtime_context")
+	if runtime_context.get("bound", false) != true:
+		failures.append("Expected runtime_context.bound to be true")
+	if runtime_context.get("player", false) != true:
+		failures.append("Expected runtime_context.player to be true")

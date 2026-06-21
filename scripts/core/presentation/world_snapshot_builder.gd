@@ -63,6 +63,7 @@ func build_world_snapshot(input: Dictionary) -> Dictionary:
 		"creature_ai_state_counts": Dictionary(input.get("creature_ai_state_counts", {})).duplicate(true),
 		"visibility_culling": Dictionary(input.get("visibility_culling", {})).duplicate(true),
 		"vegetation_spawn": Dictionary(input.get("vegetation_spawn", {})).duplicate(true),
+		"runtime_context": Dictionary(input.get("runtime_context", {})).duplicate(true),
 		"landmark_overlay_enabled": bool(input.get("landmark_overlay_enabled", false)),
 		"biome_textures_enabled": bool(input.get("biome_textures_enabled", true)),
 		"biome_terrain_accents_enabled": bool(input.get("biome_terrain_accents_enabled", false)),

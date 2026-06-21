@@ -542,7 +542,8 @@ func _build_debug_snapshot(
 		"current_biome_name": str(world_snapshot.get("current_biome_name", "unknown")),
 		"world_seed": int(world_snapshot.get("world_seed", 0)),
 		"warnings_text": str(ecosystem_snapshot.get("warnings_text", "none")),
-		"player_health": int(player_snapshot.get("health", 0))
+		"player_health": int(player_snapshot.get("health", 0)),
+		"runtime_context": Dictionary(world_snapshot.get("runtime_context", {})).duplicate(true)
 	}
 
 

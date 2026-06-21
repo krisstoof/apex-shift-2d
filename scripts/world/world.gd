@@ -2403,7 +2403,7 @@ func _ensure_chunk_manager() -> Node:
 
 
 func _bind_chunk_manager() -> void:
-	var player := get_tree().get_first_node_in_group("player")
+	var player := _get_runtime_player_node()
 	if player == null or not (player is Node2D):
 		return
 	_ensure_chunk_manager().bind(self, player, WORLD_CONFIG.WORLD_RECT)
@@ -3174,7 +3174,7 @@ func _create_landmarks() -> void:
 
 
 func _place_player_on_safe_start() -> void:
-	var player := get_tree().get_first_node_in_group("player")
+	var player := _get_runtime_player_node()
 	if player == null or not (player is Node2D):
 		return
 	var safe_start := get_safe_player_start_position()
@@ -5063,10 +5063,23 @@ func _is_plant_resource_kind(resource_kind: String) -> bool:
 
 
 func _get_player_position() -> Vector2:
-	var player := _get_player_node()
-	if player:
-		return player.global_position
+	var player := _get_runtime_player_node()
+	if player != null and player is Node2D:
+		return (player as Node2D).global_position
 	return Vector2.ZERO
+
+
+func _get_runtime_player_node() -> Node:
+	if runtime_context != null:
+		var context_player: Node = runtime_context.get_player()
+		if context_player != null:
+			return context_player
+
+	var tree := get_tree()
+	if tree == null:
+		return null
+
+	return tree.get_first_node_in_group("player")
 
 
 func bind_runtime_context(context: Variant) -> void:
@@ -6687,7 +6700,7 @@ func _get_event_bus() -> Node:
 			return context_event_bus
 	if not is_inside_tree():
 		return null
-	return get_tree().root.get_node_or_null("EventBus")
+	return get_node_or_null("/root/EventBus")
 
 
 func _get_game_session() -> Node:
@@ -6696,6 +6709,14 @@ func _get_game_session() -> Node:
 		if context_game_session != null:
 			return context_game_session
 	return get_node_or_null("/root/GameSession")
+
+
+func get_runtime_context_debug_status() -> Dictionary:
+	if runtime_context == null:
+		return {"bound": false}
+	var status: Dictionary = runtime_context.get_debug_status()
+	status["bound"] = true
+	return status
 
 
 func _try_spawn_varnak_in_world(player_position: Vector2, used_positions: Array[Vector2]) -> bool:

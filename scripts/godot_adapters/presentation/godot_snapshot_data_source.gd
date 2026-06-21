@@ -72,6 +72,7 @@ func build_world_input(world: Node, player_position: Vector2) -> Dictionary:
 		"creature_ai_state_counts": build_creature_ai_state_counts(world),
 		"visibility_culling": _call_dictionary(world, "get_visibility_culling_debug"),
 		"vegetation_spawn": _call_dictionary(world, "get_vegetation_spawn_debug_summary"),
+		"runtime_context": _call_dictionary(world, "get_runtime_context_debug_status"),
 		"landmark_overlay_enabled": _call_bool(world, "is_landmark_debug_overlay_enabled", false),
 		"biome_textures_enabled": _call_bool(world, "are_biome_textures_enabled", true),
 		"biome_terrain_accents_enabled": _call_bool(world, "are_biome_terrain_accents_enabled", false),
