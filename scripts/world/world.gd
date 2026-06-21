@@ -1076,7 +1076,7 @@ func get_vegetation_distribution_by_biome_and_kind() -> Dictionary:
 			continue
 		if not resource.is_in_group("resources"):
 			continue
-		var resource_kind := str(resource.get("resource_kind", ""))
+		var resource_kind := _get_resource_kind(resource)
 		if resource_kind.is_empty():
 			continue
 		var node := resource as Node2D
@@ -1100,7 +1100,7 @@ func get_vegetation_distribution_by_kind() -> Dictionary:
 			continue
 		if not resource.is_in_group("resources"):
 			continue
-		var resource_kind := str(resource.get("resource_kind", ""))
+		var resource_kind := _get_resource_kind(resource)
 		if resource_kind.is_empty():
 			continue
 		var node := resource as Node2D
