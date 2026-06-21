@@ -5464,8 +5464,6 @@ func _try_spawn_resource_in_biome_optimized(
 	spawn_attempts: int = WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS
 ) -> bool:
 	var biome_id := _get_biome_id(biome)
-	if not _is_resource_kind_allowed_in_biome(resource_kind, biome_id):
-		return false
 	var max_attempts := _get_max_attempts_for_resource_kind(resource_kind)
 	var attempts := mini(spawn_attempts, max_attempts)
 	var prepass := _get_resource_spawn_prepass_estimate(resource_kind, biome)
@@ -5475,9 +5473,16 @@ func _try_spawn_resource_in_biome_optimized(
 		_record_resource_spawn_rejection_detail(resource_kind, Vector2.ZERO, biome, "prepass_skipped")
 		return false
 	_record_resource_spawn_request(resource_kind, biome_id, attempts)
+	if _is_plant_resource_kind(resource_kind):
+		var weighted_candidate := _find_weighted_vegetation_spawn_candidate(resource_kind, biome, used_positions, player_position, min_distance)
+		if weighted_candidate != Vector2.INF:
+			used_positions.append(weighted_candidate)
+			_record_resource_spawn_source(resource_kind, biome_id, "weighted")
+			_spawn_resource_at(resource_kind, weighted_candidate)
+			return true
 	if bool(GAME_BALANCE.RESOURCE_SPAWN_OPTIMIZATION.get("precomputed_biome_spawn_points_enabled", true)):
 		for candidate in _get_precomputed_biome_spawn_points(biome_id, resource_kind):
-			var precomputed_reason := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE)
+			var precomputed_reason := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE, false)
 			if not precomputed_reason.is_empty():
 				_record_resource_spawn_rejection(resource_kind, biome_id, precomputed_reason)
 				_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, precomputed_reason)
@@ -5488,7 +5493,7 @@ func _try_spawn_resource_in_biome_optimized(
 			return true
 	for attempt_index in range(attempts):
 		var candidate := _get_direct_resource_candidate_in_biome(resource_kind, biome, attempt_index)
-		var reason := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE)
+		var reason := _validate_resource_spawn_candidate(resource_kind, candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE, _is_plant_resource_kind(resource_kind))
 		if not reason.is_empty():
 			_record_resource_spawn_rejection(resource_kind, biome_id, reason)
 			_record_resource_spawn_rejection_detail(resource_kind, candidate, biome, reason)
@@ -5498,6 +5503,83 @@ func _try_spawn_resource_in_biome_optimized(
 		_spawn_resource_at(resource_kind, candidate)
 		return true
 	return false
+
+
+func _find_weighted_vegetation_spawn_candidate(resource_kind: String, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, min_distance: float) -> Vector2:
+	var candidates := _collect_weighted_vegetation_candidates(resource_kind, biome, used_positions, player_position, min_distance)
+	if candidates.is_empty():
+		return Vector2.INF
+	var total_weight := 0.0
+	for entry in candidates:
+		total_weight += float(Dictionary(entry).get("weight", 0.0))
+	if total_weight <= 0.0:
+		return Vector2.INF
+	var roll := resource_rng.randf_range(0.0, total_weight)
+	var cursor := 0.0
+	for entry in candidates:
+		var candidate := Dictionary(entry)
+		cursor += float(candidate.get("weight", 0.0))
+		if roll <= cursor:
+			return Vector2(candidate.get("position", Vector2.INF))
+	return Vector2(candidates.back().get("position", Vector2.INF))
+
+
+func _collect_weighted_vegetation_candidates(resource_kind: String, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, min_distance: float) -> Array[Dictionary]:
+	var candidates: Array[Dictionary] = []
+	var bounds := _get_biome_bounds(biome).grow(-WORLD_CONFIG.RESOURCE_SPAWN_MARGIN)
+	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		return candidates
+	var sample_count := 64
+	if resource_kind in ["leafy_tree", "dry_tree", "tree"]:
+		sample_count = 96
+	elif resource_kind in ["bush", "dry_bush", "small_bush", "berry_bush"]:
+		sample_count = 80
+	for i in range(sample_count):
+		var fx := fmod(float(i) * 0.61803398875, 1.0)
+		var fy := fmod(float(i) * 0.38196601125 + 0.27, 1.0)
+		var candidate := Vector2(
+			lerpf(bounds.position.x, bounds.end.x, fx),
+			lerpf(bounds.position.y, bounds.end.y, fy)
+		)
+		if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
+			continue
+		if not _is_valid_resource_terrain(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "invalid_terrain")
+			continue
+		if is_resource_position_blocked_by_water(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_water")
+			continue
+		if _is_resource_blocked_by_hill(resource_kind, candidate):
+			_count_resource_spawn_rejection(resource_kind, "blocked_by_hill")
+			continue
+		if candidate.distance_to(player_position) < _get_resource_player_safe_distance(resource_kind, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE):
+			_count_resource_spawn_rejection(resource_kind, "player_safe_distance")
+			continue
+		var terrain_class := _get_vegetation_terrain_class(candidate)
+		if terrain_class == "invalid":
+			_count_resource_spawn_rejection(resource_kind, "invalid_terrain")
+			continue
+		var actual_biome_id := _get_biome_id_for_position(candidate)
+		var weight := _get_vegetation_spawn_weight(resource_kind, actual_biome_id, terrain_class, candidate)
+		if weight <= 0.0:
+			_count_resource_spawn_rejection(resource_kind, "biome_weight_rejected")
+			continue
+		var blocked := false
+		for used_position in used_positions:
+			if candidate.distance_to(used_position) < min_distance:
+				blocked = true
+				break
+		if blocked:
+			_count_resource_spawn_rejection(resource_kind, "min_distance")
+			continue
+		candidates.append({
+			"position": candidate,
+			"actual_biome_id": actual_biome_id,
+			"terrain_type": terrain_class,
+			"terrain_class": terrain_class,
+			"weight": weight
+		})
+	return candidates
 
 
 func _find_resource_spawn_candidate(resource_kind: String, biome: Dictionary) -> Vector2:
@@ -5652,7 +5734,7 @@ func _try_spawn_resource_in_biome(
 ) -> bool:
 	return _try_spawn_resource_in_biome_optimized(resource_kind, biome, used_positions, player_position, min_distance, spawn_attempts)
 
-func _validate_resource_spawn_candidate(resource_kind: String, candidate: Vector2, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, min_distance: float, player_safe_distance: float) -> String:
+func _validate_resource_spawn_candidate(resource_kind: String, candidate: Vector2, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, min_distance: float, player_safe_distance: float, enforce_preferred_biome: bool = true) -> String:
 	if candidate == Vector2.INF:
 		return "invalid_candidate"
 	if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
@@ -5664,11 +5746,7 @@ func _validate_resource_spawn_candidate(resource_kind: String, candidate: Vector
 	if _is_resource_blocked_by_hill(resource_kind, candidate):
 		return "hill"
 	if not biome.is_empty():
-		var expected_biome_id := _get_biome_id(biome)
-		var actual_biome_id := _get_biome_id_for_position(candidate)
-		if expected_biome_id != "" and actual_biome_id != expected_biome_id:
-			return "biome_mismatch"
-		if not _is_point_in_biome(candidate, biome):
+		if enforce_preferred_biome and not _is_point_in_biome(candidate, biome):
 			return "outside_biome"
 	if candidate.distance_to(player_position) < _get_resource_player_safe_distance(resource_kind, player_safe_distance):
 		return "player_safe_distance"
@@ -5676,6 +5754,115 @@ func _validate_resource_spawn_candidate(resource_kind: String, candidate: Vector
 		if candidate.distance_to(used_position) < min_distance:
 			return "min_distance"
 	return ""
+
+
+func _get_vegetation_terrain_class(candidate: Vector2) -> String:
+	if not WORLD_CONFIG.WORLD_RECT.has_point(candidate):
+		return "invalid"
+	var terrain_zone := get_topography_zone_at(candidate)
+	if terrain_zone in ["deep_ocean", "shallow_water", "pond"]:
+		return "invalid"
+	if terrain_zone in [WATER_ZONE_SHORE]:
+		return "shore"
+	if terrain_zone in ["wetland", "pond_edge"]:
+		return "wetland"
+	if terrain_zone in ["ridge", "highland"]:
+		return "dry"
+	if terrain_zone in ["forest", "hearth_meadow", "westwood", "south_thicket"]:
+		return "forest_like"
+	return "meadow"
+
+
+func _get_vegetation_spawn_weight(resource_kind: String, actual_biome_id: String, terrain_class: String, position: Vector2) -> float:
+	var base_weight := _get_biome_resource_weight(_get_biome_for_id(actual_biome_id), resource_kind, position)
+	if base_weight <= 0.0:
+		base_weight = 0.08
+	var biome_affinity := 1.0
+	match resource_kind:
+		"leafy_tree":
+			match actual_biome_id:
+				"south_thicket":
+					biome_affinity = 3.2
+				"westwood":
+					biome_affinity = 2.8
+				"hearth_meadow":
+					biome_affinity = 1.15
+				"stoneback_ridge":
+					biome_affinity = 0.45
+				"redfang_wilds":
+					biome_affinity = 0.18
+				_:
+					biome_affinity = 0.6
+		"dry_tree", "dry_bush":
+			match actual_biome_id:
+				"redfang_wilds":
+					biome_affinity = 3.4
+				"stoneback_ridge":
+					biome_affinity = 2.6
+				"south_thicket":
+					biome_affinity = 0.55
+				"westwood":
+					biome_affinity = 0.7
+				"hearth_meadow":
+					biome_affinity = 0.65
+				_:
+					biome_affinity = 0.5
+		"berry_bush":
+			match actual_biome_id:
+				"hearth_meadow":
+					biome_affinity = 3.0
+				"westwood":
+					biome_affinity = 2.9
+				"south_thicket":
+					biome_affinity = 2.1
+				"stoneback_ridge":
+					biome_affinity = 0.6
+				"redfang_wilds":
+					biome_affinity = 0.25
+				_:
+					biome_affinity = 0.75
+		"bush", "small_bush":
+			match actual_biome_id:
+				"south_thicket":
+					biome_affinity = 2.0
+				"westwood":
+					biome_affinity = 1.6
+				"hearth_meadow":
+					biome_affinity = 1.25
+				"stoneback_ridge":
+					biome_affinity = 0.75
+				"redfang_wilds":
+					biome_affinity = 0.7
+				_:
+					biome_affinity = 0.95
+		"grass_patch", "dense_grass":
+			match actual_biome_id:
+				"south_thicket", "hearth_meadow", "westwood":
+					biome_affinity = 1.35
+				"stoneback_ridge":
+					biome_affinity = 0.8
+				"redfang_wilds":
+					biome_affinity = 0.55
+				_:
+					biome_affinity = 0.95
+		_:
+			biome_affinity = 1.0
+	var terrain_affinity := 1.0
+	match terrain_class:
+		"shore":
+			terrain_affinity = 1.1 if resource_kind in ["grass_patch", "dense_grass", "small_bush", "berry_bush"] else 0.5
+		"wetland":
+			terrain_affinity = 1.4 if resource_kind in ["grass_patch", "dense_grass", "berry_bush", "small_bush"] else 0.75
+		"dry":
+			terrain_affinity = 1.7 if resource_kind in ["dry_tree", "dry_bush"] else 0.5
+		"forest_like":
+			terrain_affinity = 1.55 if resource_kind in ["leafy_tree", "berry_bush", "bush", "small_bush"] else 0.9
+		"meadow":
+			terrain_affinity = 1.35 if resource_kind in ["grass_patch", "dense_grass", "berry_bush", "bush", "small_bush"] else 0.8
+		_:
+			terrain_affinity = 1.0
+	var noise_modifier := 0.85 + resource_rng.randf() * 0.3
+	return maxf(base_weight * biome_affinity * terrain_affinity * noise_modifier, 0.0)
 
 
 func _should_skip_resource_spawn_in_biome(resource_kind: String, biome: Dictionary) -> bool:
@@ -5706,13 +5893,13 @@ func _is_resource_kind_allowed_in_biome(resource_kind: String, biome_id: String)
 
 func _get_resource_spawn_prepass_estimate(resource_kind: String, biome: Dictionary) -> Dictionary:
 	var estimate := {
-		"target_biome_id": _get_biome_id(biome),
+		"preferred_biome_id": _get_biome_id(biome),
 		"land_area": 0,
 		"shore_area": 0,
 		"blocked_by_water": 0,
 		"blocked_by_hill": 0,
 		"blocked_by_min_distance": 0,
-		"biome_mismatch": 0,
+		"biome_weight_rejected": 0,
 		"valid": 0
 	}
 	var bounds := _get_biome_bounds(biome)
@@ -5737,11 +5924,12 @@ func _get_resource_spawn_prepass_estimate(resource_kind: String, biome: Dictiona
 		if _is_resource_blocked_by_hill(resource_kind, candidate):
 			estimate["blocked_by_hill"] = int(estimate.get("blocked_by_hill", 0)) + 1
 			continue
-		if resource_kind in ["grass_patch", "dense_grass"] and water_zone == WATER_ZONE_SHORE:
-			estimate["biome_mismatch"] = int(estimate.get("biome_mismatch", 0)) + 1
-			continue
 		if terrain_zone == "pond":
 			estimate["blocked_by_water"] = int(estimate.get("blocked_by_water", 0)) + 1
+			continue
+		var candidate_biome_id := _get_biome_id_for_position(candidate)
+		if not candidate_biome_id.is_empty() and _get_vegetation_spawn_weight(resource_kind, candidate_biome_id, _get_vegetation_terrain_class(candidate), candidate) <= 0.0:
+			estimate["biome_weight_rejected"] = int(estimate.get("biome_weight_rejected", 0)) + 1
 			continue
 		estimate["valid"] = int(estimate.get("valid", 0)) + 1
 	return estimate
@@ -5780,6 +5968,30 @@ func _record_resource_spawn_source(resource_kind: String, biome_id: String, sour
 	entry[source] = int(entry.get(source, 0)) + 1
 	resource_spawn_source_summary[key] = entry
 
+
+func _get_resource_spawn_distribution_by_kind(resource_kind: String) -> Dictionary:
+	var totals_by_biome: Dictionary = {}
+	var total := 0
+	for key in resource_spawn_source_summary.keys():
+		var entry := Dictionary(resource_spawn_source_summary.get(key, {}))
+		if str(entry.get("kind", "")) != resource_kind:
+			continue
+		var biome_id := str(entry.get("biome_id", ""))
+		var count := int(entry.get("weighted", 0)) + int(entry.get("precomputed", 0)) + int(entry.get("random", 0))
+		if count <= 0:
+			continue
+		totals_by_biome[biome_id] = int(totals_by_biome.get(biome_id, 0)) + count
+		total += count
+	var distribution: Dictionary = {"total": total, "biomes": {}}
+	if total <= 0:
+		return distribution
+	var biome_percentages: Dictionary = {}
+	for biome_id in totals_by_biome.keys():
+		var count := int(totals_by_biome.get(biome_id, 0))
+		biome_percentages[biome_id] = round((float(count) / float(total)) * 1000.0) / 10.0
+	distribution["biomes"] = biome_percentages
+	return distribution
+
 func get_resource_spawn_debug() -> Dictionary:
 	return {
 		"failure_summary": resource_spawn_failure_summary.duplicate(true),
@@ -5788,6 +6000,16 @@ func get_resource_spawn_debug() -> Dictionary:
 		"resource_spawn_rejection_by_key": resource_spawn_rejection_detail_summary.duplicate(true),
 		"resource_spawn_prepass_debug": resource_spawn_prepass_debug.duplicate(true),
 		"resource_spawn_source_summary": resource_spawn_source_summary.duplicate(true),
+		"resource_spawn_distribution_by_kind": {
+			"leafy_tree": _get_resource_spawn_distribution_by_kind("leafy_tree"),
+			"dry_tree": _get_resource_spawn_distribution_by_kind("dry_tree"),
+			"dry_bush": _get_resource_spawn_distribution_by_kind("dry_bush"),
+			"berry_bush": _get_resource_spawn_distribution_by_kind("berry_bush"),
+			"bush": _get_resource_spawn_distribution_by_kind("bush"),
+			"small_bush": _get_resource_spawn_distribution_by_kind("small_bush"),
+			"grass_patch": _get_resource_spawn_distribution_by_kind("grass_patch"),
+			"dense_grass": _get_resource_spawn_distribution_by_kind("dense_grass")
+		},
 		"biome_spawn_point_cache_count": biome_spawn_point_cache.size()
 	}
 
@@ -5834,6 +6056,16 @@ func _build_resource_spawn_debug_summary() -> Dictionary:
 		"resource_spawn_rejection_by_key": resource_spawn_rejection_detail_summary.duplicate(true),
 		"resource_spawn_prepass_debug": resource_spawn_prepass_debug.duplicate(true),
 		"resource_spawn_source_summary": resource_spawn_source_summary.duplicate(true),
+		"resource_spawn_distribution_by_kind": {
+			"leafy_tree": _get_resource_spawn_distribution_by_kind("leafy_tree"),
+			"dry_tree": _get_resource_spawn_distribution_by_kind("dry_tree"),
+			"dry_bush": _get_resource_spawn_distribution_by_kind("dry_bush"),
+			"berry_bush": _get_resource_spawn_distribution_by_kind("berry_bush"),
+			"bush": _get_resource_spawn_distribution_by_kind("bush"),
+			"small_bush": _get_resource_spawn_distribution_by_kind("small_bush"),
+			"grass_patch": _get_resource_spawn_distribution_by_kind("grass_patch"),
+			"dense_grass": _get_resource_spawn_distribution_by_kind("dense_grass")
+		},
 		"top_failure_key": top_failure_key,
 		"top_failure_count": top_failure_count,
 		"top_rejection_reason": top_reason_key,

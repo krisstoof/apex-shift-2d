@@ -1760,6 +1760,8 @@ func _format_resource_spawn_failure_text(report: Dictionary) -> String:
 	var failed_by_key := Dictionary(debug.get("resource_spawn_failed_by_key", {}))
 	var rejection_by_key := Dictionary(debug.get("resource_spawn_rejection_by_key", {}))
 	var prepass_debug := Dictionary(debug.get("resource_spawn_prepass_debug", {}))
+	var source_summary := Dictionary(debug.get("resource_spawn_source_summary", {}))
+	var distribution_by_kind := Dictionary(debug.get("resource_spawn_distribution_by_kind", {}))
 	lines.append("failed_by_key:")
 	for item in _sort_dictionary_by_int_value_desc(failed_by_key, 10):
 		lines.append("- %s: %d" % [str(item.get("key", "")), int(item.get("value", 0))])
@@ -1770,6 +1772,19 @@ func _format_resource_spawn_failure_text(report: Dictionary) -> String:
 		lines.append("prepass_debug:")
 		for item in _sort_dictionary_by_int_value_desc(prepass_debug, 10):
 			lines.append("- %s: %s" % [str(item.get("key", "")), JSON.stringify(item.get("value", {}))])
+	if not source_summary.is_empty():
+		lines.append("source_summary:")
+		for item in _sort_dictionary_by_int_value_desc(source_summary, 10):
+			lines.append("- %s: %s" % [str(item.get("key", "")), JSON.stringify(item.get("value", {}))])
+	if not distribution_by_kind.is_empty():
+		lines.append("distribution_by_kind:")
+		for kind in _sort_dictionary_by_int_value_desc(distribution_by_kind, 20):
+			var payload := Dictionary(kind.get("value", {}))
+			lines.append("- %s: total=%d %s" % [
+				str(kind.get("key", "")),
+				int(payload.get("total", 0)),
+				JSON.stringify(payload.get("biomes", {}))
+			])
 	return "\n".join(lines)
 
 
