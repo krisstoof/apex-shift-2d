@@ -70,6 +70,8 @@ static func _get_state_key_for_kind(building_kind: String) -> String:
 			return "wall_state"
 		"storage_box":
 			return "storage_box_state"
+		"tent":
+			return "tent_state"
 		_:
 			return ""
 
@@ -103,4 +105,6 @@ func _capture_kind_state_from_building(building: Node) -> Dictionary:
 				state["inventory"] = building.get("storage_state").get_inventory_save_data()
 			elif building.has_method("get_save_data"):
 				state["inventory"] = Dictionary(building.call("get_save_data")).get("inventory", {})
+		"tent":
+			state["can_sleep"] = true
 	return state

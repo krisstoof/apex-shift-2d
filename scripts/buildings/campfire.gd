@@ -2,6 +2,7 @@ extends Area2D
 
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
 const BUILDING_STATE := preload("res://scripts/core/buildings/building_state.gd")
+const BUILDING_NODE_ADAPTER := preload("res://scripts/world/adapters/building_node_adapter.gd")
 
 @export var fear_radius := GAME_BALANCE.CAMPFIRE_SAFE_RADIUS
 @export var light_radius := GAME_BALANCE.CAMPFIRE_LIGHT_RADIUS
@@ -9,12 +10,14 @@ const BUILDING_STATE := preload("res://scripts/core/buildings/building_state.gd"
 
 var active := true
 var building_state := BUILDING_STATE.new()
+var building_adapter: BuildingNodeAdapter
 var day_night_system: Node
 var campfire_light: PointLight2D
 var campfire_flicker_time := 0.0
 static var cached_light_texture: Texture2D
 
 func _ready() -> void:
+	_ensure_building_adapter()
 	add_to_group("campfires")
 	_sync_state_from_node()
 	var scene := get_tree().current_scene
@@ -45,22 +48,17 @@ func _draw() -> void:
 
 
 func get_building_state() -> Dictionary:
-	_sync_state_from_node()
-	return building_state.to_save_data()
+	return _ensure_building_adapter().build_save_data()
 
 
 func apply_building_state(data: Dictionary) -> void:
-	building_state.load_from_save_data(data)
-	_sync_node_from_state()
+	_ensure_building_adapter().restore_from_data(data)
 
 
 func _sync_state_from_node() -> void:
-	building_state.kind = "campfire"
-	building_state.position = global_position
-	building_state.custom_data = {
-		"active": active,
-		"fear_radius": fear_radius
-	}
+	building_adapter = _ensure_building_adapter()
+	building_adapter.sync_state_from_node()
+	building_state = building_adapter.state
 
 
 func _sync_node_from_state() -> void:
@@ -136,3 +134,10 @@ func _get_night_amount() -> float:
 	if day_night_system:
 		return float(day_night_system.night_amount)
 	return 0.0
+
+
+func _ensure_building_adapter() -> BuildingNodeAdapter:
+	if building_adapter == null:
+		building_adapter = BUILDING_NODE_ADAPTER.new()
+		building_adapter.bind_building_node(self, "campfire")
+	return building_adapter

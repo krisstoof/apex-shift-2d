@@ -3,10 +3,12 @@ extends StaticBody2D
 const INVENTORY := preload("res://scripts/player/inventory.gd")
 const STORAGE_STATE := preload("res://scripts/core/inventory/storage_state.gd")
 const BUILDING_STATE := preload("res://scripts/core/buildings/building_state.gd")
+const BUILDING_NODE_ADAPTER := preload("res://scripts/world/adapters/building_node_adapter.gd")
 
 var storage_state := STORAGE_STATE.new(12, INVENTORY.new(12))
 var inventory: Variant = storage_state.get_inventory_state()
 var building_state := BUILDING_STATE.new()
+var building_adapter: BuildingNodeAdapter
 
 
 func _post_event_message(message: String) -> void:
@@ -21,6 +23,7 @@ func _post_event_message(message: String) -> void:
 
 
 func _ready() -> void:
+	_ensure_building_adapter()
 	add_to_group("storage_boxes")
 	_sync_state_from_node()
 	queue_redraw()
@@ -40,17 +43,16 @@ func get_prompt() -> String:
 
 
 func get_save_data() -> Dictionary:
-	_sync_state_from_node()
-	var data := building_state.to_save_data()
-	data["position"] = _vector_to_data(global_position)
-	data["inventory"] = storage_state.get_inventory_save_data()
-	return data
+	return _ensure_building_adapter().build_save_data({
+		"position": _vector_to_data(global_position),
+		"inventory": storage_state.get_inventory_save_data()
+	})
 
 
 func restore_from_data(data: Dictionary) -> void:
 	if data.has("position"):
 		global_position = _data_to_vector(Dictionary(data.get("position", {})), global_position)
-	building_state.load_from_save_data(data)
+	_ensure_building_adapter().restore_from_data(data)
 	storage_state.load_from_save_data(data)
 	inventory = storage_state.get_inventory_state()
 	_sync_node_from_state()
@@ -93,11 +95,9 @@ func apply_building_state(data: Dictionary) -> void:
 
 
 func _sync_state_from_node() -> void:
-	building_state.kind = "storage_box"
-	building_state.position = global_position
-	building_state.custom_data = {
-		"inventory": storage_state.get_inventory_save_data()
-	}
+	building_adapter = _ensure_building_adapter()
+	building_adapter.sync_state_from_node()
+	building_state = building_adapter.state
 
 
 func _sync_node_from_state() -> void:
@@ -108,6 +108,13 @@ func _sync_node_from_state() -> void:
 		storage_state.load_from_save_data({"inventory": data.get("inventory")})
 		inventory = storage_state.get_inventory_state()
 	queue_redraw()
+
+
+func _ensure_building_adapter() -> BuildingNodeAdapter:
+	if building_adapter == null:
+		building_adapter = BUILDING_NODE_ADAPTER.new()
+		building_adapter.bind_building_node(self, "storage_box")
+	return building_adapter
 
 
 func _draw() -> void:
