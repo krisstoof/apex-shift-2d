@@ -210,6 +210,25 @@ func is_terrain_surface_refine_enabled() -> bool:
 
 func _clear_or_pause_refine_queue_for_benchmark() -> void:
 	terrain_surface_refine_blocked_reason = terrain_surface_refine_disabled_reason
+
+
+func _reset_stalled_refine_queue(reason: String) -> void:
+	last_clear_reason = reason
+	for chunk_key in active_builds.keys():
+		var state := Dictionary(active_builds[chunk_key])
+		if str(state.get("stage", "")) == "refine_pending":
+			state["stage"] = "preview"
+			state["stage_ready_at"] = 0.0
+			state["image"] = null
+			state["next_x"] = 0
+			state["next_y"] = 0
+			active_builds[chunk_key] = state
+			chunk_states[chunk_key] = ChunkState.PREVIEW_READY
+			preview_build_watchdog_start_ms[chunk_key] = Time.get_ticks_msec()
+	refine_jobs_stale += 1
+	terrain_surface_refine_blocked_reason = ""
+
+
 func apply_render_budget(budget: Dictionary) -> void:
 	max_chunks_built_per_frame = maxi(int(budget.get("terrain_refined_chunks_per_frame", max_chunks_built_per_frame)), 1)
 	max_build_ms_per_frame = maxf(float(budget.get("terrain_build_budget_ms", max_build_ms_per_frame)), 0.5)
@@ -391,6 +410,8 @@ func process_build_queue(delta: float = 0.0) -> void:
 					_count_active_stage("refine"),
 					terrain_surface_refine_blocked_reason if not terrain_surface_refine_blocked_reason.is_empty() else "none"
 				])
+				if _count_active_stage("refine") == 0 and _count_active_stage("refine_pending") > 0:
+					_reset_stalled_refine_queue("smoke_test_idle_stall")
 	else:
 		last_camera_idle_time_ms = 0
 		smoke_test_idle_duration_ms = 0

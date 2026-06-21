@@ -869,9 +869,9 @@ func _capture_world_resource_spawn_summary() -> Dictionary:
 
 
 func _capture_world_resource_spawn_failure_debug() -> Dictionary:
-	if not is_instance_valid(world) or not world.has_method("get_resource_spawn_failure_debug"):
+	if not is_instance_valid(world) or not world.has_method("get_resource_spawn_debug"):
 		return {}
-	return Dictionary(world.call("get_resource_spawn_failure_debug"))
+	return Dictionary(world.call("get_resource_spawn_debug"))
 
 
 func _capture_world_render_flags() -> Dictionary:
@@ -1762,6 +1762,8 @@ func _format_resource_spawn_failure_text(report: Dictionary) -> String:
 	var prepass_debug := Dictionary(debug.get("resource_spawn_prepass_debug", {}))
 	var source_summary := Dictionary(debug.get("resource_spawn_source_summary", {}))
 	var distribution_by_kind := Dictionary(debug.get("resource_spawn_distribution_by_kind", {}))
+	var distribution_by_biome := Dictionary(debug.get("vegetation_distribution_by_biome_and_kind", {}))
+	var distribution_by_kind_actual := Dictionary(debug.get("vegetation_distribution_by_kind", {}))
 	lines.append("failed_by_key:")
 	for item in _sort_dictionary_by_int_value_desc(failed_by_key, 10):
 		lines.append("- %s: %d" % [str(item.get("key", "")), int(item.get("value", 0))])
@@ -1784,6 +1786,24 @@ func _format_resource_spawn_failure_text(report: Dictionary) -> String:
 				str(kind.get("key", "")),
 				int(payload.get("total", 0)),
 				JSON.stringify(payload.get("biomes", {}))
+			])
+	if not distribution_by_biome.is_empty():
+		lines.append("vegetation_distribution_by_biome:")
+		for biome in _sort_dictionary_by_int_value_desc(distribution_by_biome, 20):
+			var biome_payload := Dictionary(biome.get("value", {}))
+			lines.append("- %s: total=%d %s" % [
+				str(biome.get("key", "")),
+				int(biome_payload.get("total", 0)),
+				JSON.stringify(biome_payload)
+			])
+	if not distribution_by_kind_actual.is_empty():
+		lines.append("vegetation_distribution_by_kind:")
+		for kind in _sort_dictionary_by_int_value_desc(distribution_by_kind_actual, 20):
+			var kind_payload := Dictionary(kind.get("value", {}))
+			lines.append("- %s: total=%d %s" % [
+				str(kind.get("key", "")),
+				int(kind_payload.get("total", 0)),
+				JSON.stringify(kind_payload)
 			])
 	return "\n".join(lines)
 

@@ -8,10 +8,92 @@ const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const TREE_RESOURCE_KINDS := ["conifer_tree", "leafy_tree", "dry_tree"]
-const STRICT_TREE_BIOME_RULES := {
-	"conifer_tree": ["westwood", "stoneback_ridge"],
-	"leafy_tree": ["hearth_meadow", "south_thicket", "westwood"],
-	"dry_tree": ["redfang_wilds", "stoneback_ridge"]
+const VEGETATION_PROFILE_BY_BIOME := {
+	"westwood": {
+		"density": "high",
+		"tree_density": "very_high",
+		"mix": {
+			"conifer_tree": 65,
+			"leafy_tree": 5,
+			"dry_tree": 2,
+			"dry_bush": 3,
+			"small_bush": 12,
+			"berry_bush": 5,
+			"grass_patch": 5,
+			"dense_grass": 3
+		}
+	},
+	"south_thicket": {
+		"density": "high",
+		"tree_density": "high",
+		"mix": {
+			"leafy_tree": 50,
+			"conifer_tree": 3,
+			"dry_tree": 1,
+			"dry_bush": 2,
+			"small_bush": 25,
+			"berry_bush": 10,
+			"grass_patch": 5,
+			"dense_grass": 4
+		}
+	},
+	"hearth_meadow": {
+		"density": "medium",
+		"tree_density": "low",
+		"mix": {
+			"grass_patch": 40,
+			"dense_grass": 20,
+			"leafy_tree": 12,
+			"small_bush": 10,
+			"berry_bush": 13,
+			"conifer_tree": 2,
+			"dry_bush": 3,
+			"dry_tree": 0
+		}
+	},
+	"stoneback_ridge": {
+		"density": "low_medium",
+		"tree_density": "low",
+		"mix": {
+			"grass_patch": 25,
+			"dense_grass": 20,
+			"conifer_tree": 18,
+			"dry_tree": 8,
+			"dry_bush": 15,
+			"small_bush": 10,
+			"berry_bush": 2,
+			"leafy_tree": 2
+		}
+	},
+	"redfang_wilds": {
+		"density": "medium",
+		"tree_density": "low",
+		"mix": {
+			"dry_bush": 35,
+			"dry_tree": 22,
+			"grass_patch": 20,
+			"dense_grass": 13,
+			"small_bush": 8,
+			"conifer_tree": 2,
+			"leafy_tree": 0,
+			"berry_bush": 0
+		}
+	},
+	"shore": {
+		"density": "medium",
+		"tree_density": "very_low",
+		"mix": {
+			"reed": 35,
+			"grass_patch": 25,
+			"dense_grass": 23,
+			"small_bush": 8,
+			"berry_bush": 2,
+			"conifer_tree": 2,
+			"leafy_tree": 2,
+			"dry_bush": 3,
+			"dry_tree": 0
+		}
+	}
 }
 const WORLD_GENERATOR_PATH := "res://scripts/world/world_generator.gd"
 const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
@@ -1013,6 +1095,54 @@ func get_resource_distribution_by_biome() -> Dictionary:
 				}
 			var biome_counts: Dictionary = distribution[biome_id]
 			biome_counts[group_name] = int(biome_counts.get(group_name, 0)) + 1
+	return distribution
+
+
+func get_vegetation_distribution_by_biome_and_kind() -> Dictionary:
+	var distribution: Dictionary = {}
+	for resource in get_registered_resources():
+		if not is_instance_valid(resource) or resource.is_queued_for_deletion():
+			continue
+		if not resource.is_in_group("resources"):
+			continue
+		var resource_kind := str(resource.get("resource_kind", ""))
+		if resource_kind.is_empty():
+			continue
+		var node := resource as Node2D
+		if node == null:
+			continue
+		var biome_id := _get_biome_id_for_position(node.global_position)
+		if biome_id.is_empty():
+			biome_id = "unknown"
+		if not distribution.has(biome_id):
+			distribution[biome_id] = {"total": 0}
+		var biome_counts: Dictionary = distribution[biome_id]
+		biome_counts["total"] = int(biome_counts.get("total", 0)) + 1
+		biome_counts[resource_kind] = int(biome_counts.get(resource_kind, 0)) + 1
+	return distribution
+
+
+func get_vegetation_distribution_by_kind() -> Dictionary:
+	var distribution: Dictionary = {}
+	for resource in get_registered_resources():
+		if not is_instance_valid(resource) or resource.is_queued_for_deletion():
+			continue
+		if not resource.is_in_group("resources"):
+			continue
+		var resource_kind := str(resource.get("resource_kind", ""))
+		if resource_kind.is_empty():
+			continue
+		var node := resource as Node2D
+		if node == null:
+			continue
+		var biome_id := _get_biome_id_for_position(node.global_position)
+		if biome_id.is_empty():
+			biome_id = "unknown"
+		if not distribution.has(resource_kind):
+			distribution[resource_kind] = {"total": 0}
+		var kind_counts: Dictionary = distribution[resource_kind]
+		kind_counts["total"] = int(kind_counts.get("total", 0)) + 1
+		kind_counts[biome_id] = int(kind_counts.get(biome_id, 0)) + 1
 	return distribution
 
 
@@ -3377,94 +3507,8 @@ func _spawn_resources() -> void:
 	await _spawn_pond_edge_greenery(used_positions, player_position)
 	await _yield_initial_boot_step()
 
-	_set_boot_progress("Growing vegetation: trees...", 0.46)
-	var tree_count := WORLD_CONFIG.get_tree_count()
-	await _spawn_resource_kind_in_biome(
-		"conifer_tree",
-		WORLD_CONFIG.get_westwood_extra_conifer_count(),
-		"westwood",
-		used_positions,
-		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
-	)
-	await _spawn_resource_kind_in_biome(
-		"conifer_tree",
-		maxi(6, int(round(float(tree_count) * 0.10))),
-		"stoneback_ridge",
-		used_positions,
-		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.82,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.5, 360)
-	)
-	await _spawn_resource_kind_in_biome(
-		"leafy_tree",
-		maxi(16, int(round(float(tree_count) * 0.22))),
-		"hearth_meadow",
-		used_positions,
-		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
-	)
-	await _spawn_resource_kind_in_biome(
-		"leafy_tree",
-		maxi(22, int(round(float(tree_count) * 0.28))),
-		"south_thicket",
-		used_positions,
-		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
-	)
-	await _spawn_resource_kind_in_biome(
-		"leafy_tree",
-		maxi(4, int(round(float(tree_count) * 0.06))),
-		"westwood",
-		used_positions,
-		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.82,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.4, 320)
-	)
-	await _spawn_resource_kind_in_biome(
-		"dry_tree",
-		WORLD_CONFIG.get_redfang_extra_dry_tree_count(),
-		"redfang_wilds",
-		used_positions,
-		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.72,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.8, 420)
-	)
-	await _spawn_resource_kind_in_biome(
-		"dry_tree",
-		maxi(4, int(round(float(tree_count) * 0.06))),
-		"stoneback_ridge",
-		used_positions,
-		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.86,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.3, 280)
-	)
-	await _ensure_minimum_initial_tree_presence(used_positions, player_position)
-	await _yield_initial_boot_step()
-
-	_set_boot_progress("Growing vegetation: rocks and bushes...", 0.50)
-	await _spawn_resource_kind("rock", WORLD_CONFIG.get_rock_count(), used_positions, player_position)
-	await _spawn_resource_kind("bush", green_bush_count, used_positions, player_position)
-	await _spawn_resource_kind("dry_bush", dry_bush_count, used_positions, player_position)
-	await _spawn_resource_kind_in_biome(
-		"dry_bush",
-		WORLD_CONFIG.get_redfang_extra_dry_bush_count(),
-		"redfang_wilds",
-		used_positions,
-		player_position,
-		WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.62,
-		WORLD_CONFIG.get_scaled_spawn_attempts(WORLD_CONFIG.RESOURCE_SPAWN_ATTEMPTS, 1.4, 320)
-	)
-	await _spawn_resource_kind("small_bush", WORLD_CONFIG.get_small_bush_count(), used_positions, player_position)
-	await _spawn_resource_kind("berry_bush", WORLD_CONFIG.get_berry_bush_count(), used_positions, player_position)
-	await _yield_initial_boot_step()
-
-	_set_boot_progress("Growing vegetation: grass...", 0.53)
-	await _spawn_grass_kind_mixed("grass_patch", WORLD_CONFIG.get_grass_patch_count(), used_positions, player_position)
-	await _spawn_grass_kind_mixed("dense_grass", WORLD_CONFIG.get_dense_grass_count(), used_positions, player_position)
+	_set_boot_progress("Growing vegetation: biome profiles...", 0.46)
+	await _spawn_profiled_biome_vegetation_world(used_positions, player_position)
 	await _yield_initial_boot_step()
 
 	_set_boot_progress("Growing vegetation: terrain details...", 0.55)
@@ -3472,6 +3516,7 @@ func _spawn_resources() -> void:
 	await _spawn_outer_island_vegetation(used_positions, player_position)
 	await _spawn_biome_fill_vegetation(used_positions, player_position)
 	await _spawn_central_meadow_visual_fill(used_positions, player_position)
+	_validate_vegetation_profile_distribution()
 	call_deferred("_sync_all_biome_vegetation")
 
 
@@ -3644,10 +3689,188 @@ func _spawn_biome_fill_vegetation(used_positions: Array[Vector2], player_positio
 	for biome_value in get_biome_zones():
 		var biome := Dictionary(biome_value)
 		var biome_id := _get_biome_id(biome)
-		await _spawn_resource_kind_in_biome("grass_patch", 18, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.70)
-		await _spawn_resource_kind_in_biome("small_bush", 6, biome_id, used_positions, player_position, WORLD_CONFIG.RESOURCE_MIN_DISTANCE * 0.85)
+		await _spawn_profiled_biome_vegetation(biome_id, used_positions, player_position)
 	# TEMP: disabled during boot because full-map sparse scan can freeze loading.
 	# await _fill_sparse_land_areas(used_positions, player_position)
+
+
+func _spawn_profiled_biome_vegetation(biome_id: String, used_positions: Array[Vector2], player_position: Vector2) -> void:
+	var profile := _get_vegetation_profile_for_biome(biome_id)
+	if profile.is_empty():
+		return
+	var base_count := 18
+	match str(profile.get("density", "medium")):
+		"very_high":
+			base_count = 30
+		"high":
+			base_count = 24
+		"low_medium":
+			base_count = 14
+		"low":
+			base_count = 10
+		_:
+			base_count = 18
+	var total_count := maxi(int(round(float(base_count) * _get_profile_density_multiplier(biome_id))), 1)
+	var mix := Dictionary(profile.get("mix", {}))
+	for i in range(total_count):
+		var kind := _pick_vegetation_kind_for_biome_profile(biome_id)
+		var min_distance := WORLD_CONFIG.RESOURCE_MIN_DISTANCE * (0.60 if kind in ["grass_patch", "dense_grass"] else 0.80 if kind in ["small_bush", "berry_bush", "dry_bush"] else 0.72)
+		if not _spawn_profiled_vegetation_candidate(kind, biome_id, used_positions, player_position, min_distance):
+			_count_resource_spawn_rejection(kind, "biome_profile_no_valid_candidate")
+		if i % INITIAL_SPAWN_BATCH_SIZE == 0:
+			await _await_next_frame_safe()
+
+
+func _spawn_profiled_vegetation_candidate(resource_kind: String, biome_id: String, used_positions: Array[Vector2], player_position: Vector2, min_distance: float) -> bool:
+	var biome := _get_biome_for_id(biome_id)
+	if biome.is_empty():
+		return false
+	var candidate := _find_profiled_vegetation_candidate(resource_kind, biome, used_positions, player_position, min_distance)
+	if candidate == Vector2.INF:
+		return false
+	used_positions.append(candidate)
+	_record_resource_spawn_source(resource_kind, biome_id, "profiled")
+	if VegetationCatalog.is_decorative_kind(resource_kind):
+		_spawn_decorative_vegetation_visual(resource_kind, candidate, biome_id, _get_biome_visual_scale(resource_kind))
+	else:
+		_spawn_resource_at(resource_kind, candidate)
+	return true
+
+
+func _spawn_profiled_biome_vegetation_world(used_positions: Array[Vector2], player_position: Vector2) -> void:
+	for biome_value in get_biome_zones():
+		var biome := Dictionary(biome_value)
+		var biome_id := _get_biome_id(biome)
+		var profile := _get_vegetation_profile_for_biome(biome_id)
+		if profile.is_empty():
+			continue
+		var density_multiplier := _get_profile_density_multiplier(biome_id)
+		var mix := Dictionary(profile.get("mix", {}))
+		var total_mix := 0.0
+		for kind in mix.keys():
+			total_mix += maxf(float(mix.get(kind, 0.0)), 0.0)
+		if total_mix <= 0.0:
+			continue
+		var base_total := 0
+		match str(profile.get("density", "medium")):
+			"very_high":
+				base_total = 42
+			"high":
+				base_total = 30
+			"low_medium":
+				base_total = 18
+			"low":
+				base_total = 12
+			_:
+				base_total = 24
+		var target_total := maxi(int(round(float(base_total) * density_multiplier)), 1)
+		var spawned := 0
+		var attempts := 0
+		var max_attempts := maxi(target_total * 8, 24)
+		while spawned < target_total and attempts < max_attempts:
+			attempts += 1
+			var kind := _pick_vegetation_kind_for_biome_profile(biome_id)
+			var min_distance := WORLD_CONFIG.RESOURCE_MIN_DISTANCE * (0.58 if kind in ["grass_patch", "dense_grass"] else 0.82 if kind in ["small_bush", "berry_bush", "dry_bush"] else 0.74)
+			if _spawn_profiled_vegetation_candidate(kind, biome_id, used_positions, player_position, min_distance):
+				spawned += 1
+		if biome_id == "shore" and spawned == 0:
+			push_warning("Vegetation profile warning: shore has no vegetation.")
+		if biome_id == "westwood" and spawned < 10:
+			push_warning("Vegetation profile warning: westwood total vegetation count is too low.")
+		if spawned > 0:
+			topography_resource_distribution_debug["vegetation_profile_spawned_%s" % biome_id] = spawned
+
+
+func _find_profiled_vegetation_candidate(resource_kind: String, biome: Dictionary, used_positions: Array[Vector2], player_position: Vector2, min_distance: float) -> Vector2:
+	var candidate := _find_weighted_vegetation_spawn_candidate(resource_kind, biome, used_positions, player_position, min_distance)
+	if candidate != Vector2.INF:
+		return candidate
+	for _attempt in range(16):
+		var random_candidate := _get_direct_resource_candidate_in_biome(resource_kind, biome, _attempt)
+		if random_candidate == Vector2.INF:
+			continue
+		var reason := _validate_resource_spawn_candidate(resource_kind, random_candidate, biome, used_positions, player_position, min_distance, WORLD_CONFIG.RESOURCE_PLAYER_SAFE_DISTANCE, false)
+		if reason.is_empty():
+			return random_candidate
+	return Vector2.INF
+
+
+func _validate_vegetation_profile_distribution() -> void:
+	var distribution := get_vegetation_distribution_by_biome_and_kind()
+	for biome_id in ["westwood", "south_thicket", "hearth_meadow", "stoneback_ridge", "redfang_wilds"]:
+		var counts := Dictionary(distribution.get(biome_id, {}))
+		var total := int(counts.get("total", 0))
+		if total <= 0:
+			push_warning("Vegetation profile warning: biome %s has no vegetation." % biome_id)
+			continue
+		if biome_id == "westwood" and int(counts.get("conifer_tree", 0)) <= 0:
+			push_warning("Vegetation profile warning: westwood has 0 conifer_tree.")
+		if biome_id == "south_thicket" and int(counts.get("leafy_tree", 0)) <= 0:
+			push_warning("Vegetation profile warning: south_thicket has 0 leafy_tree.")
+		if biome_id == "hearth_meadow" and int(counts.get("conifer_tree", 0)) + int(counts.get("leafy_tree", 0)) > maxi(1, total / 3):
+			push_warning("Vegetation profile warning: hearth_meadow has too many trees.")
+		if biome_id == "redfang_wilds" and int(counts.get("leafy_tree", 0)) > maxi(1, total / 10):
+			push_warning("Vegetation profile warning: redfang_wilds has too many leafy trees.")
+	_log_vegetation_distribution_report()
+	_validate_tree_diagonal_correlation()
+
+
+func _log_vegetation_distribution_report() -> void:
+	var by_biome := get_vegetation_distribution_by_biome_and_kind()
+	var by_kind := get_vegetation_distribution_by_kind()
+	print("[VEGETATION_DISTRIBUTION_BY_BIOME]")
+	for biome_id in ["westwood", "south_thicket", "hearth_meadow", "stoneback_ridge", "redfang_wilds", "shore"]:
+		var counts := Dictionary(by_biome.get(biome_id, {}))
+		if counts.is_empty():
+			continue
+		print("biome=%s total=%d" % [biome_id, int(counts.get("total", 0))])
+		for key in ["conifer_tree", "leafy_tree", "dry_tree", "dry_bush", "small_bush", "berry_bush", "grass_patch", "dense_grass", "reed"]:
+			if counts.has(key):
+				print("%s=%d" % [key, int(counts.get(key, 0))])
+	print("[VEGETATION_DISTRIBUTION_BY_KIND]")
+	for kind in ["conifer_tree", "leafy_tree", "dry_tree", "dry_bush", "small_bush", "berry_bush", "grass_patch", "dense_grass", "reed"]:
+		var counts := Dictionary(by_kind.get(kind, {}))
+		if counts.is_empty():
+			continue
+		print("kind=%s total=%d" % [kind, int(counts.get("total", 0))])
+		for biome_id in ["westwood", "south_thicket", "hearth_meadow", "stoneback_ridge", "redfang_wilds", "shore"]:
+			if counts.has(biome_id):
+				print("%s=%d" % [biome_id, int(counts.get(biome_id, 0))])
+
+
+func _validate_tree_diagonal_correlation() -> void:
+	var points: Array[Vector2] = []
+	for resource in get_registered_resources():
+		if not is_instance_valid(resource) or resource.is_queued_for_deletion():
+			continue
+		var resource_kind := str(resource.get("resource_kind", ""))
+		if resource_kind not in ["conifer_tree", "leafy_tree", "dry_tree"]:
+			continue
+		var node := resource as Node2D
+		if node != null:
+			points.append(node.global_position)
+	if points.size() < 8:
+		return
+	var sum_x := 0.0
+	var sum_y := 0.0
+	var sum_x2 := 0.0
+	var sum_y2 := 0.0
+	var sum_xy := 0.0
+	for point in points:
+		sum_x += point.x
+		sum_y += point.y
+		sum_x2 += point.x * point.x
+		sum_y2 += point.y * point.y
+		sum_xy += point.x * point.y
+	var n := float(points.size())
+	var cov := sum_xy / n - (sum_x / n) * (sum_y / n)
+	var var_x := sum_x2 / n - pow(sum_x / n, 2.0)
+	var var_y := sum_y2 / n - pow(sum_y / n, 2.0)
+	if var_x <= 0.0 or var_y <= 0.0:
+		return
+	var corr := cov / sqrt(var_x * var_y)
+	if absf(corr) >= 0.72:
+		push_warning("Vegetation profile warning: strong diagonal correlation detected for trees (corr=%.3f)." % corr)
 
 
 func _spawn_pond_edge_greenery(used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -3846,10 +4069,13 @@ func _fill_sparse_land_areas(used_positions: Array[Vector2], player_position: Ve
 			return bool(a.get("seam", false)) and not bool(b.get("seam", false))
 		return a_score > b_score
 	)
-	var fill_limit := mini(fill_candidates.size(), 120)
+	var sample_pool := fill_candidates.slice(0, mini(fill_candidates.size(), 240))
+	sample_pool.shuffle()
+	var fill_limit := mini(sample_pool.size(), 120)
 	for i in range(fill_limit):
-		var candidate := Vector2(fill_candidates[i].get("position", Vector2.ZERO))
-		if candidate == Vector2.ZERO and not fill_candidates[i].has("position"):
+		var candidate_entry := Dictionary(sample_pool[i])
+		var candidate := Vector2(candidate_entry.get("position", Vector2.ZERO))
+		if candidate == Vector2.ZERO and not candidate_entry.has("position"):
 			continue
 		if not _is_valid_sparse_land_fill_position(candidate):
 			continue
@@ -3952,6 +4178,45 @@ func _pick_sparse_fill_resource_kind(position: Vector2) -> String:
 				return "dry_tree"
 			return "rock"
 	return "grass_patch" if roll < 0.7 else "small_bush"
+
+
+func _get_vegetation_profile_for_biome(biome_id: String) -> Dictionary:
+	return Dictionary(VEGETATION_PROFILE_BY_BIOME.get(biome_id, VEGETATION_PROFILE_BY_BIOME.get("hearth_meadow", {})))
+
+
+func _pick_vegetation_kind_for_biome_profile(biome_id: String) -> String:
+	var profile := _get_vegetation_profile_for_biome(biome_id)
+	var mix := Dictionary(profile.get("mix", {}))
+	if mix.is_empty():
+		return "grass_patch"
+	var total := 0.0
+	for kind in mix.keys():
+		total += maxf(float(mix.get(kind, 0.0)), 0.0)
+	if total <= 0.0:
+		return "grass_patch"
+	var roll := resource_rng.randf_range(0.0, total)
+	var cursor := 0.0
+	var fallback := "grass_patch"
+	for kind in mix.keys():
+		fallback = str(kind)
+		cursor += maxf(float(mix.get(kind, 0.0)), 0.0)
+		if roll <= cursor:
+			return str(kind)
+	return fallback
+
+
+func _get_profile_density_multiplier(biome_id: String) -> float:
+	match str(_get_vegetation_profile_for_biome(biome_id).get("density", "medium")):
+		"very_high":
+			return 1.45
+		"high":
+			return 1.2
+		"low_medium":
+			return 0.78
+		"low":
+			return 0.58
+		_:
+			return 1.0
 
 
 func _spawn_central_meadow_visual_fill(used_positions: Array[Vector2], player_position: Vector2) -> void:
@@ -5376,8 +5641,6 @@ func _get_biome_resource_target_count(biome: Dictionary, resource_kind: String) 
 	if total_weight <= 0.0:
 		return 0
 	var biome_id := _get_biome_id(biome)
-	if not _is_resource_kind_allowed_in_biome(resource_kind, biome_id):
-		return 0
 	var weight := _get_biome_resource_weight(biome, resource_kind)
 	if weight <= 0.0:
 		return 0
@@ -5885,12 +6148,6 @@ func _get_resource_player_safe_distance(resource_kind: String, fallback: float) 
 	return fallback
 
 
-func _is_resource_kind_allowed_in_biome(resource_kind: String, biome_id: String) -> bool:
-	if resource_kind in STRICT_TREE_BIOME_RULES:
-		return biome_id in Array(STRICT_TREE_BIOME_RULES[resource_kind])
-	return true
-
-
 func _get_resource_spawn_prepass_estimate(resource_kind: String, biome: Dictionary) -> Dictionary:
 	var estimate := {
 		"preferred_biome_id": _get_biome_id(biome),
@@ -6010,6 +6267,8 @@ func get_resource_spawn_debug() -> Dictionary:
 			"grass_patch": _get_resource_spawn_distribution_by_kind("grass_patch"),
 			"dense_grass": _get_resource_spawn_distribution_by_kind("dense_grass")
 		},
+		"vegetation_distribution_by_biome_and_kind": get_vegetation_distribution_by_biome_and_kind(),
+		"vegetation_distribution_by_kind": get_vegetation_distribution_by_kind(),
 		"biome_spawn_point_cache_count": biome_spawn_point_cache.size()
 	}
 
