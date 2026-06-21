@@ -4,7 +4,7 @@ class_name WorldSnapshotService
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
 const WorldSnapshotBuilder := preload("res://scripts/core/presentation/world_snapshot_builder.gd")
 const GodotSnapshotDataSource := preload("res://scripts/godot_adapters/presentation/godot_snapshot_data_source.gd")
-const GODOT_RUNTIME_CONTEXT := preload("res://scripts/godot_adapters/runtime/godot_runtime_context.gd")
+const GODOT_RUNTIME_CONTEXT := preload("res://scripts/godot_runtime/runtime/godot_runtime_context.gd")
 
 var player: Node
 var evolution_director: Node

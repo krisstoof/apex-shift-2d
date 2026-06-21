@@ -7,95 +7,9 @@ const VARNAK_SCENE := preload("res://scenes/creatures/varnak.tscn")
 const SMALL_PREY_SCENE := preload("res://scenes/creatures/small_prey.tscn")
 const GRAZER_SCENE := preload("res://scenes/creatures/grazer.tscn")
 const WORLD_CONFIG := preload("res://scripts/world/world_config.gd")
-const GODOT_RUNTIME_CONTEXT := preload("res://scripts/godot_adapters/runtime/godot_runtime_context.gd")
+const GODOT_RUNTIME_CONTEXT := preload("res://scripts/godot_runtime/runtime/godot_runtime_context.gd")
+const BIOME_VEGETATION_PROFILES := preload("res://scripts/core/worldgen/biome_vegetation_profiles.gd")
 const TREE_RESOURCE_KINDS := ["conifer_tree", "leafy_tree", "dry_tree"]
-const VEGETATION_PROFILE_BY_BIOME := {
-	"westwood": {
-		"density": "high",
-		"tree_density": "very_high",
-		"mix": {
-			"conifer_tree": 65,
-			"leafy_tree": 5,
-			"dry_tree": 2,
-			"dry_bush": 3,
-			"small_bush": 12,
-			"berry_bush": 5,
-			"grass_patch": 5,
-			"dense_grass": 3
-		}
-	},
-	"south_thicket": {
-		"density": "high",
-		"tree_density": "high",
-		"mix": {
-			"leafy_tree": 50,
-			"conifer_tree": 3,
-			"dry_tree": 1,
-			"dry_bush": 2,
-			"small_bush": 25,
-			"berry_bush": 10,
-			"grass_patch": 5,
-			"dense_grass": 4
-		}
-	},
-	"hearth_meadow": {
-		"density": "medium",
-		"tree_density": "low",
-		"mix": {
-			"grass_patch": 40,
-			"dense_grass": 20,
-			"leafy_tree": 12,
-			"small_bush": 10,
-			"berry_bush": 13,
-			"conifer_tree": 2,
-			"dry_bush": 3,
-			"dry_tree": 0
-		}
-	},
-	"stoneback_ridge": {
-		"density": "low_medium",
-		"tree_density": "low",
-		"mix": {
-			"grass_patch": 25,
-			"dense_grass": 20,
-			"conifer_tree": 18,
-			"dry_tree": 8,
-			"dry_bush": 15,
-			"small_bush": 10,
-			"berry_bush": 2,
-			"leafy_tree": 2
-		}
-	},
-	"redfang_wilds": {
-		"density": "medium",
-		"tree_density": "low",
-		"mix": {
-			"dry_bush": 35,
-			"dry_tree": 22,
-			"grass_patch": 20,
-			"dense_grass": 13,
-			"small_bush": 8,
-			"conifer_tree": 2,
-			"leafy_tree": 0,
-			"berry_bush": 0
-		}
-	},
-	"shore": {
-		"density": "medium",
-		"tree_density": "very_low",
-		"mix": {
-			"reed": 35,
-			"grass_patch": 25,
-			"dense_grass": 23,
-			"small_bush": 8,
-			"berry_bush": 2,
-			"conifer_tree": 2,
-			"leafy_tree": 2,
-			"dry_bush": 3,
-			"dry_tree": 0
-		}
-	}
-}
 const WORLD_GENERATOR_PATH := "res://scripts/world/world_generator.gd"
 const WORLD_TOPOGRAPHY := preload("res://scripts/world/world_topography.gd")
 const GAME_BALANCE := preload("res://scripts/systems/game_balance.gd")
@@ -4263,42 +4177,18 @@ func _pick_sparse_fill_resource_kind(position: Vector2) -> String:
 
 
 func _get_vegetation_profile_for_biome(biome_id: String) -> Dictionary:
-	return Dictionary(VEGETATION_PROFILE_BY_BIOME.get(biome_id, VEGETATION_PROFILE_BY_BIOME.get("hearth_meadow", {})))
+	return BIOME_VEGETATION_PROFILES.get_profile(biome_id)
 
 
 func _pick_vegetation_kind_for_biome_profile(biome_id: String) -> String:
-	var profile := _get_vegetation_profile_for_biome(biome_id)
-	var mix := Dictionary(profile.get("mix", {}))
-	if mix.is_empty():
+	var kind := BIOME_VEGETATION_PROFILES.pick_kind_for_biome(biome_id, resource_rng)
+	if kind.is_empty():
 		return "grass_patch"
-	var total := 0.0
-	for kind in mix.keys():
-		total += maxf(float(mix.get(kind, 0.0)), 0.0)
-	if total <= 0.0:
-		return "grass_patch"
-	var roll := resource_rng.randf_range(0.0, total)
-	var cursor := 0.0
-	var fallback := "grass_patch"
-	for kind in mix.keys():
-		fallback = str(kind)
-		cursor += maxf(float(mix.get(kind, 0.0)), 0.0)
-		if roll <= cursor:
-			return str(kind)
-	return fallback
+	return kind
 
 
 func _get_profile_density_multiplier(biome_id: String) -> float:
-	match str(_get_vegetation_profile_for_biome(biome_id).get("density", "medium")):
-		"very_high":
-			return 1.45
-		"high":
-			return 1.2
-		"low_medium":
-			return 0.78
-		"low":
-			return 0.58
-		_:
-			return 1.0
+	return BIOME_VEGETATION_PROFILES.get_density_multiplier(biome_id)
 
 
 func _spawn_central_meadow_visual_fill(used_positions: Array[Vector2], player_position: Vector2) -> void:
