@@ -579,6 +579,52 @@ func _apply_graphics_settings_defaults() -> void:
 		biome_detail_overlay_low_end_disabled = not BIOME_DETAIL_OVERLAY_LOW_END_ENABLED
 	else:
 		biome_detail_overlay_low_end_disabled = false
+	_apply_minimap_graphics_runtime_config()
+
+
+func _get_ui_root_node() -> Node:
+	if runtime_context != null:
+		var context_ui_root: Node = runtime_context.get_ui_root()
+		if context_ui_root != null:
+			return context_ui_root
+
+	var tree := get_tree()
+	if tree == null:
+		return null
+
+	return tree.root
+
+
+func _find_ui_node(node_name: String) -> Node:
+	if node_name.is_empty():
+		return null
+
+	var ui_root := _get_ui_root_node()
+	if ui_root == null:
+		return null
+
+	if ui_root.name == node_name:
+		return ui_root
+
+	var direct := ui_root.get_node_or_null(node_name)
+	if direct != null:
+		return direct
+
+	return ui_root.find_child(node_name, true, false)
+
+
+func _apply_minimap_graphics_runtime_config() -> void:
+	var minimap_node := _find_ui_node("Minimap")
+	if minimap_node == null:
+		return
+	if not minimap_node.has_method("apply_graphics_preset_config"):
+		return
+	minimap_node.call("apply_graphics_preset_config", {
+		"minimap_redraw_interval": runtime_minimap_redraw_interval,
+		"minimap_marker_rebuild_interval": runtime_minimap_marker_rebuild_interval,
+		"minimap_player_redraw_interval": runtime_minimap_player_redraw_interval,
+		"minimap_static_work_enabled": runtime_use_terrain_surface_chunk_renderer and biome_textures_enabled
+	})
 
 
 func get_world_rect() -> Rect2:
@@ -2241,14 +2287,7 @@ func end_save_restore() -> void:
 	_rebuild_chunk_assignments()
 	if visibility_culling_enabled:
 		_update_world_object_visibility()
-	var ui_root := get_tree().root if get_tree() != null else null
-	if ui_root != null:
-		var minimap: Node = ui_root.find_child("Minimap", true, false)
-		if minimap != null and minimap.has_method("invalidate_map_surface_cache"):
-			minimap.call("invalidate_map_surface_cache")
-		var map_screen: Node = ui_root.find_child("MapScreen", true, false)
-		if map_screen != null and map_screen.has_method("invalidate_map_surface_cache"):
-			map_screen.call("invalidate_map_surface_cache")
+	_invalidate_map_ui_surface_caches()
 	queue_redraw()
 
 
@@ -2744,7 +2783,7 @@ func _sync_biome_shape_renderer(force_rebuild_map := false) -> void:
 		var after_build_count := int(Dictionary(shape_map.get_debug_data()).get("biome_shape_map_build_count", 0))
 		if after_build_count > before_build_count and renderer.has_method("clear_cache"):
 			renderer.clear_cache()
-	var player_node := get_tree().get_first_node_in_group("player") as Node2D
+	var player_node := _get_runtime_player_node() as Node2D
 	if force_rebuild_map or not biome_shape_renderer_bound:
 		renderer.bind(shape_map, player_node, _get_active_camera(player_node))
 		biome_shape_renderer_bound = true
@@ -2782,7 +2821,7 @@ func _sync_terrain_renderer(force_rebuild_cell_map := false) -> void:
 	terrain_renderer_sync_count += 1
 	if force_rebuild_cell_map:
 		terrain_renderer_forced_sync_count += 1
-	var player_node := get_tree().get_first_node_in_group("player") as Node2D
+	var player_node := _get_runtime_player_node() as Node2D
 	if force_rebuild_cell_map or terrain_cell_map_dirty or cell_map.grid_size == Vector2i.ZERO:
 		cell_map.build(WORLD_CONFIG.WORLD_RECT, float(GAME_BALANCE.BIOME_TEXTURES.get("terrain_cell_size", 96.0)), world_generator, world_topography, world_seed)
 		terrain_cell_map_dirty = false
@@ -2802,7 +2841,7 @@ func _sync_terrain_surface_chunk_renderer(force_rebuild := false) -> void:
 		return
 	var renderer := _ensure_terrain_surface_chunk_renderer()
 	renderer.visible = true
-	var player_node := get_tree().get_first_node_in_group("player") as Node2D
+	var player_node := _get_runtime_player_node() as Node2D
 	var camera_node := _get_active_camera(player_node)
 	renderer.bind(self, player_node, camera_node)
 	if force_rebuild and renderer.has_method("mark_dirty"):
@@ -3350,7 +3389,7 @@ func debug_regenerate_landmarks() -> void:
 		game_session.set_bootstrap_world_state(world_seed, get_landmark_save_data())
 	clear_cached_group_nodes()
 	queue_redraw()
-	var event_bus: Node = get_node_or_null("/root/EventBus")
+	var event_bus: Node = _get_event_bus()
 	if event_bus and event_bus.has_method("post_message"):
 		event_bus.post_message("Regenerated landmarks with seed %d" % world_seed)
 
@@ -6637,7 +6676,7 @@ func _get_creature_horizon_spawn_ring() -> Vector2:
 	if viewport_size.x < 320.0 or viewport_size.y < 180.0:
 		viewport_size = Vector2(1280.0, 720.0)
 	var camera_zoom := Vector2.ONE
-	var player := get_tree().get_first_node_in_group("player")
+	var player := _get_runtime_player_node()
 	if player:
 		var camera := player.get_node_or_null("Camera2D") as Camera2D
 		if camera:
@@ -6709,6 +6748,16 @@ func _get_game_session() -> Node:
 		if context_game_session != null:
 			return context_game_session
 	return get_node_or_null("/root/GameSession")
+
+
+func _invalidate_map_ui_surface_caches() -> void:
+	var minimap := _find_ui_node("Minimap")
+	if minimap != null and minimap.has_method("invalidate_map_surface_cache"):
+		minimap.call("invalidate_map_surface_cache")
+
+	var map_screen := _find_ui_node("MapScreen")
+	if map_screen != null and map_screen.has_method("invalidate_map_surface_cache"):
+		map_screen.call("invalidate_map_surface_cache")
 
 
 func get_runtime_context_debug_status() -> Dictionary:
@@ -7241,7 +7290,7 @@ func _is_valid_varnak_spawn_position(point: Vector2, player_position: Vector2, u
 
 
 func _is_position_inside_camera_view(target_position: Vector2, margin: float = 0.0) -> bool:
-	var player := get_tree().get_first_node_in_group("player") as Node2D
+	var player := _get_runtime_player_node() as Node2D
 	if player == null:
 		return false
 	var camera := player.get_node_or_null("Camera2D") as Camera2D
